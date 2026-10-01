@@ -51,15 +51,31 @@ export function finalizeEvent(t: EventTemplate, sk: Uint8Array, rnd: RandomBytes
   return { kind: t.kind, created_at: t.created_at, tags: t.tags, content: t.content, id, pubkey, sig };
 }
 
+/**
+ * Arrays of arrays of strings. Indexed loops, never `.every`: `.every` skips holes, so a sparse array would
+ * pass, and `JSON.stringify` would then serialize each hole as `null`.
+ */
 function wellFormedTags(tags: unknown): tags is string[][] {
-  return (
-    Array.isArray(tags) && tags.every((tag) => Array.isArray(tag) && tag.every((v) => typeof v === 'string'))
-  );
+  if (!Array.isArray(tags)) return false;
+  for (let i = 0; i < tags.length; i++) {
+    if (!(i in tags)) return false;
+    const tag: unknown = tags[i];
+    if (!Array.isArray(tag)) return false;
+    for (let j = 0; j < tag.length; j++) {
+      if (!(j in tag) || typeof tag[j] !== 'string') return false;
+    }
+  }
+  return true;
 }
 
 /**
  * Full NIP-01 validity: exact key set, field types and hex forms, the id recomputed from the fields, and the
  * BIP-340 signature over the id. Returns false for anything else and never throws.
+ *
+ * It is meant for `JSON.parse` output: plain data, read once. A hostile in-memory object (getters, proxies)
+ * can still make it return false, but its fields may read differently on a later access. Callers that receive
+ * raw events SHOULD check the size cap (`eventBytes(ev) ≤ MAX_EVENT_BYTES`) first, so an oversized event is
+ * dropped before it is hashed.
  */
 export function verifyEvent(ev: unknown): ev is NostrEvent {
   try {

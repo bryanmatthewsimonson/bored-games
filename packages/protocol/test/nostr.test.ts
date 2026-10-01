@@ -82,6 +82,21 @@ describe('event ids (NIP-01)', () => {
     expect(eventId(PK3, t)).toBe('a9d53fee641fe563de947fa330a3b4902e52e249894660aaa521cd039e896128');
   });
 
+  it('pins an independent NIP-01 escaping vector (newline, quote, backslash, tab, é, emoji)', () => {
+    // Hand-written serialization: NIP-01 escapes \n, \", \\ and \t, and leaves non-ASCII characters raw.
+    // The pinned id was computed by node:crypto and by shell sha256sum over this exact text.
+    const serialized = String.raw`[0,"f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",1700000000,1,[["t","x"]],"line\n\"quoted\" back\\slash\ttab é 😀"]`;
+    const pinned = '04f3bc9285792a551d19075c8c6fab8ec0aafda5cc2f6e757c48f6199f165084';
+    expect(sha256Hex(serialized)).toBe(pinned);
+    const t: EventTemplate = {
+      kind: 1,
+      created_at: 1700000000,
+      tags: [['t', 'x']],
+      content: 'line\n"quoted" back\\slash\ttab é 😀',
+    };
+    expect(eventId(PK3, t)).toBe(pinned);
+  });
+
   it('finalizeEvent fills pubkey, id and sig, and keeps the template fields', () => {
     expect(ev.pubkey).toBe(PK3);
     expect(ev.kind).toBe(template.kind);
@@ -148,6 +163,15 @@ describe('verifyEvent', () => {
     expect(verifyEvent({ ...ev, tags: ['proto'] })).toBe(false);
     expect(verifyEvent({ ...ev, tags: 'proto' })).toBe(false);
     expect(verifyEvent({ ...ev, tags: [[null]] })).toBe(false);
+  });
+
+  it('rejects sparse tag arrays (holes), inner and outer, even when finalized over them', () => {
+    const inner: string[] = ['proto'];
+    inner.length = 2;
+    expect(verifyEvent(finalizeEvent({ ...template, tags: [inner] }, SK3, rnd))).toBe(false);
+    const outer: string[][] = [['proto', '1']];
+    outer.length = 2;
+    expect(verifyEvent(finalizeEvent({ ...template, tags: outer }, SK3, rnd))).toBe(false);
   });
 
   it('rejects an extra key and a missing key', () => {
