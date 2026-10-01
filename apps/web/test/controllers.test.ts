@@ -17,7 +17,7 @@ import type { Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
-import { GameController, loadOutbox } from '../src/game-controller.ts';
+import { GameController, loadOutbox, loadSeen } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
@@ -601,14 +601,21 @@ describe('GameController', () => {
     await waitFor('a settled claimer', () => waiting.status.value === 'waiting');
     expect(waiting.timeoutTarget.value).toBeNull();
 
-    // The claimer's tab reopens with a clock past the deadline.
+    // The claimer's tab reopens with a clock past the deadline. Deadlines run on local receipt time, so the tab
+    // must keep when it first saw each event: a reload that saw everything anew would restart the deadline.
     const deadline = waiting.view.value?.deadline ?? 0;
     expect(deadline).toBe(259200);
+    const since = waiting.view.value?.pendingSince ?? 0;
+    expect(since).toBeLessThanOrEqual(now());
     waiting.dispose();
     const p = bySeat[claimer] as Profile;
+    const seen = loadSeen(p.deps.storage, p.name, rootId);
+    expect(seen.has(rootId)).toBe(true);
+    expect(seen.size).toBeGreaterThan(6);
     const late = game(rootId, { ...p.deps, now: () => now() + deadline + 60 });
     const target = await waitFor('a timeout target', () => late.timeoutTarget.value ?? false);
     expect(target).toBe(stalled);
+    expect(late.view.value?.pendingSince).toBe(since);
 
     // A seat's kind 0 metadata names it; a newer event replaces an older one.
     const named = bySeat[stalled] as Profile;

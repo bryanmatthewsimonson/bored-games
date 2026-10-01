@@ -9,6 +9,9 @@
  *   an unconfirmed event, and a duty whose event is already in the outbox reuses it: nothing is signed twice.
  *   A move is kept under the head it was built on, and one the session no longer accepts (an orphan, after the
  *   chain moved on) is never republished.
+ * - Timeouts run on local receipt time (D030 Ruling 10): the controller saves when it first saw each event
+ *   (`bg:<profile>:seen:<rootId>`) and passes that time to `receive`, so a reopened tab keeps the deadlines. On
+ *   load it feeds what it holds in first-seen order, which reproduces the session, a timeout's finality included.
  */
 import { ClientError, type Duty, GameSession, type Identity, type SessionView } from '@bored-games/client';
 import {
@@ -64,6 +67,28 @@ export interface OutboxEntry {
 export const moveSlot = (seq: number, prevId: string): string => `move:${seq}:${prevId}`;
 
 export const outboxKey = (profile: string, rootId: string): string => storageKey(profile, `outbox:${rootId}`);
+
+export const seenKey = (profile: string, rootId: string): string => storageKey(profile, `seen:${rootId}`);
+
+/** The most first-seen times saved per game; the oldest go first (never the root's). */
+export const MAX_SEEN = 5_000;
+
+const EVENT_ID = /^[0-9a-f]{64}$/;
+
+/** The saved first-seen times of a game's events (Unix seconds), by event id. */
+export function loadSeen(
+  store: ControllerDeps['storage'],
+  profile: string,
+  rootId: string,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const v = readJson(store, seenKey(profile, rootId));
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
+  for (const [id, at] of Object.entries(v as Record<string, unknown>)) {
+    if (EVENT_ID.test(id) && typeof at === 'number' && Number.isFinite(at)) out.set(id, at);
+  }
+  return out;
+}
 
 /**
  * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest` and
@@ -170,8 +195,12 @@ export class GameController {
   readonly #joins = new Map<string, NostrEvent>();
   /** The newest kind 0 metadata event per seat pubkey. */
   readonly #profiles = new Map<string, NostrEvent>();
-  /** Game events that arrived before the session existed. */
+  /** Game events that arrived before the session existed and the relays sent all they hold. */
   #buffer: NostrEvent[] = [];
+  /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
+  #seen = new Map<string, number>();
+  /** First-seen times not saved yet. */
+  #seenDirty = false;
   #outbox = new Map<string, OutboxEntry>();
   readonly #inFlight = new Set<string>();
   #gameEose = false;
@@ -200,12 +229,14 @@ export class GameController {
     if (this.#started || this.#disposed) return;
     this.#started = true;
     this.#outbox = loadOutbox(this.#d.storage, this.#d.profile, this.rootId);
+    this.#seen = loadSeen(this.#d.storage, this.#d.profile, this.rootId);
     this.#stops.push(
       this.#d.pool.subscribe(
         [{ ids: [this.rootId] }, { kinds: GAME_KINDS, '#e': [this.rootId] }],
         (ev) => this.#onEvent(ev),
         () => {
           this.#gameEose = true;
+          if (this.#session !== null) this.#feedHeld();
           this.#maybeSynced();
         },
       ),
@@ -290,12 +321,72 @@ export class GameController {
     }
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
     if (entry !== undefined) this.#confirm(entry[0]);
-    if (this.#session === null) {
+    // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
+    if (this.#session === null || !this.#gameEose) {
       if (this.#buffer.length < MAX_BUFFER) this.#buffer.push(ev);
       return;
     }
-    this.#session.receive(ev, this.#d.now());
+    this.#receive(this.#session, ev);
     this.#queueRefresh();
+  }
+
+  /**
+   * Fold `ev` in at the time this profile first saw it (now, the first time), and record that time unless the
+   * session rejects the event.
+   */
+  #receive(session: GameSession, ev: NostrEvent): ReturnType<GameSession['receive']> {
+    const first = this.#seen.get(ev.id);
+    const now = this.#d.now();
+    const r = session.receive(ev, first ?? now);
+    if (first === undefined && r.status !== 'rejected') this.#noteSeen(ev.id, now);
+    return r;
+  }
+
+  #noteSeen(id: string, at: number): void {
+    if (this.#seen.has(id)) return;
+    this.#seen.set(id, at);
+    this.#seenDirty = true;
+  }
+
+  /**
+   * Save the first-seen times, merged with what another tab of this profile saved (the earlier time wins), and
+   * keep at most `MAX_SEEN` besides the root's, dropping the oldest.
+   */
+  #saveSeen(): void {
+    if (!this.#seenDirty || this.#disposed) return;
+    for (const [id, at] of loadSeen(this.#d.storage, this.#d.profile, this.rootId)) {
+      const mine = this.#seen.get(id);
+      if (mine === undefined || at < mine) this.#seen.set(id, at);
+    }
+    const others = [...this.#seen].filter(([id]) => id !== this.rootId);
+    if (others.length > MAX_SEEN) {
+      others.sort((a, b) => a[1] - b[1]);
+      for (const [id] of others.slice(0, others.length - MAX_SEEN)) this.#seen.delete(id);
+    }
+    if (writeJson(this.#d.storage, seenKey(this.#d.profile, this.rootId), Object.fromEntries(this.#seen)))
+      this.#seenDirty = false;
+  }
+
+  /**
+   * Feed this seat's saved events and the events held back while loading, in first-seen order (events never seen
+   * before last). A saved event the session refuses is an orphan: it is kept (so its slot is never signed again)
+   * but never republished.
+   */
+  #feedHeld(): void {
+    const session = this.#session;
+    if (session === null) return;
+    const held: { ev: NostrEvent; slot: string | null }[] = [];
+    for (const [slot, entry] of this.#outbox) if (!entry.orphan) held.push({ ev: entry.event, slot });
+    for (const ev of this.#buffer.splice(0)) held.push({ ev, slot: null });
+    const at = (ev: NostrEvent): number => this.#seen.get(ev.id) ?? Number.POSITIVE_INFINITY;
+    held.sort((a, b) => at(a.ev) - at(b.ev));
+    for (const { ev, slot } of held) {
+      if (this.#receive(session, ev).status !== 'rejected' || slot === null) continue;
+      const entry = this.#outbox.get(slot);
+      if (entry === undefined) continue;
+      entry.orphan = true;
+      this.#persist(slot);
+    }
   }
 
   #onRoot(ev: NostrEvent): void {
@@ -309,6 +400,7 @@ export class GameController {
     }
     this.#rootEv = ev;
     this.#root = root;
+    this.#noteSeen(ev.id, this.#d.now());
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
     this.#stops.push(
@@ -390,6 +482,7 @@ export class GameController {
       table: tableEv,
       joins: [...this.#joins.values()],
       root: rootEv,
+      rootSeenAt: this.#seen.get(root.id) ?? this.#d.now(),
     };
     const me = this.#identity(root);
     let session: GameSession;
@@ -411,16 +504,8 @@ export class GameController {
     if (this.error.value?.startsWith('Still looking')) this.error.value = null;
     this.#session = session;
     if (me !== null) saveRootId(this.#d.profile, this.#d.storage, root.tableAddress, root.id);
-    // Own events first (they may never have reached a relay), then whatever arrived meanwhile. One the session
-    // refuses is an orphan: it is kept (so its slot is never signed again) but never republished.
-    for (const [slot, entry] of this.#outbox) {
-      if (entry.orphan) continue;
-      if (session.receive(entry.event, this.#d.now()).status === 'rejected') {
-        entry.orphan = true;
-        this.#persist(slot);
-      }
-    }
-    for (const ev of this.#buffer.splice(0)) session.receive(ev, this.#d.now());
+    // Own events (they may never have reached a relay) and whatever arrived meanwhile, once the relays sent all.
+    if (this.#gameEose) this.#feedHeld();
     this.#refresh();
     this.#maybeSynced();
   }
@@ -461,6 +546,7 @@ export class GameController {
     const session = this.#session;
     const now = this.#d.now();
     this.clock.value = now;
+    this.#saveSeen();
     if (session === null) return;
     const v = session.view();
     const duties = session.duties();
@@ -632,7 +718,7 @@ export class GameController {
       }
       this.notice.value = 'This browser could not save your last event; keep this tab open until it is sent.';
     }
-    const r = session.receive(ev, this.#d.now());
+    const r = this.#receive(session, ev);
     if (r.status === 'rejected') {
       entry.orphan = true;
       this.#persist(slot);
@@ -690,7 +776,7 @@ export class GameController {
     const session = this.#session;
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
-      if (session !== null && session.receive(entry.event, this.#d.now()).status === 'rejected') {
+      if (session !== null && this.#receive(session, entry.event).status === 'rejected') {
         entry.orphan = true;
         this.#persist(slot);
         continue;
