@@ -370,22 +370,21 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
    - Each reveal, combined with the other seats' held shares, decrypts the position to the card `revealsOf` claims. If another seat's share of a revealed position is missing, the move **waits**.
    - The owed-shares rule (§6.2). If it fails, the move **waits**.
 
-A move that waits stays pooled and is judged again as events arrive. A move that fails any other check is invalid. A pooled move is judged when its `prev` links, and an invalid one is dropped for good, since its `prev` fixes its whole ancestry.
+A move that waits stays pooled and is judged again as events arrive. A move that fails any other check is invalid. A pooled move is judged when its `prev` links (a shuffle step only while it is a candidate, §6.6), and an invalid one is dropped for good, since its `prev` fixes its whole ancestry.
 
-**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move.
+**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move, unless it has already published more than 3 shuffle steps on that `prev` (§6.6). A second well-formed shuffle step still flags its seat (§6.6).
 
 **When to act (the decide gate).** A seat's client MUST offer a decision exactly when the play phase pends a player decision for that seat and the module's `legalActions(state, seat)` is non-empty. A non-empty list is exact (§10), so the client MUST NOT also wait for the seat's whole hand to decrypt. Waiting for the hand deadlocks honest games: a merger disposal is an out-of-turn decision, and it can come before the other seats have shared the seat's last-drawn tile.
 
 **Build once.** Every built event carries fresh randomness, so building a move twice for one decision gives two distinct valid moves on one `prev`: equivocation (§6.6). A client MUST build at most one move per decision (and one deal Shares event and one Secret reveal), persist it before publishing, and rebroadcast that same event (§9).
 
 ### 6.6 Equivocation and fork choice
-- **Equivocation.** Two distinct Moves with the same `prev`, `seq` and signer, both *valid-looking*, prove equivocation. Any client can show both events. Valid-looking means valid as of `prev` on every check of §6.5 except the owed-shares rule:
-  - a shuffle step: its proof verifies against the deck at `prev`
-  - a game action: the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `apply` accepts the action.
-
-  An invalid move never counts. Only rivals whose `prev` is on the chain count.
+- **Equivocation.** Two distinct Moves with the same `prev`, `seq` and signer prove equivocation when `prev` is the chain's move at `seq − 1`. Any client can show both events.
+  - **Shuffle steps** (`seq ≤ N`): any two *well-formed* steps count, whether or not their proofs verify. Well-formed means the event parses and is signed by seat `seq − 1`. Only that seat's key can sign both, and an honest client signs one step per prev (D030 Ruling 12).
+  - **Game actions:** both must be *valid-looking*, that is, valid as of `prev` on every check of §6.5 except the owed-shares rule: the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `apply` accepts the action. An invalid action never counts.
 - **The seat is flagged, and play goes on.** Equivocation never stops, rewinds or cancels the game; otherwise one re-signed old move would let a seat void a finished game. The chain follows fork choice. When the game ends, the flagged seats forfeit with the end adjustment (§8.2), and the audit still runs.
-- **Fork choice.** From the root, at each move on the chain, the next move is the successor heading the best valid branch. Branches rank by, in order:
+- **Shuffle candidates.** For each `prev`, `seq ≤ N` and signer, let C be the well-formed steps held. If C holds 3 steps or fewer, each is a candidate. Otherwise only *acknowledged* steps are: some well-formed Move signed by another seat lies 1 to 32 Moves below the step along `prev`, every Move on that path held. Fork choice considers only candidates. A step that is not one is kept, not verified and not rejected; it becomes a candidate if it is acknowledged later, and a step on the chain that stops being one is cut back off it, with the Moves after it. Both conditions depend only on the events held, so clients holding the same events agree. A seat that publishes more than 3 unacknowledged steps on one `prev` therefore stalls its own position, and the timeout falls on it (§8).
+- **Fork choice.** From the root, at each move on the chain, the next move is the successor heading the best valid branch among the candidates. Branches rank by, in order:
   1. reaching the module's `over` (a branch that reaches it beats any that does not, whatever their lengths)
   2. length in accepted moves, longer first
   3. the lowest event id of the successor.
@@ -489,7 +488,6 @@ It MUST also meet these contract rules, which the session relies on:
   - A claim's date proves nothing: dating a claim, a move or a share ahead or back changes no client's judgement.
   - A client without persisted first-seen times (a new device) sees every event for the first time when it syncs, which restarts its deadlines. That only delays its own acceptance.
 - **The claim race.** Clients accept a claim at different moments: each when its own deadline passes, so there is a window between the first and the last. If a stalled seat publishes inside that window, clients can split. One that accepted first ignores the late event (§8.2, finality). One that folds the event first rejects the claim if it was a move, since the head moved on; if it was a share or a secret, its deadline restarts, and it later forfeits fewer seats or none. Signatures cannot settle the order, since any `created_at` can be claimed. The window opens only after a full deadline of silence from the stalled seat, so this is accepted as a residual risk.
-- **Rival shuffle steps can split clients (OPEN, D030).** The cap on rival shuffle verifications (§11 below) still depends on arrival order, through failing junk, the chain's own step and permanent rejection, so an equivocating shuffler can leave clients disagreeing on whether it equivocated.
 - **Postponement by fresh shares (closed by Ruling 11).** Only events that change the stalled set count as progress (§8.1), so a stalled seat cannot restart its own deadline by publishing shares it was not stalled on.
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` first, so a finished game cannot be reopened. When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never rewind or cancel a game (§6.6): they flag the signer, who forfeits at the end.
@@ -497,7 +495,7 @@ It MUST also meet these contract rules, which the session relies on:
 - **Denial of service.** Clients MUST cap accepted event size (256 KB) and MUST ignore events from keys that are not seated. They also bound the work a seat can cause:
   - An event whose id is already held is a duplicate, found before it is parsed or verified.
   - Timeout claims: the limits of §8.1.
-  - Rival shuffle steps: per (`prev`, signer), only the 3 lowest-id steps other than the chain's own are verified, so the kept set does not depend on arrival order. Higher ids are ignored: they neither count as equivocation nor link. A seat that grinds low ids can hide its own valid rival, but on every client alike.
+  - Rival shuffle steps: per (`prev`, `seq`, signer), a client verifies only the candidates (§6.6): at most the 3 steps that arrive while the group holds 3 or fewer, plus those another seat acknowledged. The others stay unverified whatever their arrival order, yet still flag their signer. Acknowledging junk takes another seat's signed Move, so only colluding seats can buy more verifications, one per Move they sign.
   - Attestations: one per seat (§7).
   - Fork choice runs trial folds, and they are bounded. A pooled move that cannot link yet counts as depth 1 at most, with nothing below it. A branch's pooled depth is computed iteratively and capped at 64. Each fork's verdict is kept until the pool below it or the share set changes. Trials skip the audit and private learns, and the audit is cached by log hash.
   - **Residual:** junk moves under a rival that can link still cost one trial each, paid for with the attacker's own signed events. The first trial drops them as invalid.

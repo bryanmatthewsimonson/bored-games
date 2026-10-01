@@ -523,6 +523,12 @@ main:has(.cr-game) {
   font-weight: 600;
 }
 
+/* Another player's cash: only whether they have any. */
+.cr-cash-hidden {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
 .cr-player-meta {
   font-size: 0.85rem;
   color: var(--muted);

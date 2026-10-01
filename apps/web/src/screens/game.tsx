@@ -152,7 +152,9 @@ export function GameScreen(props: { rootId: string }) {
   const names = useMemo(() => playerNames(seats, profiles), [seats, profiles]);
   // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
   const events = view?.events ?? NO_EVENTS;
-  const log = useMemo(() => logLines(events, names), [events, names]);
+  const mySeat = view?.mySeat ?? null;
+  const over = state?.phase.kind === 'over';
+  const log = useMemo(() => logLines(events, { mySeat, over, names }), [events, mySeat, over, names]);
   const lastTile = useMemo(() => lastTileOf(events), [events]);
 
   if (status === 'cancelled') {

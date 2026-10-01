@@ -78,9 +78,15 @@ import type {
  *
  * The chain is chosen by fork choice (D030 Ruling 5): from the root, at each prev, the successor that heads the
  * longest valid branch, counted in accepted moves, with ties going to the lowest event id. A late rival on an old
- * prev is shorter than the main chain and never displaces it. Two distinct moves by one seat on the same
- * (prev, seq), both valid as of that prev, flag the seat as an equivocator; play goes on, and at the end the
+ * prev is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
+ * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
+ * steps by the step's seat on the chain's prev, proofs or not (Ruling 12). Play goes on, and at the end the
  * flagged seats move to the last places (R5).
+ *
+ * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
+ * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
+ * part in fork choice. The others stay pooled and unverified. Both conditions are functions of the event set alone,
+ * so every client holding the same events has the same candidates.
  *
  * Timeouts (D030 R4–R5 and Rulings 10–11, PROTOCOL §8) are judged by local receipt time. `receive(ev, now)`
  * records `now` as the time this client first saw `ev`, and the game's progress time P is the latest first-seen
@@ -117,13 +123,16 @@ const MAX_CLAIMS = 4;
 const MAX_UNKNOWN_CLAIMS = 8;
 
 /**
- * Rival shuffle steps kept per (prev, signer): the lowest ids among those other than the chain's own step. Only
- * these are verified; the others are ignored, whatever the arrival order.
+ * Shuffle steps per `prev:seq:seat` group that are all fork-choice candidates (D030 Ruling 12). Past this, only
+ * acknowledged steps are; the others stay pooled and unverified.
  */
-const MAX_RIVAL_SHUFFLES = 3;
+const MAX_SHUFFLE_CANDIDATES = 3;
 
 /** The cap on a pooled branch's counted depth, and on how far an insertion's change is passed up the pool. */
 const MAX_DEPTH = 64;
+
+/** How far below a shuffle step another seat's move acknowledges it (D030 Ruling 12), in moves along `prev`. */
+const MAX_ACK_DEPTH = 32;
 
 /** Audits kept by log hash, so a trial fold that relinks the same finished chain does not run it again. */
 const MAX_AUDITS = 8;
@@ -277,10 +286,27 @@ export class GameSession {
   /** Game actions' share and reveal checks, by event id: null when every proof verifies, else the reason. */
   private readonly actionChecked = new Map<Hex, string | null>();
 
-  /** Every well-formed move from a seated key, grouped by `prev:seq:seat`, as possible equivocation rivals. */
+  /**
+   * Every well-formed move (it parsed and passed `moveShape`), grouped by `prev:seq:seat`, as possible
+   * equivocation rivals. Kept whatever their judgement.
+   */
   private readonly candidates = new Map<string, Map<Hex, Candidate>>();
   /** Keys of `candidates` that hold two moves or more. */
   private readonly rivalKeys = new Set<string>();
+  /** Every well-formed move by id: the same moves as `candidates`. */
+  private readonly candidateById = new Map<Hex, Candidate>();
+  /** The ids of the well-formed moves on each `prev`. */
+  private readonly kidsOf = new Map<Hex, Set<Hex>>();
+  /**
+   * Shuffle steps acknowledged by another seat (D030 Ruling 12): some well-formed move it signed lies 1 to
+   * `MAX_ACK_DEPTH` moves below along `prev`. Only grows.
+   */
+  private readonly acked = new Set<Hex>();
+  /**
+   * Bumped whenever a shuffle step's eligibility may change: a group passes `MAX_SHUFFLE_CANDIDATES`, or any shuffle
+   * step is acknowledged (a superset, which only costs fork-memo misses). Fork verdicts are kept while it holds.
+   */
+  private shuffleVersion = 0;
   /**
    * Moves judged as of their prev, by id: true when valid on everything but R1, else the reason. A prev fixes its
    * whole ancestry, so a judgement never changes.
@@ -307,6 +333,9 @@ export class GameSession {
   /** Fork trials run (`sideBest` without a kept verdict); a debug counter the tests read. */
   // biome-ignore lint/correctness/noUnusedPrivateClassMembers: read by the tests through a cast.
   private trials = 0;
+  /** Shuffle proofs verified (`shuffleChecked` misses); a debug counter the tests read. */
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: read by the tests through a cast.
+  private shuffleVerifications = 0;
   /** Side moves at a prev below the head found `unknown` there, by the `sharesVersion` they were judged at. */
   private readonly sideUnknown = new Map<Hex, number>();
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
@@ -505,8 +534,6 @@ export class GameSession {
     const seat = this.seatOf.get(p.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
     this.see(p.id, now);
-    // Every well-formed move from a seated key is a possible rival.
-    if (parsed.kind === 'move') this.addCandidate(parsed.m, seat);
     if (parsed.kind === 'shares') return this.intakeShares(parsed.s, seat);
     return this.intakeMove(parsed.m, seat);
   }
@@ -524,7 +551,11 @@ export class GameSession {
     return this.seenAt.has(id) ? { status: 'duplicate' } : null;
   }
 
-  /** Keep a move as a possible rival under its `prev:seq:seat` key. */
+  /**
+   * Keep a well-formed move as a possible rival under its `prev:seq:seat` key, and as a child of its prev, then
+   * note the acknowledgements it completes. A shuffle group that passes `MAX_SHUFFLE_CANDIDATES` changes which of
+   * its steps are candidates.
+   */
   private addCandidate(m: ParsedMove, seat: number): void {
     const key = `${m.prevId}:${m.seq}:${seat}`;
     let group = this.candidates.get(key);
@@ -534,6 +565,70 @@ export class GameSession {
     }
     group.set(m.id, { m, seat });
     if (group.size >= 2) this.rivalKeys.add(key);
+    if (m.content.type === 'shuffle' && group.size === MAX_SHUFFLE_CANDIDATES + 1) this.shuffleVersion++;
+    this.candidateById.set(m.id, { m, seat });
+    let kids = this.kidsOf.get(m.prevId);
+    if (kids === undefined) {
+      kids = new Set();
+      this.kidsOf.set(m.prevId, kids);
+    }
+    kids.add(m.id);
+    this.noteAcks(m, seat);
+  }
+
+  /**
+   * Mark the shuffle steps that well-formed move `m` (signed by `seat`) completes an acknowledgement for (D030
+   * Ruling 12). An acknowledgement of step A is a path along `prev` from a move signed by a seat other than A's
+   * up to A, 1 to `MAX_ACK_DEPTH` moves long, every move on it held. Any path `m` completes runs through `m`: walk
+   * up from `m` (at most `MAX_ACK_DEPTH` ancestors) for unacknowledged steps, and down from it over the held
+   * children for each signer's nearest distance. So the result is the same whether `m`'s descendants arrived
+   * before or after it.
+   */
+  private noteAcks(m: ParsedMove, seat: number): void {
+    const ups: { id: Hex; seat: number; d: number }[] = [];
+    let at: Candidate | undefined = { m, seat };
+    for (let d = 0; at !== undefined && d <= MAX_ACK_DEPTH; d++) {
+      if (at.m.content.type === 'shuffle' && !this.acked.has(at.m.id))
+        ups.push({ id: at.m.id, seat: at.seat, d });
+      at = this.candidateById.get(at.m.prevId);
+    }
+    if (ups.length === 0) return;
+    const reach = MAX_ACK_DEPTH - Math.min(...ups.map((u) => u.d));
+    // Each signer's nearest distance below m (m itself at 0), breadth first; every move has one prev, so no move
+    // is reached twice.
+    const near = new Map<number, number>([[seat, 0]]);
+    let level = [m.id];
+    for (let depth = 1; depth <= reach && level.length > 0 && near.size < this.seats; depth++) {
+      const next: Hex[] = [];
+      for (const id of level) {
+        for (const k of this.kidsOf.get(id) ?? []) {
+          const kid = this.candidateById.get(k) as Candidate;
+          if (!near.has(kid.seat)) near.set(kid.seat, depth);
+          next.push(k);
+        }
+      }
+      level = next;
+    }
+    for (const u of ups) {
+      for (const [signer, depth] of near) {
+        const dist = u.d + depth;
+        if (signer === u.seat || dist < 1 || dist > MAX_ACK_DEPTH) continue;
+        this.acked.add(u.id);
+        this.shuffleVersion++;
+        break;
+      }
+    }
+  }
+
+  /**
+   * Whether well-formed move `m` is a fork-choice candidate (D030 Ruling 12): any game action; a shuffle step in
+   * a `prev:seq:seat` group of at most `MAX_SHUFFLE_CANDIDATES` held steps; or an acknowledged one.
+   */
+  private shuffleEligible(m: ParsedMove): boolean {
+    if (m.content.type !== 'shuffle') return true;
+    if (this.acked.has(m.id)) return true;
+    const group = this.candidates.get(`${m.prevId}:${m.seq}:${this.seatOf.get(m.pubkey) as number}`);
+    return (group?.size ?? 0) <= MAX_SHUFFLE_CANDIDATES;
   }
 
   private rejectEvent(id: Hex, reason: string): ReceiveResult {
@@ -548,13 +643,18 @@ export class GameSession {
   private intakeMove(m: ParsedMove, seat: number): ReceiveResult {
     const shape = this.moveShape(m, seat);
     if (shape !== null) return this.rejectEvent(m.id, shape);
-    if (m.prevId !== this.headId() && this.linked.has(m.prevId)) {
-      // A side branch on an older prev: if it is invalid there, it never will be valid.
+    // Every well-formed move is a possible rival, and may acknowledge shuffle steps above it.
+    const version = this.shuffleVersion;
+    this.addCandidate(m, seat);
+    if (this.shuffleEligible(m) && m.prevId !== this.headId() && this.linked.has(m.prevId)) {
+      // A side branch on an older prev: if it is invalid there, it never will be valid. A step that is not a
+      // candidate is not verified at all: it stays pooled.
       const v = this.validAtPrev(m, seat);
-      if (typeof v === 'object' || v === 'ignored') {
-        const r = this.rejectEvent(m.id, v === 'ignored' ? 'too many rival shuffle steps' : v.reject);
-        // A lower-id rival shuffle step may push a kept one out: judge the side moves and flags again.
-        if (m.content.type === 'shuffle') this.settleAndDecide();
+      if (typeof v === 'object') {
+        const r = this.rejectEvent(m.id, v.reject);
+        // A shuffle step flags its seat whatever its proof, and an acknowledgement changes the candidates: judge
+        // the chain, the side moves and the flags again.
+        if (m.content.type === 'shuffle' || this.shuffleVersion !== version) this.settleAndDecide();
         return r;
       }
     }
@@ -982,6 +1082,7 @@ export class GameSession {
   ): boolean {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
+    this.shuffleVerifications++;
     const ok = verifyShuffle(this.decks[step] as Ciphertext[], output, this.X, proof, this.shuffleCtx(step));
     this.shuffleChecked.set(id, ok);
     return ok;
@@ -1055,14 +1156,16 @@ export class GameSession {
 
   /**
    * Bring the fold up to date: extend the chain with pooled moves at the head, fold waiting Shares events, take
-   * the phase steps the events allow, then re-examine forks, until nothing changes. Then judge side moves at old
-   * prevs and flag equivocators. Once a timeout has ended the game, nothing changes any more. The stored claims
-   * are not judged here: the caller first records any progress the event made, then calls `decideTimeouts`.
+   * the phase steps the events allow, cut the chain back above a shuffle step that is no longer a candidate, then
+   * re-examine forks, until nothing changes. Then judge side moves at old prevs and flag equivocators. Once a
+   * timeout has ended the game, nothing changes any more. The stored claims are not judged here: the caller first
+   * records any progress the event made, then calls `decideTimeouts`.
    */
   private settle(): void {
     if (this.timedOut !== null) return;
     for (;;) {
       this.extend();
+      if (this.cutIneligible()) continue;
       if (!this.resolveForks()) break;
     }
     this.judgeSides();
@@ -1076,34 +1179,52 @@ export class GameSession {
   }
 
   /**
+   * Cut the chain back above the first shuffle step on it that is no longer a candidate (D030 Ruling 12): its group
+   * passed `MAX_SHUFFLE_CANDIDATES` and nobody else acknowledged it. Returns true when the chain changed. The cut
+   * moves stay pooled, and the step links again if it is acknowledged later.
+   */
+  private cutIneligible(): boolean {
+    const top = Math.min(this.seats, this.chain.length);
+    for (let j = 0; j < top; j++) {
+      if (this.shuffleEligible(this.chain[j] as ParsedMove)) continue;
+      this.truncate(j);
+      this.quiesce();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Judge each pooled move at a prev below the head once, as of that prev, and drop it if it is invalid there. A
    * move that arrived before its prev and lost to a sibling would otherwise stay pooled, unjudged, while a client
    * that got it after its prev rejects it at once. A move not judgeable yet (`unknown`) is judged again only once
-   * the shares change.
+   * the shares change. A shuffle step that is not a candidate is not judged (nor verified).
    */
   private judgeSides(): void {
     for (let j = 0; j < this.chain.length; j++) {
       const side = this.movesByPrev.get(this.idAt(j));
       if (side === undefined) continue;
       for (const m of byId(side.values())) {
-        // A valid shuffle step is checked again: a lower-id rival may have pushed it out of the kept ones.
-        const valid = this.validity.get(m.id) === true && m.content.type !== 'shuffle';
-        if (valid || this.sideUnknown.get(m.id) === this.sharesVersion) continue;
+        if (!this.shuffleEligible(m)) continue;
+        if (this.validity.get(m.id) === true || this.sideUnknown.get(m.id) === this.sharesVersion) continue;
         const v = this.validAtPrev(m, this.seatOf.get(m.pubkey) as number);
         if (typeof v === 'object') this.dropMove(m, v.reject);
-        else if (v === 'ignored') this.dropMove(m, 'too many rival shuffle steps');
         else if (v === 'unknown') this.sideUnknown.set(m.id, this.sharesVersion);
       }
     }
   }
 
-  /** Link pooled moves at the head, lowest id first among those that fold, and quiesce, until nothing applies. */
+  /**
+   * Link pooled moves at the head, lowest id first among the candidates that fold, and quiesce, until nothing
+   * applies. A shuffle step that is not a candidate is skipped: it is neither verified nor marked stuck.
+   */
   private extend(): void {
     for (;;) {
       let progressed = false;
       const waiting = this.movesByPrev.get(this.headId());
       if (waiting !== undefined) {
         for (const m of byId(waiting.values())) {
+          if (!this.shuffleEligible(m)) continue;
           const r = this.foldMove(m, this.seatOf.get(m.pubkey) as number);
           if (r === 'accepted') {
             progressed = true;
@@ -1149,23 +1270,26 @@ export class GameSession {
    * prev on the chain, branches rank by whether they reach the module's `over`, then by length in accepted moves,
    * then by the lowest id: a finished game is never reopened by a branch that does not finish it, however long.
    * - A fork is examined at most once per `receive`.
+   * - Only candidates count (D030 Ruling 12): a shuffle step that is not one is no side branch.
    * - When the chain is over, a side branch whose pooled depth (an upper bound on its valid length) cannot reach
    *   the chain's length past the prev is skipped without a trial.
    * - Otherwise the fork's best side branch comes from `sideBest`, which keeps its verdict until the pool below
-   *   the prev or the shares change.
+   *   the prev, the shares or the shuffle candidates change.
    * Returns true when the chain changed.
    */
   private resolveForks(): boolean {
     for (let j = 0; j < this.chain.length; j++) {
       const prev = this.idAt(j);
-      const side = this.movesByPrev.get(prev);
-      if (side === undefined || this.forkSeen.get(prev) === this.generation) continue;
+      const pooled = this.movesByPrev.get(prev);
+      if (pooled === undefined || this.forkSeen.get(prev) === this.generation) continue;
       this.forkSeen.set(prev, this.generation);
+      const side = [...pooled.values()].filter((m) => this.shuffleEligible(m));
+      if (side.length === 0) continue;
       const cur = { over: this.isOver(), length: this.chain.length - j };
       const top = (this.chain[j] as ParsedMove).id;
       if (cur.over) {
         const depths = new Map<Hex, number>();
-        const contender = [...side.values()].some((m) => {
+        const contender = side.some((m) => {
           const bound = 1 + this.poolDepth(m.id, depths);
           return bound > cur.length || (bound === cur.length && m.id < top);
         });
@@ -1194,12 +1318,12 @@ export class GameSession {
 
   /**
    * The best branch at the fork after chain move `j`, other than the chain's own, by trial: cut back to `j`, find
-   * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it or the shares
-   * change, so an event elsewhere does not repeat the trial.
+   * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it, the shares or
+   * the shuffle candidates change, so an event elsewhere does not repeat the trial.
    */
   private sideBest(j: number): { ids: Hex[]; over: boolean } {
     const prev = this.idAt(j);
-    const key = `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}`;
+    const key = `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`;
     const known = this.forkMemo.get(prev);
     if (known !== undefined && known.key === key) return known;
     this.trials++;
@@ -1222,7 +1346,7 @@ export class GameSession {
       this.quiet--;
     }
     const out = {
-      key: `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}`,
+      key: `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`,
       ids: best.moves.map((m) => m.id),
       over: best.over,
     };
@@ -1257,9 +1381,9 @@ export class GameSession {
   }
 
   /**
-   * The best branch from the head, by trial: link each pooled successor in id order (but `exclude`), recurse, and
-   * cut back. Branches rank by reaching `over`, then length; ties keep the lowest id. Leaves the fold at the head
-   * it started from.
+   * The best branch from the head, by trial: link each pooled successor that is a candidate in id order (but
+   * `exclude`), recurse, and cut back. Branches rank by reaching `over`, then length; ties keep the lowest id.
+   * Leaves the fold at the head it started from.
    */
   private bestExtension(exclude: Hex | null = null): Branch {
     const h = this.chain.length;
@@ -1267,7 +1391,7 @@ export class GameSession {
     const kids = this.movesByPrev.get(this.headId());
     if (kids === undefined) return best;
     for (const k of byId(kids.values())) {
-      if (k.id === exclude || !this.tryLink(k)) continue;
+      if (k.id === exclude || !this.shuffleEligible(k) || !this.tryLink(k)) continue;
       const sub = this.bestExtension();
       const branch = { moves: [k, ...sub.moves], over: sub.moves.length > 0 ? sub.over : this.isOver() };
       this.truncate(h);
@@ -1344,9 +1468,12 @@ export class GameSession {
   /* ------------------------------------------------------------------------------------- equivocation */
 
   /**
-   * The seats with two distinct moves on one (prev, seq), the prev on the chain, both valid as of that prev on
-   * everything but R1 (D030 R2 as refined by Ruling 3). An invalid move never counts, nor does a rival shuffle step
-   * outside the `MAX_RIVAL_SHUFFLES` lowest ids (`shuffleKept`). Ascending.
+   * The seats with two distinct well-formed moves on one (prev, seq), the prev being the chain's move at seq − 1,
+   * ascending:
+   * - shuffle steps (D030 Ruling 12): any two, proofs unchecked. Only the step's seat could sign both, and an honest
+   *   client never signs twice;
+   * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
+   *   never counts.
    */
   private equivocators(): number[] {
     const out = new Set<number>();
@@ -1357,17 +1484,14 @@ export class GameSession {
       if (out.has(seat)) continue;
       const at = first.seq - 1;
       if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
-      if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
+      if (first.content.type === 'shuffle') out.add(seat);
+      else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
     return ascending(out);
   }
 
-  /**
-   * `m` judged as of its prev; definite judgements are kept. A rival shuffle step outside the kept ones
-   * (`shuffleKept`) is `ignored`, whatever was found before: it is neither verified nor counted.
-   */
-  private validAtPrev(m: ParsedMove, seat: number): Judged | 'ignored' {
-    if (!this.shuffleKept(m, seat)) return 'ignored';
+  /** `m` judged as of its prev; definite judgements are kept. */
+  private validAtPrev(m: ParsedMove, seat: number): Judged {
     const cached = this.validity.get(m.id);
     if (cached === true) return 'valid';
     if (cached !== undefined) return reject(cached);
@@ -1377,24 +1501,8 @@ export class GameSession {
     return v;
   }
 
-  /**
-   * Whether `m` is the chain's own shuffle step at its (prev, seq), or one of the `MAX_RIVAL_SHUFFLES` lowest-id
-   * rivals to it from the same signer. The kept set depends only on the ids held, not on their arrival order, so
-   * every client verifies and counts the same rivals. True for any other move, and for a prev not on the chain.
-   */
-  private shuffleKept(m: ParsedMove, seat: number): boolean {
-    if (m.content.type !== 'shuffle' || m.seq > this.chain.length) return true;
-    if (this.idAt(m.seq - 1) !== m.prevId) return true;
-    const own = (this.chain[m.seq - 1] as ParsedMove).id;
-    if (m.id === own) return true;
-    const group = this.candidates.get(`${m.prevId}:${m.seq}:${seat}`);
-    let lower = 0;
-    for (const id of group?.keys() ?? []) if (id !== own && id < m.id) lower++;
-    return lower < MAX_RIVAL_SHUFFLES;
-  }
-
   /** Judge a move against the chain's state at its prev, which must be the chain's move at `seq − 1`. */
-  private judgeAtPrev(m: ParsedMove, seat: number): Judged | 'ignored' {
+  private judgeAtPrev(m: ParsedMove, seat: number): Judged {
     const shape = this.moveShape(m, seat);
     if (shape !== null) return reject(shape);
     const at = m.seq - 1;

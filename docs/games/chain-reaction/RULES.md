@@ -30,7 +30,7 @@ Display names (game title, chain names, colors) live in `packages/games/chain-re
 | Bonus splits | Each split portion rounds **up to the next $100** (majority-tie pools and minority ties). | Reference page |
 | Defunct ties | Equal-size defunct chains resolve in an order the mergemaker chooses, up front. | Kickoff; the page is silent |
 | Same-turn buying | A chain founded this turn can be bought this turn. | Reference page example (one sentence of the page contradicts it) and kickoff |
-| Assets | Cash and holdings are public. The engine has no hidden-assets variant (the public move log would reveal them anyway). Bank supply is always public. | Kickoff decision |
+| Assets | **Display rule.** A player sees their own cash and holdings exactly. Of other players, a player sees only which chains they hold shares in, and whether they have any cash at all. Bank supply stays exact and public. Everything becomes public when the game ends. It is a table-manners rule: the client enforces it, but the numbers remain derivable from the public move log, by design. The engine has no hidden-assets variant. | Owner, 2026-10-01 (DECISIONS D037) |
 | 2 players | **OPEN.** Unsupported; minimum is 3 players. | Not covered by the page |
 
 ## Components
@@ -119,7 +119,11 @@ The player who placed the merging tile is the **mergemaker**.
 
 ## Hidden information
 
-Only hands and the bag order are secret. Everything else derives from the public move log: the board, cash, holdings, bank supply, the number of tiles in each hand, and how many remain in the bag. In live play, tiles are dealt as positions in a jointly shuffled encrypted deck (see `docs/ARCHITECTURE.md`):
+Only hands and the bag order are secret. Everything else derives from the public move log: the board, cash, holdings, bank supply, the number of tiles in each hand, and how many remain in the bag.
+
+Other players' cash and holdings are **hidden by display, not by cryptography** (Assets, D037). As at a real table, a player sees another player's holdings only as the chains they hold shares in, and their cash only as whether they have any. A player can watch purchases happen and remember them: the game log keeps the numbers for the current and the previous turn, and older lines about other players say what happened without counts or amounts. A player's own cash, holdings and log lines stay exact, bank supply stays exact, and everything is shown once the game is over. The numbers stay derivable from the public move log by design; the client simply never shows them.
+
+In live play, tiles are dealt as positions in a jointly shuffled encrypted deck (see `docs/ARCHITECTURE.md`):
 - A tile's identity becomes public when it is placed, discarded or (for setup tiles) revealed.
 - Honesty claims that depend on a hidden hand, such as "I have no playable tile" or "I hold no other dead tile", are checked by the end-of-game audit.
 

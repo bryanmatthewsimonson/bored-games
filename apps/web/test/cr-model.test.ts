@@ -1,5 +1,6 @@
 import {
   type ChainReactionAction,
+  type ChainReactionEvent,
   type ChainReactionState,
   chainIndex,
   chainReaction,
@@ -326,18 +327,79 @@ describe('boardCells', () => {
 });
 
 describe('playerRows', () => {
-  it('shows public cash, shares and hand sizes, the turn and the acting seat', () => {
+  /** States from scripted games where some seat holds shares: the hidden fields must matter. */
+  const holdingStates = (): ChainReactionState[] =>
+    [...samples('p1', 4, 9), ...samples('p2', 5, 11)]
+      .map((g) => g.state)
+      .filter((s) => s.phase.kind !== 'over' && s.players.some((p) => p.shares.some((n) => n > 0)));
+
+  /** The chain ids a seat holds, in chain order. */
+  const heldIds = (s: ChainReactionState, seat: number): string[] =>
+    (s.players[seat]?.shares ?? []).flatMap((n, c) => (n > 0 ? [s.rules.chains[c]?.id ?? '?'] : []));
+
+  it('shows hand sizes, the turn and the acting seat', () => {
     const g = get('dispose');
     const s = g.state;
     const rows = playerRows(s, NAMES, 1);
     expect(rows.map((r) => r.name)).toEqual(NAMES.slice(0, s.seats));
     rows.forEach((r, seat) => {
-      const p = s.players[seat];
-      expect([r.cash, r.shares, r.handSize]).toEqual([p?.cash, p?.shares, p?.hand.length]);
+      expect(r.handSize).toBe(s.players[seat]?.hand.length);
       expect(r.turn).toBe(s.turn?.seat === seat);
       expect(r.acting).toBe(actor(s) === seat);
       expect(r.me).toBe(seat === 1);
     });
+  });
+
+  it('shows my cash and holdings exactly, and only which chains others hold and whether they have cash', () => {
+    const states = holdingStates();
+    expect(states.length).toBeGreaterThan(10);
+    let hiddenHoldings = 0;
+    for (const s of states) {
+      const mySeat = 1;
+      const rows = playerRows(viewFor(s, mySeat), NAMES, mySeat);
+      rows.forEach((r, seat) => {
+        const p = s.players[seat];
+        if (!p) throw new Error('no player');
+        expect(r.hasCash).toBe(p.cash > 0);
+        expect(r.shares.map((h) => h.chain.id)).toEqual(heldIds(s, seat));
+        if (seat === mySeat) {
+          expect(r.exact).toBe(true);
+          expect(r.cash).toBe(p.cash);
+          expect(r.shares.map((h) => h.count)).toEqual(p.shares.filter((n) => n > 0));
+        } else {
+          expect(r.exact).toBe(false);
+          expect(r.cash).toBeNull();
+          for (const h of r.shares) expect(h.count).toBeNull();
+          hiddenHoldings += r.shares.length;
+        }
+      });
+    }
+    expect(hiddenHoldings).toBeGreaterThan(0);
+  });
+
+  it('hides every row from a spectator', () => {
+    for (const s of holdingStates()) {
+      for (const r of playerRows(s, NAMES, null)) {
+        expect(r.exact).toBe(false);
+        expect(r.cash).toBeNull();
+        expect(r.shares.every((h) => h.count === null)).toBe(true);
+        expect(r.hasCash).toBe((s.players[r.seat]?.cash ?? 0) > 0);
+      }
+    }
+  });
+
+  it('shows everything exactly once the game is over, to players and spectators', () => {
+    const g = playUntil('p-over', 4, randomLegal, (g) => g.state.phase.kind === 'over', 5000);
+    if (!g) throw new Error('no finished game');
+    const s = g.state;
+    for (const mySeat of [null, 0, 2]) {
+      playerRows(s, NAMES, mySeat).forEach((r, seat) => {
+        const p = s.players[seat];
+        expect(r.exact).toBe(true);
+        expect(r.cash).toBe(p?.cash);
+        expect(r.shares.map((h) => h.count)).toEqual(p?.shares.filter((n) => n > 0));
+      });
+    }
   });
 
   it('falls back to a seat name when none is given', () => {
@@ -389,21 +451,22 @@ describe('logLines', () => {
     if (!g) throw new Error('no game');
     return g;
   };
+  const exact = (mySeat: number | null = null) => ({ mySeat, over: true, names: NAMES });
 
   it('describes the session events in order, newest last', () => {
     const g = game();
     const events: readonly unknown[] = g.events;
-    expect(logLines(events, NAMES)).toEqual(g.events.slice(-LOG_LINES).map((e) => describeEvent(e, NAMES)));
-    expect(logLines([], NAMES)).toEqual([]);
+    expect(logLines(events, exact())).toEqual(g.events.slice(-LOG_LINES).map((e) => describeEvent(e, NAMES)));
+    expect(logLines([], exact())).toEqual([]);
   });
 
   it('keeps only the newest lines', () => {
     const g = game();
     expect(g.events.length).toBeGreaterThan(5);
-    const lines = logLines(g.events, NAMES, 5);
+    const lines = logLines(g.events, exact(), 5);
     expect(lines).toEqual(g.events.slice(-5).map((e) => describeEvent(e, NAMES)));
     const many = Array.from({ length: 250 }, (_, i) => ({ type: 'turnStarted', seat: 0, turn: i + 1 }));
-    const capped = logLines(many, NAMES);
+    const capped = logLines(many, exact());
     expect(capped).toHaveLength(LOG_LINES);
     expect(capped.at(-1)).toBe('Turn 250: Ann.');
     expect(capped[0]).toBe('Turn 151: Ann.');
@@ -412,7 +475,7 @@ describe('logLines', () => {
   it('skips anything that is not an engine event', () => {
     const lines = logLines(
       [null, 7, { no: 'type' }, { type: 'mystery' }, { type: 'firstPlayer', seat: 1 }],
-      NAMES,
+      exact(),
     );
     expect(lines).toEqual(['Bo goes first.']);
   });
@@ -421,6 +484,138 @@ describe('logLines', () => {
     const g = game();
     expect(lastTileOf(g.events)).toBe(g.lastTile);
     expect(lastTileOf([null, { type: 'firstPlayer', seat: 0 }])).toBeNull();
+  });
+
+  describe("hides others' amounts outside the last two turns", () => {
+    const turn = (n: number, seat: number) => ({ type: 'turnStarted', seat, turn: n });
+    const disposed = (seat: number, sell: number, trade: number, keep: number, capped = false) => ({
+      type: 'sharesDisposed',
+      seat,
+      chain: 's1',
+      sell,
+      trade,
+      keep,
+      proceeds: sell * 300,
+      tradeCapped: capped,
+    });
+    // Turn 1 (Ann): a purchase. Turn 2 (Bo): a merger. Turn 3 (Cy): a purchase. Turn 4 (Ann): a purchase.
+    const events = [
+      turn(1, 0),
+      { type: 'sharesBought', seat: 0, shares: ['b1', 'b1', 'b2'], cost: 1100 },
+      turn(2, 1),
+      { type: 'survivorChosen', chain: 'b1', tied: false },
+      { type: 'bonusPaid', chain: 's1', seat: 1, amount: 3000, role: 'majority', final: false },
+      { type: 'bonusPaid', chain: 's1', seat: 2, amount: 1500, role: 'minority', final: false },
+      disposed(1, 2, 0, 0),
+      disposed(2, 0, 2, 0),
+      disposed(0, 1, 2, 1, true),
+      disposed(0, 0, 0, 3),
+      { type: 'sharesBought', seat: 1, shares: [], cost: 0 },
+      turn(3, 2),
+      { type: 'sharesBought', seat: 2, shares: ['s2'], cost: 400 },
+      turn(4, 0),
+      { type: 'sharesBought', seat: 0, shares: ['s2', 's2'], cost: 800 },
+    ];
+
+    it('as a spectator, at turn 4: turns 1 and 2 lose their amounts, turns 3 and 4 keep them', () => {
+      expect(logLines(events, { mySeat: null, over: false, names: NAMES })).toEqual([
+        'Turn 1: Ann.',
+        'Ann bought Jade and Lapis shares.',
+        'Turn 2: Bo.',
+        'Jade survives.',
+        'Bo received a bonus for Onyx.',
+        'Cy received a bonus for Onyx.',
+        'Bo sold some Onyx shares.',
+        'Cy traded Onyx shares for Jade.',
+        'Ann sold some, traded some for Jade and kept the rest of their Onyx shares.',
+        'Ann kept their Onyx shares.',
+        'Bo bought no shares.',
+        'Turn 3: Cy.',
+        'Cy bought 1 Quartz for $400.',
+        'Turn 4: Ann.',
+        'Ann bought 2 Quartz for $800.',
+      ]);
+    });
+
+    it('my own lines stay exact forever', () => {
+      const lines = logLines(events, { mySeat: 0, over: false, names: NAMES });
+      expect(lines[1]).toBe('Ann bought 2 Jade and 1 Lapis for $1,100.');
+      expect(lines[8]).toBe('Ann sold 1 for $300, traded 2 (limited by the bank) and kept 1 of Onyx.');
+      expect(lines[9]).toBe('Ann kept 3 of Onyx.');
+      expect(lines[4]).toBe('Bo received a bonus for Onyx.');
+      expect(lines[6]).toBe('Bo sold some Onyx shares.');
+    });
+
+    it('a merger belongs to the turn it happens in', () => {
+      // At turn 3, turn 2 is the previous turn: its merger lines keep their amounts; turn 1 does not.
+      const lines = logLines(events.slice(0, -2), { mySeat: null, over: false, names: NAMES });
+      expect(lines[1]).toBe('Ann bought Jade and Lapis shares.');
+      expect(lines[4]).toBe('Bo received $3,000, the majority bonus for Onyx.');
+      expect(lines[6]).toBe('Bo sold 2 for $600 of Onyx.');
+      expect(lines[7]).toBe('Cy traded 2 of Onyx.');
+    });
+
+    it('everything is exact once the game is over', () => {
+      expect(logLines(events, { mySeat: null, over: true, names: NAMES })).toEqual(
+        events.map((e) => describeEvent(e as ChainReactionEvent, NAMES)),
+      );
+    });
+
+    it("drops a founding line's share total on older turns, for every viewer", () => {
+      // keptShares sums every player's shares of the chain, so it is hidden even from the founder.
+      const founded = [
+        turn(1, 0),
+        { type: 'chainFounded', seat: 0, chain: 'p1', size: 2, keptShares: 3 },
+        turn(2, 1),
+        { type: 'chainFounded', seat: 1, chain: 'p2', size: 3, keptShares: 4 },
+        turn(3, 2),
+      ];
+      for (const mySeat of [null, 0, 1]) {
+        expect(logLines(founded, { mySeat, over: false, names: NAMES })).toEqual([
+          'Turn 1: Ann.',
+          'Ann founded Sapphire with 2 tiles.',
+          'Turn 2: Bo.',
+          'Bo founded Topaz with 3 tiles (4 old shares still held).',
+          'Turn 3: Cy.',
+        ]);
+        expect(logLines(founded, { mySeat, over: true, names: NAMES })[1]).toBe(
+          'Ann founded Sapphire with 2 tiles (3 old shares still held).',
+        );
+      }
+    });
+  });
+
+  it('in a real game, keeps exact lines for the last two turns and mine, and no digits in older lines of others', () => {
+    const g = playUntil('loglines-hide', 4, randomLegal, (g) => (g.state.turn?.number ?? 0) >= 40, 5000);
+    if (!g) throw new Error('no game');
+    const mySeat = 1;
+    const lines = logLines(g.events, { mySeat, over: false, names: NAMES }, Number.POSITIVE_INFINITY);
+    expect(lines).toHaveLength(g.events.length);
+    const current = g.state.turn?.number ?? 0;
+    let t = 0;
+    const seen = { hidden: 0, recent: 0, mine: 0 };
+    const AMOUNTS = new Set(['sharesBought', 'sharesDisposed', 'bonusPaid', 'finalSale']);
+    g.events.forEach((e, i) => {
+      if (e.type === 'turnStarted') t = e.turn;
+      const line = lines[i] as string;
+      const seat = 'seat' in e ? e.seat : null;
+      if (e.type === 'chainFounded' && t < current - 1) {
+        expect(line).toBe(describeEvent(e, NAMES).replace(/ \(\d+ old shares? still held\)/, ''));
+        expect(line).not.toContain('old share');
+        return;
+      }
+      if (!AMOUNTS.has(e.type) || t >= current - 1 || seat === mySeat) {
+        expect(line).toBe(describeEvent(e, NAMES));
+        if (AMOUNTS.has(e.type) && t >= current - 1) seen.recent++;
+        if (AMOUNTS.has(e.type) && seat === mySeat) seen.mine++;
+      } else {
+        expect(line).not.toMatch(/\d|\$/);
+        if (line !== describeEvent(e, NAMES)) seen.hidden++;
+      }
+    });
+    expect(seen.hidden).toBeGreaterThan(10);
+    expect(seen.recent).toBeGreaterThan(0);
+    expect(seen.mine).toBeGreaterThan(0);
   });
 });
 

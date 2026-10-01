@@ -105,7 +105,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Backup.** The session key and deck secrets are backed up NIP-44-encrypted to the player's own npub as app data (NIP-78), so another device can resume.
 - **Moves.** Each move is a regular, signed, stored event. It tags the game root and the previous move, forming a hash chain, and carries a sequence number. A move is valid only if it is signed by the seat that `pending()` names and `apply()` accepts it.
 - **Validation.** Every client validates with the same engine and ignores invalid moves.
-- **Equivocation and forks.** Two different valid-looking moves on the same parent by one seat are a signed proof of cheating. The seat is flagged and ranks last at the end; the game is never rewound. Every client follows the same fork choice: the branch that ends the game, then the longest, then the lowest id (D030).
+- **Equivocation and forks.** Two different valid-looking moves on the same parent by one seat are a signed proof of cheating (for shuffle steps, any two well-formed ones, D030 Ruling 12). The seat is flagged and ranks last at the end; the game is never rewound. Every client follows the same fork choice: the branch that ends the game, then the longest, then the lowest id (D030).
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.

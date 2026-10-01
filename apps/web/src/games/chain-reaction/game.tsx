@@ -147,7 +147,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
       </div>
       <div class="cr-side">
         <ChainsPanel rows={chains} spectator={mySeat === null} />
-        <PlayersPanel rows={players} chains={chains.map((r) => r.chain)} />
+        <PlayersPanel rows={players} />
         <EventLog events={props.events} />
       </div>
     </div>
