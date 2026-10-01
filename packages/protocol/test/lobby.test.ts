@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { G, type Point, q } from '@bored-games/deck';
 import { canonicalJson, createRng, type GameModule } from '@bored-games/game-kit';
-import { bytesToHex } from '@noble/hashes/utils.js';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, expect, it } from 'vitest';
 import { ProtocolError } from '../src/errors.ts';
 import { KIND, MAX_EVENT_BYTES } from '../src/kinds.ts';
@@ -17,6 +18,8 @@ import {
   parseTable,
   rootTemplate,
   rulesHash,
+  sessionMessage,
+  signSession,
   type TableSpec,
   tableAddress,
   tableTemplate,
@@ -37,6 +40,11 @@ function seededRandom(seed: string) {
 
 const rnd = seededRandom('protocol-lobby');
 
+/** 32 big-endian bytes of a scalar: the secret key whose x-only public key is the x-coordinate of `x·G`. */
+function scalarBytes(x: bigint): Uint8Array {
+  return Uint8Array.from(Buffer.from(x.toString(16).padStart(64, '0'), 'hex'));
+}
+
 function secretKey(label: string): Uint8Array {
   return Uint8Array.from(createHash('sha256').update(label, 'utf8').digest());
 }
@@ -44,6 +52,7 @@ function secretKey(label: string): Uint8Array {
 interface Player {
   sk: Uint8Array;
   npub: Hex;
+  sessionSk: Uint8Array;
   session: Hex;
   x: bigint;
   X: Point;
@@ -53,10 +62,12 @@ function player(name: string, x?: bigint): Player {
   const sk = secretKey(`npub:${name}`);
   const deck =
     x ?? (BigInt(`0x${createHash('sha256').update(`deck:${name}`).digest('hex')}`) % (q - 1n)) + 1n;
+  const sessionSk = secretKey(`session:${name}`);
   return {
     sk,
     npub: getPublicKey(sk),
-    session: getPublicKey(secretKey(`session:${name}`)),
+    sessionSk,
+    session: getPublicKey(sessionSk),
     x: deck,
     X: G.multiply(deck),
   };
@@ -103,7 +114,10 @@ const ADDRESS = tableAddress(A.npub, tableSpec.tableId);
 interface JoinOpts {
   address?: string;
   creator?: Hex;
-  session?: Hex;
+  /** The session secret key, when it is not the player's own; the Join's `session` is its public key. */
+  sessionSk?: Uint8Array;
+  /** The `sessionSig` to publish instead of the session key's own signature. */
+  sessionSig?: Hex;
   /** The session the proof binds, when it should differ from the published one. */
   pokSession?: Hex;
   relays?: string[];
@@ -115,7 +129,8 @@ interface JoinOpts {
 
 function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
   const address = o.address ?? ADDRESS;
-  const session = o.session ?? p.session;
+  const sessionSk = o.sessionSk ?? p.sessionSk;
+  const session = getPublicKey(sessionSk);
   const pok = makeJoinPok(p.x, address, p.npub, o.pokSession ?? session, rnd);
   const spec = {
     tableAddress: address,
@@ -124,6 +139,7 @@ function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
     pok,
     relays: o.relays ?? [RELAYS[0] as string],
     session,
+    sessionSig: o.sessionSig ?? signSession(sessionSk, address, p.npub, rnd),
     rulesHash: o.rulesHash ?? rulesHash(o.table?.rules ?? RULES),
     version: o.version ?? o.table?.version ?? tableSpec.version,
   };
@@ -676,6 +692,68 @@ describe('parseJoin: field rules', () => {
   });
 });
 
+describe('parseJoin: the session key proof of possession (D033)', () => {
+  const ev = joinEvent(B);
+  const content = JSON.parse(ev.content) as Record<string, unknown>;
+  const reason = (f: () => unknown): string => {
+    try {
+      f();
+    } catch (e) {
+      return e instanceof ProtocolError ? `${e.code}: ${e.message}` : `not a ProtocolError: ${String(e)}`;
+    }
+    return 'accepted';
+  };
+  const withContent = (patch: Record<string, unknown>, from = ev, sk = B.sk) =>
+    reason(() =>
+      parseJoin(
+        resign(from, () => ({ content: canonicalJson({ ...JSON.parse(from.content), ...patch }) }), sk),
+      ),
+    );
+
+  it('a valid Join parses, its sessionSig a BIP-340 signature over the PROTOCOL §4.2 message', () => {
+    const j = parseJoin(ev);
+    expect(j.sessionSig).toBe(content.sessionSig);
+    expect(j.sessionSig).toMatch(/^[0-9a-f]{128}$/);
+    const msg = createHash('sha256').update(`bored-games/v1/session\n${ADDRESS}\n${B.npub}`, 'utf8').digest();
+    expect(sessionMessage(ADDRESS, B.npub)).toEqual(new Uint8Array(msg));
+    expect(schnorr.verify(hexToBytes(j.sessionSig), msg, hexToBytes(B.session))).toBe(true);
+  });
+
+  it("rejects a Join that copies another player's session and sessionSig: the signature binds the npub", () => {
+    // D's proof of knowledge binds B's session, so only the session signature can stop the copy.
+    const copied = joinEvent(D, { pokSession: B.session });
+    const outcome = withContent({ session: jB.session, sessionSig: jB.sessionSig }, copied, D.sk);
+    expect(outcome).toMatch(/^bad-content: sessionSig/);
+  });
+
+  it('rejects a sessionSig made for another table address', () => {
+    const other = signSession(B.sessionSk, tableAddress(A.npub, 'another-table'), B.npub, rnd);
+    expect(withContent({ sessionSig: other })).toMatch(/^bad-content: sessionSig/);
+  });
+
+  it('rejects a tampered signature', () => {
+    const sig = content.sessionSig as string;
+    const flipped = `${sig.slice(0, 10)}${sig[10] === '0' ? '1' : '0'}${sig.slice(11)}`;
+    expect(withContent({ sessionSig: flipped })).toMatch(/^bad-content: sessionSig/);
+    expect(withContent({ sessionSig: `${sig.slice(64)}${sig.slice(0, 64)}` })).toMatch(/^bad-content/);
+  });
+
+  it('rejects uppercase, short, long, non-string or missing sessionSig', () => {
+    const sig = content.sessionSig as string;
+    for (const bad of [sig.toUpperCase(), sig.slice(2), `${sig}00`, '', 7, null]) {
+      expect(withContent({ sessionSig: bad }), String(bad)).toMatch(/^bad-content: sessionSig/);
+    }
+    const { sessionSig: _gone, ...rest } = content;
+    expect(reason(() => parseJoin(resign(ev, () => ({ content: canonicalJson(rest) }), B.sk)))).toMatch(
+      /^bad-content/,
+    );
+  });
+
+  it('signSession refuses a random source of the wrong length', () => {
+    expect(() => signSession(B.sessionSk, ADDRESS, B.npub, () => new Uint8Array(31))).toThrow(RangeError);
+  });
+});
+
 /* ----------------------------------------------------------------------------------- root specifics */
 
 describe('parseRoot: field rules', () => {
@@ -779,12 +857,12 @@ describe('validateRoot', () => {
   });
 
   it('a duplicate npub fails', () => {
-    const again = join(B, { session: D.session });
+    const again = join(B, { sessionSk: D.sessionSk });
     expect(problemsOf([jA, jB, again])).toContainEqual(expect.stringMatching(/npub .*more than once/));
   });
 
   it('a duplicate session fails', () => {
-    expect(problemsOf([jA, jB, join(C, { session: B.session })])).toContainEqual(
+    expect(problemsOf([jA, jB, join(C, { sessionSk: B.sessionSk })])).toContainEqual(
       expect.stringMatching(/session .*more than once/),
     );
   });
@@ -922,12 +1000,13 @@ describe('validateRoot', () => {
 
   it('a deck key whose x-coordinate is the session key fails', () => {
     const x = bytesToHex(C.X.toBytes(true).slice(1));
-    const clash = join(C, { session: x });
+    const clash = join(C, { sessionSk: scalarBytes(C.x) });
+    expect(clash.session).toBe(x);
     expect(problemsOf([jA, jB, clash])).toContainEqual(expect.stringMatching(/seat 2: .*x-coordinate/));
   });
 
   it("a session key equal to another seat's npub fails", () => {
-    const clash = join(C, { session: A.npub });
+    const clash = join(C, { sessionSk: A.sk });
     expect(problemsOf([jA, jB, clash])).toContainEqual(expect.stringMatching(/seat 2: .*session key.*npub/));
   });
 

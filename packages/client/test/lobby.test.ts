@@ -10,6 +10,7 @@ import {
   parseJoin,
   parseRoot,
   parseTable,
+  signSession,
   tableTemplate,
   validateRoot,
 } from '@bored-games/protocol';
@@ -120,6 +121,7 @@ describe('foldLobby', () => {
           pok: makeJoinPok(other.deckSecret, parsed.address, open1.npub, open1.keys.sessionPub, rnd),
           relays: RELAYS,
           session: open1.keys.sessionPub,
+          sessionSig: signSession(open1.keys.sessionSk, parsed.address, open1.npub, rnd),
           rulesHash: parseJoin(o1Join).rulesHash,
           version: parsed.version,
         },

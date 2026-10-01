@@ -47,7 +47,7 @@ Each player has:
 | Key | Lifetime | Signs / used for |
 |---|---|---|
 | **npub** (identity) | permanent | Table (creator), Join, Game root (creator) and Result attestation events. Signing goes through NIP-07 or NIP-46. |
-| **session key** | one game | All in-game events (kinds 7452–7455). Clients generate it locally; no signer prompt per move. |
+| **session key** | one game | All in-game events (kinds 7452–7455), and the Join's `sessionSig` proving possession (below). Clients generate it locally; no signer prompt per move. |
 | **deck key** `x_k`, `X_k = x_k·G` | one game | ElGamal secret share; must be distinct from the session key. |
 
 **Backup.** Clients SHOULD back up the session key and deck key as a NIP-78 event:
@@ -60,7 +60,9 @@ That lets another device resume the game. Before the root exists, the table addr
 - the prover picks `w`, computes `T = w·G` and `c = HS("pok", tableAddress, npub, sessionPub, X_k, T)`, then `s = w + c·x_k`
 - the verifier recomputes `T = s·G − c·X_k` and checks `c`.
 
-**Context strings.** The PoK hashes these identifiers as the UTF-8 of their NOSTR hex text (D025):
+**Session key proof of possession (D033).** The Join also carries `sessionSig`, a BIP-340 signature by the session secret key over `SHA-256(UTF-8("bored-games/v1/session\n" + tableAddress + "\n" + npub))`, the same identifier forms as below. It proves that whoever publishes the Join holds the session key, and binds that key to one npub at one table.
+
+**Context strings.** The PoK and the session signature hash these identifiers as the UTF-8 of their NOSTR hex text (D025):
 - `tableAddress` is the NIP-01 address of the Table event: `37450:<creator pubkey hex>:<d tag>`, with the creator's pubkey as 64 lowercase hex characters.
 - `npub` and `sessionPub` are the player's identity and session x-only pubkeys as 64 lowercase hex characters, the form NOSTR tags and the Join's `session` field carry. They are not bech32 (`npub1…`).
 
@@ -128,12 +130,14 @@ The Join commits to the table's rules and version, because the Table is addressa
 
 **Content:**
 ```json
-{"deckKey":"<point>","pok":{"c":"<scalar>","s":"<scalar>"},"relays":["wss://…"],"session":"<hex x-only pubkey>"}
+{"deckKey":"<point>","pok":{"c":"<scalar>","s":"<scalar>"},"relays":["wss://…"],"session":"<hex x-only pubkey>","sessionSig":"<128 hex>"}
 ```
 The creator also publishes a Join for its own seat.
 - The `p` tag MUST be the creator named in the `a` address.
 - `relays` holds one or more distinct relay URLs.
 - `session` is 64 lowercase hex characters (D025).
+- `sessionSig` is 128 lowercase hex characters: the session key's BIP-340 signature over `SHA-256(UTF-8("bored-games/v1/session\n" + tableAddress + "\n" + npub))`, where `npub` is the Join's pubkey (§3). Clients MUST reject a Join whose `sessionSig` does not verify against `session`.
+  - **Why:** nothing else proves that the joiner owns `session`. Without it, anyone could copy another player's `session` into their own Join, and the session collision checks (§4.3) would then evict the honest player. Because the message binds the npub and the table address, a copied `session` and `sessionSig` fail on any other Join.
 
 ### 4.3 Game root (7450)
 Starts the game. It is immutable, and **the game id is this event's id**. The creator publishes it once the seats are filled with valid Joins.

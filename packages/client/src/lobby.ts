@@ -16,6 +16,7 @@ import {
   parseTable,
   rootTemplate,
   rulesHash,
+  signSession,
   validateRoot,
   verifyJoin,
 } from '@bored-games/protocol';
@@ -215,6 +216,7 @@ export function buildJoinTemplate(
       pok: makeJoinPok(keys.deckSecret, table.address, npub, keys.sessionPub, rnd),
       relays: [...relays],
       session: keys.sessionPub,
+      sessionSig: signSession(keys.sessionSk, table.address, npub, rnd),
       rulesHash: rulesHash(table.rules),
       version: table.version,
     },

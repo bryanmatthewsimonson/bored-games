@@ -12,6 +12,7 @@ import {
   parseTable,
   rootTemplate,
   rulesHash,
+  signSession,
   tableTemplate,
 } from '@bored-games/protocol';
 import { GameSession } from '../src/session.ts';
@@ -102,6 +103,7 @@ export function makeGame(seats: number, seed: string): TestGame {
         pok: makeJoinPok(id.deckSecret, parsedTable.address, npub, session, rnd),
         relays: RELAYS,
         session,
+        sessionSig: signSession(id.sessionSk, parsedTable.address, npub, rnd),
         rulesHash: rulesHash(rules),
         version: chainReaction.version,
       },

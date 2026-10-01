@@ -47,6 +47,8 @@ export {
   type RootSpec,
   rootTemplate,
   rulesHash,
+  sessionMessage,
+  signSession,
   type TableSpec,
   type TableStatus,
   tableAddress,

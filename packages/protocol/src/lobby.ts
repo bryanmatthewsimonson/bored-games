@@ -11,8 +11,9 @@ import {
   verifyPok,
 } from '@bored-games/deck';
 import { canonicalJson, type GameModule } from '@bored-games/game-kit';
+import { schnorr } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { ProtocolError } from './errors.ts';
 import { DEADLINES, KIND, MAX_EVENT_BYTES, PROTO } from './kinds.ts';
 import { type EventTemplate, eventBytes, type Hex, isHex64, type NostrEvent, verifyEvent } from './nostr.ts';
@@ -52,6 +53,12 @@ export interface JoinSpec {
   pok: PokProof;
   relays: string[];
   session: Hex;
+  /**
+   * The session key's proof of possession: a BIP-340 signature by the session secret key over
+   * `sessionMessage(tableAddress, npub)`, as 128 lowercase hex characters (PROTOCOL §4.2, D033). `signSession`
+   * makes it.
+   */
+  sessionSig: Hex;
   /** `rulesHash(table.rules)`: commits the Join to the table's rules (PROTOCOL §4.2). */
   rulesHash: Hex;
   /** The table's engine version, the `v` tag. */
@@ -360,6 +367,38 @@ export function makeJoinPok(
   return provePok(x, [tableAddress, npub, session], rnd);
 }
 
+const SESSION_TAG = 'bored-games/v1/session';
+const HEX128 = /^[0-9a-f]{128}$/;
+
+/**
+ * The 32-byte message a session key signs to prove possession (PROTOCOL §4.2, D033):
+ * `SHA-256(UTF-8("bored-games/v1/session\n" + tableAddress + "\n" + npub))`. It binds the session key to one npub at
+ * one table, so another player cannot reuse it.
+ */
+export function sessionMessage(tableAddress: string, npub: Hex): Uint8Array {
+  return sha256(utf8ToBytes(`${SESSION_TAG}\n${tableAddress}\n${npub}`));
+}
+
+/**
+ * The Join's `sessionSig`: a BIP-340 signature by `sessionSk` over `sessionMessage(tableAddress, npub)`. The
+ * auxiliary randomness is 32 bytes from `rnd`. Throws a `RangeError` when `rnd` returns the wrong length, and
+ * whatever noble throws for an invalid secret key (caller errors).
+ */
+export function signSession(sessionSk: Uint8Array, tableAddress: string, npub: Hex, rnd: RandomBytes): Hex {
+  const aux = rnd(32);
+  if (aux.length !== 32) throw new RangeError('random source returned the wrong number of bytes');
+  return bytesToHex(schnorr.sign(sessionMessage(tableAddress, npub), sessionSk, aux));
+}
+
+/** Whether `sig` is the session key's valid proof of possession for `npub` at `tableAddress`. Never throws. */
+function verifySession(sig: Hex, session: Hex, tableAddress: string, npub: Hex): boolean {
+  try {
+    return schnorr.verify(hexToBytes(sig), sessionMessage(tableAddress, npub), hexToBytes(session));
+  } catch {
+    return false;
+  }
+}
+
 /** The Join event (kind 7451) for `spec`, unsigned; the player's npub signs it. */
 export function joinTemplate(spec: JoinSpec, createdAt: number): EventTemplate {
   return {
@@ -377,13 +416,15 @@ export function joinTemplate(spec: JoinSpec, createdAt: number): EventTemplate {
       pok: encodePok(spec.pok),
       relays: spec.relays,
       session: spec.session,
+      sessionSig: spec.sessionSig,
     }),
   };
 }
 
 /**
  * Parse a Join event (PROTOCOL §4.2). The `p` tag must be the creator named in the `a` address. `npub` is the
- * event's pubkey. It parses only; `verifyJoin` checks the proof of knowledge.
+ * event's pubkey. It verifies `sessionSig`, the session key's proof of possession bound to the table address and
+ * the npub (D033); `verifyJoin` checks the deck key's proof of knowledge.
  */
 export function parseJoin(ev: unknown): ParsedJoin {
   return parseEvent(ev, KIND.join, (e) => {
@@ -393,16 +434,32 @@ export function parseJoin(ev: unknown): ParsedJoin {
     const hash = one(e.tags, 'rules-hash');
     if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
     const version = shortText(one(e.tags, 'v'), 'v');
-    const c = record(canonicalContent(e.content), 'content', ['deckKey', 'pok', 'relays', 'session']);
+    const c = record(canonicalContent(e.content), 'content', [
+      'deckKey',
+      'pok',
+      'relays',
+      'session',
+      'sessionSig',
+    ]);
+    const deckKey = point(c.deckKey, 'deckKey');
+    const pok = pokOf(c.pok, 'pok');
+    const relays = relayList(c.relays, 'relays');
+    const session = hex64(c.session, 'session');
+    const sessionSig = c.sessionSig;
+    if (typeof sessionSig !== 'string' || !HEX128.test(sessionSig))
+      badContent('sessionSig: expected 128 lowercase hex characters');
+    if (!verifySession(sessionSig as Hex, session, address, e.pubkey))
+      badContent('sessionSig: not a signature by the session key over this table address and npub');
     return {
       id: e.id,
       npub: e.pubkey,
       tableAddress: address,
       creator,
-      deckKey: point(c.deckKey, 'deckKey'),
-      pok: pokOf(c.pok, 'pok'),
-      relays: relayList(c.relays, 'relays'),
-      session: hex64(c.session, 'session'),
+      deckKey,
+      pok,
+      relays,
+      session,
+      sessionSig: sessionSig as Hex,
       rulesHash: hash,
       version,
     };
