@@ -44,9 +44,11 @@ async function main(): Promise<void> {
   }
 
   const settings = createSettings(profile, store, import.meta.env.DEV);
-  // `?relays=` with only local relays replaces this profile's relay list (saved, as if edited in Settings).
-  // Any other relay in it is refused, with a notice: a shared link must not choose a player's relays.
-  const urlRelays = relaysFromLocation(window.location);
+  // `?relays=` with only local relays replaces this profile's relay list (saved, as if edited in Settings), in a
+  // dev server or a build for the e2e test only. Anything else is refused, with a notice: a shared link must not
+  // choose a player's relays.
+  const linkRelays = import.meta.env.DEV || import.meta.env.VITE_ALLOW_LINK_RELAYS === '1';
+  const urlRelays = relaysFromLocation(window.location, linkRelays);
   if (urlRelays.kind === 'local') settings.setRelays(urlRelays.relays);
   const pool = appPool(settings);
   startRouter(window);

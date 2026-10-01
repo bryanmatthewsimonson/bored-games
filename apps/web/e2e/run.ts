@@ -50,12 +50,24 @@ async function waitForHttp(url: string, ms: number): Promise<void> {
   }
 }
 
+/**
+ * Stop `child` and everything it started: `pnpm exec` does not pass a signal on to vite, so the child runs in its
+ * own process group and the whole group is signalled.
+ */
 function stop(child: ChildProcess | null): Promise<void> {
   if (child === null || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  const signal = (sig: NodeJS.Signals): void => {
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, sig);
+      else child.kill(sig);
+    } catch {
+      // Already gone.
+    }
+  };
   return new Promise((resolve) => {
     child.once('exit', () => resolve());
-    child.kill('SIGTERM');
-    setTimeout(() => child.kill('SIGKILL'), 3000).unref();
+    signal('SIGTERM');
+    setTimeout(() => signal('SIGKILL'), 3000).unref();
   });
 }
 
@@ -65,7 +77,8 @@ let preview: ChildProcess | null = null;
 let code = 1;
 try {
   if (process.env.E2E_SKIP_BUILD !== '1') {
-    const built = await run('pnpm', ['run', 'build']);
+    // The test points each page at the in-process relay with `?relays=`, which only such a build honours.
+    const built = await run('pnpm', ['run', 'build'], { ...process.env, VITE_ALLOW_LINK_RELAYS: '1' });
     if (built !== 0) throw new Error(`the web build failed (exit ${built})`);
   }
   const port = await freePort();
@@ -73,6 +86,7 @@ try {
   preview = spawn('pnpm', ['exec', 'vite', 'preview', '--port', String(port), '--strictPort'], {
     cwd: webDir,
     stdio: ['ignore', 'inherit', 'inherit'],
+    detached: true,
   });
   await waitForHttp(baseUrl, 30_000);
   console.log(`[e2e] app on ${baseUrl}`);

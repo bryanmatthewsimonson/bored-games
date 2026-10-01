@@ -125,35 +125,42 @@ describe('isLocalRelayUrl', () => {
 
 describe('relaysFromLocation', () => {
   it('honours a comma-separated or repeated list of local relays, without duplicates', () => {
-    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,ws://127.0.0.1:8' })).toEqual({
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,ws://127.0.0.1:8' }, true)).toEqual({
       kind: 'local',
       relays: ['ws://localhost:9', 'ws://127.0.0.1:8'],
     });
     expect(
-      relaysFromLocation({ search: '?profile=b&relays=ws://localhost:9&relays=ws://localhost:9' }),
+      relaysFromLocation({ search: '?profile=b&relays=ws://localhost:9&relays=ws://localhost:9' }, true),
     ).toEqual({ kind: 'local', relays: ['ws://localhost:9'] });
-    expect(relaysFromLocation({ search: `?relays=${encodeURIComponent('ws://localhost:7777')}` })).toEqual({
+    expect(
+      relaysFromLocation({ search: `?relays=${encodeURIComponent('ws://localhost:7777')}` }, true),
+    ).toEqual({
       kind: 'local',
       relays: ['ws://localhost:7777'],
     });
   });
 
   it('ignores the whole list when any entry is not a local relay', () => {
-    expect(relaysFromLocation({ search: '?relays=wss://evil.example' })).toEqual({ kind: 'ignored' });
-    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,wss://evil.example' })).toEqual({
+    expect(relaysFromLocation({ search: '?relays=wss://evil.example' }, true)).toEqual({ kind: 'ignored' });
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,wss://evil.example' }, true)).toEqual({
       kind: 'ignored',
     });
-    expect(relaysFromLocation({ search: '?relays=ws://localhost:9&relays=bad' })).toEqual({
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9&relays=bad' }, true)).toEqual({
       kind: 'ignored',
     });
-    expect(relaysFromLocation({ search: '?relays=https://x.example' })).toEqual({ kind: 'ignored' });
+    expect(relaysFromLocation({ search: '?relays=https://x.example' }, true)).toEqual({ kind: 'ignored' });
+  });
+
+  it('ignores even local relays when links may not set relays (a production build)', () => {
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9' }, false)).toEqual({ kind: 'ignored' });
+    expect(relaysFromLocation({ search: '?profile=a' }, false)).toEqual({ kind: 'absent' });
   });
 
   it('is absent without the parameter or with only empty entries', () => {
-    expect(relaysFromLocation({ search: '' })).toEqual({ kind: 'absent' });
-    expect(relaysFromLocation({ search: '?profile=a' })).toEqual({ kind: 'absent' });
-    expect(relaysFromLocation({ search: '?relays=' })).toEqual({ kind: 'absent' });
-    expect(relaysFromLocation({ search: '?relays=,' })).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '' }, true)).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?profile=a' }, true)).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?relays=' }, true)).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?relays=,' }, true)).toEqual({ kind: 'absent' });
   });
 
   it('has a one-line notice for an ignored list', () => {

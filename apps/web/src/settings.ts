@@ -41,21 +41,23 @@ export const IGNORED_RELAYS_NOTICE = 'Ignored relays from the link; change relay
  * The `?relays=` parameter (comma separated, or repeated):
  * - `absent`: no parameter, or only empty entries
  * - `local`: every entry is a local relay (`isLocalRelayUrl`); the list, without duplicates
- * - `ignored`: some entry is anything else. A link must not be able to move a player onto a stranger's relays,
- *   so only local relays (for `pnpm dev`, the e2e test and local setups) are honoured.
+ * - `ignored`: some entry is anything else, or links may not set relays in this build (`allowed` false). A link
+ *   must not be able to move a player onto a stranger's relays, so only local relays are honoured, and only in a
+ *   dev server (`pnpm dev`) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (`pnpm e2e`). In a production build
+ *   even a local relay is refused: it would silently cut the player off from their games.
  *
  * The app saves a `local` list as this profile's relays on load, as if edited in Settings.
  */
 export type RelaysParam = { kind: 'absent' } | { kind: 'local'; relays: string[] } | { kind: 'ignored' };
 
-export function relaysFromLocation(loc: { search: string }): RelaysParam {
+export function relaysFromLocation(loc: { search: string }, allowed: boolean): RelaysParam {
   const raw = new URLSearchParams(loc.search)
     .getAll('relays')
     .flatMap((v) => v.split(','))
     .map((v) => v.trim())
     .filter((v) => v !== '');
   if (raw.length === 0) return { kind: 'absent' };
-  if (!raw.every(isLocalRelayUrl)) return { kind: 'ignored' };
+  if (!allowed || !raw.every(isLocalRelayUrl)) return { kind: 'ignored' };
   return { kind: 'local', relays: clean(raw) };
 }
 
