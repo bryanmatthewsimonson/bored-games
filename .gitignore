@@ -8,3 +8,6 @@ fuzz-failures/
 
 # Agent worktrees
 .claude/worktrees/
+
+# Superpowers SDD workspaces (local scratch)
+.superpowers/
