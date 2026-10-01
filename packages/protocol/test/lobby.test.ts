@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { G, type Point, q } from '@bored-games/deck';
 import { canonicalJson, createRng, type GameModule } from '@bored-games/game-kit';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { describe, expect, it } from 'vitest';
 import { ProtocolError } from '../src/errors.ts';
 import { KIND, MAX_EVENT_BYTES } from '../src/kinds.ts';
@@ -106,6 +107,10 @@ interface JoinOpts {
   /** The session the proof binds, when it should differ from the published one. */
   pokSession?: Hex;
   relays?: string[];
+  /** The table the Join commits to, when it is not the default one. */
+  table?: ParsedTable;
+  rulesHash?: Hex;
+  version?: string;
 }
 
 function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
@@ -119,6 +124,8 @@ function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
     pok,
     relays: o.relays ?? [RELAYS[0] as string],
     session,
+    rulesHash: o.rulesHash ?? rulesHash(o.table?.rules ?? RULES),
+    version: o.version ?? o.table?.version ?? tableSpec.version,
   };
   return sign(joinTemplate(spec, T0 + 10), p.sk);
 }
@@ -255,6 +262,10 @@ describe('round trips', () => {
     expect(j.deckKey.equals(B.X)).toBe(true);
     expect(j.session).toBe(B.session);
     expect(j.relays).toEqual([RELAYS[0]]);
+    expect(j.rulesHash).toBe(rulesHash(RULES));
+    expect(j.version).toBe(tableSpec.version);
+    expect(ev.tags).toContainEqual(['rules-hash', rulesHash(RULES)]);
+    expect(ev.tags).toContainEqual(['v', tableSpec.version]);
     expect(verifyJoin(j)).toBe(true);
     expect(ev.tags).toContainEqual(['a', ADDRESS]);
     expect(ev.tags).toContainEqual(['p', A.npub]);
@@ -321,7 +332,14 @@ const parsers: ParserCase[] = [
     once: ['d', 'game', 'v', 'seats', 'deadline', 'open', 'status'],
     atLeastOnce: ['relay'],
   },
-  { name: 'parseJoin', parse: parseJoin, ev: joinEvent(B), sk: B.sk, once: ['a', 'p'], atLeastOnce: [] },
+  {
+    name: 'parseJoin',
+    parse: parseJoin,
+    ev: joinEvent(B),
+    sk: B.sk,
+    once: ['a', 'p', 'rules-hash', 'v'],
+    atLeastOnce: [],
+  },
   {
     name: 'parseRoot',
     parse: parseRoot,
@@ -522,6 +540,60 @@ describe('parseTable: field rules', () => {
     );
   });
 
+  it('relays follow the strict URL grammar', () => {
+    for (const r of [
+      'wss://@@',
+      'wss://[',
+      'wss://-',
+      'wss://-relay.example.com',
+      'wss://host:abc',
+      'wss://host:',
+      'wss://a@b@c',
+      'wss://user:pw@relay.example.com',
+      'wss://x:99999999',
+      'wss://x:65536',
+      'wss://x:123456',
+      'wss://relay.example.com/\u0085',
+      'wss://relay.example.com/\u009f',
+      'wss://relay.example.com/a b',
+      'wss://[zz::1]',
+      'wss://[]',
+      'wss://[1234]',
+      'wss://256.1.1.1',
+      'wss://1.2.3',
+      'wss://rel_ay.example.com',
+      'wss://relay.example.com:80:80',
+    ])
+      expect(
+        codeOf(() => parseTable(tableEvent({ relays: [r] }))),
+        JSON.stringify(r),
+      ).toBe('bad-tag');
+    for (const r of [
+      'wss://relay.damus.io',
+      'ws://localhost:7777',
+      'wss://[::1]:7000/path',
+      'wss://10.0.0.1',
+      'wss://relay.example.com:65535',
+      'wss://relay.example.com?x=1#f',
+    ])
+      expect(
+        codeOf(() => parseTable(tableEvent({ relays: [r] }))),
+        r,
+      ).toBe('accepted');
+  });
+
+  it('duplicate relays are rejected', () => {
+    expect(codeOf(() => parseTable(tableEvent({ relays: ['wss://a.example', 'wss://a.example'] })))).toBe(
+      'bad-tag',
+    );
+  });
+
+  it('at most 64 seats', () => {
+    const seats = (n: number) => tableEvent({ seats: n, invited: [], open: n - 1 });
+    expect(codeOf(() => parseTable(seats(64)))).toBe('accepted');
+    expect(codeOf(() => parseTable(seats(65)))).toBe('bad-tag');
+  });
+
   it('relays are ws:// or wss:// URLs with a host, no whitespace, at most 256 characters', () => {
     for (const r of [
       'https://relay.example.com',
@@ -592,6 +664,15 @@ describe('parseJoin: field rules', () => {
     expect(withContent({ relays: 'wss://x.example' })).toBe('bad-content');
     expect(withContent({ relays: [7] })).toBe('bad-content');
     expect(withContent({ relays: RELAYS })).toBe('accepted');
+    expect(withContent({ relays: ['wss://a.example', 'wss://a.example'] })).toBe('bad-content');
+    expect(withContent({ relays: ['wss://@@'] })).toBe('bad-content');
+  });
+
+  it('the rules-hash tag is hex64 and the v tag 1 to 64 characters', () => {
+    expect(withTag('rules-hash', rulesHash(RULES).toUpperCase())).toBe('bad-tag');
+    expect(withTag('rules-hash', 'abc')).toBe('bad-tag');
+    expect(withTag('v', '')).toBe('bad-tag');
+    expect(withTag('v', 'x'.repeat(65))).toBe('bad-tag');
   });
 });
 
@@ -788,9 +869,9 @@ describe('validateRoot', () => {
   it('a root without the creator seated fails', () => {
     const t = parseTable(tableEvent({ invited: [B.npub, C.npub], open: 0 }));
     const joins = [
-      join(B, { address: t.address }),
-      join(C, { address: t.address }),
-      join(D, { address: t.address }),
+      join(B, { address: t.address, table: t }),
+      join(C, { address: t.address, table: t }),
+      join(D, { address: t.address, table: t }),
     ];
     expect(problemsOf(joins, t)).toContainEqual(expect.stringMatching(/creator .*seat/));
   });
@@ -812,7 +893,7 @@ describe('validateRoot', () => {
   it('rules the module rejects fail', () => {
     const bad = { ...RULES, minPlayers: 99 };
     const t = parseTable(tableEvent({ rules: bad }));
-    const joins = [A, B, C].map((p) => join(p, { address: t.address }));
+    const joins = [A, B, C].map((p) => join(p, { address: t.address, table: t }));
     expect(ok(parseRoot(rootEvent(joins, t, bad)), joins, t)).toContainEqual(
       expect.stringMatching(/rules rejected/),
     );
@@ -820,8 +901,34 @@ describe('validateRoot', () => {
 
   it('a seat count outside the module seat range fails', () => {
     const t = parseTable(tableEvent({ seats: 2, invited: [B.npub], open: 0 }));
-    const joins = [A, B].map((p) => join(p, { address: t.address }));
+    const joins = [A, B].map((p) => join(p, { address: t.address, table: t }));
     expect(problemsOf(joins, t)).toContainEqual(expect.stringMatching(/seat range/));
+  });
+
+  it('a Join committed to other rules fails, even when the table was republished with them', () => {
+    const other = { ...RULES, maxPlayers: 5 };
+    const republished = parseTable(tableEvent({ rules: other }));
+    const rootOther = parseRoot(rootEvent([jA, jB, jC], republished, other));
+    // The joins committed to RULES; the table the client holds now says `other`, and so does the root.
+    expect(ok(rootOther, [jA, jB, jC], republished)).toContainEqual(
+      expect.stringMatching(/seat 0: .*other rules/),
+    );
+  });
+
+  it('a Join committed to another version fails', () => {
+    const j = join(C, { version: '0.0.1' });
+    expect(problemsOf([jA, jB, j])).toContainEqual(expect.stringMatching(/seat 2: .*version 0\.0\.1/));
+  });
+
+  it('a deck key whose x-coordinate is the session key fails', () => {
+    const x = bytesToHex(C.X.toBytes(true).slice(1));
+    const clash = join(C, { session: x });
+    expect(problemsOf([jA, jB, clash])).toContainEqual(expect.stringMatching(/seat 2: .*x-coordinate/));
+  });
+
+  it("a session key equal to another seat's npub fails", () => {
+    const clash = join(C, { session: A.npub });
+    expect(problemsOf([jA, jB, clash])).toContainEqual(expect.stringMatching(/seat 2: .*session key.*npub/));
   });
 
   it('a joint key equal to the identity fails (D024)', () => {

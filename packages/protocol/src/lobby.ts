@@ -52,6 +52,10 @@ export interface JoinSpec {
   pok: PokProof;
   relays: string[];
   session: Hex;
+  /** `rulesHash(table.rules)`: commits the Join to the table's rules (PROTOCOL §4.2). */
+  rulesHash: Hex;
+  /** The table's engine version, the `v` tag. */
+  version: string;
 }
 
 export type ParsedJoin = JoinSpec & { id: Hex; npub: Hex };
@@ -90,26 +94,33 @@ export interface ParsedRoot {
 const TABLE_ID = /^[A-Za-z0-9._-]{1,64}$/;
 const ADDRESS = /^37450:([0-9a-f]{64}):([A-Za-z0-9._-]{1,64})$/;
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
-const RELAY = /^wss?:\/\/([^/?#]+)([/?#].*)?$/;
+const MAX_SEATS = 64;
+// Host: a DNS-ish name (no leading `-`), an IPv4 address or a bracketed IPv6 address. Then an optional port and
+// an optional path, query or fragment of printable ASCII. No userinfo.
+const RELAY =
+  /^wss?:\/\/(\[[0-9a-fA-F:]+\]|[A-Za-z0-9.][A-Za-z0-9.-]*)(?::([0-9]{1,5}))?([/?#][\x21-\x7e]*)?$/;
+const IPV4_LIKE = /^[0-9.]+$/;
 const MAX_RELAY_LENGTH = 256;
 const MAX_NAME_LENGTH = 64;
 const STATUSES: readonly string[] = ['open', 'started', 'cancelled'];
 
 /**
- * A `wss://` or `ws://` URL with a host, no whitespace or control characters, at most 256 characters. A manual
- * check: the `URL` global is outside the pure packages' lib.
+ * A `ws://` or `wss://` URL of at most 256 characters: a host (a DNS-style name, an IPv4 address or a bracketed
+ * IPv6 address), an optional port of 1–5 digits up to 65535, and an optional path, query or fragment of
+ * printable ASCII. Userinfo is rejected. A manual check: the `URL` global is outside the pure packages' lib.
  */
 export function isRelayUrl(s: unknown): s is string {
   if (typeof s !== 'string' || s.length > MAX_RELAY_LENGTH) return false;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c <= 0x20 || c === 0x7f) return false;
-  }
-  if (/\s/.test(s)) return false;
   const m = RELAY.exec(s);
   if (m === null) return false;
-  const host = (m[1] as string).replace(/^[^@]*@/, '').replace(/:[0-9]*$/, '');
-  return host.length > 0;
+  const host = m[1] as string;
+  if (host.startsWith('[')) {
+    if (!host.includes(':')) return false;
+  } else if (IPV4_LIKE.test(host)) {
+    const parts = host.split('.');
+    if (parts.length !== 4 || parts.some((p) => !/^[0-9]{1,3}$/.test(p) || Number(p) > 255)) return false;
+  }
+  return m[2] === undefined || Number(m[2]) <= 65535;
 }
 
 /** The NIP-01 address of a Table event: `37450:<creator hex>:<tableId>`. */
@@ -155,6 +166,7 @@ function relayTags(tags: readonly string[][]): string[] {
   if (relays.length === 0) badTag('expected at least one "relay" tag');
   for (const r of relays)
     if (!isRelayUrl(r)) badTag(`"relay" ${JSON.stringify(r)} is not a ws:// or wss:// URL`);
+  if (new Set(relays).size !== relays.length) badTag('a "relay" URL is listed twice');
   return relays;
 }
 
@@ -220,6 +232,7 @@ function relayList(v: unknown, path: string): string[] {
   if (relays.length === 0) badContent(`${path}: expected at least one relay`);
   for (const r of relays)
     if (!isRelayUrl(r)) badContent(`${path}: ${JSON.stringify(r)} is not a ws:// or wss:// URL`);
+  if (new Set(relays).size !== relays.length) badContent(`${path}: a relay URL is listed twice`);
   return relays as string[];
 }
 
@@ -301,6 +314,7 @@ export function parseTable(ev: unknown): ParsedTable {
     const version = shortText(one(tags, 'v'), 'v');
     const seats = decimal(one(tags, 'seats'), 'seats');
     if (seats < 2) badTag('a table needs at least 2 seats');
+    if (seats > MAX_SEATS) badTag(`a table has at most ${MAX_SEATS} seats`);
     const deadline = deadlineOf(one(tags, 'deadline'));
     const invited = many(tags, 'p');
     const seen = new Set<string>();
@@ -354,6 +368,8 @@ export function joinTemplate(spec: JoinSpec, createdAt: number): EventTemplate {
     tags: [
       ['a', spec.tableAddress],
       ['p', spec.creator],
+      ['rules-hash', spec.rulesHash],
+      ['v', spec.version],
       ['proto', PROTO],
     ],
     content: canonicalJson({
@@ -374,6 +390,9 @@ export function parseJoin(ev: unknown): ParsedJoin {
     const address = one(e.tags, 'a');
     const { creator } = addressOf(address);
     if (one(e.tags, 'p') !== creator) badTag('"p" must be the creator named in the table address');
+    const hash = one(e.tags, 'rules-hash');
+    if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
+    const version = shortText(one(e.tags, 'v'), 'v');
     const c = record(canonicalContent(e.content), 'content', ['deckKey', 'pok', 'relays', 'session']);
     return {
       id: e.id,
@@ -384,6 +403,8 @@ export function parseJoin(ev: unknown): ParsedJoin {
       pok: pokOf(c.pok, 'pok'),
       relays: relayList(c.relays, 'relays'),
       session: hex64(c.session, 'session'),
+      rulesHash: hash,
+      version,
     };
   });
 }
@@ -523,6 +544,8 @@ export function validateRoot(
         if (join.tableAddress !== table.address) add(`seat ${i}: the join is for another table`);
         if (join.npub !== seat.npub) add(`seat ${i}: the npub differs from its join`);
         if (join.session !== seat.session) add(`seat ${i}: the session differs from its join`);
+        if (join.rulesHash !== root.rulesHash) add(`seat ${i}: the join committed to other rules`);
+        if (join.version !== root.version) add(`seat ${i}: the join committed to version ${join.version}`);
         if (!join.deckKey.equals(seat.deckKey)) add(`seat ${i}: the deck key differs from its join`);
         if (!verifyJoin(join)) add(`seat ${i}: the join's proof of knowledge does not verify`);
       } catch {
@@ -541,6 +564,14 @@ export function validateRoot(
         if (seen.has(v)) add(`${what} ${v} is used more than once`);
         seen.add(v);
       }
+    }
+
+    const npubs = new Set(root.seats.map((s) => s.npub));
+    for (const [i, seat] of root.seats.entries()) {
+      if (bytesToHex(seat.deckKey.toBytes(true).slice(1)) === seat.session) {
+        add(`seat ${i}: the deck key's x-coordinate equals its session key`);
+      }
+      if (npubs.has(seat.session)) add(`seat ${i}: the session key is a seat's npub`);
     }
 
     if (!root.seats.some((s) => s.npub === table.creator)) add('the table creator does not hold a seat');

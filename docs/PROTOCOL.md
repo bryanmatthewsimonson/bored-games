@@ -92,7 +92,7 @@ Every game event (all kinds above except 30078) carries `["proto", "1"]`.
 **Field formats:**
 - Pubkeys and event ids are 64 lowercase hex characters (D025).
 - Counts and seconds (`seats`, `open`, `deadline`) are decimal integers without leading zeros.
-- A relay URL starts with `wss://` or `ws://` and names a host. It has no whitespace or control characters and at most 256 characters.
+- A relay URL is `ws://` or `wss://`, then a host (a DNS-style name of `[A-Za-z0-9.-]` with no leading `-`, an IPv4 address, or a bracketed IPv6 address), an optional `:port` of 1–5 digits up to 65535, and an optional path, query or fragment of printable ASCII. It has at most 256 characters and no userinfo.
 
 ### 4.1 Table (37450)
 The lobby listing. It may be updated (it is addressable) until the game starts.
@@ -112,13 +112,19 @@ The lobby listing. It may be updated (it is addressable) until the game starts.
 
 The number of `p` tags plus `open` MUST equal `seats` minus 1 (the creator holds a seat).
 - `tableId` has 1–64 characters from `[A-Za-z0-9._-]`. `moduleId` and the engine version have 1–64 characters.
-- `seats` is at least 2.
+- `seats` is between 2 and 64.
+- `relay` URLs are distinct.
 - Invited pubkeys are distinct and never the creator.
 
 ### 4.2 Join (7451)
 Claims a seat: an invited seat, or one of the open seats.
 
-**Tags:** `["a", "37450:<creator>:<tableId>"]`, `["p", <creator>]`.
+**Tags:**
+- `["a", "37450:<creator>:<tableId>"]`, `["p", <creator>]`
+- `["rules-hash", <hex SHA-256 of the table's canonical rules>]`
+- `["v", <engine semver>]`, the table's version
+
+The Join commits to the table's rules and version, because the Table is addressable and its creator could republish it with other rules after players join. The proof of knowledge below stays bound to `[tableAddress, npub, session]` (§3).
 
 **Content:**
 ```json
@@ -126,7 +132,7 @@ Claims a seat: an invited seat, or one of the open seats.
 ```
 The creator also publishes a Join for its own seat.
 - The `p` tag MUST be the creator named in the `a` address.
-- `relays` holds one or more relay URLs.
+- `relays` holds one or more distinct relay URLs.
 - `session` is 64 lowercase hex characters (D025).
 
 ### 4.3 Game root (7450)
@@ -153,12 +159,16 @@ Starts the game. It is immutable, and **the game id is this event's id**. The cr
 - every seat matches a valid Join for that table: same npub, session and deck key
 - each Join's proof of knowledge verifies
 - no npub, session key or deck key appears twice
+- no seat's session key equals any seat's npub, and no deck key's x-coordinate equals its session key (§3)
+- each Join's `rules-hash` equals the root's `rules-hash`, and its `v` equals the root's `v`
 - the creator holds a seat, and every other seat is either invited or one of the `open` seats
-- the `rules-hash` is the hash of the rules, and the rules equal the table's rules
+- the `rules-hash` is the hash of the rules, and the rules equal the table's rules (as the client holds that Table; the Joins' `rules-hash` and `v` are what stop a later switch)
 - the joint key `X` is not the identity (D024)
 - the named module exists at that version, its `validateRules` accepts the rules, and the seat count is within its `seatRange`.
 
 **Joint key:** `X = Σ_k X_k`.
+
+**OPEN:** clients do not check the table's `status` when validating a root. The creator flips `status` to `started` after it publishes the root, so the order of the two events is not fixed.
 
 ### 4.4 Move (7452)
 The hash-chained log.

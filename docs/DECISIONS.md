@@ -218,11 +218,16 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
   - `tableId` has 1–64 characters from `[A-Za-z0-9._-]`.
   - `game` and `v` have 1–64 characters.
   - Counts are decimal without leading zeros.
-  - A relay URL is `ws://` or `wss://` with a host, has no whitespace and has at most 256 characters. It is checked by hand, because the `URL` global is outside the pure packages' lib.
+  - A relay URL is `ws://` or `wss://`, then a DNS-style host, an IPv4 address or a bracketed IPv6 address, an optional port up to 65535 and an optional printable-ASCII path, query or fragment, at most 256 characters in all. Userinfo is rejected. It is checked by hand, because the `URL` global is outside the pure packages' lib. Relay lists (Table, Join, root) have no duplicates.
+  - A table has at most 64 seats.
+  - A Join carries `rules-hash` and `v` tags committing it to the table's rules and version (PROTOCOL §4.2).
   - A Join's `relays` has one or more entries. A root `e` tag's relay hint is a relay URL or `""`.
 - **`validateRoot` additions beyond PROTOCOL §4.3's original list:**
-  - The root's rules must equal the table's rules, so a creator cannot switch rules after players join.
+  - The root's rules must equal the table's rules. This only guarantees agreement with the version of the Table the client holds. The Table is addressable, so what stops a creator from switching rules after players join is the Join's `rules-hash` and `v` tags, which `validateRoot` checks against the root.
+  - Each seated Join's `rules-hash` and `v` equal the root's.
+  - A deck key's x-coordinate must differ from its session key (PROTOCOL §3), and no session key equals any seat's npub.
   - The joint key must not be the identity, which D024 assigns to the protocol layer. If every seat colludes, the seats can choose deck keys that sum to zero, each with a valid proof of knowledge. The cards would then be readable.
+  - **OPEN:** `validateRoot` ignores `table.status`. The creator flips `status` after publishing the root, so the order of the two events is not fixed.
 
 ## D028: In-game event parsing (2026-10-01, Phase 2c Task 5)
 - **Pipeline.** The Move, Shares, Timeout, Secret and Attestation parsers reuse the lobby pipeline (D027) and its error codes. Deck `DeckWireError` becomes `bad-content`.
