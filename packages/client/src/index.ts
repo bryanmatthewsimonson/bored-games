@@ -3,6 +3,15 @@
  * agreed state for a seat or a spectator, and builds that seat's next events.
  */
 export { ClientError } from './errors.ts';
+export {
+  buildJoinTemplate,
+  buildRootTemplate,
+  foldLobby,
+  type GameKeys,
+  type LobbyView,
+  newGameKeys,
+  rootSeatOrder,
+} from './lobby.ts';
 export { GameSession } from './session.ts';
 export type {
   Duty,
