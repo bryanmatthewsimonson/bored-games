@@ -159,7 +159,8 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 ## D022: Initial hands are dealt at setup, in seat order (2026-10-01, protocol-driven)
 - **Why:** the deal round needs every hand position assigned before any card is revealed (PROTOCOL §6.1).
 - **Change:** Chain Reaction will assign hands at setup in seat order, instead of after the setup reveals starting from the first player. Fairness is unchanged, since positions are uniformly shuffled.
-- **When:** this ships with Phase 2b/2c and bumps the engine version.
+- **When:** shipped in Phase 2c Task 1. The engine version is now 0.3.0.
+- **Shipped as:** `setupGame` assigns seat k the positions `S + 6k … S + 6k + 5` (S = seat count; 6 = `handSize`), and `deck.next` starts after them. In full mode the slots hold their tiles from setup; in view mode they are `null` until `learn`. The `tilesDealt` events are emitted in seat order once the setup tiles are revealed, after `firstPlayer`.
 
 ## D023: Crypto dependencies: @noble/curves and @noble/hashes (2026-10-01, Phase 2b)
 - **Why:** the mental-poker deck (`packages/deck`) needs secp256k1 point arithmetic, hash-to-curve, multi-scalar multiplication and SHA-256. Hand-rolling elliptic-curve code is the wrong place to economize.

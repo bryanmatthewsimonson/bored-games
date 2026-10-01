@@ -66,7 +66,7 @@
   - **Follow-up (not needed for 2c):** `msm` always runs `pippenger`, about 3× slower than a plain sum for 2–3 terms. A small-input fast path would make `verifyShare` 2–3× faster and take roughly a third off `verifyShuffle` (D024).
   - **Carried into 2c:**
     - Reject a joint key equal to the identity (D024).
-    - The engine change D022, and `GameModule.standings`.
+    - ~~The engine change D022~~ (done in 2c Task 1, engine 0.3.0), and `GameModule.standings`.
     - **One noble copy (D023).** nostr-tools 2.25.2 pins `@noble/curves` and `@noble/hashes` 2.0.1, while the deck pins 2.4.0. A second copy's points fail the deck's `instanceof` checks, so its verifiers would silently return false. Add a pnpm override to a single version, or route every point through `decodePoint`.
     - Hash context strings in their NOSTR hex forms (D025), and decrypt only through `decryptPosition`.
 - **`packages/protocol`:** event builders and parsers, and validation.

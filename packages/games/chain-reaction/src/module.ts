@@ -8,7 +8,7 @@ import { TILE_COUNT } from './tiles.ts';
 import type { ChainReactionEvent, ChainReactionState } from './types.ts';
 
 export const CHAIN_REACTION_ID = 'chain-reaction';
-export const CHAIN_REACTION_VERSION = '0.2.0';
+export const CHAIN_REACTION_VERSION = '0.3.0';
 
 /** Redacts a state to what `viewer` may know: opponents' hands and the deck order are hidden. */
 export function viewFor(s: ChainReactionState, viewer: Seat | null): ChainReactionState {

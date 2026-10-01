@@ -92,9 +92,17 @@ export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainRe
   ) {
     return { ok: false, error: err('viewer', 'viewer must be a seat or null') };
   }
+  // D022: positions 0..seats-1 are the setup tiles; each seat's hand then takes the next
+  // `handSize` positions in seat order, so every hand is assigned before any card is revealed.
+  // In view mode the slots are `null` until `learn`.
   const players: PlayerState[] = [];
   for (let s = 0; s < input.seats; s++) {
-    players.push({ cash: rules.startingCash, shares: rules.chains.map(() => 0), hand: [] });
+    const hand: HandSlot[] = [];
+    for (let i = 0; i < rules.handSize; i++) {
+      const pos = input.seats + s * rules.handSize + i;
+      hand.push({ pos, tile: order ? (order[pos] as number) : null });
+    }
+    players.push({ cash: rules.startingCash, shares: rules.chains.map(() => 0), hand });
   }
   return {
     ok: true,
@@ -105,7 +113,7 @@ export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainRe
       mode: input.mode,
       viewer: input.mode === 'full' ? null : input.viewer,
       // Positions 0..seats-1 are the setup tiles, revealed publicly in seat order.
-      deck: { order, next: input.seats },
+      deck: { order, next: input.seats * (1 + rules.handSize) },
       setupTiles: players.map(() => null),
       board: new Array<Cell>(TILE_COUNT).fill(null),
       players,
@@ -294,9 +302,10 @@ function advance(d: Draft, events: Events): void {
       }
       d.firstPlayer = first;
       events.push({ type: 'firstPlayer', seat: first });
-      for (let k = 0; k < d.seats; k++) {
-        const seat = (first + k) % d.seats;
-        events.push({ type: 'tilesDealt', seat, positions: drawTo(d, seat, d.rules.handSize) });
+      // Hands were assigned at setup (D022); announce them in seat order.
+      for (let seat = 0; seat < d.seats; seat++) {
+        const hand = (d.players[seat] as DeepMutable<PlayerState>).hand;
+        events.push({ type: 'tilesDealt', seat, positions: hand.map((h) => h.pos) });
       }
       startTurn(d, first, 1, events);
       continue;
