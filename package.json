@@ -12,7 +12,8 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "fuzz": "node tools/fuzz/src/cli.ts"
+    "fuzz": "node tools/fuzz/src/cli.ts",
+    "relay": "node tools/dev-relay/src/main.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

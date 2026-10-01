@@ -237,3 +237,9 @@ Two options, to be chosen before Phase 3 starts.
 | Risk | Toolchain split (TS 6 for web) | Easier to write unidiomatic code; more manual animation work |
 
 Either keeps the client a static SPA with relative asset paths, ready for Capacitor.
+
+## D029: Phase 3 dependencies: `ws` for the dev relay, and the frontend toolchain (2026-10-01, Phase 3)
+- **`ws` 8.22.0 (exact), with `@types/ws` 8.18.2 (dev).** Used only by `tools/dev-relay`, an in-memory NIP-01 relay for local development and tests (`pnpm relay`, port 7777). `ws` is the de-facto Node WebSocket server and has zero runtime dependencies. Node has a global WebSocket client but no server, so a hand-written one would be more code than the dependency. It is a dev tool: nothing shipped to browsers imports it.
+- **`packages/relay` has no third-party dependency.** It takes the `WebSocket` constructor as an option (the browser's, Node's global, or a fake in tests) and verifies events with `@bored-games/protocol`. It is not a pure package (sockets, timers), so the purity guard does not cover it.
+- **Dev relay semantics.** It verifies with protocol's `verifyEvent` and rejects events over `MAX_EVENT_BYTES`. Kinds 30000–39999 are addressable: the latest `created_at` per `(pubkey, kind, d)` wins and, on a tie, the lowest id (NIP-01). A stale version is answered `OK false "replaced: …"`. Other replaceable and ephemeral kinds are not implemented, because the protocol uses none.
+- **Frontend dependencies.** This entry also covers the frontend dependencies added in later Phase 3 tasks (the UI framework chosen under D014 and its Vite plugins). Each is listed here with its justification when it is added.
