@@ -59,11 +59,16 @@
   - game root, join and session-key authorization, the deck setup and shuffle round
   - moves with piggybacked shares, reveals, equivocation proofs
   - audit reveal, result attestation, timeout claims, encrypted secret backup.
-- **`packages/deck`:** secp256k1 ElGamal, hash-to-curve card points, shuffle with commitments, DLEQ shares, audit. Dependencies: `@noble/curves`, `@noble/hashes`.
-  - **2b result (done, 2026-10-01).** Pure package: ElGamal, card points, proof of knowledge, DLEQ shares, shuffle with the Terelius–Wikström proof (cross-checked against CHVote, D019), strict wire codecs. 254 tests, including a tamper suite, hostile wire values, and an end-to-end flow at 3 and 6 seats that decrypts every position to a permutation of the 108 tiles, both by shares and after the secret reveal. Test vectors: `packages/deck/test/vectors/v1.json`. Rulings: D023, D024.
+- **`packages/deck`:** secp256k1 ElGamal, hash-to-curve card points, a proven shuffle (Terelius–Wikström), DLEQ shares with verified decryption, and proofs of knowledge. The end-of-game audit itself belongs to 2c; the deck supplies `decryptWithSecrets` for it. Dependencies: `@noble/curves`, `@noble/hashes`.
+  - **2b result (done, 2026-10-01).** Pure package: ElGamal, card points, proof of knowledge, DLEQ shares, shuffle with the Terelius–Wikström proof (cross-checked against CHVote, D019), strict wire codecs, and verified decryption (`decryptPosition`, `ownShare`; D025). 279 tests, including a tamper suite, hostile wire values, and an end-to-end flow at 3 and 6 seats that decrypts every position to a permutation of the 108 tiles, both by shares and after the secret reveal. Test vectors: `packages/deck/test/vectors/v1.json`, with hex context strings and each step's transcript. Rulings: D023, D024, D025.
+  - **Final review fixes (2026-10-01):** verified decryption helpers, pinned context-string forms (PROTOCOL §3, §5), transcript intermediates in the vectors, stricter validation (`-0`, a required `n`, the prover's `ctx`, an identity `X`), and doc drift (D023, D025).
   - **Bench** (`pnpm --filter @bored-games/deck bench`, N = 108, Node 22): `shuffleDeck` about 0.4 s, `proveShuffle` 1.7 s, `verifyShuffle` 1.0–1.1 s; a share takes 6–7 ms to make and 10–11 ms to verify. A shuffle step is 36,051 bytes of content (deck 10,369 + proof 25,682), under the 40,000-byte budget; a share is 170 bytes.
   - **Follow-up (not needed for 2c):** `msm` always runs `pippenger`, about 3× slower than a plain sum for 2–3 terms. A small-input fast path would make `verifyShare` 2–3× faster and take roughly a third off `verifyShuffle` (D024).
-  - **Carried into 2c:** reject a joint key equal to the identity (D024); the engine change D022 and `GameModule.standings`.
+  - **Carried into 2c:**
+    - Reject a joint key equal to the identity (D024).
+    - The engine change D022, and `GameModule.standings`.
+    - **One noble copy (D023).** nostr-tools 2.25.2 pins `@noble/curves` and `@noble/hashes` 2.0.1, while the deck pins 2.4.0. A second copy's points fail the deck's `instanceof` checks, so its verifiers would silently return false. Add a pnpm override to a single version, or route every point through `decodePoint`.
+    - Hash context strings in their NOSTR hex forms (D025), and decrypt only through `decryptPosition`.
 - **`packages/protocol`:** event builders and parsers, and validation.
 - **`packages/client`:** a session engine over a pluggable relay transport.
 - **Acceptance:**
@@ -96,5 +101,5 @@ Final names and theme, accessibility pass, Capacitor packaging.
 ## Risks
 See the risks table in `docs/ARCHITECTURE.md`. The top three are:
 1. Correctness of the zero-knowledge shuffle proof implementation (D019). Mitigated in 2b: the equations were cross-checked against CHVote, and there are tamper tests and test vectors.
-2. Verification cost on phones: about 1 s per shuffle step on a desktop CPU (D019, D024).
+2. Verification cost on phones. A shuffle step takes about 1 s to verify, measured in the dev container (x64, Node 22); a phone may be several times slower (D019, D024).
 3. Contract fit for the second game (Phase 6).

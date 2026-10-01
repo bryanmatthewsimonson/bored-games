@@ -1,3 +1,7 @@
+/*
+ * Public API of @bored-games/deck. The verifiers check `instanceof` against this package's own @noble/curves copy
+ * and return false for a point built by another copy (D023): take points from `decodePoint` or from this package.
+ */
 export { cardOf, cardPoint, cardTable } from './cards.ts';
 export {
   combine,

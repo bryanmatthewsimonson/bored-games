@@ -166,7 +166,12 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Choice:** exactly two runtime dependencies, both pinned to `2.4.0` with no caret:
   - `@noble/curves`: audited, zero-dependency and constant-time-minded. The v2 API gives `secp256k1.Point`, `secp256k1_hasher.hashToCurve` and `pippenger`.
   - `@noble/hashes`: audited and zero-dependency. It supplies `sha256` and byte helpers.
-- **Why these two:** they are the primitives under nostr-tools, so the platform already trusts them for NOSTR signatures. This adds no new supply-chain surface in practice.
+- **Why these two:** they are the primitives under nostr-tools, so the platform will trust the same authors and code for NOSTR signatures.
+- **Supply chain (corrected after the Phase 2b review):** they are still new surface. Today they are the repo's only runtime dependencies, and nostr-tools pins a different version (below), so the platform will carry two copies unless 2c unifies them.
+- **2c requirement: one noble copy.** nostr-tools 2.25.2, current on npm, pins `@noble/curves` and `@noble/hashes` at exactly `2.0.1`. Adding it beside the deck's `2.4.0` installs a second copy of each.
+  - The deck's verifiers check `instanceof secp256k1.Point` against their own copy, so a point built with the other copy is silently rejected: `verifyShare` and the others return false.
+  - 2c MUST do one of two things. Either add a pnpm `overrides` entry that resolves every `@noble/curves` and `@noble/hashes` to a single version, and check that nostr-tools works on it. Or route every point that reaches the deck through `decodePoint`, so it comes from the deck's own copy; wire input already does this.
+  - The override is preferred, since it also removes the duplicate code. Whichever is chosen is recorded here.
 - **Scope:** `src/` of the deck stays pure: randomness is injected (`RandomBytes`), and nothing imports Node or platform crypto. game-kit is a devDependency only, for the seeded test PRNG.
 - **Identity point in hashes:** `hs` hashes the identity as 33 zero bytes so in-memory proof code never throws on a degenerate point. The wire decoder `decodePoint` still rejects the identity.
 
@@ -176,6 +181,24 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Joint key:** `jointKey` may return the identity for adversarial keys, and `reEncrypt` under an identity `X` leaves `b` unchanged, so cards would stay readable. The protocol layer (2c) MUST reject a joint key equal to the identity before any shuffle. The deck package leaves that check to it; `proveShuffle` and `verifyShuffle` already refuse an identity `X`.
 - **Tamper-suite scope:** at N = 8 the suite tampers every field at every index; at N = 108 every field at the first, middle and last index. Iterating every index at N = 108 would take minutes, and the code path does not depend on the index.
 - **No `msm` fast path yet:** `msm` always uses noble's `pippenger`, which costs about 5–6 ms even for 2 or 3 terms, about 3× a plain sum of `multiplyUnsafe` products. `verifyShare` and the 108 three-term `t̂_i` checks in `verifyShuffle` pay this. A small-input fast path is a later, behavior-neutral optimization (PLAN).
+
+## D025: Context-string forms and the decryption API (2026-10-01, Phase 2b final review)
+- **Context strings (Ruling 6).** The transcripts hash these identifiers as the UTF-8 of their NOSTR hex text. PROTOCOL §3 and §5 state this.
+  - `rootId` is the game root's event id: 64 lowercase hex characters.
+  - `npub` and `sessionPub` are 64-character lowercase hex x-only pubkeys, not bech32.
+  - `tableAddress` is the NIP-01 address `37450:<creator pubkey hex>:<d tag>`.
+  - `deckId` is the module's deck id.
+  - **Why:** these are the forms NOSTR tags carry, so a client hashes what it reads off the event with no conversion. Before this, the forms were unspecified, and the vectors used placeholders that no second implementation could learn from.
+- **Well-formed strings.** `hs` throws on a string that is not well-formed UTF-16. UTF-8 encoders map every lone surrogate to U+FFFD, so `hs` would otherwise not be injective on JS strings. A user-chosen `d` tag inside `tableAddress` could carry one after `JSON.parse`. The verifiers catch the throw and return false.
+- **Vectors.** `v1.json` was regenerated with seed-derived 64-hex ids and a NIP-01 table address. Each shuffle step also lists its transcript `d`, `u_i` and `ch` (Ruling 7), computed by `shuffleTranscript`, the verifier's own code path. It stays version 1, since nothing had been published.
+- **Decryption API.** `decryptPosition(ct, ctx, keys, shares, table, own?)` is the one way protocol code turns shares into a card.
+  - **Shares.** `shares` is keyed by seat, as an array with one slot per seat (`null` means missing) or a map, so a seat counts at most once. A seat may legitimately publish the same `D` twice with fresh proof randomness.
+  - **Verification.** Every share is verified with `verifyShare` against its own seat's key and `ctx`.
+  - **Coverage.** Every seat must be covered, by its share or by `own = {seat, D}`. `D` comes from `ownShare(x, ct) = x·a`, which needs no proof and no randomness.
+  - **Result.** The card index, or `null` when any share is missing or invalid, or the point is not a card of `table`.
+  - **Caller errors throw** a `RangeError`: no keys, a wrong array length, a map key that is not a seat, a bad `own`, or a share for `own.seat` alongside `own`. Peer data never makes it throw.
+  - **Argument order.** `table` comes before `own` so that `own` can be a trailing optional parameter.
+  - **`combine`** stays exported, documented as low level: it does not verify shares and does not detect duplicates.
 
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.

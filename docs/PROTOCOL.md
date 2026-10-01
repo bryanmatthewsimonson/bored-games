@@ -202,7 +202,7 @@ After the game ends.
 - **Ciphertexts.** A ciphertext is `(a, b) = (r·G, M + r·X)`.
 
 ### 5.2 Shuffle
-**Seat order.** Seat `k` (k = 0..N−1) takes the previous deck `E_k` (the `deck` of move `k`, or `E_0` for seat 0) and produces `E_{k+1}` by:
+**Seat order.** Seat `k` (k = 0..N−1, for N seats) takes the previous deck `E_k` (the `deck` of move `k`, or `E_0` for seat 0) and produces `E_{k+1}` by:
 1. picking a uniformly random permutation `ψ` and fresh randomizers `r'_i`
 2. computing `E_{k+1}[i] = (a_ψ(i) + r'_i·G, b_ψ(i) + r'_i·X)`.
 
@@ -222,26 +222,29 @@ The Terelius–Wikström proof of a shuffle of ElGamal ciphertexts. Implementati
 | public key `pk` | joint key `X` |
 | hash to `Z_q` | `HS` with the transcripts below |
 
-**Challenges.** Indices are 1-based; `(a_i, b_i)` is input card `i` (`E_k`) and `(a'_i, b'_i)` output card `i` (`E_{k+1}`). Every challenge goes through the context hash `d`, which binds the root id, the seat, the deck id, the joint key and both full decks, so a proof cannot be reused in another game, at another step or for another deck:
+**Challenges.** In this section `n` is the number of cards in the deck (108 for Chain Reaction), not the number of seats. Card indices are 1-based; `(a_i, b_i)` is input card `i` (`E_k`) and `(a'_i, b'_i)` output card `i` (`E_{k+1}`). Every challenge goes through the context hash `d`, which binds the root id, the seat, the deck id, the joint key and both full decks, so a proof cannot be reused in another game, at another step or for another deck:
 ```
-d   = HS("shuffle-ctx", rootId, k, deckId, X, a_1, b_1, …, a_N, b_N, a'_1, b'_1, …, a'_N, b'_N)
-u_i = HS("shuffle-u", d, c_1, …, c_N, i)                                   for i = 1..N
-ch  = HS("shuffle-c", d, X, c_1, …, c_N, ĉ_1, …, ĉ_N, t1, t2, t3, t4[0], t4[1], t̂_1, …, t̂_N)
+d   = HS("shuffle-ctx", rootId, k, deckId, X, a_1, b_1, …, a_n, b_n, a'_1, b'_1, …, a'_n, b'_n)
+u_i = HS("shuffle-u", d, c_1, …, c_n, i)                                   for i = 1..n
+ch  = HS("shuffle-c", d, X, c_1, …, c_n, ĉ_1, …, ĉ_n, t1, t2, t3, t4[0], t4[1], t̂_1, …, t̂_n)
 ```
-`k` and `i` are integer parts (decimal strings, §2). `c` is indexed by input card; `ĉ_0 = H2C("gen:h")` is implicit and not hashed.
+- `k` is the shuffling seat's 0-based index (§5.2). `k` and `i` are integer parts (decimal strings, §2).
+- `d` enters `u_i` and `ch` as a scalar part: 32 bytes big-endian (§2), not its decimal string.
+- The initial deck's `a` components are the identity, hashed as 33 zero bytes (§2).
+- `c` is indexed by input card; `ĉ_0 = H2C("gen:h")` is implicit and not hashed.
 
-**Proof object.** For a deck of N cards:
+**Proof object.** For a deck of n cards:
 ```json
-{"c":[N points],"cHat":[N points],
- "s":{"s1":scalar,"s2":scalar,"s3":scalar,"s4":scalar,"sHat":[N scalars],"sPrime":[N scalars]},
- "t":{"t1":point,"t2":point,"t3":point,"t4":[point,point],"tHat":[N points]}}
+{"c":[n points],"cHat":[n points],
+ "s":{"s1":scalar,"s2":scalar,"s3":scalar,"s4":scalar,"sHat":[n scalars],"sPrime":[n scalars]},
+ "t":{"t1":point,"t2":point,"t3":point,"t4":[point,point],"tHat":[n points]}}
 ```
 - `c`: permutation commitments
 - `cHat`: chained commitments
 - `t4`: the ElGamal-pair commitment
 - `sPrime`: the responses for the permuted randomizers.
 
-**Verifying.** The proof transmits the commitments `t`. The verifier recomputes `d`, every `u_i` and `ch`, then checks each of CheckShuffleProof's equations for `t1`, `t2`, `t3`, `t4` and every `t̂_i` against `s`, `c` and `ĉ`. CHVote instead transmits `ch` and recomputes `t`; both are Fiat–Shamir forms of the same Σ-protocol, with equal soundness (D019). The transmitted form costs N + 5 more points.
+**Verifying.** The proof transmits the commitments `t`. The verifier recomputes `d`, every `u_i` and `ch`, then checks each of CheckShuffleProof's equations for `t1`, `t2`, `t3`, `t4` and every `t̂_i` against `s`, `c` and `ĉ`. CHVote instead transmits `ch` and recomputes `t`; both are Fiat–Shamir forms of the same Σ-protocol, with equal soundness (D019). The transmitted form costs n + 5 more points.
 
 **Test vectors.** `packages/deck/test/vectors/v1.json` is a complete 3-seat, 8-card deal from a fixed seed. It holds:
 - the generators and card points
@@ -266,6 +269,10 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 **Verifying.** Recompute `T1 = s·G − c·X_k` and `T2 = s·a − c·D_k`, then check `c`.
 
 **Decrypting.** With all N shares, `M = b − Σ_k D_k`; the card is the `m` with `M_m = M`. No match means the deck is corrupt, which cannot happen once all proofs verify.
+- Clients keep at most one share per seat and position. A seat may publish the same `D_k` twice with different proofs, and summing both would give a non-card.
+- Each share is verified against its own seat's `X_k` before use, and a position is decrypted only once every seat is covered.
+- The owner of a private card uses its own layer `x_k·a` in place of its share (§6.4). That layer needs no proof and is never published.
+- `packages/deck` implements this as `decryptPosition` and `ownShare` (D025).
 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 

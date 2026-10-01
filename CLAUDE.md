@@ -21,7 +21,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - `docs/`: ARCHITECTURE, PLAN (status and open questions), DECISIONS (log), `games/chain-reaction/RULES.md` (source of truth)
 
 ## Conventions
-- **Pure packages** (game-kit, games/*): no `Math.random`, `Date`, timers, I/O, `node:` imports, `Intl` or locale APIs. State is plain JSON, money is integers, absent values are `null`.
+- **Pure packages** (game-kit, deck `src/`, games/*): no `Math.random`, `Date`, timers, I/O, `node:` imports, `Intl` or locale APIs. State is plain JSON, money is integers, absent values are `null`.
 - **`apply` never throws or mutates.** Every move has exactly one accepted encoding.
 - **Import style:** relative imports use `.ts` extensions, there are no enums (`erasableSyntaxOnly`), and type-only imports use `import type`.
 - **Rules:** RULES.md is the source of truth. Never invent rules. Mark uncertain ones OPEN, make them a rules option, and log them.

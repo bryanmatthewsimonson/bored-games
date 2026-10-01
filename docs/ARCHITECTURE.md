@@ -87,7 +87,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - A failed check or a refusal to reveal marks that player as cheating, which counts as a forfeit (D020).
 
 **Known limitations.**
-- Verifying a 108-card shuffle proof takes about 1 s on a desktop CPU, so each client spends several seconds at setup (D019).
+- Verifying a 108-card shuffle proof takes about 1 s, measured in the dev container (x64, Node 22), so each client spends several seconds at setup (D019). A phone may be several times slower.
 - A player making an out-of-turn decision, such as a Chain Reaction merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn. This is a minor information difference from tabletop play.
 
 **Alternatives rejected:**
@@ -105,7 +105,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.
-- **Timeouts.** NOSTR `created_at` is self-reported, so time limits are judged by each client. A player may publish a timeout claim once the stalled seat's limit (set in the game root) has clearly passed. The stalled seat forfeits (D020).
+- **Timeouts.** NOSTR `created_at` is self-reported, so time limits are judged by each client. A player may publish a timeout claim once the stalled seat's limit (set in the game root) has clearly passed. The stalled seat forfeits (D020). A stall before the first game action (during the shuffle or the deal) instead cancels the game, with no result.
 
 ## Ratifying results
 
