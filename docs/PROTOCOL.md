@@ -29,7 +29,7 @@ A game is a pure rules module implementing `GameModule` (`packages/game-kit`). C
 - **`HS(parts…)`** hashes to a scalar: `SHA-256(encode(parts))` interpreted big-endian, reduced mod `q`. `encode` concatenates, for each part, a 4-byte big-endian length followed by its bytes:
   - points: compressed SEC1, 33 bytes. The identity, which never travels but is hashed in memory (the initial deck's `a`), is 33 zero bytes.
   - scalars: 32 bytes big-endian
-  - strings: UTF-8
+  - strings: UTF-8. A string part MUST be well-formed Unicode: implementations MUST refuse to hash a string holding a lone UTF-16 surrogate, which UTF-8 encoders would otherwise silently replace with U+FFFD.
   - integers (seat, position): their decimal string, UTF-8
   - raw bytes: as they are.
 - **Binary values in event content** (points, scalars) are base64url without padding. Compressed points are 44 characters; scalars are 43.
@@ -59,6 +59,10 @@ That lets another device resume the game. Before the root exists, the table addr
 **Proof of knowledge.** `X_k` is published with a Schnorr proof of knowledge `pok = (c, s)`, which defeats rogue-key attacks on the joint key:
 - the prover picks `w`, computes `T = w·G` and `c = HS("pok", tableAddress, npub, sessionPub, X_k, T)`, then `s = w + c·x_k`
 - the verifier recomputes `T = s·G − c·X_k` and checks `c`.
+
+**Context strings.** The PoK hashes these identifiers as the UTF-8 of their NOSTR hex text (D025):
+- `tableAddress` is the NIP-01 address of the Table event: `37450:<creator pubkey hex>:<d tag>`, with the creator's pubkey as 64 lowercase hex characters.
+- `npub` and `sessionPub` are the player's identity and session x-only pubkeys as 64 lowercase hex characters, the form NOSTR tags and the Join's `session` field carry. They are not bech32 (`npub1…`).
 
 ## 4. Event kinds
 
@@ -188,6 +192,10 @@ After the game ends.
 
 ## 5. Deck cryptography
 
+**Context strings.** The shuffle and share transcripts hash these identifiers as the UTF-8 of their NOSTR text (D025):
+- `rootId` is the game root's event id: 64 lowercase hex characters.
+- `deckId` is the module's deck id, as `decks(rules)` names it (for example `tiles`).
+
 ### 5.1 Cards and the initial deck
 - **Card points.** Card `m` of deck `d` is the point `M_m = H2C("card:" + d + ":" + m)`. Clients precompute the table of all `M_m` to map decrypted points back to cards.
 - **Initial deck.** The trivial encryption `E_0[i] = (O, M_i)` for `i = 0..size−1` in card order. It is computed locally and never transmitted.
@@ -235,7 +243,14 @@ ch  = HS("shuffle-c", d, X, c_1, …, c_N, ĉ_1, …, ĉ_N, t1, t2, t3, t4[0], t
 
 **Verifying.** The proof transmits the commitments `t`. The verifier recomputes `d`, every `u_i` and `ch`, then checks each of CheckShuffleProof's equations for `t1`, `t2`, `t3`, `t4` and every `t̂_i` against `s`, `c` and `ĉ`. CHVote instead transmits `ch` and recomputes `t`; both are Fiat–Shamir forms of the same Σ-protocol, with equal soundness (D019). The transmitted form costs N + 5 more points.
 
-**Test vectors.** `packages/deck/test/vectors/v1.json` is a complete 3-seat, 8-card deal from a fixed seed: the generators and card points, keys with their proofs of knowledge, the joint key, every shuffle step's deck and proof, one share per seat and position, and the decrypted card at each position. Secrets are included. Conforming implementations MUST verify every proof in it and reproduce every hash and decryption.
+**Test vectors.** `packages/deck/test/vectors/v1.json` is a complete 3-seat, 8-card deal from a fixed seed. It holds:
+- the generators and card points
+- the context strings in the forms above: a hex `rootId`, hex `npub` and `sessionPub` per seat, and a NIP-01 `tableAddress`
+- keys with their proofs of knowledge, and the joint key
+- every shuffle step's deck and proof, with its transcript `d`, `u_1…u_n` and `ch` as encoded scalars
+- one share per seat and position, and the decrypted card at each position.
+
+Secrets are included. Conforming implementations MUST verify every proof in it, reproduce every hash and reproduce every decryption. Every hash is checkable on its own: the shuffle transcripts are listed, and the proof-of-knowledge and share challenges are the proofs' `c`.
 
 **Size.** For 108 cards:
 - deck: 216 points
@@ -245,7 +260,7 @@ ch  = HS("shuffle-c", d, X, c_1, …, c_N, ĉ_1, …, ĉ_N, t1, t2, t3, t4[0], t
 ### 5.4 Decryption shares
 **Computing a share.** For a ciphertext `(a, b)`, seat `k`'s share is `D_k = x_k·a`, with a Chaum–Pedersen proof that `log_G X_k = log_a D_k`:
 1. Pick `w`; compute `T1 = w·G` and `T2 = w·a`.
-2. Compute `c = HS("dleq", rootId, deck, pos, X_k, a, D_k, T1, T2)` and `s = w + c·x_k`.
+2. Compute `c = HS("dleq", rootId, deckId, pos, X_k, a, D_k, T1, T2)` and `s = w + c·x_k`.
 3. The proof is `(c, s)`.
 
 **Verifying.** Recompute `T1 = s·G − c·X_k` and `T2 = s·a − c·D_k`, then check `c`.

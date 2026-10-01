@@ -241,6 +241,32 @@ describe('hs', () => {
     expect(hs(Point.ZERO)).not.toBe(hs(G));
   });
 
+  it('rejects strings that are not well-formed UTF-16 (lone surrogates), so string parts stay injective', () => {
+    // TextEncoder would map each of these to U+FFFD and collide with hs('\uFFFD').
+    for (const bad of [
+      '\uD800',
+      '\uDFFF',
+      'a\uD83D',
+      '\uDE00b',
+      '\uDE00\uD83D',
+      'x\uD800y',
+      '\uD83D\uD83D\uDE00',
+    ])
+      expect(() => hs(bad), JSON.stringify(bad)).toThrow(RangeError);
+    expect(() => hs('ok', '\uD800')).toThrow(RangeError);
+    expect(hs('\uFFFD')).toBe(hs(new Uint8Array([0xef, 0xbf, 0xbd])));
+  });
+
+  it('accepts surrogate pairs and hashes them as 4-byte UTF-8', () => {
+    expect(hs('\uD83D\uDE00')).toBe(hs(new Uint8Array([0xf0, 0x9f, 0x98, 0x80])));
+    expect(hs('a\u{1F600}b\u{10FFFF}')).toBe(hs(new TextEncoder().encode('a\u{1F600}b\u{10FFFF}')));
+    fc.assert(
+      fc.property(fc.string({ unit: 'binary' }), (str) => {
+        expect(hs(str)).toBe(hs(new TextEncoder().encode(str)));
+      }),
+    );
+  });
+
   it('matches an independent SHA-256 computation', () => {
     const digest = (bytes: number[]): bigint =>
       BigInt(`0x${createHash('sha256').update(Uint8Array.from(bytes)).digest('hex')}`) % q;

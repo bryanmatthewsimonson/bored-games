@@ -18,6 +18,7 @@ import {
   encodePoint,
   G,
   generators,
+  hs,
   initialDeck,
   jointKey,
   type Point,
@@ -26,6 +27,7 @@ import {
   verifyShare,
   verifyShuffle,
 } from '../src/index.ts';
+import { shuffleTranscript } from '../src/shuffle.ts';
 
 const FILE = new URL('./vectors/v1.json', import.meta.url);
 
@@ -34,13 +36,27 @@ interface Vectors {
   version: number;
   seed: string;
   rootId: string;
+  tableAddress: string;
   deckId: string;
   size: number;
   generators: { h: string; hs: string[] };
   cardPoints: string[];
-  seats: { seat: number; secret: string; key: string; pokCtx: string[]; pok: unknown }[];
+  seats: {
+    seat: number;
+    secret: string;
+    key: string;
+    npub: string;
+    sessionPub: string;
+    pokCtx: string[];
+    pok: unknown;
+  }[];
   jointKey: string;
-  shuffles: { seat: number; deck: unknown; proof: unknown }[];
+  shuffles: {
+    seat: number;
+    deck: unknown;
+    proof: unknown;
+    transcript: { d: string; u: string[]; ch: string };
+  }[];
   shares: { seat: number; share: unknown }[];
   cards: number[];
 }
@@ -56,6 +72,16 @@ describe('test vectors v1', () => {
     expect(v.version).toBe(1);
     const { rootId, deckId, size } = v;
     const n = v.seats.length;
+
+    // Context strings in their NOSTR text forms (PROTOCOL §3, §5; D025).
+    const HEX64 = /^[0-9a-f]{64}$/;
+    expect(rootId).toMatch(HEX64);
+    expect(v.tableAddress).toBe(`37450:${v.seats[0]?.npub}:vectors-table`);
+    for (const s of v.seats) {
+      expect(s.npub).toMatch(HEX64);
+      expect(s.sessionPub).toMatch(HEX64);
+      expect(s.pokCtx).toEqual([v.tableAddress, s.npub, s.sessionPub]);
+    }
 
     // Generators and card points (H2C).
     const gens = generators(size);
@@ -85,7 +111,23 @@ describe('test vectors v1', () => {
       expect(step.seat).toBe(k);
       const out = decodeDeck(step.deck, size);
       const proof = decodeShuffleProof(step.proof, size);
-      expect(verifyShuffle(deck, out, X, proof, { rootId, seat: k, deckId }), `shuffle ${k}`).toBe(true);
+      const ctx = { rootId, seat: k, deckId };
+      expect(verifyShuffle(deck, out, X, proof, ctx), `shuffle ${k}`).toBe(true);
+      // The listed transcript is the verifier's, and also what PROTOCOL §5.3 writes, hashed independently.
+      const listed = {
+        d: decodeScalar(step.transcript.d),
+        u: step.transcript.u.map(decodeScalar),
+        ch: decodeScalar(step.transcript.ch),
+      };
+      expect(shuffleTranscript(deck, out, X, proof, ctx), `transcript ${k}`).toEqual(listed);
+      const ab = (cts: readonly Ciphertext[]) => cts.flatMap((e) => [e.a, e.b]);
+      const d = hs('shuffle-ctx', rootId, k, deckId, X, ...ab(deck), ...ab(out));
+      const { c, cHat, t } = proof;
+      expect(listed.d, `d ${k}`).toBe(d);
+      expect(listed.u, `u ${k}`).toEqual(c.map((_, i) => hs('shuffle-u', d, ...c, i + 1)));
+      expect(listed.ch, `ch ${k}`).toBe(
+        hs('shuffle-c', d, X, ...c, ...cHat, t.t1, t.t2, t.t3, t.t4[0], t.t4[1], ...t.tHat),
+      );
       deck = out;
     }
 

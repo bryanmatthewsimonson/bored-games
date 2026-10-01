@@ -183,6 +183,25 @@ function mainChallenge(
 
 const mod = (k: bigint): bigint => ((k % q) + q) % q;
 
+/** The Fiat–Shamir values of one shuffle step: the context hash, every `u_i` (by input index) and `ch`. */
+export interface ShuffleTranscript {
+  readonly d: bigint;
+  readonly u: readonly bigint[];
+  readonly ch: bigint;
+}
+
+/** The verifier's transcript. Unchecked: callers check `wellFormed` first. */
+function transcript(
+  input: readonly Ciphertext[],
+  output: readonly Ciphertext[],
+  X: Point,
+  proof: ShuffleProof,
+  ctx: ShuffleCtx,
+): ShuffleTranscript {
+  const d = contextHash(ctx, X, input, output);
+  return { d, u: challenges(d, proof.c), ch: mainChallenge(d, X, proof.c, proof.cHat, proof.t) };
+}
+
 /**
  * Prove that `output[i] = reEncrypt(input[psi[i]], X, rPrime[i])` for a secret permutation `psi` (the index
  * convention of `shuffleDeck`), in context `ctx`. Throws on inconsistent inputs: an empty deck, length
@@ -345,9 +364,7 @@ export function verifyShuffle(
     const { c, cHat, t, s } = proof;
     const { h, hs: H } = generators(n);
 
-    const d = contextHash(ctx, X, input, output);
-    const u = challenges(d, c);
-    const ch = mainChallenge(d, X, c, cHat, t);
+    const { u, ch } = transcript(input, output, X, proof, ctx);
     const negCh = mod(-ch);
     const negChU = u.map((uk) => mod(-ch * uk));
     const ones = (k: bigint) => Array.from({ length: n }, () => k);
@@ -384,4 +401,20 @@ export function verifyShuffle(
   } catch {
     return false;
   }
+}
+
+/**
+ * INTERNAL, for the test vectors (not exported from the package index): the transcript `{d, u, ch}` that
+ * `verifyShuffle` recomputes for this step, by the very same code. Throws a `RangeError` on any input that
+ * `verifyShuffle` rejects as malformed. It does not check the proof equations.
+ */
+export function shuffleTranscript(
+  input: readonly Ciphertext[],
+  output: readonly Ciphertext[],
+  X: Point,
+  proof: ShuffleProof,
+  ctx: ShuffleCtx,
+): ShuffleTranscript {
+  if (!wellFormed(input, output, X, proof, ctx)) throw new RangeError('shuffleTranscript: malformed input');
+  return transcript(input, output, X, proof, ctx);
 }

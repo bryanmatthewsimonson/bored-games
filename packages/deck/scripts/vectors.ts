@@ -1,13 +1,16 @@
 /**
  * pnpm --filter @bored-games/deck vectors
  *
- * Writes test/vectors/v1.json: a complete 3-seat, 8-card deal from a fixed seed, wire-encoded (PROTOCOL §5.3).
+ * Writes test/vectors/v1.json: a complete 3-seat, 8-card deal from a fixed seed, wire-encoded (PROTOCOL §5.3),
+ * with each shuffle step's transcript `{d, u, ch}` and context strings in their NOSTR hex forms (D025).
  * Secrets are included on purpose: these are test vectors. `test/vectors.test.ts` checks that regenerating
  * gives the file byte for byte, and verifies every proof in it from the JSON alone.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '@bored-games/game-kit';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import {
   type Ciphertext,
   cardPoint,
@@ -30,14 +33,25 @@ import {
   type Share,
   shuffleDeck,
 } from '../src/index.ts';
+import { shuffleTranscript } from '../src/shuffle.ts';
 import { seededRandom } from '../test/util.ts';
 
 const SEED = 'bored-games/deck/v1';
 const SEATS = 3;
 const SIZE = 8;
-const ROOT_ID = 'vectors-root-v1';
 const DECK_ID = 'vectors';
-const TABLE = '37450:vectors-table-author:vectors-table';
+
+/**
+ * A deterministic stand-in for a NOSTR id or x-only pubkey: 64 lowercase hex characters derived from the seed.
+ * These are the textual forms PROTOCOL §3 and §5 hash (D025); they need not be real event ids or curve points.
+ */
+const fakeHex = (label: string): string => bytesToHex(sha256(utf8ToBytes(`${SEED}/${label}`)));
+
+const ROOT_ID = fakeHex('root');
+const NPUBS = Array.from({ length: SEATS }, (_, k) => fakeHex(`npub/${k}`));
+const SESSIONS = Array.from({ length: SEATS }, (_, k) => fakeHex(`session/${k}`));
+/** The NIP-01 address of the Table event: `37450:<creator pubkey hex>:<d tag>`; seat 0 is the creator. */
+const TABLE = `37450:${NPUBS[0] as string}:vectors-table`;
 
 /**
  * Every random draw comes from one `seededRandom(SEED)` stream, in this order: each seat's key and proof of
@@ -51,13 +65,17 @@ export function generateVectors(): unknown {
   const secrets: bigint[] = [];
   for (let k = 0; k < SEATS; k++) {
     const x = randomScalar(rnd);
-    const pokCtx = [TABLE, `npub-vectors-seat-${k}`, `session-vectors-seat-${k}`];
+    const npub = NPUBS[k] as string;
+    const sessionPub = SESSIONS[k] as string;
+    const pokCtx = [TABLE, npub, sessionPub];
     const pok = provePok(x, pokCtx, rnd);
     secrets.push(x);
     seats.push({
       seat: k,
       secret: encodeScalar(x),
       key: encodePoint(G.multiply(x)),
+      npub,
+      sessionPub,
       pokCtx,
       pok: encodePok(pok),
     });
@@ -68,8 +86,16 @@ export function generateVectors(): unknown {
   let deck: Ciphertext[] = initialDeck(DECK_ID, SIZE);
   for (let k = 0; k < SEATS; k++) {
     const { out, psi, rPrime } = shuffleDeck(deck, X, rnd);
-    const proof = proveShuffle(deck, out, X, psi, rPrime, { rootId: ROOT_ID, seat: k, deckId: DECK_ID }, rnd);
-    shuffles.push({ seat: k, deck: encodeDeck(out), proof: encodeShuffleProof(proof) });
+    const ctx = { rootId: ROOT_ID, seat: k, deckId: DECK_ID };
+    const proof = proveShuffle(deck, out, X, psi, rPrime, ctx, rnd);
+    // The verifier's Fiat–Shamir values, so a second implementation can check each hash on its own.
+    const tr = shuffleTranscript(deck, out, X, proof, ctx);
+    shuffles.push({
+      seat: k,
+      deck: encodeDeck(out),
+      proof: encodeShuffleProof(proof),
+      transcript: { d: encodeScalar(tr.d), u: tr.u.map(encodeScalar), ch: encodeScalar(tr.ch) },
+    });
     deck = out;
   }
 
@@ -102,6 +128,7 @@ export function generateVectors(): unknown {
     version: 1,
     seed: SEED,
     rootId: ROOT_ID,
+    tableAddress: TABLE,
     deckId: DECK_ID,
     size: SIZE,
     generators: { h: encodePoint(gens.h), hs: gens.hs.map(encodePoint) },
@@ -123,4 +150,5 @@ function main(): void {
   console.info(`wrote ${fileURLToPath(file)} (${text.length} bytes)`);
 }
 
-if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]) main();
+// `import.meta.url` is the real path; argv[1] may go through a symlink (a symlinked checkout, macOS /tmp).
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) main();

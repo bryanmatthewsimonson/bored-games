@@ -11,6 +11,7 @@ import {
   type ShuffleCtx,
   type ShuffleProof,
   shuffleDeck,
+  shuffleTranscript,
   verifyShuffle,
 } from '../src/shuffle.ts';
 import { seededRandom } from './util.ts';
@@ -575,5 +576,51 @@ describe('proveShuffle: input checks', () => {
     expect(() => proveShuffle(input, out, X, psi, rPrime.slice(0, 3), ctx, rnd)).toThrow(RangeError);
     expect(() => proveShuffle(input, out, X, [0, 0, 1, 2], rPrime, ctx, rnd)).toThrow(RangeError);
     expect(() => proveShuffle(input, out, X, psi, setAt(rPrime, 0, 0n), ctx, rnd)).toThrow(RangeError);
+  });
+});
+
+describe('shuffleTranscript', () => {
+  const { X } = keys('tw-transcript');
+  const input = initialDeck(DECK, 5);
+  const ctx: ShuffleCtx = { rootId: 'r', seat: 1, deckId: DECK };
+  const { out, proof } = honest(input, X, ctx, 'tw-transcript-1');
+
+  it('gives d, every u_i and ch exactly as PROTOCOL §5.3 writes them', () => {
+    const n = input.length;
+    const ab = (deck: readonly Ciphertext[]) => deck.flatMap((e) => [e.a, e.b]);
+    const d = hs('shuffle-ctx', ctx.rootId, ctx.seat, ctx.deckId, X, ...ab(input), ...ab(out));
+    const u = Array.from({ length: n }, (_, k) => hs('shuffle-u', d, ...proof.c, k + 1));
+    const { t } = proof;
+    const ch = hs(
+      'shuffle-c',
+      d,
+      X,
+      ...proof.c,
+      ...proof.cHat,
+      t.t1,
+      t.t2,
+      t.t3,
+      t.t4[0],
+      t.t4[1],
+      ...t.tHat,
+    );
+    expect(shuffleTranscript(input, out, X, proof, ctx)).toEqual({ d, u, ch });
+  });
+
+  it('follows the context: another seat gives another d, u and ch', () => {
+    const a = shuffleTranscript(input, out, X, proof, ctx);
+    const b = shuffleTranscript(input, out, X, proof, { ...ctx, seat: 2 });
+    expect(b.d).not.toBe(a.d);
+    expect(b.ch).not.toBe(a.ch);
+    expect(b.u.some((x, i) => x === a.u[i])).toBe(false);
+  });
+
+  it('throws on input verifyShuffle would reject as malformed', () => {
+    expect(() => shuffleTranscript(input, out.slice(1), X, proof, ctx)).toThrow(RangeError);
+    expect(() => shuffleTranscript(input, out, ZERO, proof, ctx)).toThrow(RangeError);
+    expect(() => shuffleTranscript(input, out, X, { ...proof, c: proof.c.slice(1) }, ctx)).toThrow(
+      RangeError,
+    );
+    expect(() => shuffleTranscript(input, out, X, proof, { ...ctx, seat: -1 })).toThrow(RangeError);
   });
 });

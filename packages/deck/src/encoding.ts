@@ -124,9 +124,20 @@ function u32be(n: number): Uint8Array {
   return Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
 }
 
+/**
+ * A lone surrogate: a high surrogate not followed by a low one, or a low surrogate not preceded by a high one.
+ * The regex has no `u` flag, so it matches UTF-16 code units (`String.prototype.isWellFormed` is ES2024, past
+ * the `lib` target).
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 function partBytes(p: Part): Uint8Array {
   if (p instanceof Uint8Array) return p;
-  if (typeof p === 'string') return utf8ToBytes(p);
+  if (typeof p === 'string') {
+    // UTF-8 encoding would turn every lone surrogate into U+FFFD, so two different strings would hash alike.
+    if (LONE_SURROGATE.test(p)) throw new RangeError('hs: string is not well-formed UTF-16');
+    return utf8ToBytes(p);
+  }
   if (typeof p === 'bigint') return scalarBytes(p);
   if (typeof p === 'number') {
     if (!Number.isSafeInteger(p)) throw new RangeError('hs: numbers must be safe integers');
@@ -136,7 +147,10 @@ function partBytes(p: Part): Uint8Array {
   return p.is0() ? new Uint8Array(33) : p.toBytes(true);
 }
 
-/** Hash to scalar: SHA-256 over `u32be(len) ‖ bytes` for each part, read big-endian, mod q. */
+/**
+ * Hash to scalar: SHA-256 over `u32be(len) ‖ bytes` for each part, read big-endian, mod q. Throws on a string
+ * that is not well-formed UTF-16, a number that is not a safe integer and a bigint outside [0, q).
+ */
 export function hs(...parts: Part[]): bigint {
   const chunks: Uint8Array[] = [];
   for (const p of parts) {
