@@ -557,7 +557,11 @@ const ROLE: Record<string, string> = {
   minorityTie: 'a share of the minority',
 };
 
-/** One log line per engine event, with seat names and themed chain names. */
+/**
+ * One exact log line per engine event, with seat names and themed chain names. The line carries every count and
+ * amount, so it is never for display about other players: the log goes through `logLines`, which hides what the
+ * viewer may not see (RULES "Assets").
+ */
 export function describeEvent(e: ChainReactionEvent, names: readonly string[]): string {
   const who = (seat: number): string => seatName(names, seat);
   switch (e.type) {
@@ -639,12 +643,24 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
 }
 
 /**
- * A log line about another player's purchase, disposal, bonus or final sale, without counts or amounts (RULES
- * "Assets"). Null for every other event, whose line has nothing to hide. `survivor` is the current merger's
- * surviving chain id, for trades.
+ * The line for an event older than the current and previous turn, without the counts and amounts the viewer may
+ * not see (RULES "Assets"), or null when the exact line hides nothing from them. `survivor` is the current
+ * merger's surviving chain id, for trades.
+ *
+ * Final scoring needs no case: its bonuses and sales happen in the game's last turn, right before it ends, so
+ * they are always within the window or after the game is over.
  */
-function vagueLine(e: ChainReactionEvent, names: readonly string[], survivor: string | null): string | null {
+function olderLine(
+  e: ChainReactionEvent,
+  names: readonly string[],
+  survivor: string | null,
+  mySeat: number | null,
+): string | null {
   const who = (seat: number): string => seatName(names, seat);
+  // The founding line's share total sums every player's holdings, so even the founder gets it without.
+  if (e.type === 'chainFounded')
+    return `${who(e.seat)} founded ${nameOfChainId(e.chain)} with ${plural(e.size, 'tile')}.`;
+  if (!('seat' in e) || e.seat === mySeat) return null;
   switch (e.type) {
     case 'sharesBought': {
       if (e.shares.length === 0) return null;
@@ -669,9 +685,7 @@ function vagueLine(e: ChainReactionEvent, names: readonly string[], survivor: st
       return `${who(e.seat)} ${listText(parts)} of their ${chain} shares.`;
     }
     case 'bonusPaid':
-      return `${who(e.seat)} received a bonus for ${nameOfChainId(e.chain)}${e.final ? ' at final scoring' : ''}.`;
-    case 'finalSale':
-      return `${who(e.seat)} sold their ${nameOfChainId(e.chain)} shares.`;
+      return `${who(e.seat)} received a bonus for ${nameOfChainId(e.chain)}.`;
     default:
       return null;
   }
@@ -698,7 +712,8 @@ function isEvent(e: unknown): e is ChainReactionEvent {
  *
  * Lines about another player's shares and money keep their numbers only for events of the current and the
  * previous turn; older ones say what happened without counts or amounts (RULES "Assets"). The viewer's own
- * lines stay exact, and every line is exact once the game is over. An event belongs to the turn of the last
+ * lines stay exact, except that an older founding line drops its share total for every viewer, since that total
+ * sums every player's holdings. Every line is exact once the game is over. An event belongs to the turn of the last
  * `turnStarted` before it, so a merger's bonuses and disposals belong to the turn that caused the merger.
  */
 export function logLines(events: readonly unknown[], viewer: LogViewer, max = LOG_LINES): string[] {
@@ -712,8 +727,8 @@ export function logLines(events: readonly unknown[], viewer: LogViewer, max = LO
   for (const e of known) {
     if (e.type === 'turnStarted') turn = e.turn;
     if (e.type === 'survivorChosen') survivor = e.chain;
-    const exact = over || turn >= current - 1 || !('seat' in e) || e.seat === mySeat;
-    const line = (exact ? null : vagueLine(e, names, survivor)) ?? describeEvent(e, names);
+    const recent = over || turn >= current - 1;
+    const line = (recent ? null : olderLine(e, names, survivor, mySeat)) ?? describeEvent(e, names);
     if (typeof line === 'string') out.push(line);
   }
   return out.slice(Math.max(0, out.length - max));

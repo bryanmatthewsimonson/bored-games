@@ -561,18 +561,27 @@ describe('logLines', () => {
       );
     });
 
-    it('describes final scoring without amounts', () => {
-      const final = [
+    it("drops a founding line's share total on older turns, for every viewer", () => {
+      // keptShares sums every player's shares of the chain, so it is hidden even from the founder.
+      const founded = [
         turn(1, 0),
-        { type: 'bonusPaid', chain: 'p1', seat: 1, amount: 5000, role: 'sole', final: true },
-        { type: 'finalSale', seat: 1, chain: 'p1', count: 4, amount: 4000 },
+        { type: 'chainFounded', seat: 0, chain: 'p1', size: 2, keptShares: 3 },
         turn(2, 1),
+        { type: 'chainFounded', seat: 1, chain: 'p2', size: 3, keptShares: 4 },
         turn(3, 2),
       ];
-      expect(logLines(final, { mySeat: 2, over: false, names: NAMES }).slice(1, 3)).toEqual([
-        'Bo received a bonus for Sapphire at final scoring.',
-        'Bo sold their Sapphire shares.',
-      ]);
+      for (const mySeat of [null, 0, 1]) {
+        expect(logLines(founded, { mySeat, over: false, names: NAMES })).toEqual([
+          'Turn 1: Ann.',
+          'Ann founded Sapphire with 2 tiles.',
+          'Turn 2: Bo.',
+          'Bo founded Topaz with 3 tiles (4 old shares still held).',
+          'Turn 3: Cy.',
+        ]);
+        expect(logLines(founded, { mySeat, over: true, names: NAMES })[1]).toBe(
+          'Ann founded Sapphire with 2 tiles (3 old shares still held).',
+        );
+      }
     });
   });
 
@@ -590,6 +599,11 @@ describe('logLines', () => {
       if (e.type === 'turnStarted') t = e.turn;
       const line = lines[i] as string;
       const seat = 'seat' in e ? e.seat : null;
+      if (e.type === 'chainFounded' && t < current - 1) {
+        expect(line).toBe(describeEvent(e, NAMES).replace(/ \(\d+ old shares? still held\)/, ''));
+        expect(line).not.toContain('old share');
+        return;
+      }
       if (!AMOUNTS.has(e.type) || t >= current - 1 || seat === mySeat) {
         expect(line).toBe(describeEvent(e, NAMES));
         if (AMOUNTS.has(e.type) && t >= current - 1) seen.recent++;

@@ -2,7 +2,6 @@ export { ChainReactionGame, type ChainReactionGameProps } from './game.tsx';
 export { isLocked, submitUnderLock } from './lock.ts';
 export {
   decisionFor,
-  describeEvent,
   LOG_LINES,
   type LogViewer,
   lastPlacedTile,
