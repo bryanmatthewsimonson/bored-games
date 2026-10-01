@@ -1,4 +1,5 @@
 export { cardOf, cardPoint, cardTable } from './cards.ts';
+export { combine, makeShare, type Share, type ShareCtx, verifyShare } from './dleq.ts';
 export { type Ciphertext, decryptWithSecrets, initialDeck, jointKey, reEncrypt } from './elgamal.ts';
 export {
   b64u,
