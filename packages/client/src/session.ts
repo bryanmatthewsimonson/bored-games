@@ -108,6 +108,22 @@ const MAX_EVENTS = 300;
 /** The Timeout claims kept per signer per head (D030 Ruling 8); more are ignored. */
 const MAX_CLAIMS = 4;
 
+/** The cap on a pooled branch's counted depth, and on how far an insertion's change is passed up the pool. */
+const MAX_DEPTH = 64;
+
+/** Audits kept by log hash, so a trial fold that relinks the same finished chain does not run it again. */
+const MAX_AUDITS = 8;
+
+/** A fork's best side branch, found by trial: its moves (lowest-id first among equals) and whether it ends the game. */
+interface Branch {
+  moves: ParsedMove[];
+  over: boolean;
+}
+
+/** Whether branch `a` beats `b` (D030 Ruling 9): reaching `over` first, then length; ties keep `b`. */
+const beats = (a: { over: boolean; length: number }, b: { over: boolean; length: number }): boolean =>
+  a.over !== b.over ? a.over : a.length > b.length;
+
 /** A move judged as of its prev (D030 R2 as refined by Ruling 3): valid, not known yet, or why it is invalid. */
 type Judged = 'valid' | 'unknown' | { reject: string };
 
@@ -238,6 +254,25 @@ export class GameSession {
   private generation = 0;
   /** The generation each fork point (a prev with side moves) was last examined in. */
   private readonly forkSeen = new Map<Hex, number>();
+  /** Every pooled move by id. */
+  private readonly pooledById = new Map<Hex, ParsedMove>();
+  /**
+   * Per id (a chain move or a pooled one), a counter bumped whenever the pool below it changes, passed up through
+   * pooled ancestors (at most `MAX_DEPTH` steps, and not past a stuck move). A fork's verdict is kept until it moves.
+   */
+  private readonly poolVersion = new Map<Hex, number>();
+  /** Counts changes to the share store from Shares events; whether a move can link depends on it. */
+  private sharesVersion = 0;
+  /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
+  private readonly stuck = new Map<Hex, number>();
+  /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
+  private readonly forkMemo = new Map<Hex, { key: string; ids: Hex[]; over: boolean }>();
+  /** Above zero during trial folds, which skip private learns and the audit. */
+  private trialDepth = 0;
+  /** Above zero while a fork is examined: the pool ends as it started, so its versions are left alone. */
+  private quiet = 0;
+  /** Audit results by log hash. */
+  private readonly auditCache = new Map<Hex, SessionAudit>();
 
   /** Verified deck secrets by seat, each with the earliest `created_at` among its verified copies. */
   private readonly secrets = new Map<number, { x: bigint; at: number }>();
@@ -245,8 +280,11 @@ export class GameSession {
   private readonly secretIds = new Set<Hex>();
   /** The R6 audit, run once every secret is in (phase `done`); `pending` until then. */
   private auditResult: SessionAudit = 'pending';
-  /** Well-formed attestations from seated npubs, by id: the seat and its canonical `{audit, logHash, outcome}`. */
-  private readonly attests = new Map<Hex, { seat: number; content: string }>();
+  /**
+   * Well-formed attestations from seated npubs, by id: the seat, its canonical `{audit, logHash, outcome}` and its
+   * date. Per seat, only the latest one that does not match this session's result is kept.
+   */
+  private readonly attests = new Map<Hex, { seat: number; content: string; at: number }>();
 
   /** The module's events on the canonical chain, the last `MAX_EVENTS`; frozen, replaced on every change. */
   private events: readonly unknown[] = Object.freeze([]);
@@ -455,13 +493,39 @@ export class GameSession {
       this.movesByPrev.set(m.prevId, moves);
     }
     moves.set(m.id, m);
+    this.pooledById.set(m.id, m);
+    this.poolChanged(m.prevId);
   }
 
   private unpool(m: ParsedMove): void {
     const moves = this.movesByPrev.get(m.prevId);
     if (moves === undefined) return;
     moves.delete(m.id);
+    this.pooledById.delete(m.id);
     if (moves.size === 0) this.movesByPrev.delete(m.prevId);
+    this.poolChanged(m.prevId);
+  }
+
+  /**
+   * Note that the pool below `id` changed: bump its version and its pooled ancestors', up to a chain move. A stuck
+   * move stops the walk, since nothing below it can link; so does `MAX_DEPTH`. Trial folds put back what they move,
+   * so they bump nothing.
+   */
+  private poolChanged(id: Hex): void {
+    if (this.quiet > 0) return;
+    let at = id;
+    for (let i = 0; i < MAX_DEPTH; i++) {
+      this.poolVersion.set(at, (this.poolVersion.get(at) ?? 0) + 1);
+      if (this.linked.has(at)) return;
+      const m = this.pooledById.get(at);
+      if (m === undefined || this.isStuck(m.id)) return;
+      at = m.prevId;
+    }
+  }
+
+  /** Whether `id` was found unable to link at its prev with the shares held now. */
+  private isStuck(id: Hex): boolean {
+    return this.stuck.get(id) === this.sharesVersion;
   }
 
   /** Drop an invalid pooled move for good. A prev fixes the move's whole ancestry, so it never becomes valid. */
@@ -551,8 +615,11 @@ export class GameSession {
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated npub' };
     const seen = this.attests.has(a.id);
     const content = canonicalJson({ audit: a.audit, logHash: a.logHash, outcome: a.outcome });
-    if (!seen) this.attests.set(a.id, { seat, content });
     const mine = this.attestContent();
+    if (!seen) {
+      this.attests.set(a.id, { seat, content, at: a.createdAt });
+      if (content !== mine) this.pruneAttests(seat, mine);
+    }
     if (mine === null) return { status: seen ? 'duplicate' : 'stored' };
     if (content !== mine) {
       return { status: 'rejected', reason: "the attestation does not match this session's result" };
@@ -838,6 +905,7 @@ export class GameSession {
     let changed = false;
     for (const { pos, share } of s.shares)
       if (this.shares.add(seat, pos, share, s.createdAt) !== 'none') changed = true;
+    if (changed) this.sharesVersion++;
     return changed ? 'accepted' : 'nothing-new';
   }
 
@@ -881,7 +949,8 @@ export class GameSession {
             progressed = true;
             break;
           }
-          if (r !== 'wait') this.dropMove(m, r.reject);
+          if (r === 'wait') this.stuck.set(m.id, this.sharesVersion);
+          else this.dropMove(m, r.reject);
         }
       }
       if (this.quiesceOnce()) progressed = true;
@@ -916,10 +985,15 @@ export class GameSession {
   /* ------------------------------------------------------------------------------------- fork choice */
 
   /**
-   * Re-choose the chain at every fork point where a side branch could beat the current one (D030 Ruling 5): at a
-   * prev on the chain, the successor heading the longest valid branch wins, ties going to the lowest id. A side
-   * branch is examined only when its pooled depth, an upper bound on its valid length, reaches the chain's length
-   * past that prev. Returns true when the chain changed.
+   * Re-choose the chain at every fork point where a side branch beats the current one (D030 Rulings 5 and 9). At a
+   * prev on the chain, branches rank by whether they reach the module's `over`, then by length in accepted moves,
+   * then by the lowest id: a finished game is never reopened by a branch that does not finish it, however long.
+   * - A fork is examined at most once per `receive`.
+   * - When the chain is over, a side branch whose pooled depth (an upper bound on its valid length) cannot reach
+   *   the chain's length past the prev is skipped without a trial.
+   * - Otherwise the fork's best side branch comes from `sideBest`, which keeps its verdict until the pool below
+   *   the prev or the shares change.
+   * Returns true when the chain changed.
    */
   private resolveForks(): boolean {
     for (let j = 0; j < this.chain.length; j++) {
@@ -927,47 +1001,123 @@ export class GameSession {
       const side = this.movesByPrev.get(prev);
       if (side === undefined || this.forkSeen.get(prev) === this.generation) continue;
       this.forkSeen.set(prev, this.generation);
-      const cur = this.chain.length - j;
+      const cur = { over: this.isOver(), length: this.chain.length - j };
       const top = (this.chain[j] as ParsedMove).id;
-      const depths = new Map<Hex, number>();
-      const contender = [...side.values()].some((m) => {
-        const bound = 1 + this.poolDepth(m.id, depths);
-        return bound > cur || (bound === cur && m.id < top);
-      });
-      if (!contender) continue;
-      const before = this.chain.slice(j).map((m) => m.id);
+      if (cur.over) {
+        const depths = new Map<Hex, number>();
+        const contender = [...side.values()].some((m) => {
+          const bound = 1 + this.poolDepth(m.id, depths);
+          return bound > cur.length || (bound === cur.length && m.id < top);
+        });
+        if (!contender) continue;
+      }
+      const best = this.sideBest(j);
+      const first = best.ids[0];
+      if (first === undefined) continue;
+      const side1 = { over: best.over, length: best.ids.length };
+      if (!(beats(side1, cur) || (!beats(cur, side1) && first < top))) continue;
       this.truncate(j);
-      for (const m of this.bestExtension()) this.tryLink(m);
-      if (canonicalJson(this.chain.slice(j).map((m) => m.id)) !== canonicalJson(before)) return true;
+      this.quiesce();
+      for (const id of best.ids) {
+        const m = this.pooledById.get(id);
+        if (m === undefined || !this.tryLink(m)) break;
+      }
+      return true;
     }
     return false;
   }
 
-  /** The longest chain of pooled moves below `id`, ignoring validity. */
-  private poolDepth(id: Hex, memo: Map<Hex, number>): number {
-    const known = memo.get(id);
-    if (known !== undefined) return known;
-    let out = 0;
-    const kids = this.movesByPrev.get(id);
-    if (kids !== undefined) for (const k of kids.keys()) out = Math.max(out, 1 + this.poolDepth(k, memo));
-    memo.set(id, out);
+  /** Whether the chain has reached the module's `over`. */
+  private isOver(): boolean {
+    return this.phase === 'end' || this.phase === 'done';
+  }
+
+  /**
+   * The best branch at the fork after chain move `j`, other than the chain's own, by trial: cut back to `j`, find
+   * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it or the shares
+   * change, so an event elsewhere does not repeat the trial.
+   */
+  private sideBest(j: number): { ids: Hex[]; over: boolean } {
+    const prev = this.idAt(j);
+    const key = `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}`;
+    const known = this.forkMemo.get(prev);
+    if (known !== undefined && known.key === key) return known;
+    const tail = this.chain.slice(j);
+    const top = (tail[0] as ParsedMove).id;
+    let best: Branch = { moves: [], over: false };
+    this.quiet++;
+    try {
+      this.truncate(j);
+      this.trialDepth++;
+      try {
+        best = this.bestExtension(top);
+      } finally {
+        this.trialDepth--;
+      }
+      // Put the chain back as it was, learns and (cached) audit included; the pool ends as it started.
+      this.quiesce();
+      for (const m of tail) if (!this.tryLink(m)) break;
+    } finally {
+      this.quiet--;
+    }
+    const out = {
+      key: `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}`,
+      ids: best.moves.map((m) => m.id),
+      over: best.over,
+    };
+    this.forkMemo.set(prev, out);
     return out;
   }
 
   /**
-   * The longest valid branch from the head, by trial: link each pooled successor in id order, recurse, and cut
-   * back. Ties keep the lowest id. Leaves the fold at the head it started from.
+   * The longest chain of pooled moves below `id`, ignoring validity, capped at `MAX_DEPTH`. A move known to be
+   * stuck counts, but nothing below it does. Iterative, so a deep pool cannot overflow the stack.
    */
-  private bestExtension(): ParsedMove[] {
+  private poolDepth(id: Hex, memo: Map<Hex, number>): number {
+    const stack: [Hex, boolean][] = [[id, false]];
+    // Ids are hashes, so the pool has no cycles; this guard keeps the walk finite regardless.
+    const open = new Set<Hex>();
+    while (stack.length > 0) {
+      const [at, expanded] = stack.pop() as [Hex, boolean];
+      if (memo.has(at)) continue;
+      const kids = this.isStuck(at) ? undefined : this.movesByPrev.get(at);
+      if (!expanded && kids !== undefined) {
+        if (open.has(at)) continue;
+        open.add(at);
+        stack.push([at, true]);
+        for (const k of kids.keys()) if (!memo.has(k) && !open.has(k)) stack.push([k, false]);
+        continue;
+      }
+      let out = 0;
+      if (kids !== undefined) for (const k of kids.keys()) out = Math.max(out, 1 + (memo.get(k) ?? 0));
+      memo.set(at, Math.min(out, MAX_DEPTH));
+    }
+    return memo.get(id) ?? 0;
+  }
+
+  /**
+   * The best branch from the head, by trial: link each pooled successor in id order (but `exclude`), recurse, and
+   * cut back. Branches rank by reaching `over`, then length; ties keep the lowest id. Leaves the fold at the head
+   * it started from.
+   */
+  private bestExtension(exclude: Hex | null = null): Branch {
     const h = this.chain.length;
+    let best: Branch = { moves: [], over: false };
     const kids = this.movesByPrev.get(this.headId());
-    if (kids === undefined) return [];
-    let best: ParsedMove[] = [];
+    if (kids === undefined) return best;
     for (const k of byId(kids.values())) {
-      if (!this.tryLink(k)) continue;
-      const branch = [k, ...this.bestExtension()];
+      if (k.id === exclude || !this.tryLink(k)) continue;
+      const sub = this.bestExtension();
+      const branch = { moves: [k, ...sub.moves], over: sub.moves.length > 0 ? sub.over : this.isOver() };
       this.truncate(h);
-      if (branch.length > best.length) best = branch;
+      if (
+        beats(
+          { over: branch.over, length: branch.moves.length },
+          { over: best.over, length: best.moves.length },
+        )
+      ) {
+        best = branch;
+      }
     }
     return best;
   }
@@ -979,7 +1129,8 @@ export class GameSession {
       this.quiesce();
       return true;
     }
-    if (r !== 'wait') this.dropMove(m, r.reject);
+    if (r === 'wait') this.stuck.set(m.id, this.sharesVersion);
+    else this.dropMove(m, r.reject);
     return false;
   }
 
@@ -1007,6 +1158,7 @@ export class GameSession {
     this.shares = new ShareStore(this.seats);
     if (this.finalDeck() === null) {
       // The shares were checked against a final deck that is gone: they all wait again, as if never folded.
+      if (this.sharesSeen.size > 0) this.sharesVersion++;
       for (const [id, s] of this.sharesSeen) this.waitingShares.set(id, s);
       this.sharesSeen.clear();
       for (const [id, s] of this.badShares) {
@@ -1099,13 +1251,26 @@ export class GameSession {
       this.phase = 'end';
       progressed = true;
     }
+    // Trial folds only need validity and length: no audit and no private learns.
+    if (this.trialDepth > 0) return progressed;
     if (this.phase === 'end' && this.secrets.size === this.seats) {
-      this.auditResult = this.runAudit();
+      this.auditResult = this.cachedAudit();
       this.phase = 'done';
       progressed = true;
     }
     if (this.learnPrivate()) progressed = true;
     return progressed;
+  }
+
+  /** The R6 audit for the chain as it stands, run once per log hash. */
+  private cachedAudit(): SessionAudit {
+    const key = this.logHash();
+    const known = this.auditCache.get(key);
+    if (known !== undefined) return known;
+    const audit = this.runAudit();
+    if (this.auditCache.size >= MAX_AUDITS) this.auditCache.clear();
+    this.auditCache.set(key, audit);
+    return audit;
   }
 
   /** The R6 audit over this session's log, with every seat's verified secret. */
@@ -1353,6 +1518,28 @@ export class GameSession {
     const { phase, outcome, audit } = this.status();
     if (phase !== 'done' || outcome === null || audit === 'pending') return null;
     return canonicalJson({ audit, logHash: this.logHash(), outcome });
+  }
+
+  /**
+   * Keep only `seat`'s latest attestation (by date, then lowest id) among those that do not match `mine`, this
+   * session's current result (all of them before there is one). The result can change as events arrive, so a
+   * mismatching attestation is kept rather than dropped, but a seat cannot pile them up.
+   */
+  private pruneAttests(seat: number, mine: string | null): void {
+    let keep: Hex | null = null;
+    let keepAt = 0;
+    const stale: Hex[] = [];
+    for (const [id, a] of this.attests) {
+      if (a.seat !== seat || a.content === mine) continue;
+      if (keep === null || a.at > keepAt || (a.at === keepAt && id < keep)) {
+        if (keep !== null) stale.push(keep);
+        keep = id;
+        keepAt = a.at;
+      } else {
+        stale.push(id);
+      }
+    }
+    for (const id of stale) this.attests.delete(id);
   }
 
   /** The seats with an attestation that matches this session's result, ascending. */

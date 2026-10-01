@@ -14,7 +14,7 @@ import { rankWithForfeits } from '../src/audit.ts';
 import { ClientError } from '../src/errors.ts';
 import { GameSession } from '../src/session.ts';
 import type { Identity, SessionView } from '../src/types.ts';
-import { forgeAction, lenientSkips } from './cheat.ts';
+import { forgeAction, lenientDiscards, lenientSkips } from './cheat.ts';
 import { deliver, makeGame, newSession, playShuffle, statuses, T0, type TestGame } from './helpers.ts';
 
 const SEATS = 3;
@@ -354,5 +354,64 @@ describe('end of game: a cheater forges a skipPlace', () => {
       expect(v.outcome?.places[cheater]).toBe(SEATS);
     }
     expect(new Set(played.atDone.map((v) => canonicalJson([v.outcome, v.audit, v.logHash]))).size).toBe(1);
+  });
+});
+
+describe('end of game: a cheater keeps a dead tile', () => {
+  // Chains are safe from 2 tiles, so a tile between two chains is soon dead.
+  const game = makeGame(SEATS, 'client-end-dead', { ...chainReaction.defaultRules(), safeSize: 2 });
+  type EndTurn = Action & { discard: unknown[] };
+  let cheater = -1;
+  let forgedAt = -1;
+  let deadThen: unknown[] = [];
+  let played: Played;
+
+  beforeAll(() => {
+    // Each seat's own client would let its own undeclared dead tile through; only one seat cheats.
+    const players = [0, 1, 2].map((seat) =>
+      GameSession.create({
+        modules: new Map([[chainReaction.id, lenientDiscards(seat)]]),
+        table: game.table,
+        joins: game.joins,
+        root: game.root,
+        me: game.ids[seat] as Identity,
+      }),
+    );
+    const spectator = newSession(game, null);
+    const rng = createRng('client-end-dead-policy');
+    played = playToEnd(game, players, [spectator], 'client-end-dead-end', {
+      // Nobody declares the end until the first seat that must discard a dead tile keeps it instead.
+      forge(i, s) {
+        if (cheater >= 0) return null;
+        if (i > 400) throw new Error('no dead tile came up');
+        const legal = s.legalActions() as EndTurn[];
+        const end = legal.find((a) => a.type === 'endTurn' && a.declareEnd !== true);
+        if (end !== undefined && end.discard.length > 0) {
+          cheater = s.view().mySeat as number;
+          forgedAt = i;
+          deadThen = end.discard;
+          return forgeAction(s, { ...end, discard: [] }, game.rnd, T0 + 5000 + i);
+        }
+        const calm = legal.filter((a) => a.declareEnd !== true);
+        return s.buildAction(rng.pick(calm.length > 0 ? calm : legal), game.rnd, T0 + 5000 + i);
+      },
+    });
+  }, LONG);
+
+  it('is accepted by every session, since hands are hidden, and caught by the audit', () => {
+    expect(cheater).toBeGreaterThanOrEqual(0);
+    expect(deadThen.length).toBeGreaterThan(0);
+    expect(played.agreed.every(Boolean)).toBe(true);
+    const ref = played.atDone[played.atDone.length - 1] as SessionView;
+    const declared = chainReaction.outcome(ref.state as ChainReactionState);
+    for (const v of played.atDone) {
+      expect(v.phase).toBe('done');
+      expect(v.audit).toEqual({
+        fail: [cheater],
+        reason: `move ${SEATS + 1 + forgedAt} by seat ${cheater} fails: discard: every dead tile held must be discarded`,
+      });
+      expect(v.forfeits).toEqual([cheater]);
+      expect(v.outcome).toEqual(rankWithForfeits(declared?.scores ?? [], [cheater], declared?.places ?? []));
+    }
   });
 });

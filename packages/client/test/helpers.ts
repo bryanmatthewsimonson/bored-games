@@ -37,6 +37,8 @@ export const T0 = 1_700_000_000;
 /** A local clock reading well after every test event. */
 export const NOW = T0 + 100_000;
 export const RELAYS = ['wss://relay.example.com'];
+/** A local clock reading past every deadline in the tests. */
+export const LATE = T0 + 10_000_000;
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 export const MODULES: ReadonlyMap<string, GameModule<any, any, any>> = new Map([
@@ -166,4 +168,53 @@ export function playShuffle(
     steps.push(ev);
   }
   return steps;
+}
+
+/*
+ * Shuffle proofs take about a second each to verify, and they are covered in shuffle-phase.test.ts. `trust` marks
+ * published steps as already verified in each session that receives them (a test-only shortcut through a private
+ * field), so a fresh session can catch up on a game cheaply.
+ */
+export function trust(sessions: readonly GameSession[], events: readonly NostrEvent[]): void {
+  for (const s of sessions) {
+    const checked = (s as unknown as { shuffleChecked: Map<Hex, boolean> }).shuffleChecked;
+    for (const ev of events) checked.set(ev.id, true);
+  }
+}
+
+/** Each seat builds its shuffle step in turn; every step goes to every session. Returns the steps. */
+export function shuffleAll(
+  game: TestGame,
+  players: readonly GameSession[],
+  others: readonly GameSession[] = [],
+): NostrEvent[] {
+  const steps: NostrEvent[] = [];
+  for (const [k, s] of players.entries()) {
+    const ev = s.buildShuffle(game.rnd, T0 + 100 + k);
+    trust([...players, ...others], [ev]);
+    deliver([...players, ...others], [ev]);
+    steps.push(ev);
+  }
+  return steps;
+}
+
+/** A fresh session for `seat` (null: a spectator) that has accepted every one of `events`. */
+export function catchUp(
+  game: TestGame,
+  seat: number | null,
+  events: readonly NostrEvent[],
+  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
+  modules: ReadonlyMap<string, GameModule<any, any, any>> = game.modules,
+): GameSession {
+  const s = GameSession.create({
+    modules,
+    table: game.table,
+    joins: game.joins,
+    root: game.root,
+    me: seat === null ? null : (game.ids[seat] as Identity),
+  });
+  trust([s], events);
+  const results = statuses(deliver([s], events, undefined, LATE));
+  if (results.some((r) => r !== 'accepted')) throw new Error(`catch-up: ${results.join(', ')}`);
+  return s;
 }

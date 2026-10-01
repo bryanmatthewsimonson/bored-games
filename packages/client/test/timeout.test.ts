@@ -15,7 +15,18 @@ import { rankWithForfeits } from '../src/audit.ts';
 import { ClientError } from '../src/errors.ts';
 import { GameSession } from '../src/session.ts';
 import type { Identity, SessionView } from '../src/types.ts';
-import { deliver, makeGame, newSession, statuses, T0, type TestGame } from './helpers.ts';
+import {
+  catchUp,
+  deliver,
+  LATE,
+  makeGame,
+  newSession,
+  shuffleAll,
+  statuses,
+  T0,
+  type TestGame,
+  trust,
+} from './helpers.ts';
 
 const SEATS = 3;
 const HAND = 6;
@@ -24,56 +35,9 @@ const DECK = 108;
 const D = 259_200;
 /** The root's `created_at` (see `makeGame`), the first baseline of the deadline. */
 const ROOT_AT = T0 + 10;
-/** A local clock reading past every deadline in these tests. */
-const LATE = T0 + 10_000_000;
 const LONG = 600_000;
 
 type Action = { type: string; actor: number; declareEnd?: boolean };
-
-/*
- * Shuffle proofs take about a second each to verify, and they are covered in shuffle-phase.test.ts. These tests
- * mark the steps they publish as already verified in each session that receives them (a test-only shortcut
- * through a private field), so a fresh session can catch up on a game cheaply.
- */
-function trust(sessions: readonly GameSession[], events: readonly NostrEvent[]): void {
-  for (const s of sessions) {
-    const checked = (s as unknown as { shuffleChecked: Map<Hex, boolean> }).shuffleChecked;
-    for (const ev of events) checked.set(ev.id, true);
-  }
-}
-
-/** Each seat builds its shuffle step in turn; every step goes to every session. Returns the steps. */
-function shuffleAll(game: TestGame, players: readonly GameSession[], others: readonly GameSession[] = []) {
-  const steps: NostrEvent[] = [];
-  for (const [k, s] of players.entries()) {
-    const ev = s.buildShuffle(game.rnd, T0 + 100 + k);
-    trust([...players, ...others], [ev]);
-    deliver([...players, ...others], [ev]);
-    steps.push(ev);
-  }
-  return steps;
-}
-
-/** A fresh session for `seat` (null: a spectator) that has accepted every one of `events`. */
-function catchUp(
-  game: TestGame,
-  seat: number | null,
-  events: readonly NostrEvent[],
-  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
-  modules: ReadonlyMap<string, GameModule<any, any, any>> = game.modules,
-): GameSession {
-  const s = GameSession.create({
-    modules,
-    table: game.table,
-    joins: game.joins,
-    root: game.root,
-    me: seat === null ? null : (game.ids[seat] as Identity),
-  });
-  trust([s], events);
-  const results = statuses(deliver([s], events, undefined, LATE));
-  if (results.some((r) => r !== 'accepted')) throw new Error(`catch-up: ${results.join(', ')}`);
-  return s;
-}
 
 /** A Timeout claim by seat `by` against `seat` at head `headId`, built by hand. */
 function claim(game: TestGame, by: number, seat: number, headId: Hex, createdAt: number): NostrEvent {

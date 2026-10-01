@@ -64,6 +64,19 @@ export function forgeAction(
   return finalizeEvent(t, me.sessionSk, rnd);
 }
 
+/** `s` with `seat`'s hand replaced by `hand`. */
+function withHand(s: ChainReactionState, seat: number, hand: readonly HandSlot[]): ChainReactionState {
+  return { ...s, players: s.players.map((p, k) => (k === seat ? { ...p, hand } : p)) };
+}
+
+/** `seat`'s hand in `s` with every tile hidden, as the other seats see it. */
+const masked = (s: ChainReactionState, seat: number): ChainReactionState =>
+  withHand(
+    s,
+    seat,
+    (s.players[seat]?.hand ?? []).map((h) => ({ ...h, tile: null })),
+  );
+
 /**
  * Chain Reaction as the cheating seat's own client runs it, so that client keeps playing after its forged
  * `skipPlace`: in view mode, `seat`'s skipPlace is judged as the other seats judge it, with the seat's hand
@@ -72,10 +85,6 @@ export function forgeAction(
 export function lenientSkips(
   seat: number,
 ): GameModule<ChainReactionState, ChainReactionEvent, ChainReactionRules> {
-  const withHand = (s: ChainReactionState, hand: readonly HandSlot[]): ChainReactionState => ({
-    ...s,
-    players: s.players.map((p, k) => (k === seat ? { ...p, hand } : p)),
-  });
   return {
     ...chainReaction,
     apply(state, action) {
@@ -84,14 +93,43 @@ export function lenientSkips(
         return chainReaction.apply(state, action);
       }
       const hand = state.players[seat]?.hand ?? [];
-      const r = chainReaction.apply(
-        withHand(
-          state,
-          hand.map((h) => ({ ...h, tile: null })),
-        ),
-        action,
-      );
-      return r.ok ? { ...r, state: withHand(r.state, hand) } : r;
+      const r = chainReaction.apply(masked(state, seat), action);
+      return r.ok ? { ...r, state: withHand(r.state, seat, hand) } : r;
+    },
+  };
+}
+
+/**
+ * Chain Reaction as the cheating seat's own client runs it, so that client keeps playing after an `endTurn` that
+ * keeps a dead tile: in view mode, when the real engine refuses `seat`'s endTurn for its discards, it is judged
+ * with the seat's hand hidden, as the other seats judge it, and the known tiles are put back by position. Other
+ * actions, and full mode (the audit), use the real engine.
+ */
+export function lenientDiscards(
+  seat: number,
+): GameModule<ChainReactionState, ChainReactionEvent, ChainReactionRules> {
+  return {
+    ...chainReaction,
+    apply(state, action) {
+      const r = chainReaction.apply(state, action);
+      const a = action as { type?: unknown; actor?: unknown } | null;
+      if (
+        r.ok ||
+        r.error.code !== 'discard' ||
+        state.mode !== 'view' ||
+        a?.type !== 'endTurn' ||
+        a.actor !== seat
+      ) {
+        return r;
+      }
+      const known = new Map((state.players[seat]?.hand ?? []).map((h) => [h.pos, h.tile]));
+      const m = chainReaction.apply(masked(state, seat), action);
+      if (!m.ok) return m;
+      const hand = (m.state.players[seat]?.hand ?? []).map((h) => ({
+        ...h,
+        tile: known.get(h.pos) ?? h.tile,
+      }));
+      return { ...m, state: withHand(m.state, seat, hand) };
     },
   };
 }
