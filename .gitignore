@@ -11,3 +11,7 @@ fuzz-failures/
 
 # Superpowers SDD workspaces (local scratch)
 .superpowers/
+
+# Playwright output
+apps/web/test-results/
+apps/web/playwright-report/
