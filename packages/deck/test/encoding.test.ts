@@ -83,6 +83,25 @@ describe('b64u', () => {
   });
 });
 
+describe('non-string inputs', () => {
+  const NON_STRINGS: unknown[] = [5, null, undefined, {}, [], true, 5n, new Uint8Array(44), ['AAAA']];
+
+  it('b64u.decode rejects non-strings', () => {
+    for (const v of NON_STRINGS) expect(() => b64u.decode(v as string), String(v)).toThrow();
+  });
+
+  it('decodePoint rejects non-strings', () => {
+    for (const v of NON_STRINGS) expect(() => decodePoint(v as string), String(v)).toThrow();
+    // A String object has length 44 and the right characters but is not a primitive string.
+    expect(() => decodePoint(new String(encodePoint(G)) as string)).toThrow();
+  });
+
+  it('decodeScalar rejects non-strings', () => {
+    for (const v of NON_STRINGS) expect(() => decodeScalar(v as string), String(v)).toThrow();
+    expect(() => decodeScalar(new String(encodeScalar(5n)) as string)).toThrow();
+  });
+});
+
 describe('point codec', () => {
   it('decodePoint(encodePoint(G·k)) equals G·k', () => {
     fc.assert(
@@ -123,6 +142,15 @@ describe('point codec', () => {
       expect(() => decodePoint(b64u.encode(bytes))).toThrow();
     }
     expect(found).toBe(3);
+  });
+
+  it('rejects x >= p', () => {
+    expect(() => decodePoint(b64u.encode(Uint8Array.of(2, ...new Uint8Array(32).fill(0xff))))).toThrow();
+    expect(() => decodePoint(b64u.encode(Uint8Array.of(3, ...new Uint8Array(32).fill(0xff))))).toThrow();
+    const p = Point.Fp.ORDER;
+    expect(() => decodePoint(b64u.encode(Uint8Array.of(2, ...be32(p))))).toThrow();
+    // x = p + 4 is congruent to x = 4 (on the curve), but is not a canonical encoding.
+    expect(() => decodePoint(b64u.encode(Uint8Array.of(2, ...be32(p + 4n))))).toThrow();
   });
 
   it('rejects wrong lengths and non-canonical text', () => {
