@@ -116,7 +116,10 @@ const MAX_CLAIMS = 4;
 /** The Timeout claims kept per signer that name a head not on the chain; more are rejected until some link. */
 const MAX_UNKNOWN_CLAIMS = 8;
 
-/** Rival shuffle steps verified per (prev, signer) for equivocation; further ones are ignored. */
+/**
+ * Rival shuffle steps kept per (prev, signer): the lowest ids among those other than the chain's own step. Only
+ * these are verified; the others are ignored, whatever the arrival order.
+ */
 const MAX_RIVAL_SHUFFLES = 3;
 
 /** The cap on a pooled branch's counted depth, and on how far an insertion's change is passed up the pool. */
@@ -306,8 +309,6 @@ export class GameSession {
   private trials = 0;
   /** Side moves at a prev below the head found `unknown` there, by the `sharesVersion` they were judged at. */
   private readonly sideUnknown = new Map<Hex, number>();
-  /** Rival shuffle steps verified for equivocation, by `prev:signer` (at most `MAX_RIVAL_SHUFFLES`). */
-  private readonly rivalShuffles = new Map<string, number>();
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
   private readonly stuck = new Map<Hex, number>();
   /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
@@ -550,8 +551,12 @@ export class GameSession {
     if (m.prevId !== this.headId() && this.linked.has(m.prevId)) {
       // A side branch on an older prev: if it is invalid there, it never will be valid.
       const v = this.validAtPrev(m, seat);
-      if (typeof v === 'object') return this.rejectEvent(m.id, v.reject);
-      if (v === 'ignored') return this.rejectEvent(m.id, 'too many rival shuffle steps');
+      if (typeof v === 'object' || v === 'ignored') {
+        const r = this.rejectEvent(m.id, v === 'ignored' ? 'too many rival shuffle steps' : v.reject);
+        // A lower-id rival shuffle step may push a kept one out: judge the side moves and flags again.
+        if (m.content.type === 'shuffle') this.settle();
+        return r;
+      }
     }
     const flagged = this.flagged.join();
     this.pool(m);
@@ -1071,7 +1076,9 @@ export class GameSession {
       const side = this.movesByPrev.get(this.idAt(j));
       if (side === undefined) continue;
       for (const m of byId(side.values())) {
-        if (this.validity.get(m.id) === true || this.sideUnknown.get(m.id) === this.sharesVersion) continue;
+        // A valid shuffle step is checked again: a lower-id rival may have pushed it out of the kept ones.
+        const valid = this.validity.get(m.id) === true && m.content.type !== 'shuffle';
+        if (valid || this.sideUnknown.get(m.id) === this.sharesVersion) continue;
         const v = this.validAtPrev(m, this.seatOf.get(m.pubkey) as number);
         if (typeof v === 'object') this.dropMove(m, v.reject);
         else if (v === 'ignored') this.dropMove(m, 'too many rival shuffle steps');
@@ -1329,7 +1336,7 @@ export class GameSession {
   /**
    * The seats with two distinct moves on one (prev, seq), the prev on the chain, both valid as of that prev on
    * everything but R1 (D030 R2 as refined by Ruling 3). An invalid move never counts, nor does a rival shuffle step
-   * past the verification budget (`MAX_RIVAL_SHUFFLES`) that was never verified. Ascending.
+   * outside the `MAX_RIVAL_SHUFFLES` lowest ids (`shuffleKept`). Ascending.
    */
   private equivocators(): number[] {
     const out = new Set<number>();
@@ -1346,10 +1353,11 @@ export class GameSession {
   }
 
   /**
-   * `m` judged as of its prev; definite judgements are kept. A shuffle step not verified yet is verified only
-   * while its (prev, signer) has verification budget left (`MAX_RIVAL_SHUFFLES`), else it is `ignored`.
+   * `m` judged as of its prev; definite judgements are kept. A rival shuffle step outside the kept ones
+   * (`shuffleKept`) is `ignored`, whatever was found before: it is neither verified nor counted.
    */
   private validAtPrev(m: ParsedMove, seat: number): Judged | 'ignored' {
+    if (!this.shuffleKept(m, seat)) return 'ignored';
     const cached = this.validity.get(m.id);
     if (cached === true) return 'valid';
     if (cached !== undefined) return reject(cached);
@@ -1357,6 +1365,22 @@ export class GameSession {
     if (v === 'valid') this.validity.set(m.id, true);
     else if (typeof v === 'object') this.validity.set(m.id, v.reject);
     return v;
+  }
+
+  /**
+   * Whether `m` is the chain's own shuffle step at its (prev, seq), or one of the `MAX_RIVAL_SHUFFLES` lowest-id
+   * rivals to it from the same signer. The kept set depends only on the ids held, not on their arrival order, so
+   * every client verifies and counts the same rivals. True for any other move, and for a prev not on the chain.
+   */
+  private shuffleKept(m: ParsedMove, seat: number): boolean {
+    if (m.content.type !== 'shuffle' || m.seq > this.chain.length) return true;
+    if (this.idAt(m.seq - 1) !== m.prevId) return true;
+    const own = (this.chain[m.seq - 1] as ParsedMove).id;
+    if (m.id === own) return true;
+    const group = this.candidates.get(`${m.prevId}:${m.seq}:${seat}`);
+    let lower = 0;
+    for (const id of group?.keys() ?? []) if (id !== own && id < m.id) lower++;
+    return lower < MAX_RIVAL_SHUFFLES;
   }
 
   /** Judge a move against the chain's state at its prev, which must be the chain's move at `seq − 1`. */
@@ -1370,12 +1394,6 @@ export class GameSession {
     }
     const c = m.content;
     if (c.type === 'shuffle') {
-      if (!this.shuffleChecked.has(m.id)) {
-        const budget = `${m.prevId}:${seat}`;
-        const used = this.rivalShuffles.get(budget) ?? 0;
-        if (used >= MAX_RIVAL_SHUFFLES) return 'ignored';
-        this.rivalShuffles.set(budget, used + 1);
-      }
       return this.shuffleVerifies(m.id, at, c.deck, c.proof)
         ? 'valid'
         : reject('the shuffle proof does not verify');

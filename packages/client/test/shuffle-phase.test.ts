@@ -160,43 +160,65 @@ describe('shuffle phase', () => {
     expect(s.receive({ ...forged, content: 'not json' }, NOW)).toEqual({ status: 'rejected', reason });
   });
 
-  it('verifies at most 3 rival shuffle steps per prev and signer; further ones are ignored', () => {
+  /** A junk rival to seat 1's step: another step's deck with seat 1's proof, so it never verifies. */
+  const junk = (i: number): NostrEvent => {
+    const t = moveTemplate(
+      {
+        rootId: game.rootId,
+        prevId: steps[0]?.id as string,
+        seq: 2,
+        content: {
+          type: 'shuffle',
+          deck: (contentOf(steps[2] as NostrEvent) as Shuffle).deck,
+          proof: (contentOf(steps[1] as NostrEvent) as Shuffle).proof,
+        },
+      },
+      T0 + 600 + i,
+    );
+    return finalizeEvent(t, game.ids[1]?.sessionSk as Uint8Array, game.rnd);
+  };
+  const byId = (evs: NostrEvent[]): NostrEvent[] => [...evs].sort((a, b) => (a.id < b.id ? -1 : 1));
+
+  it('verifies only the 3 lowest-id rival shuffle steps per prev and signer; the others are ignored', () => {
     const fresh = newSession(game, null);
     trust([fresh], steps);
     expect(statuses(deliver([fresh], steps))).toEqual(['accepted', 'accepted', 'accepted']);
-    // Junk rivals to seat 1's step: another step's deck with seat 1's proof, so none verifies.
-    const junk = (i: number): NostrEvent => {
-      const t = moveTemplate(
-        {
-          rootId: game.rootId,
-          prevId: steps[0]?.id as string,
-          seq: 2,
-          content: {
-            type: 'shuffle',
-            deck: (contentOf(steps[2] as NostrEvent) as Shuffle).deck,
-            proof: (contentOf(steps[1] as NostrEvent) as Shuffle).proof,
-          },
-        },
-        T0 + 600 + i,
-      );
-      return finalizeEvent(t, game.ids[1]?.sessionSk as Uint8Array, game.rnd);
-    };
-    const five = [0, 1, 2, 3, 4].map(junk);
+    const five = byId([0, 1, 2, 3, 4].map(junk));
     const checked = (fresh as unknown as { shuffleChecked: Map<string, boolean> }).shuffleChecked;
-    expect(statuses(deliver([fresh], five))).toEqual([
-      'rejected',
-      'rejected',
-      'rejected',
-      'rejected',
-      'rejected',
-    ]);
+    const results = deliver([fresh], five).map(([r]) => (r?.status === 'rejected' ? r.reason : r?.status));
+    const bad = 'the shuffle proof does not verify';
+    const ignored = 'too many rival shuffle steps';
+    expect(results).toEqual([bad, bad, bad, ignored, ignored]);
     expect(five.filter((ev) => checked.has(ev.id))).toHaveLength(3);
-    expect(fresh.receive(five[4], NOW)).toEqual({
-      status: 'rejected',
-      reason: 'too many rival shuffle steps',
-    });
     expect(fresh.view().equivocators).toEqual([]);
     expect(fresh.view().head).toEqual(spectator.view().head);
+  });
+
+  it('keeps the same rival shuffle steps whatever the arrival order: 3 lower-id junk rivals hide a valid one', () => {
+    const seat1 = newSession(game, 1);
+    trust([seat1], [steps[0] as NostrEvent]);
+    expect(statuses(deliver([seat1], [steps[0]]))).toEqual(['accepted']);
+    // A valid rival to seat 1's step, and 3 junk rivals with lower ids.
+    const valid = seat1.buildShuffle(game.rnd, T0 + 700);
+    const low: NostrEvent[] = [];
+    for (let i = 0; low.length < 3 && i < 5000; i++) {
+      const j = junk(100 + i);
+      if (j.id < valid.id) low.push(j);
+    }
+    expect(low).toHaveLength(3);
+    const views = [
+      [...low, valid],
+      [valid, ...low],
+    ].map((rivals) => {
+      const s = newSession(game, null);
+      trust([s], steps);
+      deliver([s], [...steps, ...rivals]);
+      return s.view();
+    });
+    // The valid rival is the 4th lowest: no client counts it, so none flags seat 1 (an equivocator that grinds
+    // low ids hides its own rival, on every client alike).
+    expect(views[0]?.equivocators).toEqual([]);
+    expect(views[1]).toEqual(views[0]);
   });
 
   it('rejects an event for another root', () => {
