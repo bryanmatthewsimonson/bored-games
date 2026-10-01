@@ -1,16 +1,22 @@
 import {
   type Ciphertext,
+  cardTable,
+  decryptPosition,
   G,
   initialDeck,
   jointKey,
+  makeShare,
+  ownShare,
   type Point,
   proveShuffle,
   type RandomBytes,
+  type ShareCtx,
   type ShuffleCtx,
   shuffleDeck,
+  verifyShare,
   verifyShuffle,
 } from '@bored-games/deck';
-import { deepFreeze, type GameModule, type Pending } from '@bored-games/game-kit';
+import { deepFreeze, type GameModule, type Pending, type RevealAction } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   getPublicKey,
@@ -22,14 +28,18 @@ import {
   type ParsedJoin,
   type ParsedMove,
   type ParsedRoot,
+  type ParsedShares,
   ProtocolError,
   parseJoin,
   parseMove,
   parseRoot,
+  parseShares,
   parseTable,
+  sharesTemplate,
   validateRoot,
 } from '@bored-games/protocol';
 import { ClientError } from './errors.ts';
+import { ShareStore } from './shares.ts';
 import type { Duty, Identity, Phase, ReceiveResult, SessionInput, SessionView } from './types.ts';
 
 /*
@@ -43,6 +53,12 @@ type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 
 /** The outcome of trying to fold one event: folded, not yet (keep it pooled), or a rejection reason. */
 type Fold = 'accepted' | 'wait' | { reject: string };
+
+/** One entry of the interleaved action log: a seat's game action or a derived reveal, in fold order (D030 R6). */
+export interface LoggedAction {
+  actor: number | 'deck';
+  action: unknown;
+}
 
 const reject = (reason: string): Fold => ({ reject: reason });
 
@@ -81,6 +97,8 @@ export class GameSession {
   private readonly X: Point;
   private readonly seatOf: ReadonlyMap<Hex, number>;
   private readonly me: Identity | null;
+  /** Card points to card indices for the deck. */
+  private readonly cards: ReadonlyMap<string, number>;
 
   private phase: Phase = 'shuffle';
   /** Accepted moves in `seq` order. */
@@ -94,9 +112,18 @@ export class GameSession {
   /** The module state (frozen), set up in view mode once the shuffle is complete. */
   private state: unknown = null;
   private pendingSince: number;
+  private readonly shares: ShareStore;
+  /** Ids of Shares events folded in (including those that added nothing new). */
+  private readonly sharesSeen = new Set<Hex>();
+  /** My positions already decrypted (or found undecryptable), so each is tried once. */
+  private readonly learned = new Set<number>();
+  /** Game actions and derived reveals in the order the fold applied them (D030 R6). */
+  private readonly actionLog: LoggedAction[] = [];
 
   /** Moves that wait for their `prev` to become the head, keyed by `prev`. */
   private readonly movesByPrev = new Map<Hex, Map<Hex, ParsedMove>>();
+  /** Shares events that wait for the final deck. */
+  private readonly waitingShares = new Map<Hex, ParsedShares>();
   private readonly rejected = new Map<Hex, string>();
 
   private constructor(input: SessionInput, root: ParsedRoot, module: AnyModule, rules: unknown) {
@@ -114,6 +141,8 @@ export class GameSession {
     this.seatOf = new Map(root.seats.map((s, i) => [s.session, i]));
     this.me = input.me === null ? null : { ...input.me, sessionSk: input.me.sessionSk.slice() };
     this.decks = [initialDeck(this.deckId, this.deckSize)];
+    this.cards = cardTable(this.deckId, this.deckSize);
+    this.shares = new ShareStore(this.seats);
     this.linked.add(root.id);
     this.pendingSince = 0;
   }
@@ -181,29 +210,32 @@ export class GameSession {
 
   /** Re-check time-dependent claims against the local clock. */
   tick(_now: number): void {
-    // Nothing in the shuffle phase depends on the clock.
+    // Nothing folded so far depends on the clock; timeout claims will.
   }
 
   private intake(ev: unknown, _now: number): ReceiveResult {
     const kind = kindOf(ev);
-    let parsed: ParsedMove;
+    let parsed: { kind: 'move'; m: ParsedMove } | { kind: 'shares'; s: ParsedShares };
     try {
-      if (kind === KIND.move) parsed = parseMove(ev, this.deckSize);
+      if (kind === KIND.move) parsed = { kind: 'move', m: parseMove(ev, this.deckSize) };
+      else if (kind === KIND.shares) parsed = { kind: 'shares', s: parseShares(ev) };
       else return { status: 'rejected', reason: `kind ${String(kind)} is not an in-game event` };
     } catch (e) {
       return { status: 'rejected', reason: message(e) };
     }
-    if (parsed.rootId !== this.root.id)
-      return { status: 'rejected', reason: 'the event is for another game' };
-    const seat = this.seatOf.get(parsed.pubkey);
+    const p = parsed.kind === 'move' ? parsed.m : parsed.s;
+    if (p.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
+    const seat = this.seatOf.get(p.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
-    if (this.linked.has(parsed.id) || this.isPooled(parsed.id)) return { status: 'duplicate' };
-    const known = this.rejected.get(parsed.id);
+    if (this.isKnown(p.id)) return { status: 'duplicate' };
+    const known = this.rejected.get(p.id);
     if (known !== undefined) return { status: 'rejected', reason: known };
-    return this.intakeMove(parsed, seat);
+    return parsed.kind === 'move' ? this.intakeMove(parsed.m, seat) : this.intakeShares(parsed.s, seat);
   }
 
-  private isPooled(id: Hex): boolean {
+  /** Whether the event was folded in or is pooled. */
+  private isKnown(id: Hex): boolean {
+    if (this.linked.has(id) || this.sharesSeen.has(id) || this.waitingShares.has(id)) return true;
     for (const moves of this.movesByPrev.values()) if (moves.has(id)) return true;
     return false;
   }
@@ -251,6 +283,21 @@ export class GameSession {
       this.movesByPrev.set(m.prevId, moves);
     }
     moves.set(m.id, m);
+  }
+
+  private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
+    for (const { pos } of s.shares) {
+      if (pos >= this.deckSize) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
+    }
+    const r = this.foldShares(s, seat);
+    if (r === 'wait') {
+      this.waitingShares.set(s.id, s);
+      return { status: 'stored' };
+    }
+    if (typeof r === 'object') return this.rejectEvent(s.id, r.reject);
+    if (r === 'nothing-new') return { status: 'duplicate' };
+    this.settle();
+    return { status: 'accepted' };
   }
 
   /* --------------------------------------------------------------------------------------------- fold */
@@ -307,6 +354,35 @@ export class GameSession {
     }
   }
 
+  private finalDeck(): Ciphertext[] | null {
+    return this.decks.length > this.seats ? (this.decks[this.seats] as Ciphertext[]) : null;
+  }
+
+  private shareCtx(pos: number): ShareCtx {
+    return { rootId: this.root.id, deckId: this.deckId, pos };
+  }
+
+  /**
+   * Fold a Shares event from `seat`: every share must verify against the seat's deck key and the final deck, or
+   * the event is rejected as a whole. Only shares for new (seat, position) pairs are kept.
+   */
+  private foldShares(s: ParsedShares, seat: number): Fold | 'nothing-new' {
+    const deck = this.finalDeck();
+    if (deck === null) return 'wait';
+    const key = this.keys[seat] as Point;
+    for (const { pos, share } of s.shares) {
+      if (!verifyShare(key, deck[pos] as Ciphertext, share, this.shareCtx(pos))) {
+        return reject(`the share for position ${pos} does not verify`);
+      }
+    }
+    this.sharesSeen.add(s.id);
+    let added = 0;
+    for (const { pos, share } of s.shares) if (this.shares.add(seat, pos, share)) added++;
+    if (added === 0) return 'nothing-new';
+    this.pendingSince = Math.max(this.pendingSince, s.createdAt);
+    return 'accepted';
+  }
+
   private startDeal(): void {
     const r = this.module.setup({
       rules: this.rules,
@@ -339,8 +415,95 @@ export class GameSession {
         }
         if (waiting.size === 0) this.movesByPrev.delete(head);
       }
+      if (this.finalDeck() !== null) {
+        for (const s of byId(this.waitingShares.values())) {
+          this.waitingShares.delete(s.id);
+          const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
+          if (r === 'accepted') progressed = true;
+          else if (typeof r === 'object') this.rejected.set(s.id, r.reject);
+        }
+      }
+      if (this.advance()) progressed = true;
       if (!progressed) return;
     }
+  }
+
+  /** Phase changes, derived reveals and private learns that the folded events allow. Returns whether any happened. */
+  private advance(): boolean {
+    let progressed = false;
+    if (this.phase === 'deal' && this.dealComplete()) {
+      this.phase = 'play';
+      progressed = true;
+    }
+    if (this.phase === 'play' && this.revealPublic()) progressed = true;
+    if (this.learnPrivate()) progressed = true;
+    return progressed;
+  }
+
+  /** Every seat has shared every position the deal assigns to another seat or to nobody (PROTOCOL §6.1). */
+  private dealComplete(): boolean {
+    const dealt = this.module.dealt(this.state);
+    for (let k = 0; k < this.seats; k++) if (this.shares.missing(k, dealt).length > 0) return false;
+    return true;
+  }
+
+  /**
+   * Derived reveals (PROTOCOL §6.3): while the module pends a public reveal and every listed position has all S
+   * shares, apply `{type: 'reveal', actor: 'deck', …}` for each listed position in ascending order.
+   */
+  private revealPublic(): boolean {
+    const deck = this.finalDeck() as Ciphertext[];
+    let progressed = false;
+    for (;;) {
+      const p = this.module.pending(this.state);
+      if (p.type !== 'reveal' || p.deck !== this.deckId || p.positions.length === 0) return progressed;
+      const positions = [...p.positions].sort((a, b) => a - b);
+      if (!positions.every((pos) => this.shares.covered(pos))) return progressed;
+      for (const pos of positions) {
+        const ctx = this.shareCtx(pos);
+        const card = decryptPosition(
+          deck[pos] as Ciphertext,
+          ctx,
+          this.keys,
+          this.shares.slots(pos),
+          this.cards,
+        );
+        // With verified shuffles and shares every position decrypts to a card the module accepts; stop otherwise.
+        if (card === null) return progressed;
+        const action: RevealAction = { type: 'reveal', actor: 'deck', deck: this.deckId, pos, card };
+        const r = this.module.apply(this.state, action);
+        if (!r.ok) return progressed;
+        this.state = deepFreeze(r.state);
+        this.actionLog.push({ actor: 'deck', action });
+        progressed = true;
+      }
+    }
+  }
+
+  /**
+   * Private learns (PROTOCOL §6.4): decrypt each position dealt to me once every other seat's share is in, using
+   * my own layer for mine, and tell the module.
+   */
+  private learnPrivate(): boolean {
+    const me = this.me;
+    const deck = this.finalDeck();
+    if (me === null || deck === null || this.state === null) return false;
+    let progressed = false;
+    for (const d of this.module.dealt(this.state)) {
+      if (d.to !== me.seat || d.deck !== this.deckId || this.learned.has(d.pos)) continue;
+      if (!this.shares.covered(d.pos, me.seat)) continue;
+      this.learned.add(d.pos);
+      const ct = deck[d.pos] as Ciphertext;
+      const own = { seat: me.seat, D: ownShare(me.deckSecret, ct) };
+      const slots = this.shares.slots(d.pos, me.seat);
+      const card = decryptPosition(ct, this.shareCtx(d.pos), this.keys, slots, this.cards, own);
+      if (card === null) continue;
+      const r = this.module.learn(this.state, { deck: this.deckId, pos: d.pos, card });
+      if (!r.ok) continue;
+      this.state = deepFreeze(r.state);
+      progressed = true;
+    }
+    return progressed;
   }
 
   /* -------------------------------------------------------------------------------------------- views */
@@ -374,6 +537,9 @@ export class GameSession {
     const me = this.me;
     if (me === null) return [];
     if (this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
+    if (this.phase === 'deal' && this.shares.missing(me.seat, this.module.dealt(this.state)).length > 0) {
+      return [{ kind: 'deal' }];
+    }
     return [];
   }
 
@@ -420,9 +586,18 @@ export class GameSession {
     return ev;
   }
 
-  buildDeal(_rnd: RandomBytes, _createdAt: number): NostrEvent {
-    this.requireDuty('deal');
-    throw new ClientError('unreachable');
+  /**
+   * This seat's deal: one Shares event with a share for every position the deal assigns to another seat or to
+   * nobody, that this seat has not shared yet, sorted by position.
+   */
+  buildDeal(rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('deal');
+    const deck = this.finalDeck() as Ciphertext[];
+    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map((pos) => ({
+      pos,
+      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
+    }));
+    return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
   }
 
   buildAction(_action: unknown, _rnd: RandomBytes, _createdAt: number): NostrEvent {

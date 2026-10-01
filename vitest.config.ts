@@ -29,6 +29,7 @@ export default defineConfig({
           root: 'packages/client',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
+          hookTimeout: 120_000,
         },
       },
       { test: { name: 'relay', root: 'packages/relay', include: ['test/**/*.test.ts'] } },

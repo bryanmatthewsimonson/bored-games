@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation and the shuffle phase); 2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle and deal); 2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -82,6 +82,9 @@
     - `GameSession.create` checks the root with `validateRoot`, and that `me` holds its seat's session key and deck secret.
     - `receive` parses every event strictly and folds it to a fixpoint: moves wait in a pool keyed by `prev` until they link.
     - Shuffle phase: steps in seat order, each proof verified once per session against the previous deck.
+    - Deal phase: one Shares event per seat covering every position dealt to another seat or public. Shares are verified against the final deck and kept once per (seat, position) in a `ShareStore`. The deal ends when every seat's owed positions are covered.
+    - Derived reveals (PROTOCOL §6.3) go into an interleaved action log for the audit, and private learns (§6.4) decrypt with `decryptPosition` and `ownShare`.
+    - Next: game actions (owed shares, buffering, equivocation), the end of the game and the audit, timeouts, the lobby fold and simulations (Tasks 3–7).
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.
