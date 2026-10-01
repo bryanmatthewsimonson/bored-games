@@ -17,7 +17,7 @@ import type { Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
-import { GameController, loadOutbox, loadSeen } from '../src/game-controller.ts';
+import { GameController, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
@@ -657,6 +657,44 @@ describe('GameController', () => {
     await waitFor('the attestation sent', () => late.status.value === 'done');
     expect(late.timeoutTarget.value).toBeNull();
     expect(await query({ kinds: [KIND.timeout], '#e': [rootId] })).toHaveLength(1);
+  }, 180_000);
+
+  it('loads a started game from the saved Table after the creator republishes it', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const [creator, b] = bySeat as [Profile, Profile];
+    const original = (
+      await query({ kinds: [KIND.table], authors: [creator.deps.signer.pubkey] })
+    )[0] as NostrEvent;
+    const first = game(rootId, b.deps);
+    await waitFor('the session', () => first.view.value !== null);
+    expect(loadTable(b.deps.storage, b.name, rootId, address)?.id).toBe(original.id);
+    first.dispose();
+
+    // The creator replaces the Table with another deadline: the root no longer validates against it.
+    const tags = original.tags.map((t) => (t[0] === 'deadline' ? ['deadline', '86400'] : t));
+    const republished = await creator.deps.signer.sign({
+      kind: KIND.table,
+      created_at: original.created_at + 1,
+      tags,
+      content: original.content,
+    });
+    await newPool().publish(republished);
+    // The relay keeps only the newest version of the addressable Table.
+    const tables = await query({ kinds: [KIND.table], authors: [creator.deps.signer.pubkey] });
+    expect(tables.map((t) => t.id)).toEqual([republished.id]);
+
+    // A profile that saved the Table loads the game; one that did not finds no Table that fits.
+    const again = game(rootId, b.deps);
+    await waitFor('the session again', () => again.view.value !== null);
+    expect(again.error.value).toBeNull();
+    expect(again.table.value?.deadline).toBe(259200);
+    const fresh = game(rootId, profile('fresh').deps);
+    await waitFor('the load error', () => fresh.error.value?.startsWith('This game cannot be loaded'));
+    // With the original version from another relay as well, a fresh profile tries both and loads.
+    const watcher = profile('watcher');
+    const other = game(rootId, { ...watcher.deps, pool: forgingPool(watcher.deps.pool, () => [original]) });
+    await waitFor('the session from the older version', () => other.view.value !== null);
+    expect(loadTable(watcher.deps.storage, watcher.name, rootId, address)?.id).toBe(original.id);
   }, 180_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {

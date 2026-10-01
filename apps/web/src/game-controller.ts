@@ -80,6 +80,27 @@ export const outboxKey = (profile: string, rootId: string): string => storageKey
 
 export const seenKey = (profile: string, rootId: string): string => storageKey(profile, `seen:${rootId}`);
 
+export const tableKey = (profile: string, rootId: string): string => storageKey(profile, `table:${rootId}`);
+
+/**
+ * The Table event this profile validated the game's root against, saved on the first successful load, or null
+ * when none is saved or it is not a valid Table at `address`.
+ */
+export function loadTable(
+  store: ControllerDeps['storage'],
+  profile: string,
+  rootId: string,
+  address: string,
+): NostrEvent | null {
+  const v = readJson(store, tableKey(profile, rootId));
+  if (!verifyEvent(v)) return null;
+  try {
+    return parseTable(v).address === address ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The most first-seen times saved per game; the oldest go first (never the root's). */
 export const MAX_SEEN = 5_000;
 
@@ -201,7 +222,13 @@ export class GameController {
   #session: GameSession | null = null;
   #rootEv: NostrEvent | null = null;
   #root: ParsedRoot | null = null;
-  #tableEv: NostrEvent | null = null;
+  /**
+   * Every Table version at the root's address that the relays sent, by id. The Table is addressable, so its
+   * creator can replace it after the start; the game is loaded from a version the root validates against.
+   */
+  readonly #tables = new Map<string, NostrEvent>();
+  /** The Table this profile validated the root against on an earlier load; preferred over the relays' copies. */
+  #storedTable: NostrEvent | null = null;
   readonly #joins = new Map<string, NostrEvent>();
   /** The newest kind 0 metadata event per seat pubkey. */
   readonly #profiles = new Map<string, NostrEvent>();
@@ -464,6 +491,8 @@ export class GameController {
     this.#rootEv = ev;
     this.#root = root;
     this.#noteSeen(ev.id, this.#d.now());
+    this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
+    if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
     this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
@@ -501,15 +530,11 @@ export class GameController {
       } catch {
         return;
       }
-      if (t.address !== root.tableAddress) return;
-      const held = this.#tableEv;
-      const newer =
-        held === null ||
-        ev.created_at > held.created_at ||
-        (ev.created_at === held.created_at && ev.id < held.id);
-      if (!newer) return;
-      this.table.value = t;
-      this.#tableEv = ev;
+      if (t.address !== root.tableAddress || this.#tables.has(ev.id)) return;
+      this.#tables.set(ev.id, ev);
+      // Until the game loads, show the saved Table, else the newest from the relays.
+      if (this.#session === null && this.#storedTable === null && this.#relayTables()[0] === ev)
+        this.table.value = t;
     } else if (ev.kind === KIND.join) {
       const a = ev.tags.find((tag) => tag[0] === 'a')?.[1];
       if (a !== root.tableAddress || !root.joinIds.includes(ev.id)) return;
@@ -529,25 +554,57 @@ export class GameController {
     });
   }
 
-  /** Build the session once the table and every seat's Join are known. */
+  /** The relays' Table versions, newest first (ties: lowest id). */
+  #relayTables(): NostrEvent[] {
+    return [...this.#tables.values()].sort((a, b) =>
+      a.created_at !== b.created_at ? b.created_at - a.created_at : a.id < b.id ? -1 : 1,
+    );
+  }
+
+  /**
+   * Build the session once a Table the root validates against and every seat's Join are known. The saved Table
+   * comes first; without one, every Table version the relays sent is tried, newest first. The one that works is
+   * saved, so a creator who republishes the Table later cannot stop this profile from loading the game.
+   */
   #tryCreate(): void {
     const root = this.#root;
     const rootEv = this.#rootEv;
-    const tableEv = this.#tableEv;
     if (this.#session !== null || root === null || rootEv === null || this.#disposed) return;
-    const missing = tableEv === null || root.joinIds.some((id) => !this.#joins.has(id));
+    const stored = this.#storedTable;
+    const tables = [
+      ...(stored === null ? [] : [stored]),
+      ...this.#relayTables().filter((t) => t.id !== stored?.id),
+    ];
+    const missing = tables.length === 0 || root.joinIds.some((id) => !this.#joins.has(id));
     if (missing) {
       if (this.#lobbyEose)
         this.error.value = "Still looking for this game's table and players on the relays…";
       return;
     }
-    const input = {
+    const base = {
       modules: this.#d.modules,
-      table: tableEv,
       joins: [...this.#joins.values()],
       root: rootEv,
       rootSeenAt: this.#seen.get(root.id) ?? this.#d.now(),
     };
+    // The Table the root validates against: validation does not depend on the seat.
+    let table: NostrEvent | null = null;
+    let problem = '';
+    for (const t of tables) {
+      try {
+        GameSession.create({ ...base, table: t, me: null });
+        table = t;
+        break;
+      } catch (e) {
+        problem ||= errorText(e);
+      }
+    }
+    if (table === null) {
+      // Another relay may still send an older version that fits.
+      if (this.#lobbyEose) this.error.value = `This game cannot be loaded: ${problem}`;
+      return;
+    }
+    const input = { ...base, table };
     const me = this.#identity(root);
     let session: GameSession;
     try {
@@ -565,8 +622,12 @@ export class GameController {
         return;
       }
     }
-    if (this.error.value?.startsWith('Still looking')) this.error.value = null;
+    if (this.error.value?.startsWith('Still looking') || this.error.value?.startsWith('This game cannot'))
+      this.error.value = null;
     this.#session = session;
+    if (table.id !== stored?.id && writeJson(this.#d.storage, tableKey(this.#d.profile, this.rootId), table))
+      this.#storedTable = table;
+    this.table.value = parseTable(table);
     if (me !== null) saveRootId(this.#d.profile, this.#d.storage, root.tableAddress, root.id);
     // Own events (they may never have reached a relay) and whatever arrived meanwhile, once the relays sent all.
     if (this.#gameEose) this.#feedHeld();
