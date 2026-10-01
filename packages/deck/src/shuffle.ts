@@ -276,12 +276,25 @@ export function proveShuffle(
 const isPoint = (P: unknown): P is Point => P instanceof PointClass;
 const isNonZeroPoint = (P: unknown): P is Point => P instanceof PointClass && !P.is0();
 
+/**
+ * True when `xs` is an array of length `n` whose every index satisfies `ok`. An explicit index loop, not
+ * `.every`, so the holes of a sparse array are checked (as `undefined`) and rejected instead of skipped.
+ */
+function listOf(xs: unknown, n: number, ok: (x: unknown) => boolean): boolean {
+  if (!Array.isArray(xs) || xs.length !== n) return false;
+  for (let i = 0; i < n; i++) if (!ok(xs[i])) return false;
+  return true;
+}
+
+const isCiphertext = (e: unknown, point: (P: unknown) => boolean): boolean =>
+  e !== null && typeof e === 'object' && point((e as Ciphertext).a) && point((e as Ciphertext).b);
+
 function pointList(xs: unknown, n: number): xs is readonly Point[] {
-  return Array.isArray(xs) && xs.length === n && xs.every(isNonZeroPoint);
+  return listOf(xs, n, isNonZeroPoint);
 }
 
 function scalarList(xs: unknown, n: number): xs is readonly bigint[] {
-  return Array.isArray(xs) && xs.length === n && xs.every(inRange);
+  return listOf(xs, n, inRange);
 }
 
 /** Structural check of everything public, before any arithmetic. */
@@ -296,9 +309,8 @@ function wellFormed(
   const n = input.length;
   if (n === 0 || output.length !== n) return false;
   // The input deck may hold identities (the initial deck has a = O); the output may not.
-  if (!input.every((e) => e !== null && typeof e === 'object' && isPoint(e.a) && isPoint(e.b))) return false;
-  if (!output.every((e) => e !== null && typeof e === 'object' && isNonZeroPoint(e.a) && isNonZeroPoint(e.b)))
-    return false;
+  if (!listOf(input, n, (e) => isCiphertext(e, isPoint))) return false;
+  if (!listOf(output, n, (e) => isCiphertext(e, isNonZeroPoint))) return false;
   if (!isNonZeroPoint(X)) return false;
   if (ctx === null || typeof ctx !== 'object') return false;
   if (typeof ctx.rootId !== 'string' || typeof ctx.deckId !== 'string') return false;

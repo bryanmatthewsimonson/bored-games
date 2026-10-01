@@ -2,10 +2,11 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { describe, expect, it } from 'vitest';
 import { cardOf, cardPoint, cardTable } from '../src/cards.ts';
 import { type Ciphertext, decryptWithSecrets, initialDeck, jointKey, reEncrypt } from '../src/elgamal.ts';
-import type { Point } from '../src/encoding.ts';
-import { G, q } from '../src/group.ts';
-import { randomScalar } from '../src/random.ts';
+import { hs, type Point } from '../src/encoding.ts';
+import { G, generators, msm, q } from '../src/group.ts';
+import { type RandomBytes, randomScalar } from '../src/random.ts';
 import {
+  commitmentChain,
   proveShuffle,
   type ShuffleCtx,
   type ShuffleProof,
@@ -33,6 +34,13 @@ function honest(input: readonly Ciphertext[], X: Point, ctx: ShuffleCtx, seed: s
 
 const add1 = (s: bigint): bigint => (s + 1n) % q;
 const setAt = <T>(xs: readonly T[], i: number, v: T): T[] => xs.map((x, j) => (j === i ? v : x));
+
+/** A sparse copy of `xs` with a hole (not `undefined`, a missing index) at `i`; `.every` would skip it. */
+function holeAt<T>(xs: readonly T[], i: number): T[] {
+  const out = new Array<T>(xs.length);
+  for (let k = 0; k < xs.length; k++) if (k !== i) out[k] = xs[k] as T;
+  return out;
+}
 
 /**
  * Every single-field tamper of `p`: each scalar +1 and each point +G. Array fields are tampered at `idx`
@@ -69,6 +77,87 @@ function tamperings(p: ShuffleProof, idx?: readonly number[]): [string, ShuffleP
     }
   }
   return out;
+}
+
+const modq = (k: bigint): bigint => ((k % q) + q) % q;
+
+function modPow(b: bigint, e: bigint): bigint {
+  let r = 1n;
+  let x = modq(b);
+  for (let k = e; k > 0n; k >>= 1n) {
+    if (k & 1n) r = (r * x) % q;
+    x = (x * x) % q;
+  }
+  return r;
+}
+
+/** The 0/1 matrix of an index map: `A[i][k] = 1` iff `map[i] = k`. */
+const mapMatrix = (map: readonly number[]): bigint[][] =>
+  map.map((mk) => map.map((_, k) => (k === mk ? 1n : 0n)));
+
+/**
+ * TEST-ONLY cheating prover: `proveShuffle` re-implemented step by step, except that the "permutation"
+ * commitment is built for an ARBITRARY matrix `A` (`A[i][k]` = weight of input k in output i):
+ * `c[k] = r_k·G + Σ_i A[i][k]·h_i` and `u′_i = Σ_k A[i][k]·u_k`. With a permutation matrix it is the honest prover
+ * (a test checks that it verifies, so its hashing matches the real one); otherwise it is a non-permutation forgery.
+ */
+function forgeShuffleProof(
+  input: readonly Ciphertext[],
+  output: readonly Ciphertext[],
+  X: Point,
+  A: readonly (readonly bigint[])[],
+  rPrime: readonly bigint[],
+  ctx: ShuffleCtx,
+  rnd: RandomBytes,
+): ShuffleProof {
+  const n = input.length;
+  const { h, hs: H } = generators(n);
+  const flat = (deck: readonly Ciphertext[]) => deck.flatMap((e) => [e.a, e.b]);
+  const d = hs('shuffle-ctx', ctx.rootId, ctx.seat, ctx.deckId, X, ...flat(input), ...flat(output));
+  const r = Array.from({ length: n }, () => randomScalar(rnd));
+  const col = (k: number) => A.map((row) => modq(row[k] as bigint));
+  const c = r.map((rk, k) => G.multiply(rk).add(msm(H, col(k))));
+  const u = c.map((_, k) => hs('shuffle-u', d, ...c, k + 1));
+  const uP = A.map((row) => modq(row.reduce((acc, aik, k) => acc + aik * (u[k] as bigint), 0n)));
+  const { cHat, rHat } = commitmentChain(h, uP, rnd);
+  const w = Array.from({ length: 4 }, () => randomScalar(rnd)) as [bigint, bigint, bigint, bigint];
+  const wHat = Array.from({ length: n }, () => randomScalar(rnd));
+  const wP = Array.from({ length: n }, () => randomScalar(rnd));
+  let t3 = G.multiply(w[2]);
+  let t41 = G.multiply(w[3]).negate();
+  let t42 = X.multiply(w[3]).negate();
+  const tHat: Point[] = [];
+  for (let i = 0; i < n; i++) {
+    const wi = wP[i] as bigint;
+    t3 = t3.add((H[i] as Point).multiply(wi));
+    t41 = t41.add((output[i] as Ciphertext).a.multiply(wi));
+    t42 = t42.add((output[i] as Ciphertext).b.multiply(wi));
+    const prev = i === 0 ? h : (cHat[i - 1] as Point);
+    tHat.push(G.multiply(wHat[i] as bigint).add(prev.multiply(wi)));
+  }
+  const t = { t1: G.multiply(w[0]), t2: G.multiply(w[1]), t3, t4: [t41, t42] as const, tHat };
+  const ch = hs('shuffle-c', d, X, ...c, ...cHat, t.t1, t.t2, t.t3, t41, t42, ...tHat);
+  const sum = (xs: readonly bigint[]) => xs.reduce((a, b) => (a + b) % q, 0n);
+  let v = 1n;
+  const rHatV = new Array<bigint>(n);
+  for (let i = n - 1; i >= 0; i--) {
+    rHatV[i] = ((rHat[i] as bigint) * v) % q;
+    v = (v * (uP[i] as bigint)) % q;
+  }
+  const resp = (wk: bigint, secret: bigint) => (wk + ch * secret) % q;
+  return {
+    c,
+    cHat,
+    t,
+    s: {
+      s1: resp(w[0], sum(r)),
+      s2: resp(w[1], sum(rHatV)),
+      s3: resp(w[2], sum(r.map((rk, k) => rk * (u[k] as bigint)))),
+      s4: resp(w[3], sum(uP.map((x, i) => x * (rPrime[i] as bigint)))),
+      sHat: wHat.map((x, i) => resp(x, rHat[i] as bigint)),
+      sPrime: wP.map((x, i) => resp(x, uP[i] as bigint)),
+    },
+  };
 }
 
 /** Every proof array truncated and extended by one element. */
@@ -323,9 +412,112 @@ describe('proveShuffle / verifyShuffle: soundness (N = 8)', () => {
         () => verifyShuffle(input, out, X, { ...proof, t: undefined } as unknown as ShuffleProof, ctx),
       ],
       ['output null', () => verifyShuffle(input, null as unknown as Ciphertext[], X, proof, ctx)],
+      ['c sparse', () => verifyShuffle(input, out, X, { ...proof, c: holeAt(proof.c, 3) }, ctx)],
+      ['cHat sparse', () => verifyShuffle(input, out, X, { ...proof, cHat: holeAt(proof.cHat, 0) }, ctx)],
+      [
+        'tHat sparse',
+        () =>
+          verifyShuffle(input, out, X, { ...proof, t: { ...proof.t, tHat: holeAt(proof.t.tHat, 7) } }, ctx),
+      ],
+      [
+        'sHat sparse',
+        () =>
+          verifyShuffle(input, out, X, { ...proof, s: { ...proof.s, sHat: holeAt(proof.s.sHat, 2) } }, ctx),
+      ],
+      [
+        'sPrime sparse',
+        () =>
+          verifyShuffle(
+            input,
+            out,
+            X,
+            { ...proof, s: { ...proof.s, sPrime: holeAt(proof.s.sPrime, 5) } },
+            ctx,
+          ),
+      ],
+      ['input sparse', () => verifyShuffle(holeAt(input, 1), out, X, proof, ctx)],
+      ['output sparse', () => verifyShuffle(input, holeAt(out, 6), X, proof, ctx)],
     ];
     for (const [name, f] of cases) expect(f, name).not.toThrow();
     expect(failing(cases)).toEqual([]);
+  });
+});
+
+/*
+ * Cheating provers that each break exactly ONE verifier equation. Every forged deck is re-proved with the true
+ * psi and rPrime, so all other equations still hold; removing the named check from `verifyShuffle` makes the
+ * matching test fail (checked by hand, see the Task 7 report, fix round 1).
+ */
+describe('proveShuffle / verifyShuffle: targeted forgeries (N = 8)', () => {
+  const n = 8;
+  const { rnd, X, secrets } = keys('tw-forge');
+  const input = initialDeck(DECK, n).map((c) => reEncrypt(c, X, randomScalar(rnd)));
+  const ctx: ShuffleCtx = { rootId: 'root-f', seat: 1, deckId: DECK };
+  const { out, psi, rPrime } = honest(input, X, ctx, 'tw-forge-prove');
+  const table = cardTable(DECK, n);
+  const j = 4;
+
+  // Pins t4[1] == Σ s′_i·b′_i − s4·X − ch·Σ u_k·b_k: the deck-stacking attack changes only the message part.
+  it('(a) b-only substitution: output j decrypts to a different card (pins t4[1])', () => {
+    const m = psi[j] as number;
+    const k = (m + 1) % n;
+    const e = out[j] as Ciphertext;
+    const forged = setAt(out, j, { a: e.a, b: e.b.add(cardPoint(DECK, k)).subtract(cardPoint(DECK, m)) });
+    expect(cardOf(table, decryptWithSecrets(forged[j] as Ciphertext, secrets))).toBe(k);
+    const proof = proveShuffle(input, forged, X, psi, rPrime, ctx, rnd);
+    expect(verifyShuffle(input, forged, X, proof, ctx)).toBe(false);
+  });
+
+  // Pins t4[0] == Σ s′_i·a′_i − s4·G − ch·Σ u_k·a_k: only the randomness part is off.
+  it('(b) a-only tamper: a′_j + G with b′_j unchanged (pins t4[0])', () => {
+    const e = out[j] as Ciphertext;
+    const forged = setAt(out, j, { a: e.a.add(G), b: e.b });
+    const proof = proveShuffle(input, forged, X, psi, rPrime, ctx, rnd);
+    expect(verifyShuffle(input, forged, X, proof, ctx)).toBe(false);
+  });
+
+  it('the test-only forging prover is honest when given a true permutation', () => {
+    const proof = forgeShuffleProof(input, out, X, mapMatrix(psi), rPrime, ctx, rnd);
+    expect(verifyShuffle(input, out, X, proof, ctx)).toBe(true);
+  });
+
+  // Pins t2 == s2·G − ch·(ĉ_N − (Π u_k)·h), the product check: the only equation that tells a permutation
+  // matrix from any other matrix with row sums 1. A = M·P, where P is psi's permutation matrix and M mixes
+  // outputs 0 and 1 with the block [[2, −1], [−1, 2]] (row sums 1, so t1 holds). The forged outputs are
+  // e′ = (Mᵀ)⁻¹·(P·e) plus a re-encryption, i.e. e′_0 = (2f_0 + f_1)/3 and e′_1 = (f_0 + 2f_1)/3 for the honest
+  // permuted inputs f_i = e_{psi[i]}. Then Aᵀ·e′ = e + re-encryption, so t3, t4[0], t4[1] and every t̂_i hold,
+  // but with w_i = u_{psi[i]}, Π u′_i = (2w_0 − w_1)(2w_1 − w_0)·Π_{i≥2} w_i ≠ Π_i w_i = Π u_k.
+  it('(c) non-permutation commitment matrix with row sums 1 (pins t2)', () => {
+    const P = mapMatrix(psi);
+    const A = P.map((row, i) => {
+      if (i > 1) return row;
+      const [self, other] = i === 0 ? [P[0], P[1]] : [P[1], P[0]];
+      return row.map((_, k) => 2n * ((self as bigint[])[k] as bigint) - ((other as bigint[])[k] as bigint));
+    });
+    const third = modPow(3n, q - 2n);
+    const f = psi.map((k) => input[k] as Ciphertext);
+    const f0 = f[0] as Ciphertext;
+    const f1 = f[1] as Ciphertext;
+    const mix = (x: bigint, y: bigint): Ciphertext => ({
+      a: msm([f0.a, f1.a], [modq(x * third), modq(y * third)]),
+      b: msm([f0.b, f1.b], [modq(x * third), modq(y * third)]),
+    });
+    const base = f.map((e, i) => (i === 0 ? mix(2n, 1n) : i === 1 ? mix(1n, 2n) : e));
+    const forged = base.map((e, i) => reEncrypt(e, X, rPrime[i] as bigint));
+    const proof = forgeShuffleProof(input, forged, X, A, rPrime, ctx, rnd);
+    expect(verifyShuffle(input, forged, X, proof, ctx)).toBe(false);
+  });
+
+  // A repeated index (outputs 0 and j both re-encrypt input psi[0]) is the naive non-permutation forgery. It is
+  // caught by t2 first, but also by t4[0] and t4[1]: Σ u′_i·e′_i then sums a different multiset of inputs than
+  // Σ u_k·e_k. So it does not isolate one equation; (c) above does.
+  it('a repeated-index commitment duplicating a card fails', () => {
+    const map = setAt(psi, j, psi[0] as number);
+    const forged = out.map((_, i) =>
+      reEncrypt(input[map[i] as number] as Ciphertext, X, rPrime[i] as bigint),
+    );
+    const proof = forgeShuffleProof(input, forged, X, mapMatrix(map), rPrime, ctx, rnd);
+    expect(verifyShuffle(input, forged, X, proof, ctx)).toBe(false);
   });
 });
 
