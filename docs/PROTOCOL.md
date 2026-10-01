@@ -424,8 +424,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 - **Local time.** Deadlines are measured on each client's own clock, never on `created_at`. A client records each event's **first-seen time**, the local time at which it first received that event. Clients MUST persist first-seen times by event id, so that a reload keeps them.
 - **Progress time P** is the largest first-seen time over the root and every accepted progress event:
   - the chain's moves
-  - Shares events that added a share the client did not hold
-  - once the module is over, Secret reveals.
+  - Shares events and Secret reveals that **removed a seat from the set of stalled seats** at the head (D030, Ruling 11). A Shares event that adds shares but leaves the stalled set unchanged is not progress.
 
   Any progress restarts the deadline for every seat still stalled.
 - **Claiming.** Once `now ≥ P + deadline` and a seat other than its own is stalled at the head, a seat MAY publish a Timeout claim (7454) naming the head and the lowest such seat.
@@ -489,7 +488,7 @@ It MUST also meet these contract rules, which the session relies on:
   - A claim's date proves nothing: dating a claim, a move or a share ahead or back changes no client's judgement.
   - A client without persisted first-seen times (a new device) sees every event for the first time when it syncs, which restarts its deadlines. That only delays its own acceptance.
 - **The claim race.** Clients accept a claim at different moments: each when its own deadline passes, so there is a window between the first and the last. If a stalled seat publishes inside that window, clients can split. One that accepted first ignores the late event (§8.2, finality). One that folds the event first rejects the claim if it was a move, since the head moved on; if it was a share or a secret, its deadline restarts, and it later forfeits fewer seats or none. Signatures cannot settle the order, since any `created_at` can be claimed. The window opens only after a full deadline of silence from the stalled seat, so this is accepted as a residual risk.
-- **Postponement by fresh shares (OPEN).** Every Shares event that adds a share counts as progress (§8.1). Any seat, the stalled one included, can therefore restart the deadline by publishing a share it has not published before, for example of a position still in the bag. Each seat has one share per position, so this is bounded by the deck size per seat (108 deadlines for Chain Reaction), but it is not prevented.
+- **Postponement by fresh shares (closed by Ruling 11).** Only events that change the stalled set count as progress (§8.1), so a stalled seat cannot restart its own deadline by publishing shares it was not stalled on.
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` first, so a finished game cannot be reopened. When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never rewind or cancel a game (§6.6): they flag the signer, who forfeits at the end.
 - **Cross-game replay.** Every proof and challenge binds the root id, the position or seat, and the deck. Moves are bound to the root and the parent.

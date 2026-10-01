@@ -370,7 +370,7 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 **Finality and the race.**
 - **Finality.** Once a client accepts a claim at head H, its result is final. Later moves, Shares events and secrets are stored and change nothing, fork choice stops, and a late move on H is ignored. Attestations are still accepted.
 - **The race (documented, accepted).** A client that linked the stalled seat's late move first rejects the claim, because it names an old head. A late share or secret can likewise shrink the stalled set, or restart the deadline, on clients that fold it before accepting. So a stalled seat that acts inside the window between different clients' acceptance can split them. The window opens only after a full deadline of the seat's silence. `created_at` cannot break the tie, since any date can be claimed.
-- **Postponement by fresh shares (OPEN).** Because every Shares event that adds a share is progress, any seat, the stalled one included, can restart the deadline by publishing one new share at a time, for example of a bag position. This is bounded by one share per position per seat (108 deadlines in Chain Reaction) but not prevented. PROTOCOL §11 records it.
+- **Ruling 11: what counts as progress.** Progress time P counts the root, canonical chain moves, and Shares events or Secret reveals that removed a seat from the stalled set at the head. A Shares event that adds shares without unstalling anyone is not progress, so a stalled seat cannot restart its own deadline by dripping new shares.
 
 **Audit (R6, PROTOCOL §7).**
 - Once every seat's secret is known (verified by `x·G = X_k`), decrypt each final-deck position with `decryptWithSecrets` and `cardOf`, set up the module in full mode with that order, and replay the interleaved action log.
@@ -404,7 +404,7 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - The session supports exactly one deck, and it throws `ClientError` at creation otherwise.
 
 **Deferred.**
-- The claim race and postponement by fresh shares (above) are documented, not solved.
+- The claim race (above) is documented, not solved.
 - A derived reveal that fails to decrypt or apply stops silently. It cannot happen with verified proofs.
 - The pool of moves under unlinked prevs is bounded only by the event-size cap and the seated-key check.
 - The validity of a seat's own moves is view-dependent: a cheater's own client judges its forged move with its real hand. Other seats' moves are judged the same by every view.

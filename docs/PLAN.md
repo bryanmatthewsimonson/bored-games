@@ -11,7 +11,7 @@
 7. **Relay URL** for your nostr-rs-relay. Still open; needed for the Phase 2e smoke test and as the app's default relay.
 8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
 9. **Protocol review.** `docs/PROTOCOL.md`, now with the session rulings (D030), awaits your review before anything is published under version 1. Its open points:
-   - Any seat can restart a timeout deadline by publishing one new share at a time, up to one per deck position (PROTOCOL §11). Accept it, or rule on what counts as progress?
+   - What counts as timeout progress was ruled overnight (D030, Ruling 11): only events that change who is stalled.
    - The claim race (§11) is accepted as a residual risk.
    - Clients ignore the table's `status` when validating a root (§4.3).
 
@@ -28,7 +28,7 @@
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. The 11 sim scenarios, adversaries included, pass under `pnpm test:sim`.
+**Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`.
 
 **Last verified (2026-10-01, Phase 3 Task 6):** `pnpm check` passes (typecheck, Biome, 968 tests in 50 files, about 4 minutes). `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
 
