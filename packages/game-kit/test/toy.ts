@@ -33,6 +33,8 @@ export interface ToyState {
   readonly rules: ToyRules;
   readonly order: readonly number[] | null;
   readonly next: number;
+  /** Positions assigned so far, in order: the trump is public (null), hand cards belong to a seat. */
+  readonly dealt: readonly { readonly pos: number; readonly to: Seat | null }[];
   readonly trump: { readonly pos: number; readonly card: number | null };
   readonly hands: readonly (readonly Slot[])[];
   readonly scores: readonly number[];
@@ -50,7 +52,13 @@ function knownCard(s: ToyState, pos: number): number | null {
 
 export interface ToyOptions {
   /** Deliberate bugs for testing the fuzzer itself. */
-  readonly bug?: 'mutate' | 'invariant' | 'nondeterministic' | 'acceptsImpostor' | 'neverEnds';
+  readonly bug?:
+    | 'mutate'
+    | 'invariant'
+    | 'nondeterministic'
+    | 'acceptsImpostor'
+    | 'neverEnds'
+    | 'badRevealsOf';
 }
 
 export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent, ToyRules> {
@@ -70,11 +78,13 @@ export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent,
       const full = input.mode === 'full';
       const order = full ? (input.deckOrders.cards ?? null) : null;
       let next = 1;
+      const dealt: { pos: number; to: Seat | null }[] = [{ pos: 0, to: null }];
       const hands: Slot[][] = [];
       for (let s = 0; s < input.seats; s++) {
         const hand: Slot[] = [];
         for (let i = 0; i < input.rules.hand; i++) {
           hand.push({ pos: next, card: order ? (order[next] ?? null) : null });
+          dealt.push({ pos: next, to: s });
           next++;
         }
         hands.push(hand);
@@ -87,6 +97,7 @@ export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent,
           rules: input.rules,
           order,
           next,
+          dealt,
           trump: { pos: 0, card: null },
           hands,
           scores: hands.map(() => 0),
@@ -130,9 +141,11 @@ export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent,
       if (slot.card !== null && slot.card !== card) return err('card', 'wrong card');
       if (opts.bug === 'mutate') (s as { turn: number }).turn = s.turn;
       let next = s.next;
+      let dealt = s.dealt;
       const newHand = hand.filter((h) => h.pos !== a.pos);
       if (next < s.rules.cards && opts.bug !== 'neverEnds') {
         newHand.push({ pos: next, card: knownCard(s, next) });
+        dealt = [...dealt, { pos: next, to: seat }];
         next++;
       }
       const hands = s.hands.map((h, i) => (i === seat ? newHand : h));
@@ -146,6 +159,7 @@ export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent,
         state: {
           ...s,
           next,
+          dealt,
           hands,
           scores: opts.bug === 'invariant' ? scores.map(() => -1) : scores,
           turn: over ? seat : turn,
@@ -182,6 +196,15 @@ export function createToy(opts: ToyOptions = {}): GameModule<ToyState, ToyEvent,
       if (!s.over) return null;
       const places = s.scores.map((v) => 1 + s.scores.filter((o) => o > v).length);
       return { places, scores: s.scores, reason: 'handsEmpty' };
+    },
+    standings: (s) => s.scores,
+    dealt: (s) => s.dealt.map((d) => ({ deck: 'cards', pos: d.pos, to: d.to })),
+    revealsOf(_s, action: unknown) {
+      const a = action as Record<string, unknown> | null;
+      if (!a || typeof a !== 'object' || a.type !== 'play') return [];
+      if (typeof a.pos !== 'number' || typeof a.card !== 'number') return [];
+      const card = opts.bug === 'badRevealsOf' ? a.card + 1 : a.card;
+      return [{ deck: 'cards', pos: a.pos, card }];
     },
     invariants(s) {
       return s.scores.some((v) => v < 0) ? ['negative score'] : [];

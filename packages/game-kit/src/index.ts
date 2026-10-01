@@ -13,6 +13,7 @@ export { createRng, type Rng, range, shuffle } from './prng.ts';
 export { actionEntries, type ReplayResult, replay } from './replay.ts';
 export type {
   ApplyResult,
+  DealtPosition,
   DeckSpec,
   EngineError,
   GameLog,

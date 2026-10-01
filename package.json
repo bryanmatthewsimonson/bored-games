@@ -12,7 +12,13 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "fuzz": "node tools/fuzz/src/cli.ts"
+    "fuzz": "node tools/fuzz/src/cli.ts",
+    "sim": "node tools/sim/src/cli.ts",
+    "test:sim": "SIM=1 vitest run --project client test/sim.test.ts",
+    "relay": "node tools/dev-relay/src/main.ts",
+    "dev": "node scripts/dev.ts",
+    "build:web": "pnpm --filter @bored-games/web build",
+    "e2e": "pnpm --filter @bored-games/web e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

@@ -13,6 +13,12 @@ export interface HandSlot {
   readonly tile: number | null;
 }
 
+/** A deck position assigned so far: to a seat's hand, or to the public (`to: null`, a setup tile). */
+export interface DealtSlot {
+  readonly pos: number;
+  readonly to: Seat | null;
+}
+
 export interface PlayerState {
   readonly cash: number;
   /** Shares held, indexed by chain. */
@@ -62,8 +68,15 @@ export interface ChainReactionState {
   readonly seats: number;
   readonly mode: 'full' | 'view';
   readonly viewer: Seat | null;
-  /** order is the shuffled tile order (full mode only); next is the next undealt position. */
-  readonly deck: { readonly order: readonly number[] | null; readonly next: number };
+  /**
+   * order is the shuffled tile order (full mode only); next is the next undealt position;
+   * dealt lists positions 0..next-1 in assignment order with their owners (public data).
+   */
+  readonly deck: {
+    readonly order: readonly number[] | null;
+    readonly next: number;
+    readonly dealt: readonly DealtSlot[];
+  };
   /** Setup tile per seat (dealt at positions 0..seats-1), null until revealed. */
   readonly setupTiles: readonly (number | null)[];
   readonly board: readonly Cell[];

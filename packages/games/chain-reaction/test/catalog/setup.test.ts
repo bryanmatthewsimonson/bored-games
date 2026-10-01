@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   type ChainReactionState,
+  chainReaction,
   DEFAULT_RULES,
   LOOSE,
   pendingDecision,
   setupGame,
   TILE_COUNT,
   tileIndex,
+  viewFor,
 } from '../../src/index.ts';
 import { act, ofType } from '../helpers.ts';
 
@@ -52,13 +54,58 @@ describe('setup', () => {
     expect(columnFirst.state.firstPlayer).toBe(2);
   });
 
-  it('C03 hands are dealt in turn order from the first player', () => {
-    const { state } = revealAll(newGame(['3C', '9A', '1B']));
+  it('C03 hands are dealt at setup in seat order', () => {
+    // Positions are assigned right after setup, before any setup tile is revealed.
+    const fresh = newGame(['3C', '9A', '1B']);
+    expect(fresh.phase).toEqual({ kind: 'setup' });
+    expect(fresh.setupTiles).toEqual([null, null, null]);
+    expect(fresh.players.map((p) => p.hand.map((h) => h.pos))).toEqual([
+      [3, 4, 5, 6, 7, 8],
+      [9, 10, 11, 12, 13, 14],
+      [15, 16, 17, 18, 19, 20],
+    ]);
+    expect(fresh.deck.next).toBe(21);
+
+    // The first player is still decided by the setup tiles (seat 1 here); the deal is unchanged by it.
+    const { state, events } = revealAll(fresh);
+    expect(state.firstPlayer).toBe(1);
     const positions = state.players.map((p) => p.hand.map((h) => h.pos));
-    expect(positions[1]).toEqual([3, 4, 5, 6, 7, 8]);
-    expect(positions[2]).toEqual([9, 10, 11, 12, 13, 14]);
-    expect(positions[0]).toEqual([15, 16, 17, 18, 19, 20]);
+    expect(positions[0]).toEqual([3, 4, 5, 6, 7, 8]);
+    expect(positions[1]).toEqual([9, 10, 11, 12, 13, 14]);
+    expect(positions[2]).toEqual([15, 16, 17, 18, 19, 20]);
     expect(state.deck.next).toBe(21);
+    expect(ofType(events, 'tilesDealt').map((e) => [e.seat, e.positions])).toEqual([
+      [0, [3, 4, 5, 6, 7, 8]],
+      [1, [9, 10, 11, 12, 13, 14]],
+      [2, [15, 16, 17, 18, 19, 20]],
+    ]);
+
+    // Each hand is hidden from the other players.
+    for (let viewer = 0; viewer < 3; viewer++) {
+      const v = viewFor(state, viewer);
+      v.players.forEach((p, seat) => {
+        expect(p.hand.map((h) => h.pos)).toEqual(positions[seat]);
+        if (seat !== viewer) expect(p.hand.every((h) => h.tile === null)).toBe(true);
+      });
+    }
+  });
+
+  it('view mode: the viewer learns slots assigned at setup (D022)', () => {
+    const full = newGame(['3C', '9A', '1B']);
+    const view = setupGame({ rules: DEFAULT_RULES, seats: 3, mode: 'view', viewer: 2 });
+    if (!view.ok) throw new Error(view.error.message);
+    expect(view.value.players.map((p) => p.hand.map((h) => h.pos))).toEqual(
+      full.players.map((p) => p.hand.map((h) => h.pos)),
+    );
+    expect(view.value.players.every((p) => p.hand.every((h) => h.tile === null))).toBe(true);
+    const slot = full.players[2]?.hand[0];
+    const learned = chainReaction.learn?.(view.value, {
+      deck: 'tiles',
+      pos: slot?.pos as number,
+      card: slot?.tile as number,
+    });
+    expect(learned?.ok).toBe(true);
+    if (learned?.ok) expect(learned.state.players[2]?.hand[0]).toEqual(slot);
   });
 
   it('reveals must come in position order and match the deck (setup integrity)', () => {

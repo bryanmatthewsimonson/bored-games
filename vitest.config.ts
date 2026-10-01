@@ -15,6 +15,33 @@ export default defineConfig({
       {
         test: { name: 'deck', root: 'packages/deck', include: ['test/**/*.test.ts'], testTimeout: 60_000 },
       },
+      {
+        test: {
+          name: 'protocol',
+          root: 'packages/protocol',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 60_000,
+        },
+      },
+      {
+        test: {
+          name: 'client',
+          root: 'packages/client',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+        },
+      },
+      { test: { name: 'relay', root: 'packages/relay', include: ['test/**/*.test.ts'] } },
+      {
+        test: {
+          name: 'dev-relay',
+          root: 'tools/dev-relay',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 30_000,
+        },
+      },
+      { test: { name: 'web', root: 'apps/web', include: ['test/**/*.test.ts'] } },
       { test: { name: 'brand', root: 'packages/brand', include: ['test/**/*.test.ts'] } },
       { test: { name: 'repo', root: '.', include: ['tests/**/*.test.ts'] } },
       {

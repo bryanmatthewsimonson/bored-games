@@ -1,17 +1,25 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  applyAction,
   bonusPayouts,
+  type ChainReactionState,
+  chainReaction,
   compareCloseness,
   DEFAULT_RULES,
+  legalActions,
   NEIGHBORS,
+  pendingDecision,
+  setupGame,
   sharePrice,
   splitUp100,
   TILE_COUNT,
   tileId,
   tileIndex,
   validateRules,
+  viewFor,
 } from '../src/index.ts';
+import { act, dispose, endTurn, place, posOf, scenario } from './helpers.ts';
 
 describe('tiles', () => {
   it('round-trips every tile id and rejects non-ids', () => {
@@ -107,5 +115,163 @@ describe('rules validation', () => {
     // There is no stall rule: games end only by declaration.
     expect(validateRules({ ...DEFAULT_RULES, stallRule: 'off' }).ok).toBe(false);
     expect(validateRules(null).ok).toBe(false);
+  });
+});
+
+describe('protocol hooks', () => {
+  const ORDER = Array.from({ length: TILE_COUNT }, (_, i) => (i * 37) % TILE_COUNT);
+
+  function fresh(): ChainReactionState {
+    const init = setupGame({ rules: DEFAULT_RULES, seats: 3, mode: 'full', deckOrders: { tiles: ORDER } });
+    if (!init.ok) throw new Error(init.error.message);
+    return init.value;
+  }
+
+  function started(): ChainReactionState {
+    let s = fresh();
+    for (let pos = 0; pos < 3; pos++) {
+      s = act(s, { type: 'reveal', actor: 'deck', deck: 'tiles', pos, card: ORDER[pos] }).state;
+    }
+    return s;
+  }
+
+  it('dealt lists the setup positions as public and the hands in seat order, at setup', () => {
+    const s = fresh();
+    const hand = (seat: number) =>
+      Array.from({ length: 6 }, (_, i) => ({ deck: 'tiles', pos: 3 + seat * 6 + i, to: seat }));
+    const expected = [
+      { deck: 'tiles', pos: 0, to: null },
+      { deck: 'tiles', pos: 1, to: null },
+      { deck: 'tiles', pos: 2, to: null },
+      ...hand(0),
+      ...hand(1),
+      ...hand(2),
+    ];
+    expect(chainReaction.dealt(s)).toEqual(expected);
+    expect(chainReaction.dealt(started())).toEqual(expected);
+    const view = setupGame({ rules: DEFAULT_RULES, seats: 3, mode: 'view', viewer: 1 });
+    expect(view.ok && chainReaction.dealt(view.value)).toEqual(expected);
+  });
+
+  it('dealt appends a drawn position to the seat that drew it, and keeps played positions', () => {
+    let s = started();
+    const seat = s.turn?.seat ?? -1;
+    const before = chainReaction.dealt(s);
+    for (let guard = 0; s.phase.kind !== 'buy' && guard < 20; guard++) {
+      const p = pendingDecision(s);
+      if (p.type !== 'player') throw new Error('expected a player decision');
+      s = act(s, legalActions(s, p.seat)[0]).state;
+    }
+    const end = legalActions(s, seat).find(
+      (a) => a.type === 'endTurn' && a.buy.length === 0 && !a.declareEnd,
+    );
+    s = act(s, end).state;
+    expect(chainReaction.dealt(s)).toEqual([...before, { deck: 'tiles', pos: 21, to: seat }]);
+    expect(chainReaction.dealt(viewFor(s, null))).toEqual(chainReaction.dealt(s));
+  });
+
+  it('revealsOf claims the placed tile and every discarded tile', () => {
+    const s = scenario({ chains: { s1: '1A-11A', p1: '1C-11C' }, hands: ['5B 12I 1G'] });
+    expect(chainReaction.revealsOf(s, place(s, 0, '12I'))).toEqual([
+      { deck: 'tiles', pos: posOf(s, 0, '12I'), card: tileIndex('12I') },
+    ]);
+    const discard = endTurn(0, { discard: [{ pos: posOf(s, 0, '5B'), tile: '5B' }] });
+    expect(chainReaction.revealsOf(s, discard)).toEqual([
+      { deck: 'tiles', pos: posOf(s, 0, '5B'), card: tileIndex('5B') },
+    ]);
+    expect(chainReaction.revealsOf(s, endTurn(0))).toEqual([]);
+    expect(chainReaction.revealsOf(s, { type: 'skipPlace', actor: 0 })).toEqual([]);
+    expect(
+      chainReaction.revealsOf(s, { type: 'reveal', actor: 'deck', deck: 'tiles', pos: 0, card: 0 }),
+    ).toEqual([]);
+  });
+
+  it('revealsOf returns [] for anything it cannot parse, and never throws', () => {
+    const s = started();
+    const hostile = {
+      get type(): string {
+        throw new Error('boom');
+      },
+    };
+    for (const junk of [
+      { type: 'nonsense' },
+      null,
+      undefined,
+      42,
+      'place',
+      [],
+      { type: 'place', actor: 0, pos: 3, tile: 'Z9' },
+      { type: 'place', actor: 0, pos: 3, tile: '1A', extra: true },
+      { type: 'endTurn', actor: 0, buy: [], declareEnd: false, discard: [{ pos: 9, tile: 3 }] },
+      hostile,
+    ]) {
+      expect(chainReaction.revealsOf(s, junk)).toEqual([]);
+    }
+  });
+
+  it('standings on a fresh game give every seat its starting cash', () => {
+    expect(chainReaction.standings(fresh())).toEqual([6000, 6000, 6000]);
+    expect(chainReaction.standings(started())).toEqual([6000, 6000, 6000]);
+  });
+
+  it('standings apply final scoring to a copy, the same in every view, and equal the outcome at the end', () => {
+    const s = scenario({
+      chains: { s1: '1A-12A 1B-12B 1C-12C 1D-5D', b1: '1F-2F' },
+      phase: 'buy',
+      cash: [1000, 1000, 1000],
+      shares: { s1: [10, 5, 0], b1: [0, 2, 1], p2: [0, 0, 3] },
+    });
+    const copy = structuredClone(s);
+    expect(chainReaction.standings(s)).toEqual([23000, 14400, 2200]);
+    expect(s).toEqual(copy);
+    for (const viewer of [0, 1, 2, null]) {
+      expect(chainReaction.standings(viewFor(s, viewer))).toEqual([23000, 14400, 2200]);
+    }
+    const over = applyAction(s, endTurn(0, { declareEnd: true }));
+    if (!over.ok) throw new Error(over.error.message);
+    expect(chainReaction.standings(over.state)).toEqual(chainReaction.outcome(over.state)?.scores);
+  });
+
+  it('standings do not repay the bonus of the defunct chain being disposed of', () => {
+    // s1 (standard, 5 tiles) absorbs b1 (budget, 3 tiles): prices $600 and $300.
+    const s = scenario({
+      chains: { s1: '1A-5A', b1: '7A-9A' },
+      hands: ['6A'],
+      shares: { b1: [0, 2, 0], s1: [1, 0, 0] },
+    });
+    const merged = act(s, place(s, 0, '6A')).state;
+    expect(merged.phase.kind === 'merger' && merged.phase.merger.holders).toEqual([1]);
+    expect(merged.players.map((p) => p.cash)).toEqual([6000, 10500, 6000]); // b1 sole bonus 3000 + 1500 paid
+    // Seat 0: s1 sole bonus 6000 + 3000, sells 1 x 600. Seat 1: no second b1 bonus, sells 2 x 300.
+    expect(chainReaction.standings(merged)).toEqual([15600, 11100, 6000]);
+    for (const viewer of [0, 1, 2, null]) {
+      expect(chainReaction.standings(viewFor(merged, viewer))).toEqual([15600, 11100, 6000]);
+    }
+    // Merger complete: s1 has 9 tiles ($700), and b1 shares are worthless.
+    const done = act(merged, dispose(1, 'b1', 0, 0)).state;
+    expect(done.phase.kind).toBe('buy');
+    expect(chainReaction.standings(done)).toEqual([6000 + 7000 + 3500 + 700, 10500, 6000]);
+  });
+
+  it('standings do not repay the bonus of a defunct chain already resolved in a multi-way merger', () => {
+    // s1 (standard, 5 tiles, $600) absorbs p1 (premium, 4 tiles, $600) then b1 (budget, 3 tiles, $300).
+    const s = scenario({
+      chains: { s1: '5A-5D 6A', p1: '6E-9E', b1: '2E-4E' },
+      hands: ['5E'],
+      shares: { s1: [3, 0, 0], p1: [0, 2, 0], b1: [0, 0, 2] },
+    });
+    // Seat 0: s1 sole bonus 6000 + 3000, sells 3 x 600. Seat 1: p1 bonus 9000 already paid, sells 2 x 600.
+    // Seat 2: b1 bonus 3000 + 1500 (paid now or already), sells 2 x 300.
+    const expected = [6000 + 9000 + 1800, 6000 + 9000 + 1200, 6000 + 4500 + 600];
+    const placed = act(s, place(s, 0, '5E')).state;
+    expect(placed.players.map((p) => p.cash)).toEqual([6000, 15000, 6000]);
+    expect(chainReaction.standings(placed)).toEqual(expected);
+    // Seat 1 keeps its p1 shares; p1 is resolved but its cells stay until the merger completes.
+    const p1Resolved = act(placed, dispose(1, 'p1', 0, 0)).state;
+    const m = p1Resolved.phase.kind === 'merger' ? p1Resolved.phase.merger : null;
+    expect(m?.defuncts?.map((c) => DEFAULT_RULES.chains[c]?.id)).toEqual(['b1']);
+    expect(m?.holders).toEqual([2]);
+    expect(p1Resolved.players.map((p) => p.cash)).toEqual([6000, 15000, 10500]);
+    expect(chainReaction.standings(p1Resolved)).toEqual(expected);
   });
 });

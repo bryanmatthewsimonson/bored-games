@@ -1,14 +1,15 @@
-import type { GameModule, Learn, Outcome, Seat } from '@bored-games/game-kit';
+import type { DealtPosition, GameModule, Learn, Outcome, Seat } from '@bored-games/game-kit';
 import { classifyTile } from './board.ts';
-import { applyAction, learnTile, setupGame } from './engine.ts';
+import { applyAction, learnTile, setupGame, standingsOf } from './engine.ts';
 import { checkInvariants } from './invariants.ts';
 import { legalActions, pendingDecision } from './legal.ts';
 import { type ChainReactionRules, DEFAULT_RULES, validateRules } from './rules.ts';
 import { TILE_COUNT } from './tiles.ts';
 import type { ChainReactionEvent, ChainReactionState } from './types.ts';
+import { parseAction } from './validate.ts';
 
 export const CHAIN_REACTION_ID = 'chain-reaction';
-export const CHAIN_REACTION_VERSION = '0.2.0';
+export const CHAIN_REACTION_VERSION = '0.3.0';
 
 /** Redacts a state to what `viewer` may know: opponents' hands and the deck order are hidden. */
 export function viewFor(s: ChainReactionState, viewer: Seat | null): ChainReactionState {
@@ -16,7 +17,7 @@ export function viewFor(s: ChainReactionState, viewer: Seat | null): ChainReacti
     ...s,
     mode: 'view',
     viewer,
-    deck: { order: null, next: s.deck.next },
+    deck: { order: null, next: s.deck.next, dealt: s.deck.dealt },
     players: s.players.map((p, seat) =>
       seat === viewer ? p : { ...p, hand: p.hand.map((h) => ({ pos: h.pos, tile: null })) },
     ),
@@ -27,6 +28,26 @@ export function knownTo(s: ChainReactionState, seat: Seat): Learn[] {
   return (s.players[seat]?.hand ?? []).flatMap((h) =>
     h.tile === null ? [] : [{ deck: 'tiles', pos: h.pos, card: h.tile }],
   );
+}
+
+/** Every assigned position: the setup tiles (public) and each hand position, in assignment order. */
+export function dealtOf(s: ChainReactionState): DealtPosition[] {
+  return s.deck.dealt.map((d) => ({ deck: 'tiles', pos: d.pos, to: d.to }));
+}
+
+/** The tiles an action shows from its actor's hand: a placed tile, or each discarded dead tile. */
+export function revealsOf(s: ChainReactionState, raw: unknown): Learn[] {
+  try {
+    const parsed = parseAction(s.rules, s.seats, raw);
+    if (!parsed.ok) return [];
+    const a = parsed.action;
+    if (a.type === 'place') return [{ deck: 'tiles', pos: a.pos, card: a.tile }];
+    if (a.type === 'endTurn') return a.discard.map((e) => ({ deck: 'tiles', pos: e.pos, card: e.tile }));
+    return [];
+  } catch {
+    // Hostile input (a throwing getter, a proxy) reveals nothing.
+    return [];
+  }
 }
 
 export function outcomeOf(s: ChainReactionState): Outcome | null {
@@ -114,6 +135,9 @@ export const chainReaction: GameModule<ChainReactionState, ChainReactionEvent, C
   knownTo,
   view: viewFor,
   outcome: outcomeOf,
+  standings: standingsOf,
+  dealt: dealtOf,
+  revealsOf,
   invariants: checkInvariants,
   coverage: coverageTags,
 };

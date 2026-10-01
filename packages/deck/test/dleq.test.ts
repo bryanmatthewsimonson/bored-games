@@ -290,6 +290,24 @@ describe('decryptPosition', () => {
     );
   });
 
+  it('a non-object ciphertext gives null, not a TypeError', () => {
+    for (const bad of [null, undefined, 7, 'ct', true])
+      expect(decryptPosition(bad as unknown as Ciphertext, ctx, keys, [s0, s1, s2], table), String(bad)).toBe(
+        null,
+      );
+  });
+
+  it('a Map value of undefined is a missing share, like null', () => {
+    const holey = new Map<number, Share>([
+      [0, s0],
+      [1, undefined as unknown as Share],
+      [2, s2],
+    ]);
+    expect(decryptPosition(ct, ctx, keys, holey, table)).toBe(null);
+    // With the owner's own D for that seat it is not an "own seat also has a share" error.
+    expect(decryptPosition(ct, ctx, keys, holey, table, own(1))).toBe(m);
+  });
+
   it('throws on caller errors: no keys, a wrong array length, an out-of-range seat, a bad own', () => {
     expect(() => decryptPosition(ct, ctx, [], [], table)).toThrow(RangeError);
     expect(() => decryptPosition(ct, ctx, keys, [s0, s1], table)).toThrow(RangeError);

@@ -1,0 +1,14 @@
+{
+  "name": "@bored-games/sim",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bored-games/client": "workspace:*",
+    "@bored-games/fuzz": "workspace:*",
+    "@bored-games/game-kit": "workspace:*"
+  }
+}

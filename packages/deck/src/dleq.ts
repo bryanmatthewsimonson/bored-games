@@ -132,7 +132,7 @@ export function decryptPosition(
   } else {
     for (const [k, share] of shares as ReadonlyMap<number, Share>) {
       if (!isSeat(k)) throw new RangeError(`decryptPosition: share key ${String(k)} is not a seat`);
-      bySeat[k] = share;
+      bySeat[k] = (share as Share | null | undefined) ?? null;
     }
   }
   if (own !== undefined) {
@@ -142,6 +142,7 @@ export function decryptPosition(
     if (bySeat[own.seat] !== null) throw new RangeError('decryptPosition: own seat also has a share');
   }
 
+  if (typeof ct !== 'object' || ct === null) return null;
   if (!(ct.a instanceof PointClass) || ct.a.is0() || !(ct.b instanceof PointClass)) return null;
   const Ds: Point[] = [];
   for (let k = 0; k < n; k++) {

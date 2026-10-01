@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. Of Phase 2, the mental-poker deck (`packages/deck`, 2b) is built. The networked design below is specified precisely in `docs/PROTOCOL.md`, a NIP-style draft (protocol version 1). Where the two differ, PROTOCOL.md wins.
+**Status:** Phases 0–2 are built, apart from Phase 2e's key backup and live relay smoke test: the game kit and the Chain Reaction engine, the mental-poker deck, the protocol events, the session engine and the relay transport. Phase 3's web app is playable end to end. The networked design below is specified precisely in `docs/PROTOCOL.md`, a NIP-style draft (protocol version 1), with the session rulings in DECISIONS D030. Where the two differ, PROTOCOL.md wins.
 
 ## What we are building
 
@@ -17,19 +17,20 @@ There are no AI players and no local pass-and-play. A random-move **fuzzer** exi
 ## Layers
 
 ```
-apps/web (Phase 3)          platform shell + per-game UI modules
-packages/client (Phase 2)   game sessions: relay pool, ordering, validation, auto-shares, audit
-packages/protocol (Phase 2) NOSTR event schemas, encoding, validation
-packages/deck (Phase 2b)    mental-poker deck: ElGamal, shuffle proofs, decryption shares, wire codecs
-packages/games/*            pure rules modules (Chain Reaction today)
-packages/game-kit           GameModule contract, canonical JSON, hashing, PRNG, replay, fuzzer
+apps/web (Phase 3)           platform shell, lobby and game controllers, per-game UI modules
+packages/relay (Phase 2e)    relay pool over WebSockets (not pure)
+packages/client (Phase 2d)   lobby fold and game sessions: ordering, fork choice, validation, shares, timeouts, audit
+packages/protocol (Phase 2c) NOSTR event schemas, encoding, validation
+packages/deck (Phase 2b)     mental-poker deck: ElGamal, shuffle proofs, decryption shares, wire codecs
+packages/games/*             pure rules modules (Chain Reaction today)
+packages/game-kit            GameModule contract, canonical JSON, hashing, PRNG, replay, fuzzer
 ```
 
 Dependencies point downward only. Game modules and the kit are **pure**:
 - no clock, randomness, I/O or platform globals
 - integer money and plain-JSON state.
 
-Purity is enforced by a source scan and by `tsconfig` (no DOM or Node types).
+`packages/deck`, `packages/protocol` and `packages/client` are pure in the same way: time and randomness are passed in. Purity is enforced by a source scan and by `tsconfig` (no DOM or Node types).
 
 ## The game contract (`@bored-games/game-kit`)
 
@@ -42,14 +43,17 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 | `decks(rules)` | The shuffled decks the game needs (Chain Reaction: one deck of 108 tiles). |
 | `setup({rules, seats, mode})` | **Full mode:** deck orders known (tests, fuzzing, post-game audit). **View mode:** a live client for one seat, or a spectator. |
 | `pending(state)` | Who must act: a seat with a named decision, a public `reveal` of deck positions, or `over`. |
-| `legalActions(state, seat)` | Exact whenever the seat's hidden cards are known. |
+| `legalActions(state, seat)` | Exact whenever the seat's hidden cards are known; otherwise `[]` whenever legality depends on cards the seat has not learned, so a non-empty list is always exact (D030). |
 | `apply(state, action: unknown)` | Validates and applies. Never throws, never mutates. Rejects non-canonical encodings so every move has exactly one form. |
 | `learn(state, {deck, pos, card})` | Records a card this viewer privately decrypted. |
 | `knownTo(state, seat)`, `view(state, viewer)` | What a seat knows, and the redaction of a full state to one viewer. |
 | `outcome(state)` | Places, scores and reason. Feeds stats. |
+| `standings(state)` | Per-seat scores as if the game ended now, from public data only, so every view agrees. Equals `outcome.scores` at the end. Ranks the remaining seats after a forfeit (PROTOCOL §8.2). Chain Reaction: final scoring on a copy. |
+| `dealt(state)` | Every deck position assigned so far, `{deck, pos, to}` in assignment order, with `to` a seat or `null` for a public position. Entries never change or disappear. Identical in full mode and every view; the protocol derives owed shares from it (PROTOCOL §6.1, §6.2). |
+| `revealsOf(state, action)` | The hidden cards an action shows from its actor's hand, as `{deck, pos, card}` claims, which the protocol checks against reveal shares. `[]` for anything else, including unparseable input. Never throws. Chain Reaction: a placed tile, or each discarded tile. |
 | `invariants(state)`, `coverage(state, events)` | Used by the fuzzer and tests. |
 
-**Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action.
+**Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action. After every action it also checks `standings`, `dealt` and `revealsOf` against the deck order and every view.
 
 **Hidden cards are deck positions.** When a player draws, the engine deterministically assigns the next deck position to them. The identity is never in the public log until the card is played, discarded or revealed. Public reveals, such as Chain Reaction's setup tiles, are `reveal` actions from the pseudo-actor `deck`, which `pending()` requests.
 
@@ -101,18 +105,19 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Backup.** The session key and deck secrets are backed up NIP-44-encrypted to the player's own npub as app data (NIP-78), so another device can resume.
 - **Moves.** Each move is a regular, signed, stored event. It tags the game root and the previous move, forming a hash chain, and carries a sequence number. A move is valid only if it is signed by the seat that `pending()` names and `apply()` accepts it.
 - **Validation.** Every client validates with the same engine and ignores invalid moves.
-- **Equivocation.** Two different moves on the same parent are a signed proof of cheating.
+- **Equivocation and forks.** Two different valid-looking moves on the same parent by one seat are a signed proof of cheating. The seat is flagged and ranks last at the end; the game is never rewound. Every client follows the same fork choice: the branch that ends the game, then the longest, then the lowest id (D030).
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.
-- **Timeouts.** NOSTR `created_at` is self-reported, so time limits are judged by each client. A player may publish a timeout claim once the stalled seat's limit (set in the game root) has clearly passed. The stalled seat forfeits (D020). A stall before the first game action (during the shuffle or the deal) instead cancels the game, with no result.
+- **Timeouts.** NOSTR `created_at` is self-reported, so it is never used for deadlines. Each client measures the deadline (set in the game root) on its own clock, from the time it first saw the game's last progress. A player may then publish a timeout claim, and each client accepts it once its own deadline has passed: every stalled seat forfeits (D020, D030), and acceptance is final for that client. A stall before the first game action (during the shuffle or the deal) instead cancels the game, with no result. A stalled seat that acts while some clients have accepted and others have not can split them; this race is documented and accepted.
 
 ## Ratifying results
 
 - There is no authority.
-- Final scoring in Chain Reaction uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a signed **result attestation**: game root, final log hash, outcome, and audit verdict.
-- A result is **valid** if its log verifies. It is **finalized** when every player attests and the audit passes.
-- Stats and ratings use only valid, audited games.
+- Final scoring in Chain Reaction uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a **result attestation** signed by the player's npub: game root, final log hash, outcome, and audit verdict.
+- A game ended by a timeout cannot be audited, since secrets are missing. Its attestation records the forfeiting seats in place of the audit verdict.
+- A result is **valid** if its log verifies. It is **finalized** when every player attests.
+- Stats and ratings use only valid results.
 
 ## Records and social features
 
@@ -143,7 +148,7 @@ The reference game's name and its editions' chain names never appear in source; 
 | The contract was shaped by one game | A toy hidden-hand module tests the kit now. Phase 6 adds a second real game early. |
 | A bug in the shuffle proof lets a cheater stack the deck | Proofs follow CHVote's algorithms, cross-checked (D019), with a tamper suite and test vectors. |
 | Abandonment stalls a game, since the missing player's shares are needed | Timeout claims; the stalled seat forfeits (D020). |
-| Fuzzy, clock-free timeouts | Generous per-move limits; client-side judgement. |
+| Self-reported timestamps | Deadlines run on each client's own clock from first-seen times; generous per-move limits; the claim race is documented (D030). |
 | Engine changes break replays of old games | Version pinned in the game root; old engine versions stay importable; semantic changes require a version bump. |
 | Key loss | Encrypted self-backup of session and deck secrets. |
 | Relay availability and event size limits | Several relays. A shuffle step (108 ciphertexts plus its proof) is about 36 KB. |

@@ -1,5 +1,5 @@
 export { activeChains, chainSizes, classifyTile, endCondition, isPlayable, type TileClass } from './board.ts';
-export { applyAction, learnTile, setupGame } from './engine.ts';
+export { applyAction, learnTile, setupGame, standingsOf } from './engine.ts';
 export { checkInvariants } from './invariants.ts';
 export { buyOptions, legalActions, pendingDecision } from './legal.ts';
 export {
@@ -7,8 +7,10 @@ export {
   CHAIN_REACTION_VERSION,
   chainReaction,
   coverageTags,
+  dealtOf,
   knownTo,
   outcomeOf,
+  revealsOf,
   viewFor,
 } from './module.ts';
 export { bonusPayouts, sharePrice, splitUp100 } from './pricing.ts';

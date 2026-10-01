@@ -54,7 +54,7 @@ The price per share depends on the chain's tier and its size in tiles. The major
 
 1. Each player is dealt one tile, which is revealed and placed on its space. These setup tiles stay **unincorporated** and never form a chain at setup, even when adjacent. They stay on the board and can later be part of a founded chain.
 2. The player whose setup tile is closest to 1A goes first (row, then column). Turn order then follows seat order.
-3. Starting with the first player and continuing in turn order, each player is dealt a hidden hand of 6 tiles.
+3. Each player's hidden hand of 6 tiles is dealt at setup in seat order, before any setup tile is revealed: after the setup tiles, seat 0 takes the next 6 positions of the bag, then seat 1, and so on. The first player does not affect the deal.
 
 ## A turn
 
@@ -163,10 +163,11 @@ Each entry has a named test in `packages/games/chain-reaction/test/catalog/` who
 **Setup:** Setup tiles are seat 0 3C, seat 1 9A, seat 2 1B.
 **Expected:** Seat 1 starts (9A: row A beats row B). Under `firstPlayerOrder: 'columnThenRow'`, seat 2 starts (1B: column 1).
 
-#### C03 Hands are dealt in turn order from the first player
-**Setup:** Three seats; seat 1 goes first.
+#### C03 Hands are dealt at setup in seat order
+**Setup:** Three seats.
 **Expected:**
-- Seat 1 receives deck positions 3–8, seat 2 positions 9–14, and seat 0 positions 15–20. Positions 0–2 were the setup tiles.
+- Seat 0 has deck positions 3–8, seat 1 positions 9–14 and seat 2 positions 15–20. They are assigned at setup, before the setup tiles at positions 0–2 are revealed.
+- The first player is still decided by the setup tiles.
 - Each hand is hidden from the other players.
 
 ### Placement

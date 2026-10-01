@@ -2,7 +2,16 @@ import { assertJsonSafe, jsonEqual } from './canonical.ts';
 import { stateHash } from './hash.ts';
 import { createRng, type Rng, range, shuffle } from './prng.ts';
 import { replay } from './replay.ts';
-import type { DeckSpec, GameModule, Learn, LogEntry, Outcome, RevealAction, Seat } from './types.ts';
+import type {
+  DealtPosition,
+  DeckSpec,
+  GameModule,
+  Learn,
+  LogEntry,
+  Outcome,
+  RevealAction,
+  Seat,
+} from './types.ts';
 
 /**
  * Generic random-playout fuzzer. It drives any GameModule in full mode with
@@ -14,6 +23,11 @@ import type { DeckSpec, GameModule, Learn, LogEntry, Outcome, RevealAction, Seat
  *  - an action re-attributed to another seat is rejected;
  *  - every seat's view (public log + its own learned cards) equals the
  *    redaction of the full state, as does the spectator view;
+ *  - the protocol hooks agree with the deck and the views: `dealt` only grows
+ *    and is the same in every view, private cards and pending reveals sit at
+ *    positions dealt to their seat or to the public, `revealsOf` claims match
+ *    the deck and the actor's positions, and `standings` is the same in every
+ *    view and equals the final scores;
  * and at the end that replaying the public log reproduces the final state.
  * It is a test tool only; it is never a player.
  */
@@ -74,9 +88,21 @@ export function deepFreeze<T>(value: T): T {
 
 const sameData = jsonEqual;
 
-function learnKey(l: Learn): string {
-  return `${l.deck}:${l.pos}`;
+function posKey(deck: string, pos: number): string {
+  return `${deck}:${pos}`;
 }
+
+function learnKey(l: Learn): string {
+  return posKey(l.deck, l.pos);
+}
+
+function who(to: Seat | null | undefined): string {
+  if (to === undefined) return 'undealt';
+  return to === null ? 'public' : `seat ${to}`;
+}
+
+/** Inputs no game parses; `revealsOf` must return [] for each without throwing. */
+const JUNK_ACTIONS: readonly unknown[] = [null, 0, 'reveal', [], {}, { type: 'nonsense' }];
 
 export function fuzzGame<S, E extends { readonly type: string }, R>(
   module: GameModule<S, E, R>,
@@ -155,7 +181,85 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       return null;
     };
 
-    const initialSync = syncViews();
+    // The protocol hooks (PROTOCOL §6, §8.2), checked after every state change.
+    // The live views are checked rather than fresh redactions: syncViews has just shown they are equal.
+    let prevDealt: readonly DealtPosition[] = [];
+    let owner = new Map<string, Seat | null>();
+    const label = (i: number): string => {
+      const viewer = viewers[i] ?? null;
+      return viewer === null ? 'spectator' : `seat ${viewer}`;
+    };
+    const checkHooks = (): string | null => {
+      const dealt = module.dealt(full);
+      if (dealt.length < prevDealt.length || !sameData(dealt.slice(0, prevDealt.length), prevDealt)) {
+        return 'dealt: an earlier assignment changed or disappeared';
+      }
+      prevDealt = dealt;
+      owner = new Map();
+      for (const d of dealt) {
+        const key = posKey(d.deck, d.pos);
+        if (owner.has(key)) return `dealt: position ${key} assigned twice`;
+        if (deckOrders[d.deck]?.[d.pos] === undefined) return `dealt: ${key} is not a deck position`;
+        if (d.to !== null && !(Number.isInteger(d.to) && d.to >= 0 && d.to < opts.seats)) {
+          return `dealt: ${key} assigned to ${String(d.to)}`;
+        }
+        owner.set(key, d.to);
+      }
+      for (const seat of range(opts.seats)) {
+        for (const l of module.knownTo(full, seat)) {
+          const to = owner.get(learnKey(l));
+          if (to !== seat) return `seat ${seat} knows ${learnKey(l)}, which is dealt to ${who(to)}`;
+        }
+      }
+      const pending = module.pending(full);
+      if (pending.type === 'reveal') {
+        for (const pos of pending.positions) {
+          const key = posKey(pending.deck, pos);
+          if (owner.get(key) !== null)
+            return `pending reveal of ${key}, which is dealt to ${who(owner.get(key))}`;
+        }
+      }
+      const standings = module.standings(full);
+      if (standings.length !== opts.seats) return `standings has ${standings.length} entries`;
+      if (checkViews) {
+        for (let i = 0; i < views.length; i++) {
+          const view = views[i] as S;
+          if (!sameData(module.dealt(view), dealt)) return `dealt differs in the view of ${label(i)}`;
+          if (!sameData(module.standings(view), standings))
+            return `standings differ in the view of ${label(i)}`;
+        }
+      }
+      const outcome = module.outcome(full);
+      if (outcome && !sameData(standings, outcome.scores)) return 'standings differ from the final scores';
+      return null;
+    };
+
+    /** `revealsOf(full, action)` must claim the deck's cards at positions dealt to the actor. */
+    const checkReveals = (action: unknown, actor: Seat | 'deck'): string | null => {
+      const claims = module.revealsOf(full, action);
+      for (const c of claims) {
+        const key = learnKey(c);
+        const card = deckOrders[c.deck]?.[c.pos];
+        if (card !== c.card) return `revealsOf claims ${key}=${c.card}, but the deck holds ${card}`;
+        if (owner.get(key) !== actor) {
+          return `revealsOf claims ${key} for ${actor === 'deck' ? 'a deck reveal' : `seat ${actor}`}, but it is dealt to ${who(owner.get(key))}`;
+        }
+      }
+      if (checkViews) {
+        for (let i = 0; i < views.length; i++) {
+          if (!sameData(module.revealsOf(views[i] as S, action), claims)) {
+            return `revealsOf differs in the view of ${label(i)}`;
+          }
+        }
+      }
+      return null;
+    };
+
+    for (const junk of JUNK_ACTIONS) {
+      if (module.revealsOf(full, junk).length > 0)
+        return fail(`revealsOf claims cards for ${JSON.stringify(junk)}`);
+    }
+    const initialSync = syncViews() ?? checkHooks();
     if (initialSync) return fail(initialSync);
 
     while (true) {
@@ -200,6 +304,8 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       }
 
       lastAction = action;
+      const revealProblem = checkReveals(action, pending.type === 'reveal' ? 'deck' : pending.seat);
+      if (revealProblem) return fail(revealProblem);
       const res = module.apply(full, action);
       if (!res.ok) return fail(`chosen action rejected: ${res.error.code} ${res.error.message}`);
       actions.push(action);
@@ -227,6 +333,8 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
         const sync = syncViews();
         if (sync) return fail(sync);
       }
+      const hooks = checkHooks();
+      if (hooks) return fail(hooks);
     }
 
     const outcome = module.outcome(full);

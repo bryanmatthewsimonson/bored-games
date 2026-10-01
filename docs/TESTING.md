@@ -1,0 +1,74 @@
+# Testing guide
+
+How to play Chain Reaction locally, with real people, and how to run the tests. Commands run from the repo root.
+
+## 1. Local play: three players in one browser
+
+You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
+
+1. Run `pnpm install`.
+2. Run `pnpm dev`. This starts the in-memory dev relay on `ws://localhost:7777` and the app on `http://localhost:5173`. Ctrl-C stops both. The relay keeps nothing, so restarting it loses every table and game.
+   - **Ports are fixed.** Vite runs with `strictPort`, so if port 5173 (or the relay's 7777) is already taken, `pnpm dev` stops with an error instead of moving to another port. Stop the other process (often an earlier `pnpm dev`) and run it again.
+3. Open **three separate browser windows side by side, not tabs**, one per player:
+   - `http://localhost:5173/?profile=a&relays=ws://localhost:7777`
+   - `http://localhost:5173/?profile=b&relays=ws://localhost:7777`
+   - `http://localhost:5173/?profile=c&relays=ws://localhost:7777`
+
+   Each profile has its own key and storage, so these are three separate players. The header shows `profile: a`, and so on.
+   - **Why windows:** browsers throttle timers in hidden tabs, which slows the automatic shuffle and deal to a crawl. If a window seems stuck, click into it to focus it.
+   - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the public relays (`wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the full list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
+4. **Create** (window a): under **New table**, choose **3 players** (the default) and a **Time allowed per move**, then click **Create table** (the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
+5. **Join** (windows b and c): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
+   - To join with the link instead, click **Copy share link** in window a. The link carries no profile, so add one before pasting it into window b: `http://localhost:5173/?profile=b#/t/…`. Then click **Join this table**.
+6. **Start** (window a): once the page says "Every seat is taken.", click **Start game**, then **Yes, start the game**. All three windows move to the game.
+7. **Play.** The status bar at the top says whose move it is ("Your move: place a tile.", or "Waiting for npub1… to …"). In the window whose move it is:
+   - **Place a tile:** click a tile under **Your tiles**, or pick it in **Place a tile**, then click **Place …**. Hovering over a tile previews where it lands.
+   - **Found a chain**, **Choose the surviving chain** and **Order the defunct chains** appear when a placement calls for them.
+   - **Buy shares and end your turn:** enter up to 3 shares in total, then click **End turn**.
+   - **Merger disposal ("Your … shares"):** sell, trade 2 for 1 or keep, then click **Confirm**.
+   - **End the game:** once an end condition holds, **Buy shares and end your turn** shows a **Declare the end of the game** checkbox. The results then show "Audit: checking the hidden moves…" and then "Audit passed".
+   - The **Log** panel lists what happened, newest last (the last 100 lines).
+
+### What to expect
+- **Setup takes some seconds.** After the start, each client shuffles the deck and proves the shuffle, then deals. The screen shows "Shuffling the deck: 1 of 3 players done.", "Dealing the tiles…" and "Working… this can take a few seconds." With three players on a laptop this takes about 15–30 s. Every player's window must be open on the game for its share of the work to happen.
+- **Turns are asynchronous.** Nothing hurries a player. Close a window whenever you like: reopening the game (from Home, **Your games** → **Open game**) rebuilds it from the relay and the secrets saved in that profile.
+- **Merger decisions can come to you out of turn.** When a chain is taken over, each player holding its shares disposes of them in turn order. That form can appear in a window whose turn it is not, so check every window when the game seems to wait.
+- **A new tile can show as "?" for a while.** Each other player's next move carries the decryption share for the tile you drew. Until every other player has moved once, your new tile shows as "?". It is always known before you need it.
+- **Players are shown by short npub**, followed by their profile name when their key has published one (NOSTR kind 0 metadata), as in "Ann (npub1…)". Local profiles have none.
+- **"Stuck: an automatic step failed"** means a shuffle, deal or secret step failed. Reloading that window retries it.
+- **Home badges.** On Home, **Your games** shows a **Your turn** badge for a game that was waiting on you when this profile last had it open. It is not a live inbox: a game this profile has not opened for a while shows "Open to check".
+- **Timeouts.** Once a player's move deadline (1, 3 or 7 days, chosen at **Create table**) has passed, the other players get a **Claim timeout** button in the status bar (or on the setup screen). It asks for confirmation first (**Yes, claim the timeout**) and explains the result: the stalled player forfeits and the game ends at once, or, before the first move after the deal, the game is cancelled. Nothing is claimed automatically. The deadlines are too long to try this in a short local session.
+
+## 2. Playing with real people
+
+### Deploy to GitHub Pages
+1. In the GitHub repository, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**. You only do this once. A private repository needs a plan that includes Pages.
+2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs `pnpm check`; once it passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
+3. Share the URL the workflow prints, usually `https://<owner>.github.io/<repo>/`. Each person plays in their own browser, so no `?profile=` is needed.
+
+**Before sharing widely, use a dedicated origin.** A project site at `https://<owner>.github.io/<repo>/` shares its origin, and so its `localStorage`, with every other GitHub Pages project site of the same owner. Each player's identity key and game secrets live in that storage, so any script on any of those sites can read them. For anything beyond a test among friends, serve the app from a custom domain or subdomain, or from a Pages user or organization site (`<name>.github.io`) used only for this app (D036).
+
+### Relays
+- The deployed app uses the public relays `wss://relay.damus.io`, `wss://nos.lol` and `wss://relay.nostr.band`.
+- **Public relays may reject the shuffle.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. If a game stays on "Shuffling the deck" while every window is open, the relays are refusing it. Use a relay that accepts large events, such as your own nostr-rs-relay (PLAN open question 7).
+- **Changing relays:** click **Settings** (top right). Under **Relays**, type a `wss://…` URL, click **Add**, then **Save relays**. Use **Remove** to drop a relay and **Reset to defaults** to restore the list. The list is saved per profile. A link cannot set your relays on the published site: `?relays=` works only with `pnpm dev` or a build made with `VITE_ALLOW_LINK_RELAYS=1`, and even then accepts only local `ws://localhost` and `ws://127.0.0.1` relays.
+- A table records the creator's relays when it is created, and its game events go to those relays. A joiner must use at least one of them to find the table. Otherwise the Table page says "This table has not turned up on your relays yet." So agree on relays before creating the table.
+
+### Optional: log in with a browser extension (NIP-07)
+Install a NIP-07 extension (for example Alby or nos2x) and reload the app. In **Settings → Identity**, tick **Use browser extension (NIP-07)**. The page reloads and you play as the extension's key. That is a different player from the profile's local key. The extension asks you to sign the table, the join, the game start and the end-of-game attestation. In-game moves are signed with a per-game session key, so they need no prompt.
+
+If you chose the extension but it is not there when the page loads (disabled, or injected too late), the app uses the profile's local key and says "Browser extension not found; using this profile's local key." Without an extension, the app creates a local key per profile. **Settings → Identity → Show secret key (nsec)** shows it so you can export it.
+
+## 3. Known limitations
+- **No cross-device backup of game secrets yet.** Each game's secrets live only in this browser, under this profile. Keep using the same browser and profile for a game. Clearing site data loses your seat in running games.
+- **No "your turn" notifications.** Home's badge only reflects games this profile has had open (section 1).
+- NIP-46 remote signers are not supported.
+
+## 4. Running the tests
+- **`pnpm check`** runs typecheck, Biome lint and every Vitest project (engine, deck, protocol, client, relay, dev relay, web, brand, fuzz smoke and repo guards). Run it before every commit. CI (`.github/workflows/ci.yml`) runs it on pushes to `main` and on pull requests.
+- **`pnpm e2e`** is the end-to-end browser test (`apps/web/e2e/play.spec.ts`, about 1–2 minutes). It starts a dev relay and `vite preview` on free ports. Three players in three browser contexts then create, join, start and play at least two full rounds through the UI, on until a merger disposal. One player reloads mid-game. All three must agree on the board and the turn at the end. It is not part of `pnpm check`.
+  - The first time on a new machine, run `pnpm --filter @bored-games/web exec playwright install chromium`. The dev container already has the browser.
+  - `E2E_FINISH=1 pnpm e2e` plays to the final results and a passed audit (about 3 minutes).
+  - `E2E_SCREENSHOTS=/some/dir pnpm e2e` saves a screenshot per player. `pnpm e2e --headed` shows the browser.
+- **`pnpm build:web`** builds the static app into `apps/web/dist`, as the Pages workflow does.
+- **`pnpm fuzz --games 1000`** plays random games against the rules engine and checks its invariants (`--games 10000` for the full run). `pnpm fuzz --one "<seed#i>" --players N` replays one failing game.
