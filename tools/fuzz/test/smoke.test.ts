@@ -12,6 +12,7 @@ it('tilestock: a few hundred fuzzed games keep every invariant', () => {
     rules: target.module.defaultRules(),
     policies: target.policies,
     ...(target.deckOrder ? { deckOrder: target.deckOrder } : {}),
+    ...(target.checkOutcome ? { checkOutcome: target.checkOutcome } : {}),
   });
   expect(report.failures).toEqual([]);
   expect(report.games).toBe(150);

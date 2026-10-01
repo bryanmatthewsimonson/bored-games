@@ -23,7 +23,7 @@ Display names (game title, chain names, colors) live in `packages/games/tilestoc
 |---|---|---|
 | First player | Closest to 1A comparing **row, then column**: 9A beats 1B, 2A beats 2B. `firstPlayerOrder: 'columnThenRow'` is available. | Reference page examples; owner chose it over the kickoff's column-first convention |
 | End declaration | Optional, on your own turn, when an end condition held at the start of the turn or after your placement resolved. The declarer finishes the turn (buys), then the game is scored. | Reference page ("if either condition has been met during your turn… declare… after completing your turn") |
-| Stall | **House rule:** if the bag is empty and a full round passes with no tile placed, the game ends and is scored. There is no other liveness rule. | Kickoff; the owner ruled other freezes a non-issue |
+| Stall | **House rule:** if the bag is empty and a full round passes with no tile placed, the game ends and is scored. Under correct play it never fires, because an end condition is always declarable by then. A stall is treated as a bug (see DECISIONS D015). | Kickoff; owner ruling that games never stall |
 | Dead tiles | At the **end of your turn**, every dead tile you held during the turn is revealed, discarded, and replaced. The page says "only once per turn": a replacement that is itself dead waits until the end of your next turn. | Reference page. Literal reading: the tiles you *held during the turn* |
 | Blocked tiles | A tile that would found an 8th chain is not dead. You keep it until a chain becomes available. | Reference page |
 | No playable tile | Skip placement and still buy. | Kickoff default; consistent with "play one tile each turn, if possible" |

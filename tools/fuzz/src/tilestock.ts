@@ -62,7 +62,10 @@ function makePolicy(style: Style): FuzzPolicy<TilestockState> {
       if (first.type === 'dispose' && style.dispose)
         return weighted(actions, (a) => style.dispose?.(state, a) ?? 1, rng);
       if (first.type === 'endTurn') {
-        const wantDeclare = rng.float() < style.declare;
+        // With the bag empty no new tile can ever arrive, so a real player ends the
+        // game rather than declining an available end forever (which would stall).
+        const bagEmpty = state.deck.next >= TILE_COUNT;
+        const wantDeclare = bagEmpty || rng.float() < style.declare;
         const pool = actions.filter((a) => a.type === 'endTurn' && a.declareEnd === wantDeclare);
         const options = pool.length > 0 ? pool : actions;
         return style.buy ? weighted(options, (a) => style.buy?.(state, a) ?? 1, rng) : rng.pick(options);
@@ -162,7 +165,6 @@ export const TILESTOCK_EXPECTED_COVERAGE: readonly string[] = [
   'declare:allSafe',
   'deck:bagEmptied',
   'end:declared',
-  'end:stall',
 ];
 
 export { NEIGHBORS };

@@ -1,4 +1,4 @@
-import type { DeckSpec, FuzzPolicy, GameModule, Rng } from '@bored-games/game-kit';
+import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { tilestock } from '@bored-games/tilestock';
 import { TILESTOCK_EXPECTED_COVERAGE, TILESTOCK_POLICIES, tilestockDeckOrder } from './tilestock.ts';
 
@@ -10,6 +10,8 @@ export interface FuzzTarget {
   readonly policies: readonly FuzzPolicy<any>[];
   readonly deckOrder?: (deck: DeckSpec, rng: Rng) => number[];
   readonly expectedCoverage: readonly string[];
+  /** Outcomes that must never happen; each one is reported as a bug. */
+  readonly checkOutcome?: (outcome: Outcome) => string | null;
   readonly defaultSeatCounts: readonly number[];
 }
 
@@ -19,6 +21,9 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     policies: TILESTOCK_POLICIES,
     deckOrder: tilestockDeckOrder,
     expectedCoverage: TILESTOCK_EXPECTED_COVERAGE,
+    // A correct game always ends by declaration; a stall means the rules or the
+    // engine are wrong (owner, 2026-10-01).
+    checkOutcome: (o) => (o.reason === 'stall' ? 'game stalled instead of ending by declaration' : null),
     defaultSeatCounts: [3, 4, 5, 6],
   },
 };

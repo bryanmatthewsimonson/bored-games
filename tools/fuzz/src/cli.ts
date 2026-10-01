@@ -47,6 +47,7 @@ function runOne(
     rules: target.module.defaultRules(),
     policies: target.policies,
     ...(target.deckOrder ? { deckOrder: target.deckOrder } : {}),
+    ...(target.checkOutcome ? { checkOutcome: target.checkOutcome } : {}),
     checkViews: job.checkViews,
     maxSteps: job.maxSteps,
   });

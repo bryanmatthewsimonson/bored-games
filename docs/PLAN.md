@@ -9,7 +9,8 @@
 5. **Second game** (Phase 6). Which game should validate the contract?
 6. **Final names.** The platform ("Bored Games"), the first game ("Tilestock") and its chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are placeholders.
 7. **Relay URL** for your nostr-rs-relay, needed in Phase 2.
-8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
+8. **The stall house rule.** It never fires now: every fuzzed game ends by declaration, and the fuzzer treats a stall as a bug. Keep it in the engine as a dormant safeguard against a player who keeps taking turns but refuses to declare, or remove it?
+9. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
 
 ## Status
 
@@ -24,7 +25,7 @@
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Last verified (2026-10-01):** `pnpm check` passes (typecheck, Biome, 108 tests). `pnpm fuzz --games 10000 --seed checkpoint-1` reports 0 failures over 10,000 games.
+**Last verified (2026-10-01):** `pnpm check` passes (typecheck, Biome, 116 tests). `pnpm fuzz --games 10000` reports 0 failures and 0 stalls (two seeds).
 
 ## Phases and acceptance criteria
 
@@ -42,12 +43,12 @@
   - every RULES.md catalog entry (C01–C58) has a named test, enforced by a meta-test
   - `pnpm check` is green
   - `pnpm fuzz --games 10000` reports zero failures, with the coverage report reviewed.
-- **Result** (`pnpm fuzz --games 10000 --seed checkpoint-1`, 4 workers, 222 s): 10,000 games, 1,743,953 actions, **zero invariant failures**, with view checks on.
-  - **Ends:** 8,933 declared (5,975 by the 41-tile condition, 2,958 by all-safe) and 1,067 stalls.
-  - **Mergers:** 61,017 two-way, 1,442 three-way and 6 four-way; 4,292 survivor ties and 359 defunct ties.
-  - **Every bonus case,** including 4,702 sole holders. 62,898 trades were capped by supply. 21,458 chains were refounded while players still held kept shares. The founder got no share twice (players held all 25).
-  - **Unplayable tiles:** 47,228 dead-tile discards, and 8,781 turns with no playable tile.
-  - The bag emptied in 4,784 games.
+- **Result** (`pnpm fuzz --games 10000`, 4 workers, about 225 s per run). Two independent runs (seeds `checkpoint-1` and `no-stall-verify`) gave **zero invariant failures and zero stalls**: 10,000 / 10,000 games ended by declaration (6,260 by the 41-tile condition, 3,740 by all-safe).
+  - **Mergers:** 59,561 two-way, 1,427 three-way, 6 four-way; 4,286 survivor ties and 358 defunct ties.
+  - **Every bonus case.** 58,284 trades were capped by supply. 21,121 chains were refounded while players still held kept shares. The founder got no share twice (players held all 25).
+  - **Tiles:** 38,241 dead-tile discards; 34 turns with no playable tile; the bag emptied in 4,784 games.
+  - **Stalls are bugs (owner, 2026-10-01).** The first checkpoint run showed 1,067 stalls. Root-cause analysis found an end condition declarable in every one, for 25+ turns. The fuzzer's simulated players kept declining it after the last tile was played; the rules and engine were not at fault.
+  - **Fix:** the fuzz target now reports any stall as a failure, and simulated players declare once the bag is empty. The 6 formerly stalled seeds are regression tests (`tools/fuzz/test/no-stall.test.ts`).
   - `pnpm fuzz --one "<seed>" --players N` reproduces a single game deterministically (verified).
 
 ### Phase 2: Decentralized protocol

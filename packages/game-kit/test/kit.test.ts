@@ -100,6 +100,17 @@ describe('fuzzer and replay on the toy module', () => {
     expect(rep.ok && stateHash(rep.state)).toBe(game.finalHash);
   });
 
+  it('reports a game whose outcome the caller forbids', () => {
+    const toy = createToy();
+    const report = fuzzGame(toy, {
+      seed: 'outcome',
+      seats: 3,
+      rules: toy.defaultRules(),
+      checkOutcome: (o) => (o.reason === 'handsEmpty' ? 'games must not end by emptying hands' : null),
+    });
+    expect(report.failure?.message).toBe('forbidden outcome: games must not end by emptying hands');
+  });
+
   it.each([
     ['mutate', /threw|Cannot assign/],
     ['invariant', /invariant: negative score/],

@@ -24,6 +24,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - **`apply` never throws or mutates.** Every move has exactly one accepted encoding.
 - **Import style:** relative imports use `.ts` extensions, there are no enums (`erasableSyntaxOnly`), and type-only imports use `import type`.
 - **Rules:** RULES.md is the source of truth. Never invent rules. Mark uncertain ones OPEN, make them a rules option, and log them.
+- **Games never stall.** A stall is a bug in the rules, the engine or the fuzz policies, never an acceptable ending (DECISIONS D015).
 - **Catalog tests:** every `#### Cnn` in RULES.md needs an `it('Cnn …')` in `packages/games/tilestock/test/catalog/`; a meta-test enforces this.
 - **Dependencies:** few. Justify each one in `docs/DECISIONS.md`.
 - **Commits:** small and focused; nothing is done while tests fail. Keep `docs/PLAN.md` status and `docs/DECISIONS.md` current so a fresh session can pick up cold.

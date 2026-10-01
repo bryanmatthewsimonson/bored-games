@@ -96,6 +96,18 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 - `stateHash` is cyrb53 over canonical JSON. It is a fast, non-cryptographic fingerprint for tests and logs.
 - Network integrity relies on signed NOSTR event ids (SHA-256), not on this hash.
 
+## D015: Games never stall; a stall is a bug (2026-10-01, owner)
+- **Owner ruling:** a correct game always ends by one of the rules' end conditions, so every stalled game indicates a bug.
+- **Investigation** (Superpowers systematic debugging) of all 1,067 stalls in the first 10,000-game run:
+  - In every stall, an end condition was declarable (877 by the 41-tile condition, 190 by all-safe) and had been for 25+ turns.
+  - The bag and hands were empty, and every empty space was dead.
+- **Root cause:** fuzz policies that rarely or never declare kept declining an available end. The rules and engine were correct.
+- **Fix:**
+  - The fuzz target reports any stall outcome as a failure (`checkOutcome` in the kit).
+  - Simulated players declare once the bag is empty.
+  - The formerly stalled seeds are regression tests.
+- The engine's stall house rule stays as a dormant safeguard, pending the owner's decision (PLAN open question 8).
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 
