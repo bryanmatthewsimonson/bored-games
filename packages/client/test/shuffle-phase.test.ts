@@ -101,9 +101,11 @@ describe('shuffle phase', () => {
     const bad = move(1, 2, steps[0]?.id as string, { type: 'shuffle', deck: out, proof });
     const r = fresh.receive(bad, NOW);
     expect(r).toEqual({ status: 'rejected', reason: 'the shuffle proof does not verify' });
-    // The honest steps still link.
-    expect(statuses(deliver([fresh], [steps[1], steps[2]]))).toEqual(['accepted', 'accepted']);
-    expect(fresh.view().phase).toBe('deal');
+    // Seat 1's honest step on the same prev is a second move under (prev, seq): equivocation (D030 R2). Seat 1
+    // forfeits, and the session stops at that prev.
+    expect(statuses(deliver([fresh], [steps[1], steps[2]]))).toEqual(['accepted', 'rejected']);
+    expect(fresh.view().forfeits).toEqual([1]);
+    expect(fresh.view().head).toEqual({ id: steps[0]?.id, seq: 1 });
   });
 
   it('reports a duplicate', () => {

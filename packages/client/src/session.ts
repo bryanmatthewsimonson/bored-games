@@ -16,7 +16,13 @@ import {
   verifyShare,
   verifyShuffle,
 } from '@bored-games/deck';
-import { deepFreeze, type GameModule, type Pending, type RevealAction } from '@bored-games/game-kit';
+import {
+  canonicalJson,
+  deepFreeze,
+  type GameModule,
+  type Pending,
+  type RevealAction,
+} from '@bored-games/game-kit';
 import {
   finalizeEvent,
   getPublicKey,
@@ -29,6 +35,7 @@ import {
   type ParsedMove,
   type ParsedRoot,
   type ParsedShares,
+  type PosShare,
   ProtocolError,
   parseJoin,
   parseMove,
@@ -58,6 +65,21 @@ type Fold = 'accepted' | 'wait' | { reject: string };
 export interface LoggedAction {
   actor: number | 'deck';
   action: unknown;
+}
+
+/** The fold's state at one head, for cutting the chain back to it. */
+interface Snapshot {
+  phase: Phase;
+  state: unknown;
+  logLength: number;
+  learned: number[];
+  known: number[];
+}
+
+/** Two distinct moves by one seat under the same (prev, seq): proof of equivocation (D030 R2). */
+interface Equivocation {
+  seq: number;
+  ids: [Hex, Hex];
 }
 
 const reject = (reason: string): Fold => ({ reject: reason });
@@ -111,12 +133,24 @@ export class GameSession {
   private readonly shuffleChecked = new Map<Hex, boolean>();
   /** The module state (frozen), set up in view mode once the shuffle is complete. */
   private state: unknown = null;
-  private pendingSince: number;
-  private readonly shares: ShareStore;
-  /** Ids of Shares events folded in (including those that added nothing new). */
-  private readonly sharesSeen = new Set<Hex>();
+  /** The root's `created_at`, the floor of `pendingSince`. */
+  private rootCreatedAt: number;
+  /**
+   * Verified shares from folded Shares events and from accepted moves. Rebuilt from those two sources when the
+   * chain is cut back (see `rollback`).
+   */
+  private shares: ShareStore;
+  /** Shares events folded in, by id (including those that added nothing new), every share verified. */
+  private readonly sharesSeen = new Map<Hex, ParsedShares>();
+  /**
+   * `snapshots[i]` is the fold as it stood at head seq `i`, taken just before move `i + 1` was linked, so the chain
+   * can be cut back to any accepted move.
+   */
+  private readonly snapshots: Snapshot[] = [];
   /** My positions already decrypted (or found undecryptable), so each is tried once. */
   private readonly learned = new Set<number>();
+  /** My positions whose card the module has learned. */
+  private readonly known = new Set<number>();
   /** Game actions and derived reveals in the order the fold applied them (D030 R6). */
   private readonly actionLog: LoggedAction[] = [];
 
@@ -125,6 +159,19 @@ export class GameSession {
   /** Shares events that wait for the final deck. */
   private readonly waitingShares = new Map<Hex, ParsedShares>();
   private readonly rejected = new Map<Hex, string>();
+  /** Game actions' share and reveal checks, by event id: null when every proof verifies, else the reason. */
+  private readonly actionChecked = new Map<Hex, string | null>();
+
+  /**
+   * Every well-formed move from a seated key, by `prev:seq:seat`: the first id seen. A second id under the same key
+   * proves equivocation (D030 R2), whether or not either move is otherwise valid.
+   */
+  private readonly moveKeys = new Map<string, Hex>();
+  /**
+   * Equivocating seats, each with the lowest `seq` at which two of its moves collide and the two ids that prove it.
+   * They forfeit (§8.2); Task 4 settles the outcome.
+   */
+  private readonly equivocation = new Map<number, Equivocation>();
 
   private constructor(input: SessionInput, root: ParsedRoot, module: AnyModule, rules: unknown) {
     this.module = module;
@@ -144,7 +191,7 @@ export class GameSession {
     this.cards = cardTable(this.deckId, this.deckSize);
     this.shares = new ShareStore(this.seats);
     this.linked.add(root.id);
-    this.pendingSince = 0;
+    this.rootCreatedAt = 0;
   }
 
   /**
@@ -193,7 +240,7 @@ export class GameSession {
     }
 
     const s = new GameSession(input, root, module, rules.value);
-    s.pendingSince = (input.root as NostrEvent).created_at;
+    s.rootCreatedAt = (input.root as NostrEvent).created_at;
     return s;
   }
 
@@ -228,14 +275,56 @@ export class GameSession {
     const seat = this.seatOf.get(p.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
     if (this.isKnown(p.id)) return { status: 'duplicate' };
+    // Every well-formed move from a seated key counts as equivocation evidence, even one rejected before.
+    if (parsed.kind === 'move' && this.recordMoveKey(parsed.m, seat)) {
+      this.rollback();
+      this.settle();
+      return { status: 'accepted' };
+    }
     const known = this.rejected.get(p.id);
     if (known !== undefined) return { status: 'rejected', reason: known };
-    return parsed.kind === 'move' ? this.intakeMove(parsed.m, seat) : this.intakeShares(parsed.s, seat);
+    if (parsed.kind === 'shares') return this.intakeShares(parsed.s, seat);
+    const cut = this.cut();
+    if (cut !== null && parsed.m.seq > cut) {
+      return { status: 'rejected', reason: 'a forfeit is recorded: no further moves are folded' };
+    }
+    return this.intakeMove(parsed.m, seat);
+  }
+
+  /**
+   * Keep the move's (prev, seq, signer) key. Returns true when it is a second, distinct move under a known key at a
+   * lower `seq` than any equivocation already recorded for that seat: the signer equivocated (D030 R2) and
+   * forfeits. The rival's id is kept as evidence.
+   */
+  private recordMoveKey(m: ParsedMove, seat: number): boolean {
+    const key = `${m.prevId}:${m.seq}:${seat}`;
+    const first = this.moveKeys.get(key);
+    if (first === undefined) {
+      this.moveKeys.set(key, m.id);
+      return false;
+    }
+    if (first === m.id) return false;
+    const known = this.equivocation.get(seat);
+    if (known !== undefined && known.seq <= m.seq) return false;
+    this.equivocation.set(seat, { seq: m.seq, ids: [first, m.id] });
+    return true;
+  }
+
+  /**
+   * The head seq the game stops at once a forfeit is recorded: the common prev of the earliest equivocation, judged
+   * by the rivals' `seq` (one below it). Moves above it are not folded, so the state a forfeit is settled on does
+   * not depend on which rival, if any, a client linked. Null while no forfeit is recorded.
+   */
+  private cut(): number | null {
+    let out: number | null = null;
+    for (const e of this.equivocation.values()) if (out === null || e.seq - 1 < out) out = e.seq - 1;
+    return out;
   }
 
   /** Whether the event was folded in or is pooled. */
   private isKnown(id: Hex): boolean {
     if (this.linked.has(id) || this.sharesSeen.has(id) || this.waitingShares.has(id)) return true;
+    for (const e of this.equivocation.values()) if (e.ids.includes(id)) return true;
     for (const moves of this.movesByPrev.values()) if (moves.has(id)) return true;
     return false;
   }
@@ -309,6 +398,8 @@ export class GameSession {
   /** Fold a move whose `prev` is the head. */
   private foldMove(m: ParsedMove, seat: number): Fold {
     if (m.seq !== this.chain.length + 1) return reject(`seq ${m.seq} does not follow the head`);
+    const cut = this.cut();
+    if (cut !== null && m.seq > cut) return 'wait';
     const c = m.content;
     if (c.type === 'shuffle') {
       const step = m.seq - 1;
@@ -320,8 +411,91 @@ export class GameSession {
       if (m.seq === this.seats) this.startDeal();
       return 'accepted';
     }
+    return this.foldAction(m, seat, c);
+  }
+
+  /**
+   * Fold a game action whose `prev` is the head (PROTOCOL §6.5, D030 R1). In order: the signer is the pending
+   * seat; every share and reveal verifies; the module accepts the action; the reveals are exactly the positions
+   * `revealsOf` names, each decrypting to the claimed card; and the signer's owed shares are all present. A move
+   * that lacks only shares other events may still bring (another seat's share of a revealed position, or one of
+   * its own owed shares) waits.
+   */
+  private foldAction(
+    m: ParsedMove,
+    seat: number,
+    c: Extract<ParsedMove['content'], { type: 'action' }>,
+  ): Fold {
     // Game actions are folded from the play phase on; until then they wait.
-    return 'wait';
+    if (this.phase === 'shuffle' || this.phase === 'deal') return 'wait';
+    if (this.phase !== 'play') return reject('the game is not in play');
+    const p = this.module.pending(this.state);
+    // A pending reveal resolves once its shares arrive; the move may follow it.
+    if (p.type === 'reveal') return 'wait';
+    if (p.type !== 'player') return reject('no player decision is pending');
+    if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
+
+    const bad = this.actionProofs(m.id, seat, c.shares, c.reveals);
+    if (bad !== null) return reject(bad);
+
+    const r = this.module.apply(this.state, c.action);
+    if (!r.ok) return reject(`the module rejects the action: ${r.error.code}: ${r.error.message}`);
+
+    const claims = this.module.revealsOf(this.state, c.action);
+    const claimed = claims.map((l) => l.pos).sort((a, b) => a - b);
+    const shown = c.reveals.map((x) => x.pos);
+    if (claims.some((l) => l.deck !== this.deckId) || canonicalJson(claimed) !== canonicalJson(shown)) {
+      return reject('the reveals do not match the positions the action shows');
+    }
+    const deck = this.finalDeck() as Ciphertext[];
+    let missingShares = false;
+    for (const claim of claims) {
+      if (!this.shares.covered(claim.pos, seat)) {
+        missingShares = true;
+        continue;
+      }
+      const slots = this.shares.slots(claim.pos, seat);
+      slots[seat] = (c.reveals.find((x) => x.pos === claim.pos) as PosShare).share;
+      const ctx = this.shareCtx(claim.pos);
+      const card = decryptPosition(deck[claim.pos] as Ciphertext, ctx, this.keys, slots, this.cards);
+      if (card !== claim.card) return reject(`the reveal of position ${claim.pos} is not the claimed card`);
+    }
+    if (missingShares) return 'wait';
+
+    const brought = new Set(c.shares.map((x) => x.pos));
+    if (this.shares.missing(seat, this.module.dealt(this.state)).some((pos) => !brought.has(pos)))
+      return 'wait';
+
+    this.link(m);
+    for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(seat, pos, share, m.createdAt);
+    this.state = deepFreeze(r.state);
+    this.actionLog.push({ actor: seat, action: c.action });
+    return 'accepted';
+  }
+
+  /** Verify a game action's shares and reveals against the signer's key, once per event. Null when all verify. */
+  private actionProofs(
+    id: Hex,
+    seat: number,
+    shares: readonly PosShare[],
+    reveals: readonly PosShare[],
+  ): string | null {
+    const cached = this.actionChecked.get(id);
+    if (cached !== undefined) return cached;
+    const deck = this.finalDeck() as Ciphertext[];
+    const key = this.keys[seat] as Point;
+    const check = (list: readonly PosShare[], what: string): string | null => {
+      for (const { pos, share } of list) {
+        if (pos >= this.deckSize) return `the ${what} for position ${pos} is outside the deck`;
+        if (!verifyShare(key, deck[pos] as Ciphertext, share, this.shareCtx(pos))) {
+          return `the ${what} for position ${pos} does not verify`;
+        }
+      }
+      return null;
+    };
+    const result = check(shares, 'share') ?? check(reveals, 'reveal');
+    this.actionChecked.set(id, result);
+    return result;
   }
 
   private shuffleVerifies(
@@ -342,9 +516,15 @@ export class GameSession {
   }
 
   private link(m: ParsedMove): void {
+    this.snapshots[this.chain.length] = {
+      phase: this.phase,
+      state: this.state,
+      logLength: this.actionLog.length,
+      learned: [...this.learned],
+      known: [...this.known],
+    };
     this.chain.push(m);
     this.linked.add(m.id);
-    this.pendingSince = Math.max(this.pendingSince, m.createdAt);
     // Pooled rivals that named the same prev can no longer link.
     const rivals = this.movesByPrev.get(m.prevId);
     if (rivals !== undefined) {
@@ -375,12 +555,11 @@ export class GameSession {
         return reject(`the share for position ${pos} does not verify`);
       }
     }
-    this.sharesSeen.add(s.id);
-    let added = 0;
-    for (const { pos, share } of s.shares) if (this.shares.add(seat, pos, share)) added++;
-    if (added === 0) return 'nothing-new';
-    this.pendingSince = Math.max(this.pendingSince, s.createdAt);
-    return 'accepted';
+    this.sharesSeen.set(s.id, s);
+    let changed = false;
+    for (const { pos, share } of s.shares)
+      if (this.shares.add(seat, pos, share, s.createdAt) !== 'none') changed = true;
+    return changed ? 'accepted' : 'nothing-new';
   }
 
   private startDeal(): void {
@@ -501,9 +680,61 @@ export class GameSession {
       const r = this.module.learn(this.state, { deck: this.deckId, pos: d.pos, card });
       if (!r.ok) continue;
       this.state = deepFreeze(r.state);
+      this.known.add(d.pos);
       progressed = true;
     }
     return progressed;
+  }
+
+  /**
+   * Cut the chain back to `cut()` when it runs past it: drop the later moves, restore the fold as it stood at that
+   * head, and rebuild the share store from the Shares events and the moves that remain. Learns are redone from the
+   * shares by the next `settle`.
+   */
+  private rollback(): void {
+    const cut = this.cut();
+    if (cut === null || this.chain.length <= cut) return;
+    const snap = this.snapshots[cut] as Snapshot;
+    for (const m of this.chain.splice(cut)) this.linked.delete(m.id);
+    this.snapshots.length = cut;
+    this.decks.length = Math.min(this.decks.length, cut + 1);
+    this.phase = snap.phase;
+    this.state = snap.state;
+    this.actionLog.length = snap.logLength;
+    this.learned.clear();
+    for (const pos of snap.learned) this.learned.add(pos);
+    this.known.clear();
+    for (const pos of snap.known) this.known.add(pos);
+    this.shares = new ShareStore(this.seats);
+    if (this.finalDeck() === null) {
+      // The shares were verified against a final deck that is gone: they wait again, as if never folded.
+      for (const [id, s] of this.sharesSeen) this.waitingShares.set(id, s);
+      this.sharesSeen.clear();
+      this.actionChecked.clear();
+      return;
+    }
+    for (const s of this.sharesSeen.values()) {
+      const seat = this.seatOf.get(s.pubkey) as number;
+      for (const { pos, share } of s.shares) this.shares.add(seat, pos, share, s.createdAt);
+    }
+    for (const m of this.chain) {
+      if (m.content.type !== 'action') continue;
+      const seat = this.seatOf.get(m.pubkey) as number;
+      for (const { pos, share } of [...m.content.shares, ...m.content.reveals]) {
+        this.shares.add(seat, pos, share, m.createdAt);
+      }
+    }
+  }
+
+  /**
+   * The game's last progress (D030 R3): the largest `created_at` among the root, the accepted moves and, per kept
+   * share, the earliest verified copy of it. It depends only on which events are held, not their arrival order.
+   */
+  private pendingSince(): number {
+    let out = this.rootCreatedAt;
+    for (const m of this.chain) if (m.createdAt > out) out = m.createdAt;
+    const shares = this.shares.latest();
+    return shares !== null && shares > out ? shares : out;
   }
 
   /* -------------------------------------------------------------------------------------------- views */
@@ -517,9 +748,9 @@ export class GameSession {
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
       pending: this.pending(),
-      pendingSince: this.pendingSince,
+      pendingSince: this.pendingSince(),
       outcome: null,
-      forfeits: [],
+      forfeits: [...this.equivocation.keys()].sort((a, b) => a - b),
       audit: 'pending',
       logHash: logHash(this.chain.map((m) => m.id)),
       deadline: this.root.deadline,
@@ -535,16 +766,34 @@ export class GameSession {
 
   duties(): Duty[] {
     const me = this.me;
-    if (me === null) return [];
+    // Once a forfeit is recorded no further move is folded (Task 4 settles the outcome).
+    if (me === null || this.equivocation.size > 0) return [];
     if (this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
     if (this.phase === 'deal' && this.shares.missing(me.seat, this.module.dealt(this.state)).length > 0) {
       return [{ kind: 'deal' }];
     }
+    if (this.decides(me)) return [{ kind: 'decide' }];
     return [];
   }
 
+  /**
+   * Whether the play phase pends `me`'s decision, no forfeit is recorded, and I know every card dealt to me (so the
+   * module's legal actions are exact). By R1 the other seats' shares for my cards are in by my turn.
+   */
+  private decides(me: Identity): boolean {
+    if (this.phase !== 'play' || this.equivocation.size > 0) return false;
+    const p = this.module.pending(this.state);
+    if (p.type !== 'player' || p.seat !== me.seat) return false;
+    return this.module
+      .dealt(this.state)
+      .every((d) => d.to !== me.seat || d.deck !== this.deckId || this.known.has(d.pos));
+  }
+
+  /** My legal actions when a decision is mine (`decide` duty); otherwise none. A fresh, frozen list. */
   legalActions(): readonly unknown[] {
-    return [];
+    const me = this.me;
+    if (me === null || !this.decides(me)) return [];
+    return deepFreeze(JSON.parse(canonicalJson(this.module.legalActions(this.state, me.seat))) as unknown[]);
   }
 
   /* ----------------------------------------------------------------------------------------- builders */
@@ -600,9 +849,42 @@ export class GameSession {
     return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
   }
 
-  buildAction(_action: unknown, _rnd: RandomBytes, _createdAt: number): NostrEvent {
-    this.requireDuty('decide');
-    throw new ClientError('unreachable');
+  /**
+   * My game-action move: `action` (one of `legalActions()`), every share I owe as of the head (R1) and my reveal
+   * shares for the cards it shows (`revealsOf`), each sorted by position. Throws `ClientError` unless a decision
+   * is mine and the action is legal.
+   */
+  buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('decide');
+    let wanted: string;
+    try {
+      wanted = canonicalJson(action);
+    } catch {
+      throw new ClientError('the action is not canonical JSON');
+    }
+    const legal = this.module.legalActions(this.state, me.seat).find((a) => canonicalJson(a) === wanted);
+    if (legal === undefined) throw new ClientError('the action is not legal now');
+    const deck = this.finalDeck() as Ciphertext[];
+    const share = (pos: number): PosShare => ({
+      pos,
+      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
+    });
+    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map(share);
+    const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
+    const reveals = shown.sort((a, b) => a - b).map(share);
+    const t = moveTemplate(
+      {
+        rootId: this.root.id,
+        prevId: this.headId(),
+        seq: this.chain.length + 1,
+        content: { type: 'action', action: legal, reveals, shares },
+      },
+      createdAt,
+    );
+    const ev = finalizeEvent(t, me.sessionSk, rnd);
+    // This seat made the proofs, so they need not be verified again.
+    this.actionChecked.set(ev.id, null);
+    return ev;
   }
 
   buildSecret(_rnd: RandomBytes, _createdAt: number): NostrEvent {

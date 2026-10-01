@@ -79,8 +79,13 @@ describe('deal round', () => {
       expect(v.pendingSince).toBe(T0 + 202);
       expect(stateOf(s).setupTiles).toEqual(truth.slice(0, SEATS));
       expect(v.pending.type).toBe('player');
-      expect(s.duties()).toEqual([]);
     }
+    // The first decision is the pending seat's, and only its.
+    const first = (spectator.view().pending as { seat: number }).seat;
+    expect(players.map((s) => s.duties())).toEqual(
+      players.map((_, k) => (k === first ? [{ kind: 'decide' }] : [])),
+    );
+    expect(spectator.duties()).toEqual([]);
     expect(new Set(all.map((s) => canonicalJson(s.view().pending))).size).toBe(1);
     for (const [seat, s] of players.entries()) {
       for (let k = 0; k < SEATS; k++) {
@@ -141,5 +146,24 @@ describe('deal round', () => {
       expect(results.filter((r) => r === 'rejected')).toEqual([]);
       expect(canonicalJson(s.view())).toBe(canonicalJson(reference.get(viewer)));
     }
+  });
+
+  it('reaches the same view, pendingSince included, whether a full deal or a later re-signed subset comes first', () => {
+    const subset = finalizeEvent(
+      sharesTemplate({ rootId: game.rootId, shares: parseShares(deals[0]).shares.slice(0, 2) }, T0 + 500),
+      game.ids[0]?.sessionSk as Uint8Array,
+      game.rnd,
+    );
+    const views = [
+      [deals[0], subset],
+      [subset, deals[0]],
+    ].map((pair) => {
+      const s = newSession(game, null);
+      const results = statuses(deliver([s], [...steps, ...pair, ...deals.slice(1)]));
+      expect(results.filter((r) => r === 'rejected')).toEqual([]);
+      return canonicalJson(s.view());
+    });
+    expect(views[0]).toBe(views[1]);
+    expect(JSON.parse(views[0] as string).pendingSince).toBe(T0 + 202);
   });
 });

@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle and deal); 2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal and game actions); 2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -84,7 +84,10 @@
     - Shuffle phase: steps in seat order, each proof verified once per session against the previous deck.
     - Deal phase: one Shares event per seat covering every position dealt to another seat or public. Shares are verified against the final deck and kept once per (seat, position) in a `ShareStore`. The deal ends when every seat's owed positions are covered.
     - Derived reveals (PROTOCOL §6.3) go into an interleaved action log for the audit, and private learns (§6.4) decrypt with `decryptPosition` and `ownShare`.
-    - Next: game actions (owed shares, buffering, equivocation), the end of the game and the audit, timeouts, the lobby fold and simulations (Tasks 3–7).
+    - Game actions (§6.5): the signer must be the pending seat, every share and reveal must verify, the module must accept the action, and each reveal must decrypt to the card `revealsOf` claims. A move missing only shares that another event may still bring (its owed shares, R1, or another seat's share of a revealed card) is buffered, then accepted when they arrive. `buildAction` attaches the owed shares and the reveal shares.
+    - `pendingSince` is computed from the held events: the root, the accepted moves and, per kept share, its earliest verified copy. Arrival order does not change it.
+    - Equivocation (R2): every well-formed move from a seated key is indexed by (prev, seq, signer), and a second id under one key is a forfeit. The session then stops at the common prev, rolling the chain back if it had linked either rival, so every client judges the forfeit on the same state.
+    - Next: the end of the game and the audit, forfeit outcomes, timeouts, the lobby fold and simulations (Tasks 4–7).
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.
