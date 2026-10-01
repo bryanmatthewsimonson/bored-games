@@ -229,8 +229,9 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **`e` tags.** A Move has exactly one `["e", rootId, "", "root"]` and one `["e", prevId, "", "prev"]`. A Timeout claim has root and `["e", headId, "", "head"]`. Shares, Secret and Attest events have root only. Any other `e` tag, a relay hint, a repeated marker or a non-hex id is rejected. Tags with other names are ignored.
 - **Numbers.** `seq` is a decimal integer of at least 1 and `seat` of at least 0, both without a sign or leading zeros.
 - **Lists.** `reveals` and `shares` must each be strictly ascending by `pos`, so a position cannot repeat. An empty list is allowed. `parseMove` takes the deck size from its caller and rejects a shuffle step of any other size.
+- **Chain link.** `seq` is 1 exactly when `prev` is the root, so a move cannot claim an arbitrary position in the chain.
 - **Action.** `action` must be a JSON object. The module validates it later.
-- **Attestation.** `audit` is `"pass"` or `{fail, reason}`, where `fail` is a non-empty, strictly ascending list of seats and `reason` has 1–500 characters. `outcome.places` are integers of at least 1, `outcome.scores` are safe integers, and the two lists have equal length. `logHash` is 64 hex characters.
+- **Attestation.** `audit` is `"pass"` or `{fail, reason}`, where `fail` is a non-empty, strictly ascending list of seats and `reason` has 1–500 code points. `outcome.places` are integers of at least 1, `outcome.scores` are safe integers, and the two lists have equal length. `logHash` is 64 hex characters.
 - **`logHash`.** The SHA-256 hex of the UTF-8 of the move ids joined with `\n`. An empty log hashes the empty string.
 - **Shape only.** Parsers do not verify proofs, owed shares or `x·G = X_k`. The session engine does (2d).
 

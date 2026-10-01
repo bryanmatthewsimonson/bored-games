@@ -82,7 +82,13 @@ const ACTION: MoveContent = {
   reveals: [share(1)],
   shares: [share(2), share(5)],
 };
-const moveSpec = (content: MoveContent, seq = 1) => ({ rootId: ROOT, prevId: PREV, seq, content });
+/** Move 1 follows the root; every later move follows another move. */
+const moveSpec = (content: MoveContent, seq = 1) => ({
+  rootId: ROOT,
+  prevId: seq === 1 ? ROOT : PREV,
+  seq,
+  content,
+});
 
 /** The tags of a template, with `f` applied: the way tests build a malformed event. */
 function withTags(t: EventTemplate, f: (tags: string[][]) => string[][]): EventTemplate {
@@ -110,7 +116,7 @@ describe('Move (7452)', () => {
 
   it('has the section 4.4 tags', () => {
     expect(shuffleTpl.kind).toBe(KIND.move);
-    expect(shuffleTpl.tags).toEqual([rootTag, prevTag, ['seq', '1'], ['proto', '1']]);
+    expect(shuffleTpl.tags).toEqual([rootTag, ['e', ROOT, '', 'prev'], ['seq', '1'], ['proto', '1']]);
     expect(actionTpl.tags).toContainEqual(['seq', '9']);
   });
 
@@ -122,7 +128,7 @@ describe('Move (7452)', () => {
       pubkey: SESSION,
       createdAt: T0,
       rootId: ROOT,
-      prevId: PREV,
+      prevId: ROOT,
       seq: 1,
     });
     if (m.content.type !== 'shuffle') throw new Error('expected a shuffle');
@@ -195,6 +201,14 @@ describe('Move (7452)', () => {
     bad('a 63-character prevId', (t) =>
       t.map((x) => (x[3] === 'prev' ? ['e', PREV.slice(1), '', 'prev'] : x)),
     );
+    it('rejects seq above 1 when prev is the root', () => {
+      const t = moveTemplate({ ...moveSpec(SHUFFLE, 5), prevId: ROOT }, T0);
+      expect(code(() => parse(t))).toBe('bad-tag');
+    });
+    it('rejects seq 1 when prev is not the root', () => {
+      const t = moveTemplate({ ...moveSpec(SHUFFLE, 1), prevId: PREV }, T0);
+      expect(code(() => parse(t))).toBe('bad-tag');
+    });
     bad('a missing seq', (t) => t.filter((x) => x[0] !== 'seq'));
     bad('two seq tags', (t) => [...t, ['seq', '2']]);
     for (const seq of ['0', '01', '-1', '1.5', '1e2', '', ' 1', '+1', '9007199254740993'])
@@ -425,11 +439,14 @@ describe('Result attestation (7456)', () => {
     rejected({ fail: ['0'], reason: 'x' });
     rejected({ fail: [0], reason: '' });
     rejected({ fail: [0], reason: 'x'.repeat(501) });
+    rejected({ fail: [0], reason: '\u{1F600}'.repeat(501) });
     rejected({ fail: [0] });
     rejected({ fail: [0], reason: 'x', extra: 1 });
     rejected(null);
     rejected(true);
     expect(code(() => parse(audit({ fail: [0], reason: 'x'.repeat(500) })))).toBe('accepted');
+    // 300 emoji are 600 UTF-16 units but 300 code points.
+    expect(code(() => parse(audit({ fail: [0], reason: '\u{1F600}'.repeat(300) })))).toBe('accepted');
   });
 
   it('rejects a bad logHash', () => {

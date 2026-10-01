@@ -17,7 +17,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { KIND, PROTO } from './kinds.ts';
 import { badContent, badTag, canonicalContent, decimal, hex64, list, parseEvent, record } from './lobby.ts';
-import type { EventTemplate, Hex } from './nostr.ts';
+import { type EventTemplate, type Hex, isHex64 } from './nostr.ts';
 import { named, one } from './tags.ts';
 
 /*
@@ -119,13 +119,11 @@ function markedIds(tags: readonly string[][], markers: readonly string[]): Recor
     }
     const name = marker as string;
     if (name in out) badTag(`two "e" tags are marked "${name}"`);
-    if (!isHex(id)) badTag(`the "${name}" id must be 64 lowercase hex characters`);
+    if (!isHex64(id)) badTag(`the "${name}" id must be 64 lowercase hex characters`);
     out[name] = id as Hex;
   }
   return out;
 }
-
-const isHex = (s: unknown): boolean => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 
 /** A decimal tag value that is an integer of at least `min` (no sign, no leading zeros). */
 function numberTag(tags: readonly string[][], name: string, min: number): number {
@@ -231,6 +229,9 @@ export function parseMove(ev: unknown, deckSize: number): ParsedMove {
     } else {
       return badContent('type must be "shuffle" or "action"');
     }
+    if ((seq === 1) !== (ids.prev === ids.root)) {
+      badTag('"prev" must be the root exactly when "seq" is 1');
+    }
     return { ...parsedOf(e), rootId: ids.root as Hex, prevId: ids.prev as Hex, seq, content };
   });
 }
@@ -326,8 +327,8 @@ function auditOf(v: unknown): Audit {
     last = s;
   }
   const reason = a.reason;
-  if (typeof reason !== 'string' || reason.length < 1 || reason.length > MAX_AUDIT_REASON) {
-    badContent(`audit.reason: expected 1 to ${MAX_AUDIT_REASON} characters`);
+  if (typeof reason !== 'string' || [...reason].length < 1 || [...reason].length > MAX_AUDIT_REASON) {
+    badContent(`audit.reason: expected 1 to ${MAX_AUDIT_REASON} code points`);
   }
   return { fail: fail as number[], reason: reason as string };
 }
