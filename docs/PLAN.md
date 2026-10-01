@@ -30,7 +30,7 @@
 
 **Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`.
 
-**Last verified (2026-10-01, Phase 3 Task 6):** `pnpm check` passes (typecheck, Biome, 968 tests in 50 files, about 4 minutes). `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
+**Last verified (2026-10-01, Phase 2d final review fixes):** `pnpm check` passes (typecheck, Biome, 1039 tests in 53 files, 5 skipped, about 5.5 minutes). `pnpm test:sim` passes its 11 tests in about 4 minutes. `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
 
 **Earlier (end of 2b):** `pnpm check` passed (379 tests, 254 of them in `deck`).
 
