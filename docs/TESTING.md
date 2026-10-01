@@ -28,6 +28,8 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    - **Merger disposal ("Your … shares"):** sell, trade 2 for 1 or keep, then click **Confirm**.
    - **End the game:** once an end condition holds, **Buy shares and end your turn** shows a **Declare the end of the game** checkbox. The results then show "Audit: checking the hidden moves…" and then "Audit passed".
    - The **Log** panel lists what happened, newest last (the last 100 lines).
+   - **Price card** (above the Chains panel) opens the share prices and the majority and minority bonuses for every size, with each chain on the board marked in the row of its current size. **Rules** opens the player rules in a new tab.
+   - **Rules** in the header (and **How to play** next to **New table** on Home) opens the player rules at `#/rules`, including the price card.
 
 ### What to expect
 - **Setup takes some seconds.** After the start, each client shuffles the deck and proves the shuffle, then deals. The screen shows "Shuffling the deck: 1 of 3 players done.", "Dealing the tiles…" and "Working… this can take a few seconds." With three players on a laptop this takes about 15–30 s. Every player's window must be open on the game for its share of the work to happen.
@@ -45,6 +47,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 ### Deploy to GitHub Pages
 1. In the GitHub repository, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**. You only do this once. A private repository needs a plan that includes Pages.
 2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs `pnpm check`; once it passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
+   - **Default branch.** A `workflow_run` workflow runs from the repository's default branch, and the `github-pages` environment allows deployments from it. Keep `main` the default branch (**Settings → General → Default branch**).
 3. Share the URL the workflow prints, usually `https://<owner>.github.io/<repo>/`. Each person plays in their own browser, so no `?profile=` is needed.
 
 **Before sharing widely, use a dedicated origin.** A project site at `https://<owner>.github.io/<repo>/` shares its origin, and so its `localStorage`, with every other GitHub Pages project site of the same owner. Each player's identity key and game secrets live in that storage, so any script on any of those sites can read them. For anything beyond a test among friends, serve the app from a custom domain or subdomain, or from a Pages user or organization site (`<name>.github.io`) used only for this app (D036).

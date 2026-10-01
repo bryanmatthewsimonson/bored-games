@@ -116,7 +116,8 @@
 - **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages once CI passes on `main`, and `.github/workflows/ci.yml` runs `pnpm check` on pushes to `main` and on pull requests.
   - **Status (2026-10-01):** met.
   - **Hidden holdings (D037, 2026-10-01):** done. The UI shows other players' holdings as chains only and their cash as "has cash" / "no cash", and the log keeps their numbers for the last two turns; engine and protocol unchanged.
-  - **Owner to-do:** enable Pages with the source "GitHub Actions", then follow `docs/TESTING.md`.
+  - **Player rules and price card (2026-10-01):** done. `#/rules` explains the game to players (numbers from `DEFAULT_RULES`, names from the theme), and a Price card dialog in the game marks each chain's current price row. The default relay is relay.primal.net (D038).
+  - **Owner to-do:** Pages is enabled with the source "GitHub Actions"; keep `main` the default branch, then follow `docs/TESTING.md` §2.
 
 ### Phase 4: Records
 Verified history, games played, wins and scores per game, and deterministic ratings, all client-side. An optional untrusted cache for leaderboards.
