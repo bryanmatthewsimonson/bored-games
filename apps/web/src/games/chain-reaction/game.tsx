@@ -1,6 +1,7 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import { useEffect, useMemo, useState } from 'preact/hooks';
+import { rulesHref } from '../../router.ts';
 import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
 import { Hand } from './hand.tsx';
@@ -16,6 +17,7 @@ import {
   statusLine,
 } from './model.ts';
 import { type Audit, ChainsPanel, EventLog, PlayersPanel, ResultsView, StatusBar } from './panels.tsx';
+import { PriceCardDialog } from './price-card.tsx';
 import './game.css';
 
 export interface ChainReactionGameProps {
@@ -56,6 +58,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   // The state seq a move was submitted from: the controls stay locked until the state moves on or the
   // controller reports the publish finished, so a double click can never send two moves.
   const [sentAt, setSentAt] = useState<number | null>(null);
+  const [priceCardOpen, setPriceCardOpen] = useState(false);
 
   useEffect(() => {
     if (!props.busy) setSentAt(null);
@@ -146,10 +149,25 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
         )}
       </div>
       <div class="cr-side">
+        <nav class="cr-tools" aria-label="Game help">
+          <button type="button" class="btn btn-small" onClick={() => setPriceCardOpen(true)}>
+            Price card
+          </button>
+          {/* A new tab, so the running game here is not torn down and rebuilt. */}
+          <a class="btn btn-small" href={rulesHref()} target="_blank" rel="noopener">
+            Rules<span class="sr-only"> (opens in a new tab)</span>
+          </a>
+        </nav>
         <ChainsPanel rows={chains} spectator={mySeat === null} />
         <PlayersPanel rows={players} />
         <EventLog events={props.events} />
       </div>
+      <PriceCardDialog
+        open={priceCardOpen}
+        onClose={() => setPriceCardOpen(false)}
+        rules={state.rules}
+        sizes={chains.map((r) => r.size)}
+      />
     </div>
   );
 }
