@@ -6,6 +6,7 @@ import {
   chainReaction,
   chainSizes,
   classifyTile,
+  DEFAULT_RULES,
   sharePrice,
   tileId,
   viewFor,
@@ -35,6 +36,8 @@ import {
   logLines,
   newlyPlacedTile,
   playerRows,
+  priceCard,
+  priceRowOf,
   resultRows,
   statusLine,
 } from '../src/games/chain-reaction/model.ts';
@@ -646,5 +649,75 @@ describe('newlyPlacedTile', () => {
     expect(newlyPlacedTile(null, s)).toBeNull();
     const two = { ...s, board: s.board.map((c) => (c === null ? -1 : c)) } as ChainReactionState;
     expect(newlyPlacedTile(s, two)).toBeNull();
+  });
+});
+
+describe('priceCard', () => {
+  // The share price table of docs/games/chain-reaction/RULES.md, by tier, one entry per size bracket.
+  const LABELS = ['2', '3', '4', '5', '6–10', '11–20', '21–30', '31–40', '41+'];
+  const TABLE = {
+    budget: [200, 300, 400, 500, 600, 700, 800, 900, 1000],
+    standard: [300, 400, 500, 600, 700, 800, 900, 1000, 1100],
+    premium: [400, 500, 600, 700, 800, 900, 1000, 1100, 1200],
+  };
+  const card = priceCard(DEFAULT_RULES);
+  const theme = CHAIN_REACTION_THEME.chains as Record<string, { name: string }>;
+
+  it('has one row per size bracket, with exact labels', () => {
+    expect(card.rows.map((r) => r.label)).toEqual(LABELS);
+    expect(card.rows[0]).toMatchObject({ min: 2, max: 2 });
+    expect(card.rows[4]).toMatchObject({ min: 6, max: 10 });
+    expect(card.rows[8]).toMatchObject({ min: 41, max: null });
+  });
+
+  it('heads three tiers with their themed chains, in rules order', () => {
+    expect(card.tiers.map((t) => t.tier)).toEqual(['budget', 'standard', 'premium']);
+    expect(card.tiers.map((t) => t.name)).toEqual(['Budget', 'Standard', 'Premium']);
+    expect(card.tiers.map((t) => t.chains.map((c) => c.id))).toEqual([
+      ['b1', 'b2'],
+      ['s1', 's2', 's3'],
+      ['p1', 'p2'],
+    ]);
+    for (const t of card.tiers) for (const c of t.chains) expect(c.name).toBe(theme[c.id]?.name);
+  });
+
+  it('matches the RULES.md price table in every bracket and tier, with 10× and 5× bonuses', () => {
+    card.tiers.forEach((t, ti) => {
+      card.rows.forEach((row, ri) => {
+        const price = TABLE[t.tier][ri] as number;
+        expect(row.cells[ti], `${t.tier} ${row.label}`).toEqual({
+          price,
+          majority: 10 * price,
+          minority: 5 * price,
+        });
+        // The card agrees with the engine for every size in the bracket.
+        for (let size = row.min; size <= (row.max ?? row.min + 10); size++)
+          expect(sharePrice(DEFAULT_RULES, t.chains[0]?.index ?? -1, size)).toBe(price);
+      });
+    });
+    // Spot checks: rows 2, 6–10 and 41+.
+    expect(card.rows[0]?.cells.map((c) => c.price)).toEqual([200, 300, 400]);
+    expect(card.rows[4]?.cells).toEqual([
+      { price: 600, majority: 6000, minority: 3000 },
+      { price: 700, majority: 7000, minority: 3500 },
+      { price: 800, majority: 8000, minority: 4000 },
+    ]);
+    expect(card.rows[8]?.cells.map((c) => [c.majority, c.minority])).toEqual([
+      [10000, 5000],
+      [11000, 5500],
+      [12000, 6000],
+    ]);
+  });
+
+  it('follows the rules multipliers', () => {
+    const r = { ...DEFAULT_RULES, majorityMultiplier: 7, minorityMultiplier: 3 };
+    expect(priceCard(r).rows[0]?.cells[0]).toEqual({ price: 200, majority: 1400, minority: 600 });
+  });
+
+  it('finds the row a chain size is priced at', () => {
+    expect([0, 1].map((n) => priceRowOf(DEFAULT_RULES, n))).toEqual([null, null]);
+    expect([2, 5, 6, 10, 11, 40, 41, 108].map((n) => priceRowOf(DEFAULT_RULES, n))).toEqual([
+      0, 3, 4, 4, 5, 7, 8, 8,
+    ]);
   });
 });

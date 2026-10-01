@@ -16,6 +16,7 @@ import {
   LOOSE,
   PENDING,
   sharePrice,
+  type Tier,
   type TileClass,
   tileId,
   tileIndex,
@@ -234,6 +235,74 @@ export function chainRows(s: ChainReactionState, mySeat: number | null): ChainRo
       mine: mySeat === null ? null : (s.players[mySeat]?.shares[c] ?? 0),
     };
   });
+}
+
+// ---------------------------------------------------------------- price card
+
+/** One tier's numbers at one size bracket. */
+export interface PriceCell {
+  readonly price: number;
+  readonly majority: number;
+  readonly minority: number;
+}
+
+/** A price tier as the card heads it: its themed name and its chains. */
+export interface PriceTier {
+  readonly tier: Tier;
+  readonly name: string;
+  readonly chains: readonly ChainView[];
+}
+
+/** One size bracket: "2", "6–10", "41+", with each tier's numbers in `PriceCardModel.tiers` order. */
+export interface PriceRow {
+  readonly label: string;
+  readonly min: number;
+  /** The largest size in the bracket; null for the open last bracket. */
+  readonly max: number | null;
+  readonly cells: readonly PriceCell[];
+}
+
+export interface PriceCardModel {
+  readonly tiers: readonly PriceTier[];
+  readonly rows: readonly PriceRow[];
+}
+
+const TIER_ORDER: readonly Tier[] = ['budget', 'standard', 'premium'];
+
+/**
+ * The stock price and bonus card for `rules`: one row per price bracket, one column group per tier that has a
+ * chain. Prices come from `sharePrice`; bonuses are the rules' majority and minority multiples of the price.
+ */
+export function priceCard(rules: ChainReactionRules): PriceCardModel {
+  const tiers = TIER_ORDER.flatMap((tier) => {
+    const chains = rules.chains.flatMap((c, i) => (c.tier === tier ? [chainView(rules, i)] : []));
+    return chains.length === 0 ? [] : [{ tier, name: CHAIN_REACTION_THEME.tiers[tier], chains }];
+  });
+  const b = rules.priceBrackets;
+  const rows = b.map((min, i) => {
+    const next = b[i + 1];
+    const max = next === undefined ? null : next - 1;
+    const label = max === null ? `${min}+` : max === min ? `${min}` : `${min}–${max}`;
+    const cells = tiers.map((t) => {
+      const price = sharePrice(rules, t.chains[0]?.index ?? -1, min);
+      return {
+        price,
+        majority: price * rules.majorityMultiplier,
+        minority: price * rules.minorityMultiplier,
+      };
+    });
+    return { label, min, max, cells };
+  });
+  return { tiers, rows };
+}
+
+/** The index of the price card row a chain of `size` tiles is priced at; null when it is not on the board. */
+export function priceRowOf(rules: ChainReactionRules, size: number): number | null {
+  let row: number | null = null;
+  rules.priceBrackets.forEach((min, i) => {
+    if (size >= min) row = i;
+  });
+  return row;
 }
 
 /** A chain a player holds shares in; the count is null when this viewer may not see it. */
