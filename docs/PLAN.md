@@ -18,7 +18,7 @@
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
 | 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal, game actions, the end of game and timeouts done; the simulations and the D030 write-up remaining); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`); the NIP-78 secret backup and the smoke test against the owner's relay are still open |
-| 3. Web shell plus Chain Reaction UI | **Playable end to end** (Preact + Signals, D031): identity and settings, Home, Table and Game screens, lobby and game controllers (D034), the end-to-end browser test (`pnpm e2e`), CI, and GitHub Pages deployment. The owner's guide is `docs/TESTING.md`. Remaining: NIP-46 login, the game log panel, and the offline PWA shell |
+| 3. Web shell plus Chain Reaction UI | **Playable end to end** (Preact + Signals, D031): identity and settings, Home, Table and Game screens, lobby and game controllers (D034), the end-to-end browser test (`pnpm e2e`), CI, and GitHub Pages deployment. Final polish (D035): the game log, confirmed timeout claims, profile names, and `?relays=` limited to local relays. The owner's guide is `docs/TESTING.md`. Remaining: NIP-46 login, a live "your turn" inbox, and the offline PWA shell |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
@@ -111,7 +111,7 @@
   - chains distinguished by label and pattern, not color alone.
 - **Layouts:** phone portrait, iPad landscape, desktop.
 - **PWA:** manifest and offline shell; static output with relative paths (Capacitor-ready).
-- **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages on push to `main`, and `.github/workflows/ci.yml` runs `pnpm check` on every push and pull request.
+- **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages once CI passes on `main`, and `.github/workflows/ci.yml` runs `pnpm check` on pushes to `main` and on pull requests.
   - **Status (2026-10-01):** met.
   - **Owner to-do:** enable Pages with the source "GitHub Actions", then follow `docs/TESTING.md`.
 
