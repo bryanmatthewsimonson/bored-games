@@ -449,5 +449,6 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 ## D038: relay.primal.net is the default relay (owner, 2026-10-01)
 - **Decision.** The app's default relay list is `wss://relay.primal.net` alone, for everybody (`DEFAULT_RELAYS` in `apps/web/src/settings.ts`). It replaces `wss://relay.damus.io`, `wss://nos.lol` and `wss://relay.nostr.band`. In development the local dev relay still comes first.
 - **Why.** One relay that every player shares means a table created with the defaults is always found by joiners using the defaults, with no relay coordination.
-- **Cost.** A single relay is a single point of failure: if it is down, or rejects the ~36 KB shuffle events (PLAN open question 7), no game on the defaults can proceed. Players can add relays in Settings; a table's events go to its creator's relays.
+- **Large events.** A probe on 2026-10-01 published signed kind-7452 events of 8, 36 and 60 KB to relay.primal.net; all three were accepted (`OK true`) and served back by a `#t` query, so the ~36 KB shuffle steps (PLAN open question 7) fit.
+- **Cost.** A single relay is a single point of failure: if it is down, or later tightens its limits, no game on the defaults can proceed. Players can add relays in Settings; a table's events go to its creator's relays.
 - **Existing profiles** keep the relay list they saved; **Settings → Reset to defaults** picks up the new default.

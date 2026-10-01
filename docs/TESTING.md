@@ -51,7 +51,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 
 ### Relays
 - The deployed app uses one default relay for everybody, `wss://relay.primal.net` (D038). Players can add more in Settings.
-- **Public relays may reject the shuffle.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. If a game stays on "Shuffling the deck" while every window is open, the relays are refusing it. Use a relay that accepts large events, such as your own nostr-rs-relay (PLAN open question 7).
+- **Large events.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. `wss://relay.primal.net` accepted and served back signed 8, 36 and 60 KB events in a probe on 2026-10-01. If you add other relays and a game stays on "Shuffling the deck" while every window is open, a relay is refusing it (PLAN open question 7).
 - **Changing relays:** click **Settings** (top right). Under **Relays**, type a `wss://…` URL, click **Add**, then **Save relays**. Use **Remove** to drop a relay and **Reset to defaults** to restore the list. The list is saved per profile. A link cannot set your relays on the published site: `?relays=` works only with `pnpm dev` or a build made with `VITE_ALLOW_LINK_RELAYS=1`, and even then accepts only local `ws://localhost` and `ws://127.0.0.1` relays.
 - A table records the creator's relays when it is created, and its game events go to those relays. A joiner must use at least one of them to find the table. Otherwise the Table page says "This table has not turned up on your relays yet." So agree on relays before creating the table.
 

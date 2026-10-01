@@ -8,7 +8,7 @@
 4. **Chain Reaction 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
 5. **Second game** (Phase 6). Which game should validate the contract?
 6. **Final names.** The first game is now named **Chain Reaction** (owner, 2026-10-01). The platform name ("Bored Games") and the chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are still placeholders. Other games already use the name "Chain Reaction"; a trademark check belongs to Phase 7.
-7. **Relay URL** for your nostr-rs-relay. Still open; needed for the Phase 2e smoke test and as the app's default relay.
+7. **Relay URL.** Answered: the default relay is `wss://relay.primal.net` for everybody (D038), which accepted 36 and 60 KB events in a probe. An owner-run nostr-rs-relay stays optional.
 8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
 9. **Protocol review.** `docs/PROTOCOL.md`, now with the session rulings (D030), awaits your review before anything is published under version 1. Its open points:
    - What counts as timeout progress was ruled overnight (D030, Ruling 11): only events that change who is stalled.
