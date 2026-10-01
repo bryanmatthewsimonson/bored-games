@@ -18,9 +18,9 @@
 
 **Tech stack:** TypeScript 7, Vitest, `@bored-games/{game-kit,deck,protocol,chain-reaction}`. `chain-reaction` is used only in tests and the simulator.
 
-**Spec:** `docs/PROTOCOL.md` §6–§9, decisions D018–D026, and the rulings below. Rulings change the spec, so Task 7 writes them into PROTOCOL.md and DECISIONS (D028).
+**Spec:** `docs/PROTOCOL.md` §6–§9, decisions D018–D026, and the rulings below. Rulings change the spec, so Task 7 writes them into PROTOCOL.md and DECISIONS (D030).
 
-## Rulings (binding; recorded as D028)
+## Rulings (binding; recorded as D030)
 - **R1, owed shares (PROTOCOL §6.2), stated monotonically.** A game-action move by seat k at parent state P is acceptable only if, counting k's shares already in the session's share store plus those in the move, k has a verified share for every position that `dealt(P)` assigns to another seat or to `null` (public).
   - A move that fails only this rule is **buffered**, not rejected. The missing shares may still arrive in an earlier 7453.
   - Clients therefore converge whatever order events arrive in.
@@ -47,6 +47,13 @@
   - replay the session's **interleaved action log** (game actions and derived reveals, in the order the fold applied them)
 
   The first rejected action fails its actor (`audit: {fail:[actor], reason}`). If the replay's `outcome` differs from the view's, every seat fails ("outcome mismatch"). Otherwise `audit: 'pass'`.
+
+## Notes from Phase 2c (binding)
+- `revealsOf(state, action)` is syntactic: trust its claims only for actions `module.apply` accepts. Check `apply` on a scratch copy first, then the reveals.
+- `dealt(state)` is append-only and identical across views. Setup positions are `to: null` from setup.
+- `standings(state)` does not repay bonuses already paid in the current merger (D020 note).
+- Protocol API: `parseTable`, `parseJoin`, `parseRoot`, `validateRoot(root, table, joinsById, modules)`, `parseMove(ev, deckSize)`, `parseShares`, `parseTimeout`, `parseSecret`, `parseAttest`, the `…Template` builders, `finalizeEvent(t, sk, rnd)`, `logHash`, and `ProtocolError(code, message)`. Joins carry `rules-hash` and `v` tags (2c fix round, D027).
+- Decision numbers: D027 covers protocol lobby strictness, D028 in-game parsing, and D029 Phase 3 dependencies. This phase's rulings are **D030**.
 
 ## Global constraints
 - **Purity.** `packages/client/src` is pure and is added to the purity guard; its tsconfig sets `types: []`. `GameSession` may mutate its own private fields. Every returned value is a fresh copy or frozen.
@@ -271,7 +278,7 @@ A `build…` method throws `ClientError` when the duty isn't mine. It does not a
 
 ### Task 7: Memory relay, async simulation, adversarial sims, CLI and docs
 
-**Files:** `src/memory-relay.ts`, `src/sim.ts`, `test/sim.test.ts`, the sim CLI and a root `package.json` script `sim`; `docs/PROTOCOL.md` (R1–R6), `docs/DECISIONS.md` (D028), `docs/PLAN.md` and the CLAUDE.md repo map.
+**Files:** `src/memory-relay.ts`, `src/sim.ts`, `test/sim.test.ts`, the sim CLI and a root `package.json` script `sim`; `docs/PROTOCOL.md` (R1–R6), `docs/DECISIONS.md` (D030), `docs/PLAN.md` and the CLAUDE.md repo map.
 
 **`MemoryRelay`:** `publish(ev)`, `query(filter: {kinds?, '#e'?, '#a'?, authors?}): NostrEvent[]`. Delivery order is permuted per reader by an injected rng.
 
@@ -300,7 +307,7 @@ It checks that every session (plus a spectator) agrees on phase, `logHash`, outc
 - [ ] **Step 2:** implement. Add a CLI, `pnpm sim --games N --seats 3-6 --seed S [--adversary name]`, that prints a one-line summary per game and the totals. Run `pnpm sim --games 4 --seats 3-4` and record the result.
 - [ ] **Step 3: Docs:**
   - PROTOCOL: write R1–R6 into §6.2, §6.6, §7, §8.1 and §8.2.
-  - DECISIONS: add D028, the rulings.
+  - DECISIONS: add D030, the rulings.
   - PLAN: set 2d to done, with the results.
   - CLAUDE.md: add a repo-map line for `packages/client/`.
 - [ ] **Step 4:** run `pnpm check`, then commit "Add memory relay and async game simulations".
