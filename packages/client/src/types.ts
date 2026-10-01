@@ -17,6 +17,11 @@ export interface SessionInput {
   root: NostrEvent;
   /** The seat this client plays, or null for a spectator. */
   me: Identity | null;
+  /**
+   * When this client first saw the root, by its local clock (Unix seconds): the floor of the progress time P
+   * (D030 Ruling 10). A client that reloads passes the time it saved, not the time it reloaded.
+   */
+  rootSeenAt: number;
 }
 
 /** `cancelled`: a timeout claim was accepted before the first game action (D030 R5); there is no result. */
@@ -64,20 +69,22 @@ export interface SessionView {
   state: unknown;
   pending: Pending;
   /**
-   * The largest `created_at` among accepted events: the game's last progress (D030 R3), for display. A timeout
-   * claim is judged against the same maximum taken only over events dated at or before the claim.
+   * The progress time P (D030 Rulings 10–11): the latest time, by this client's local clock, that it first saw
+   * the root, a move on the canonical chain, or a Shares event or secret that removed a seat from the stall set at
+   * the head. The deadline runs from it; no `created_at` counts.
    */
   pendingSince: number;
   /**
    * The result: null until the game is done, and for a cancelled game. The declared outcome once the audit passes
    * and nobody equivocated; otherwise ranked with the forfeiting seats last and the others in their declared order
-   * (D030 R5), with reason `forfeit`. A timeout during play ends the game at once: the timed-out seat is last and
-   * the others are ranked by the module's `standings`.
+   * (D030 R5), with reason `forfeit`. A timeout during play ends the game at once: the seats stalled at the head
+   * are last and the others are ranked by the module's `standings`.
    */
   outcome: Outcome | null;
   /**
-   * Seats that forfeit (PROTOCOL §8.2): the equivocators, a seat an accepted timeout claim names (or, at the end,
-   * every seat that withheld its secret), and, once the game is done, the seats the audit failed.
+   * Seats that forfeit (PROTOCOL §8.2): the equivocators, every seat stalled at the head when a timeout claim was
+   * accepted (whichever seat it named; at the end, the seats that withheld their secret), and, once the game is
+   * done, the seats the audit failed.
    */
   forfeits: number[];
   /**

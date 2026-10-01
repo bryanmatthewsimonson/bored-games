@@ -198,6 +198,7 @@ describe('root assembly', () => {
       joins: events,
       root,
       me: { seat: 2, sessionSk: open1.keys.sessionSk, deckSecret: open1.keys.deckSecret },
+      rootSeenAt: T0 + 10,
     });
     expect(session.view().seats).toBe(3);
     expect(session.view().mySeat).toBe(2);

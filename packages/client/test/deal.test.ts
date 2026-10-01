@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
 import type { SessionView } from '../src/types.ts';
-import { deliver, makeGame, newSession, playShuffle, statuses, T0 } from './helpers.ts';
+import { deliver, makeGame, NOW, newSession, playShuffle, statuses, T0 } from './helpers.ts';
 
 const SEATS = 3;
 const HAND = 6;
@@ -76,7 +76,8 @@ describe('deal round', () => {
     for (const s of all) {
       const v = s.view();
       expect(v.phase).toBe('play');
-      expect(v.pendingSince).toBe(T0 + 202);
+      // The last deal was first seen at NOW, by this test's local clock (D030 Ruling 10).
+      expect(v.pendingSince).toBe(NOW);
       expect(stateOf(s).setupTiles).toEqual(truth.slice(0, SEATS));
       expect(v.pending.type).toBe('player');
     }
@@ -126,8 +127,9 @@ describe('deal round', () => {
       game.ids[0]?.sessionSk as Uint8Array,
       game.rnd,
     );
-    expect(spectator.receive(again, T0 + 1000)).toEqual({ status: 'duplicate' });
-    expect(spectator.view().pendingSince).toBe(T0 + 202);
+    expect(spectator.receive(again, NOW + 1000)).toEqual({ status: 'duplicate' });
+    // Shares that add nothing are no progress.
+    expect(spectator.view().pendingSince).toBe(NOW);
   });
 
   it('reaches identical views whatever order the shuffle and deal events arrive in', () => {
@@ -164,6 +166,6 @@ describe('deal round', () => {
       return canonicalJson(s.view());
     });
     expect(views[0]).toBe(views[1]);
-    expect(JSON.parse(views[0] as string).pendingSince).toBe(T0 + 202);
+    expect(JSON.parse(views[0] as string).pendingSince).toBe(NOW);
   });
 });

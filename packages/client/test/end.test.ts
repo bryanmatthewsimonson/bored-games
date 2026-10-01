@@ -15,7 +15,7 @@ import { ClientError } from '../src/errors.ts';
 import { GameSession } from '../src/session.ts';
 import type { Identity, SessionView } from '../src/types.ts';
 import { forgeAction, lenientDiscards, lenientSkips } from './cheat.ts';
-import { deliver, makeGame, newSession, playShuffle, statuses, T0, type TestGame } from './helpers.ts';
+import { deliver, makeGame, newSession, playShuffle, statuses, T0, type TestGame, trust } from './helpers.ts';
 
 const SEATS = 3;
 const DECK = 108;
@@ -83,8 +83,9 @@ function playToEnd(
     dutiesAtDone: [],
     agreed: [],
   };
+  // Each event is first seen at its own date, so P follows the dates.
   const publish = (ev: NostrEvent): void => {
-    const results = statuses(deliver(all, [ev]));
+    const results = statuses(deliver(all, [ev], undefined, ev.created_at));
     if (results.some((r) => r !== 'accepted'))
       throw new Error(`event ${p.log.length}: ${results.join(', ')}`);
     p.log.push(ev);
@@ -183,7 +184,7 @@ describe('end of game: an honest game played to the end', () => {
       expect(v.attested).toEqual([]);
     }
     expect(played.dutiesAtDone).toEqual([[{ kind: 'attest' }], [{ kind: 'attest' }], [{ kind: 'attest' }]]);
-    // The last secret is the game's last progress.
+    // The last secret removed the last stalled seat: it is the game's last progress (D030 Ruling 11).
     const last = played.secrets[played.secrets.length - 1] as NostrEvent;
     expect(spectator.view().pendingSince).toBe(last.created_at);
   });
@@ -221,7 +222,11 @@ describe('end of game: an honest game played to the end', () => {
   });
 
   it('rejects an attestation signed by a session key, or one whose result differs', () => {
-    const v = spectator.view();
+    // A fresh spectator, so the shared one keeps its result for the tests that follow.
+    const watcher = newSession(game, null);
+    trust([watcher], played.log);
+    deliver([watcher], played.log);
+    const v = watcher.view();
     const content = {
       rootId: game.rootId,
       audit: v.audit as 'pass',
@@ -233,7 +238,7 @@ describe('end of game: an honest game played to the end', () => {
       game.ids[0]?.sessionSk as Uint8Array,
       game.rnd,
     );
-    expect(spectator.receive(bySession, NOW)).toEqual({
+    expect(watcher.receive(bySession, NOW)).toEqual({
       status: 'rejected',
       reason: 'not signed by a seated npub',
     });
@@ -243,9 +248,46 @@ describe('end of game: an honest game played to the end', () => {
       game.rnd,
     );
     const mismatch = { status: 'rejected', reason: "the attestation does not match this session's result" };
-    expect(spectator.receive(wrong, NOW)).toEqual(mismatch);
-    expect(spectator.receive(wrong, NOW)).toEqual(mismatch);
-    expect(spectator.view().attested).toEqual([0, 1, 2]);
+    expect(watcher.receive(wrong, NOW)).toEqual(mismatch);
+    expect(watcher.receive(wrong, NOW)).toEqual(mismatch);
+    // A seat's latest attestation is the one that counts: seat 2's honest one is older than `wrong`.
+    expect(watcher.view().attested).toEqual([0, 1]);
+  });
+
+  it("counts each seat's latest attestation by (created_at, id), whatever the arrival order", () => {
+    const v = players[0]?.view() as SessionView;
+    const content = {
+      rootId: game.rootId,
+      audit: v.audit as 'pass',
+      logHash: v.logHash,
+      outcome: v.outcome as NonNullable<SessionView['outcome']>,
+    };
+    const sk = game.npubSks[2] as Uint8Array;
+    type Content = Parameters<typeof attestTemplate>[0];
+    const at = (c: Content, createdAt: number) => finalizeEvent(attestTemplate(c, createdAt), sk, game.rnd);
+    const wrongContent: Content = { ...content, audit: { fail: [2], reason: 'made up' } };
+    const before = played.log.filter((ev) => !played.attests.includes(ev));
+    const fresh = (): GameSession => {
+      const s = newSession(game, null);
+      trust([s], before);
+      deliver([s], before);
+      return s;
+    };
+    // A matching attestation after a mismatching one counts; before it, it does not.
+    for (const [right, wrong, attested] of [
+      [at(content, NOW + 2), at(wrongContent, NOW + 1), [2]],
+      [at(content, NOW + 1), at(wrongContent, NOW + 2), []],
+    ] as const) {
+      const views = [
+        [right, wrong],
+        [wrong, right],
+      ].map((pair) => {
+        const s = fresh();
+        deliver([s], pair);
+        return s.view().attested;
+      });
+      expect(views).toEqual([attested, attested]);
+    }
   });
 
   it(
@@ -255,8 +297,10 @@ describe('end of game: an honest game played to the end', () => {
       const watcher = newSession(game, null);
       deliver([seat], scrambled(played.log, 'order-a'));
       deliver([watcher], scrambled(played.log, 'order-b'));
-      expect(canonicalJson(seat.view())).toBe(canonicalJson(players[1]?.view()));
-      expect(canonicalJson(watcher.view())).toBe(canonicalJson(spectator.view()));
+      // P is local: it depends on when this client first saw each event (D030 Ruling 10).
+      const same = (s: GameSession | undefined) => canonicalJson({ ...s?.view(), pendingSince: 0 });
+      expect(same(seat)).toBe(same(players[1]));
+      expect(same(watcher)).toBe(same(spectator));
     },
     LONG,
   );
@@ -320,6 +364,7 @@ describe('end of game: a cheater forges a skipPlace', () => {
           joins: game.joins,
           root: game.root,
           me: game.ids[cheater] as Identity,
+          rootSeenAt: T0 + 10,
         });
         expect(statuses(deliver([s], log)).every((r) => r === 'accepted')).toBe(true);
         ps[cheater] = s;
@@ -375,6 +420,7 @@ describe('end of game: a cheater keeps a dead tile', () => {
         joins: game.joins,
         root: game.root,
         me: game.ids[seat] as Identity,
+        rootSeenAt: T0 + 10,
       }),
     );
     const spectator = newSession(game, null);

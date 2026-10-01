@@ -39,6 +39,8 @@ export const NOW = T0 + 100_000;
 export const RELAYS = ['wss://relay.example.com'];
 /** A local clock reading past every deadline in the tests. */
 export const LATE = T0 + 10_000_000;
+/** When the tests' sessions first saw the root, by default: the root's own date (see `makeGame`). */
+export const ROOT_SEEN = T0 + 10;
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 export const MODULES: ReadonlyMap<string, GameModule<any, any, any>> = new Map([
@@ -124,14 +126,15 @@ export function makeGame(
   return { modules: MODULES, table, joins, root, rootId: root.id, ids, npubSks, rnd };
 }
 
-/** A session of `game` for `seat`, or a spectator for null. */
-export function newSession(game: TestGame, seat: number | null): GameSession {
+/** A session of `game` for `seat`, or a spectator for null, that first saw the root at `rootSeenAt`. */
+export function newSession(game: TestGame, seat: number | null, rootSeenAt = ROOT_SEEN): GameSession {
   return GameSession.create({
     modules: game.modules,
     table: game.table,
     joins: game.joins,
     root: game.root,
     me: seat === null ? null : (game.ids[seat] as Identity),
+    rootSeenAt,
   });
 }
 
@@ -153,7 +156,7 @@ export const statuses = (results: ReceiveResult[][]): string[] => results.flat()
 
 /**
  * Run the shuffle phase: each seat's session builds its step in turn, and every step goes to `players` and
- * `others`. `players[k]` must be seat k's session. Returns the steps in seq order.
+ * `others`, first seen at its own date. `players[k]` must be seat k's session. Returns the steps in seq order.
  */
 export function playShuffle(
   game: TestGame,
@@ -164,7 +167,7 @@ export function playShuffle(
   const steps: NostrEvent[] = [];
   for (const [k, s] of players.entries()) {
     const ev = s.buildShuffle(game.rnd, createdAt + k);
-    deliver([...players, ...others], [ev]);
+    deliver([...players, ...others], [ev], undefined, ev.created_at);
     steps.push(ev);
   }
   return steps;
@@ -198,13 +201,17 @@ export function shuffleAll(
   return steps;
 }
 
-/** A fresh session for `seat` (null: a spectator) that has accepted every one of `events`. */
+/**
+ * A fresh session for `seat` (null: a spectator) that has accepted every one of `events`, each first seen at
+ * `now` (so its progress time is `now`).
+ */
 export function catchUp(
   game: TestGame,
   seat: number | null,
   events: readonly NostrEvent[],
   // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
   modules: ReadonlyMap<string, GameModule<any, any, any>> = game.modules,
+  now = LATE,
 ): GameSession {
   const s = GameSession.create({
     modules,
@@ -212,9 +219,10 @@ export function catchUp(
     joins: game.joins,
     root: game.root,
     me: seat === null ? null : (game.ids[seat] as Identity),
+    rootSeenAt: ROOT_SEEN,
   });
   trust([s], events);
-  const results = statuses(deliver([s], events, undefined, LATE));
+  const results = statuses(deliver([s], events, undefined, now));
   if (results.some((r) => r !== 'accepted')) throw new Error(`catch-up: ${results.join(', ')}`);
   return s;
 }

@@ -9,6 +9,8 @@ import {
   type NostrEvent,
   type ParsedMove,
   parseMove,
+  parseShares,
+  sharesTemplate,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { rankWithForfeits } from '../src/audit.ts';
@@ -190,6 +192,61 @@ describe('fork choice: a finished game stays finished, and junk does not slow it
     expect(slow).toBeLessThan(Math.max(2 * baseline, 100));
     expect(attacked.view().head.id).toBe(next.id);
     expect(attacked.view().equivocators).toEqual([signer]);
+  });
+
+  it('does not re-try a fork for an earlier-seen copy of a kept share: only new shares bump the share version', () => {
+    const k = moves.findIndex((ev, i) => i > 0 && contentOf(ev).shares.length > 0);
+    const prefix = [...setup, ...moves.slice(0, moves.length - 2)];
+    const next = moves[moves.length - 2] as NostrEvent;
+    const rival = resign(moves[k] as NostrEvent, (c) => ({ ...c, shares: [] }));
+    // Seat 0's deal, re-signed in part: the same shares (same D), so nothing new.
+    const deal = setup[SEATS] as NostrEvent;
+    const copy = finalizeEvent(
+      sharesTemplate(
+        { rootId: game.rootId, shares: parseShares(deal).shares.slice(0, 2) },
+        deal.created_at - 1,
+      ),
+      game.ids[0]?.sessionSk as Uint8Array,
+      game.rnd,
+    );
+    const trials = (s: GameSession): number => (s as unknown as { trials: number }).trials;
+    const run = (extra: NostrEvent[]): number => {
+      const s = catchUp(game, null, prefix);
+      expect(s.receive(rival, LATE)).toEqual({ status: 'accepted' });
+      const before = trials(s);
+      // First seen before the original deal was.
+      for (const ev of extra) expect(s.receive(ev, T0)).toEqual({ status: 'duplicate' });
+      expect(s.receive(next, LATE)).toEqual({ status: 'accepted' });
+      return trials(s) - before;
+    };
+    expect(run([copy])).toBe(run([]));
+    expect(run([])).toBe(0);
+  });
+
+  it('rejects an invalid move that arrived before its prev and lost to a sibling, as when it arrives last', () => {
+    // At the final move: once the chain is over, a short side branch is not tried, so only judging it rejects it.
+    const j = moves.length - 1;
+    const prev = moves[j - 1] as NostrEvent;
+    const honest = moves[j] as NostrEvent;
+    // An invalid sibling of the honest move by the same seat, with a higher id.
+    let bad: NostrEvent = honest;
+    for (let bump = 1; bad.id <= honest.id; bump++) {
+      bad = resign(honest, (c) => ({ ...c, action: { type: 'junk', actor: actorOf(honest) } }), bump);
+    }
+    const base = [...setup, ...moves.slice(0, j - 1)];
+    const early = catchUp(game, null, base);
+    expect(statuses(deliver([early], [bad, honest, prev], undefined, LATE))).toEqual([
+      'stored',
+      'stored',
+      'accepted',
+    ]);
+    expect(early.view().head.id).toBe(honest.id);
+    const late = catchUp(game, null, base);
+    expect(statuses(deliver([late], [prev, honest], undefined, LATE))).toEqual(['accepted', 'accepted']);
+    const r = late.receive(bad, LATE);
+    expect(r.status).toBe('rejected');
+    expect(early.receive(bad, LATE)).toEqual(r);
+    expect(canonicalJson(early.view())).toBe(canonicalJson(late.view()));
   });
 
   it('does not overflow the stack with 20,000 pooled junk moves', () => {

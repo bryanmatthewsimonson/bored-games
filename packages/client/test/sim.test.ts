@@ -224,8 +224,8 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
       expect(r.forfeits).toEqual([CHEAT]);
       expect(r.outcome?.reason).toBe('forfeit');
       expect(lastAlone(r.outcome?.places ?? [], CHEAT)).toBe(true);
-      // `pending` until forfeit endings are attested (Ruling 7); then the audit blames the vanished seat.
-      if (r.audit !== 'pending') expect(r.audit).toMatchObject({ fail: [CHEAT] });
+      // A forfeit ending records the forfeit as the audit (Ruling 7): only the vanished seat fails.
+      expect(r.audit).toEqual({ fail: [CHEAT], reason: 'timeout' });
     },
     LONG,
   );

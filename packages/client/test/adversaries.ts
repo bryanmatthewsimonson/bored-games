@@ -205,9 +205,9 @@ const same = (a: unknown, b: unknown): boolean => canonicalJson(a) === canonical
  * How `report` departs from what its adversary at `seat` should cause (the Phase 2d brief, with Rulings 5 and
  * 7); empty when it matches. No adversary: the game is done, the audit passes, nobody forfeits.
  *
- * For a seat that vanishes after the first game action, the audit is only checked to blame nobody else: it is
- * `pending` until the session attests forfeit endings (Ruling 7), `{fail: [seat], reason: 'timeout'}` after,
- * and `{fail: [seat], reason: 'withheld secret'}` when the seat vanished at the end of the game.
+ * For a seat that vanishes after the first game action, the audit records the forfeit (Ruling 7):
+ * `{fail: [seat], reason: 'timeout'}` during play, or `{fail: [seat], reason: 'withheld secret'}` when the seat
+ * vanished at the end of the game.
  */
 export function unexpected(report: SimReport, seat: number): string[] {
   const out: string[] = [];
@@ -215,10 +215,8 @@ export function unexpected(report: SimReport, seat: number): string[] {
     if (!ok) out.push(what);
   };
   // No other client may ever accept a cheat, and some must reject it. `rejected` is stricter: every other client
-  // ends up rejecting it (a client may first store it while it waits for the cheat's prev). It holds for a bad
-  // shuffle step, which nothing replaces. A bad game action can stay pooled as a side move at an old prev instead,
-  // `stored` then `duplicate`, when its prev arrives together with the seat's honest move on the same prev and that
-  // move has the lower id: the session links the valid move first and never looks at the side move again.
+  // ends up rejecting it (a client may first store it while it waits for the cheat's prev). An invalid side move
+  // is judged once its prev links, so this holds for a bad game action as for a bad shuffle step.
   const neverAccepted =
     report.cheats.length > 0 &&
     report.cheats.every(
@@ -243,7 +241,7 @@ export function unexpected(report: SimReport, seat: number): string[] {
       break;
     case 'badShare':
       want(report.cheats.length === 1, 'it never cheated');
-      want(neverAccepted, `cheat received as ${cheatStatuses}`);
+      want(rejected, `cheat received as ${cheatStatuses}`);
       want(report.phase === 'done', `phase ${report.phase}, not done`);
       want(report.audit === 'pass', `audit ${audit}`);
       want(report.forfeits.length === 0, `forfeits ${report.forfeits}`);
@@ -280,7 +278,11 @@ export function unexpected(report: SimReport, seat: number): string[] {
         want(report.phase === 'done', `phase ${report.phase}, not done`);
         want(report.outcome?.reason === 'forfeit', `outcome reason ${report.outcome?.reason}`);
         want(lastAlone(places, seat), `places ${places}`);
-        want(report.audit === 'pending' || same(failed, [seat]), `audit ${audit}`);
+        want(
+          same(report.audit, { fail: [seat], reason: 'timeout' }) ||
+            same(report.audit, { fail: [seat], reason: 'withheld secret' }),
+          `audit ${audit}`,
+        );
       }
       break;
     default:

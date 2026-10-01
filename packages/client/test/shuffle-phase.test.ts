@@ -12,11 +12,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
 import type { Identity } from '../src/types.ts';
-import { deliver, makeGame, NOW, newSession, statuses, T0 } from './helpers.ts';
+import { deliver, makeGame, NOW, newSession, statuses, T0, trust } from './helpers.ts';
 
 const DECK = 108;
 const game = makeGame(3, 'client-shuffle');
 const contentOf = (ev: NostrEvent): MoveContent => parseMove(ev, DECK).content;
+type Shuffle = Extract<MoveContent, { type: 'shuffle' }>;
 
 /** `content` as move `seq` after `prevId`, signed by `seat`'s session key. */
 function move(
@@ -58,7 +59,8 @@ describe('shuffle phase', () => {
       const v = s.view();
       expect(v.phase).toBe('deal');
       expect(v.head).toEqual({ id: steps[2]?.id, seq: 3 });
-      expect(v.pendingSince).toBe(T0 + 102);
+      // Every step was first seen at NOW, by this test's local clock.
+      expect(v.pendingSince).toBe(NOW);
       expect(v.state).not.toBeNull();
     }
     expect(new Set(all.map((s) => s.view().logHash)).size).toBe(1);
@@ -143,6 +145,58 @@ describe('shuffle phase', () => {
 
   it('reports a duplicate', () => {
     expect(players[0]?.receive(steps[0], T0 + 1000)).toEqual({ status: 'duplicate' });
+  });
+
+  it('answers a known event by its id before parsing it', () => {
+    const s = players[0] as GameSession;
+    // A copy whose body no longer parses: a known id is answered without parsing (or verifying) it again.
+    expect(s.receive({ ...steps[0], content: 'not json' }, NOW)).toEqual({ status: 'duplicate' });
+    // An unknown id is parsed, and fails.
+    expect(s.receive({ ...steps[0], id: 'ab'.repeat(32), content: 'not json' }, NOW).status).toBe('rejected');
+    // A rejected event keeps its reason.
+    const forged = move(1, 1, game.rootId, contentOf(steps[0] as NostrEvent));
+    const reason = 'shuffle step 1 must be signed by seat 0';
+    expect(s.receive(forged, NOW)).toEqual({ status: 'rejected', reason });
+    expect(s.receive({ ...forged, content: 'not json' }, NOW)).toEqual({ status: 'rejected', reason });
+  });
+
+  it('verifies at most 3 rival shuffle steps per prev and signer; further ones are ignored', () => {
+    const fresh = newSession(game, null);
+    trust([fresh], steps);
+    expect(statuses(deliver([fresh], steps))).toEqual(['accepted', 'accepted', 'accepted']);
+    // Junk rivals to seat 1's step: another step's deck with seat 1's proof, so none verifies.
+    const junk = (i: number): NostrEvent => {
+      const t = moveTemplate(
+        {
+          rootId: game.rootId,
+          prevId: steps[0]?.id as string,
+          seq: 2,
+          content: {
+            type: 'shuffle',
+            deck: (contentOf(steps[2] as NostrEvent) as Shuffle).deck,
+            proof: (contentOf(steps[1] as NostrEvent) as Shuffle).proof,
+          },
+        },
+        T0 + 600 + i,
+      );
+      return finalizeEvent(t, game.ids[1]?.sessionSk as Uint8Array, game.rnd);
+    };
+    const five = [0, 1, 2, 3, 4].map(junk);
+    const checked = (fresh as unknown as { shuffleChecked: Map<string, boolean> }).shuffleChecked;
+    expect(statuses(deliver([fresh], five))).toEqual([
+      'rejected',
+      'rejected',
+      'rejected',
+      'rejected',
+      'rejected',
+    ]);
+    expect(five.filter((ev) => checked.has(ev.id))).toHaveLength(3);
+    expect(fresh.receive(five[4], NOW)).toEqual({
+      status: 'rejected',
+      reason: 'too many rival shuffle steps',
+    });
+    expect(fresh.view().equivocators).toEqual([]);
+    expect(fresh.view().head).toEqual(spectator.view().head);
   });
 
   it('rejects an event for another root', () => {

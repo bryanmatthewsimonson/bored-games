@@ -82,10 +82,15 @@ import type {
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; play goes on, and at the end the
  * flagged seats move to the last places (R5).
  *
- * Timeouts (D030 R3–R5, PROTOCOL §8): a Timeout claim is accepted when it names the current head and a seat
- * stalled there, is dated at least `deadline` after the game's last progress as of its own date, and the local
- * clock has reached its date. The lowest-id such claim decides, and the fold stops there: the game is cancelled
- * before the first game action, ends at once by forfeit during play, or ends with the withheld secrets failed.
+ * Timeouts (D030 R4–R5 and Rulings 10–11, PROTOCOL §8) are judged by local receipt time. `receive(ev, now)`
+ * records `now` as the time this client first saw `ev`, and the game's progress time P is the latest first-seen
+ * time over the root, the canonical chain's moves, and the Shares events and secrets that removed a seat from the
+ * stall set at the head. No event's `created_at` plays any part. A Timeout claim is accepted when it names the
+ * current head and a seat stalled there (the seat it names is a shape check only), its signer is not stalled
+ * there itself, and the local clock has reached P + deadline. Its effect does not depend on which claim it is:
+ * every seat stalled at the head forfeits, and the outcome is final for this client, so the fold stops there for
+ * good (the game is cancelled before the first game action, ends at once by forfeit during play, or ends with the
+ * withheld secrets failed).
  */
 
 type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
@@ -99,14 +104,20 @@ type Fold = 'accepted' | 'wait' | { reject: string };
  */
 type Checked = { next: unknown; events: readonly unknown[] } | 'wait' | { reject: string };
 
-/** A Timeout claim judged now: decisive, not yet (its head is unknown, or the clock is behind it), or why not. */
+/** A Timeout claim judged now: decisive, not yet (its head is unknown, or the deadline has not passed), or why not. */
 type Claimed = 'valid' | 'wait' | 'early' | { reject: string };
 
 /** The module events `view().events` keeps. */
 const MAX_EVENTS = 300;
 
-/** The Timeout claims kept per signer per head (D030 Ruling 8); more are ignored. */
+/** The Timeout claims kept per signer per head, the lowest ids (D030 Ruling 8); more are ignored. */
 const MAX_CLAIMS = 4;
+
+/** The Timeout claims kept per signer that name a head not on the chain; more are rejected until some link. */
+const MAX_UNKNOWN_CLAIMS = 8;
+
+/** Rival shuffle steps verified per (prev, signer) for equivocation; further ones are ignored. */
+const MAX_RIVAL_SHUFFLES = 3;
 
 /** The cap on a pooled branch's counted depth, and on how far an insertion's change is passed up the pool. */
 const MAX_DEPTH = 64;
@@ -148,6 +159,13 @@ interface Candidate {
   seat: number;
 }
 
+/** The accepted timeout: the claim that ended the game, the head it named, and the seats stalled there then. */
+interface TimedOut {
+  claim: Hex;
+  head: Hex;
+  seats: number[];
+}
+
 /** The session's result as the view reports it. */
 interface Status {
   phase: Phase;
@@ -166,6 +184,17 @@ function message(e: unknown): string {
     // fall through
   }
   return 'invalid event';
+}
+
+/** The `id` of an untrusted value when it looks like an event id (64 lowercase hex), or null. Never throws. */
+function idOf(ev: unknown): Hex | null {
+  try {
+    if (typeof ev !== 'object' || ev === null) return null;
+    const id: unknown = (ev as { id?: unknown }).id;
+    return typeof id === 'string' && /^[0-9a-f]{64}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The `kind` of an untrusted value, or null. Never throws. */
@@ -210,8 +239,14 @@ export class GameSession {
   private readonly shuffleChecked = new Map<Hex, boolean>();
   /** The module state (frozen), set up in view mode once the shuffle is complete. */
   private state: unknown = null;
-  /** The root's `created_at`, the floor of `pendingSince`. */
-  private rootCreatedAt: number;
+  /** When this client first saw the root (local clock): the floor of the progress time P. */
+  private readonly rootSeenAt: number;
+  /**
+   * When this client first saw each authentic event of this game (D030 Ruling 10): the `now` of the first
+   * `receive` that parsed it. Later copies leave it alone. It also marks the event as known, so a copy is answered
+   * before it is parsed again.
+   */
+  private readonly seenAt = new Map<Hex, number>();
   /**
    * Verified shares from folded Shares events and from the chain's moves. Rebuilt from those two sources when the
    * chain is cut back (see `truncate`).
@@ -261,8 +296,18 @@ export class GameSession {
    * pooled ancestors (at most `MAX_DEPTH` steps, and not past a stuck move). A fork's verdict is kept until it moves.
    */
   private readonly poolVersion = new Map<Hex, number>();
-  /** Counts changes to the share store from Shares events; whether a move can link depends on it. */
+  /**
+   * Counts new shares from Shares events (a copy of a kept share is not new); whether a move can link depends on
+   * it, and fork verdicts are kept while it holds.
+   */
   private sharesVersion = 0;
+  /** Fork trials run (`sideBest` without a kept verdict); a debug counter the tests read. */
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: read by the tests through a cast.
+  private trials = 0;
+  /** Side moves at a prev below the head found `unknown` there, by the `sharesVersion` they were judged at. */
+  private readonly sideUnknown = new Map<Hex, number>();
+  /** Rival shuffle steps verified for equivocation, by `prev:signer` (at most `MAX_RIVAL_SHUFFLES`). */
+  private readonly rivalShuffles = new Map<string, number>();
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
   private readonly stuck = new Map<Hex, number>();
   /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
@@ -274,30 +319,38 @@ export class GameSession {
   /** Audit results by log hash. */
   private readonly auditCache = new Map<Hex, SessionAudit>();
 
-  /** Verified deck secrets by seat, each with the earliest `created_at` among its verified copies. */
-  private readonly secrets = new Map<number, { x: bigint; at: number }>();
+  /** Verified deck secrets by seat. */
+  private readonly secrets = new Map<number, bigint>();
+  /**
+   * The latest first-seen time of a Shares event or secret that removed a seat from the stall set at the head, or
+   * let the chain advance (D030 Ruling 11): the part of P that is not a chain move.
+   */
+  private stallProgress = Number.NEGATIVE_INFINITY;
   /** Secret reveal events folded in, by id. */
   private readonly secretIds = new Set<Hex>();
   /** The R6 audit, run once every secret is in (phase `done`); `pending` until then. */
   private auditResult: SessionAudit = 'pending';
   /**
-   * Well-formed attestations from seated npubs, by id: the seat, its canonical `{audit, logHash, outcome}` and its
-   * date. Per seat, only the latest one that does not match this session's result is kept.
+   * Each seat's attestation: its latest well-formed one by (`created_at`, id), with its canonical
+   * `{audit, logHash, outcome}`. The seat is attested when that one matches this session's result.
    */
-  private readonly attests = new Map<Hex, { seat: number; content: string; at: number }>();
+  private readonly attests = new Map<number, { id: Hex; content: string; at: number }>();
+  /** Every attestation id received from a seated npub, kept or superseded. */
+  private readonly attestIds = new Set<Hex>();
 
   /** The module's events on the canonical chain, the last `MAX_EVENTS`; frozen, replaced on every change. */
   private events: readonly unknown[] = Object.freeze([]);
 
   /**
-   * Every well-formed Timeout claim from a seated key against another seat, by id, kept whatever its judgement
-   * (at most `MAX_CLAIMS` per signer per head): a claim is judged again whenever the fold or the clock changes.
+   * Every well-formed Timeout claim from a seated key against another seat, by id, kept whatever its judgement:
+   * the `MAX_CLAIMS` lowest ids per signer per head, and at most `MAX_UNKNOWN_CLAIMS` per signer naming heads not
+   * on the chain. A claim is judged again whenever the fold or the clock changes.
    */
   private readonly claims = new Map<Hex, Claim>();
   /** Claim ids by the head they name. */
   private readonly claimsByHead = new Map<Hex, Set<Hex>>();
-  /** The accepted claim that ended the game (the lowest id among valid ones), or null. The fold stops once set. */
-  private decider: Hex | null = null;
+  /** The accepted timeout, or null. Once set it is final: the fold stops. */
+  private timedOut: TimedOut | null = null;
   /** The latest local clock reading seen by `receive` or `tick`. */
   private clock = 0;
 
@@ -320,7 +373,8 @@ export class GameSession {
     this.cards = cardTable(this.deckId, this.deckSize);
     this.shares = new ShareStore(this.seats);
     this.linked.add(root.id);
-    this.rootCreatedAt = 0;
+    this.rootSeenAt = input.rootSeenAt;
+    this.clock = input.rootSeenAt;
   }
 
   /**
@@ -368,28 +422,35 @@ export class GameSession {
       if (!deckKey.equals(seat.deckKey)) throw new ClientError(`the deck secret is not seat ${me.seat}'s`);
     }
 
-    const s = new GameSession(input, root, module, rules.value);
-    s.rootCreatedAt = (input.root as NostrEvent).created_at;
-    return s;
+    if (typeof input.rootSeenAt !== 'number' || !Number.isFinite(input.rootSeenAt))
+      throw new ClientError('rootSeenAt must be a finite number');
+    return new GameSession(input, root, module, rules.value);
   }
 
   /* ------------------------------------------------------------------------------------------- intake */
 
-  /** Fold in one event from a peer (or this client's own, fed back). Never throws. `now` is the local clock. */
+  /**
+   * Fold in one event from a peer (or this client's own, fed back). Never throws. `now` is the local clock, and
+   * the time this client first saw `ev` (D030 Ruling 10): a client that reloads passes each event's saved
+   * first-seen time, and feeding the events in first-seen order reproduces the session.
+   */
   receive(ev: unknown, now: number): ReceiveResult {
     this.generation++;
     try {
       this.observe(now);
-      return this.intake(ev);
+      // The deadline may have passed before this event arrived: judge the stored claims first.
+      try {
+        this.decideTimeouts();
+      } catch {
+        // A module that throws leaves the claims as they were; the event is still folded.
+      }
+      return this.intake(ev, this.clockOf(now));
     } catch (e) {
       return { status: 'rejected', reason: `internal error: ${message(e)}` };
     }
   }
 
-  /**
-   * Re-check stored Timeout claims against the local clock `now`: a claim received before the clock reached its
-   * `created_at` is accepted once it does. Never throws.
-   */
+  /** Re-check stored Timeout claims against the local clock `now`. Never throws. */
   tick(now: number): void {
     try {
       this.observe(now);
@@ -404,10 +465,31 @@ export class GameSession {
     if (typeof now === 'number' && Number.isFinite(now) && now > this.clock) this.clock = now;
   }
 
-  private intake(ev: unknown): ReceiveResult {
+  /** `now` as a first-seen time: the clock itself when `now` is not a finite number. */
+  private clockOf(now: number): number {
+    return typeof now === 'number' && Number.isFinite(now) ? now : this.clock;
+  }
+
+  /** Record `id`'s first-seen time, unless it has one. */
+  private see(id: Hex, now: number): void {
+    if (!this.seenAt.has(id)) this.seenAt.set(id, now);
+  }
+
+  /** When this client first saw `id`; the clock for an event it never received (a test shortcut). */
+  private seenOf(id: Hex): number {
+    return this.seenAt.get(id) ?? this.clock;
+  }
+
+  private intake(ev: unknown, now: number): ReceiveResult {
     const kind = kindOf(ev);
+    // A known event is answered before it is parsed: parsing (a shuffle step's deck above all) is the cost.
+    const id = idOf(ev);
+    if (id !== null) {
+      const again = this.again(id);
+      if (again !== null) return again;
+    }
     if (kind === KIND.timeout) return this.intakeTimeout(ev);
-    if (kind === KIND.reveal) return this.intakeSecret(ev);
+    if (kind === KIND.reveal) return this.intakeSecret(ev, now);
     if (kind === KIND.attest) return this.intakeAttest(ev);
     let parsed: { kind: 'move'; m: ParsedMove } | { kind: 'shares'; s: ParsedShares };
     try {
@@ -421,13 +503,24 @@ export class GameSession {
     if (p.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const seat = this.seatOf.get(p.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
-    if (this.isKnown(p.id)) return { status: 'duplicate' };
-    // Every well-formed move from a seated key is a possible rival, even one rejected before.
+    this.see(p.id, now);
+    // Every well-formed move from a seated key is a possible rival.
     if (parsed.kind === 'move') this.addCandidate(parsed.m, seat);
-    const known = this.rejected.get(p.id);
-    if (known !== undefined) return { status: 'rejected', reason: known };
     if (parsed.kind === 'shares') return this.intakeShares(parsed.s, seat);
     return this.intakeMove(parsed.m, seat);
+  }
+
+  /**
+   * The answer for an event this session already parsed (its id was authenticated then; a copy with the same id
+   * is the same event): its rejection, a claim or attestation judged again, or `duplicate`. Null when unknown.
+   */
+  private again(id: Hex): ReceiveResult | null {
+    const why = this.rejected.get(id);
+    if (why !== undefined) return { status: 'rejected', reason: why };
+    const claim = this.claims.get(id);
+    if (claim !== undefined) return this.claimStatus(claim, false);
+    if (this.attestIds.has(id)) return this.attestStatus(id, false);
+    return this.seenAt.has(id) ? { status: 'duplicate' } : null;
   }
 
   /** Keep a move as a possible rival under its `prev:seq:seat` key. */
@@ -440,13 +533,6 @@ export class GameSession {
     }
     group.set(m.id, { m, seat });
     if (group.size >= 2) this.rivalKeys.add(key);
-  }
-
-  /** Whether the event is on the chain, pooled, or a folded or waiting Shares event. */
-  private isKnown(id: Hex): boolean {
-    if (this.linked.has(id) || this.sharesSeen.has(id) || this.waitingShares.has(id)) return true;
-    for (const moves of this.movesByPrev.values()) if (moves.has(id)) return true;
-    return false;
   }
 
   private rejectEvent(id: Hex, reason: string): ReceiveResult {
@@ -465,6 +551,7 @@ export class GameSession {
       // A side branch on an older prev: if it is invalid there, it never will be valid.
       const v = this.validAtPrev(m, seat);
       if (typeof v === 'object') return this.rejectEvent(m.id, v.reject);
+      if (v === 'ignored') return this.rejectEvent(m.id, 'too many rival shuffle steps');
     }
     const flagged = this.flagged.join();
     this.pool(m);
@@ -538,11 +625,12 @@ export class GameSession {
     for (const { pos } of s.shares) {
       if (pos >= this.deckSize) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
-    if (this.decider !== null) {
+    if (this.timedOut !== null) {
       // A timeout ended the game: the fold no longer changes.
       this.waitingShares.set(s.id, s);
       return { status: 'stored' };
     }
+    const before = this.stallMark();
     const r = this.foldShares(s, seat);
     if (r === 'wait') {
       this.waitingShares.set(s.id, s);
@@ -554,15 +642,16 @@ export class GameSession {
     }
     if (r === 'nothing-new') return { status: 'duplicate' };
     this.settle();
+    this.noteProgress(before, s.id);
     return { status: 'accepted' };
   }
 
   /**
    * Fold a Secret reveal (PROTOCOL §4.7): signed by a seated session key, with `x·G = X_k` for that seat. A
    * secret that arrives before the game is over is kept (`stored`) and counts once it is. A second copy only
-   * matters when it is earlier (D030 R3).
+   * matters when it was seen earlier (a reload that feeds events out of first-seen order).
    */
-  private intakeSecret(ev: unknown): ReceiveResult {
+  private intakeSecret(ev: unknown, now: number): ReceiveResult {
     let s: ParsedSecret;
     try {
       s = parseSecret(ev);
@@ -572,19 +661,18 @@ export class GameSession {
     if (s.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const seat = this.seatOf.get(s.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
-    if (this.secretIds.has(s.id)) return { status: 'duplicate' };
-    const known = this.rejected.get(s.id);
-    if (known !== undefined) return { status: 'rejected', reason: known };
+    this.see(s.id, now);
     if (!this.secretMatches(seat, s.deckSecret)) {
       return this.rejectEvent(s.id, `the deck secret does not match seat ${seat}'s deck key`);
     }
     this.secretIds.add(s.id);
     // A timeout ended the game: the fold no longer changes.
-    if (this.decider !== null) return { status: 'stored' };
-    const held = this.secrets.get(seat);
-    if (held !== undefined && held.at <= s.createdAt) return { status: 'duplicate' };
-    this.secrets.set(seat, { x: s.deckSecret, at: s.createdAt });
+    if (this.timedOut !== null) return { status: 'stored' };
+    if (this.secrets.has(seat)) return { status: 'duplicate' };
+    const before = this.stallMark();
+    this.secrets.set(seat, s.deckSecret);
     this.settle();
+    this.noteProgress(before, s.id);
     return this.phase === 'end' || this.phase === 'done' ? { status: 'accepted' } : { status: 'stored' };
   }
 
@@ -598,10 +686,10 @@ export class GameSession {
   }
 
   /**
-   * Fold a Result attestation (PROTOCOL §4.8): signed by a seated npub, not a session key. It counts once its
-   * content equals this session's own audit, logHash and outcome. Before this session has a result it is kept
-   * (`stored`); one that does not match is `rejected`, but kept too, since the result may still change as events
-   * arrive.
+   * Fold a Result attestation (PROTOCOL §4.8): signed by a seated npub, not a session key. Each seat's latest one
+   * by (`created_at`, id) is kept, whatever the arrival order, and the seat is attested when it equals this
+   * session's audit, logHash and outcome. Before this session has a result it is `stored`; one that does not match
+   * is `rejected`, but kept, since the result may still change as events arrive. An older one is a `duplicate`.
    */
   private intakeAttest(ev: unknown): ReceiveResult {
     let a: ParsedAttest;
@@ -613,25 +701,32 @@ export class GameSession {
     if (a.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const seat = this.npubSeat.get(a.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated npub' };
-    const seen = this.attests.has(a.id);
+    this.attestIds.add(a.id);
     const content = canonicalJson({ audit: a.audit, logHash: a.logHash, outcome: a.outcome });
-    const mine = this.attestContent();
-    if (!seen) {
-      this.attests.set(a.id, { seat, content, at: a.createdAt });
-      if (content !== mine) this.pruneAttests(seat, mine);
+    const held = this.attests.get(seat);
+    if (held === undefined || a.createdAt > held.at || (a.createdAt === held.at && a.id > held.id)) {
+      this.attests.set(seat, { id: a.id, content, at: a.createdAt });
     }
-    if (mine === null) return { status: seen ? 'duplicate' : 'stored' };
-    if (content !== mine) {
+    return this.attestStatus(a.id, true);
+  }
+
+  /** How an attestation stands now: `fresh` on its first receipt. */
+  private attestStatus(id: Hex, fresh: boolean): ReceiveResult {
+    const kept = [...this.attests.values()].find((a) => a.id === id);
+    if (kept === undefined) return { status: 'duplicate' };
+    const mine = this.attestContent();
+    if (mine === null) return { status: fresh ? 'stored' : 'duplicate' };
+    if (kept.content !== mine) {
       return { status: 'rejected', reason: "the attestation does not match this session's result" };
     }
-    return { status: seen ? 'duplicate' : 'accepted' };
+    return { status: fresh ? 'accepted' : 'duplicate' };
   }
 
   /**
-   * Fold a Timeout claim (PROTOCOL §4.6, §8.1, D030 R3–R5): signed by a seated session key, naming another seat.
-   * It is `accepted` when it decides the game, `duplicate` when it is valid but a lower-id claim decides, `stored`
-   * while its head is unknown or the local clock is behind its `created_at`, and `rejected` otherwise. Every such
-   * claim is kept and judged again as events and the clock move, so a rejected claim may still count later.
+   * Fold a Timeout claim (PROTOCOL §4.6, §8.1, D030 R4–R5, Rulings 8 and 10): signed by a seated session key,
+   * naming another seat. It is `accepted` when it ends the game, `stored` while its head is unknown or the deadline
+   * has not passed by the local clock, and `rejected` otherwise. A kept claim is judged again as events and the
+   * clock move, so one rejected now may still count later.
    */
   private intakeTimeout(ev: unknown): ReceiveResult {
     let t: ParsedTimeout;
@@ -643,70 +738,96 @@ export class GameSession {
     if (t.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const claimant = this.seatOf.get(t.pubkey);
     if (claimant === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
-    const known = this.rejected.get(t.id);
-    if (known !== undefined) return { status: 'rejected', reason: known };
     if (t.seat >= this.seats) return this.rejectEvent(t.id, `there is no seat ${t.seat}`);
     if (t.seat === claimant) return this.rejectEvent(t.id, 'a seat cannot claim a timeout against itself');
-    const seen = this.claims.has(t.id);
-    if (!seen && this.claimCount(t.headId, claimant) >= MAX_CLAIMS) {
-      return { status: 'rejected', reason: 'claim limit' };
+    if (this.timedOut !== null) {
+      // The outcome is final; a claim on the same head agrees with it.
+      return t.headId === this.timedOut.head
+        ? { status: 'duplicate' }
+        : { status: 'rejected', reason: 'a timeout has already ended the game' };
     }
-    if (!seen) {
-      const claim = { t, claimant };
-      this.claims.set(t.id, claim);
-      let ids = this.claimsByHead.get(t.headId);
-      if (ids === undefined) {
-        ids = new Set();
-        this.claimsByHead.set(t.headId, ids);
-      }
-      ids.add(t.id);
-      this.decideTimeouts();
-    }
-    if (this.decider === t.id) return { status: seen ? 'duplicate' : 'accepted' };
-    const v = this.judgeClaim(this.claims.get(t.id) as Claim);
-    if (typeof v === 'object') return { status: 'rejected', reason: v.reject };
-    return { status: seen || v === 'valid' ? 'duplicate' : 'stored' };
-  }
-
-  /** How many claims `claimant` has stored against `headId`. */
-  private claimCount(headId: Hex, claimant: number): number {
-    let n = 0;
-    for (const id of this.claimsByHead.get(headId) ?? []) if (this.claims.get(id)?.claimant === claimant) n++;
-    return n;
+    const full = this.keepClaim({ t, claimant });
+    if (full !== null) return full;
+    this.decideTimeouts();
+    // decideTimeouts may have set it.
+    if ((this.timedOut as TimedOut | null)?.claim === t.id) return { status: 'accepted' };
+    return this.claimStatus(this.claims.get(t.id) as Claim, true);
   }
 
   /**
-   * A claim judged against the fold and the clock (D030 R3, R4 and the far-future clamp). Valid when all hold:
+   * Keep a claim within the caps: per signer, the `MAX_CLAIMS` lowest ids per head (a lower id evicts the highest
+   * kept, so the kept set does not depend on arrival order), and at most `MAX_UNKNOWN_CLAIMS` naming heads not on
+   * the chain. Returns the rejection when the claim is not kept.
+   */
+  private keepClaim(c: Claim): ReceiveResult | null {
+    const { t, claimant } = c;
+    if (!this.linked.has(t.headId)) {
+      let unknown = 0;
+      for (const k of this.claims.values())
+        if (k.claimant === claimant && !this.linked.has(k.t.headId)) unknown++;
+      // Not recorded: once some of those heads link, the claim may be kept.
+      if (unknown >= MAX_UNKNOWN_CLAIMS) return { status: 'rejected', reason: 'claim limit' };
+    }
+    let ids = this.claimsByHead.get(t.headId);
+    if (ids === undefined) {
+      ids = new Set();
+      this.claimsByHead.set(t.headId, ids);
+    }
+    const mine = [...ids].filter((id) => this.claims.get(id)?.claimant === claimant).sort();
+    if (mine.length >= MAX_CLAIMS) {
+      const highest = mine[mine.length - 1] as Hex;
+      if (t.id > highest) return this.rejectEvent(t.id, 'claim limit');
+      this.claims.delete(highest);
+      ids.delete(highest);
+      this.rejected.set(highest, 'claim limit');
+    }
+    this.claims.set(t.id, c);
+    ids.add(t.id);
+    return null;
+  }
+
+  /** How a kept claim stands now: `fresh` on its first receipt. */
+  private claimStatus(c: Claim, fresh: boolean): ReceiveResult {
+    if (this.timedOut?.claim === c.t.id) return { status: 'duplicate' };
+    const v = this.judgeClaim(c);
+    if (typeof v === 'object') return { status: 'rejected', reason: v.reject };
+    if (v === 'valid' || !fresh) return { status: 'duplicate' };
+    return { status: 'stored' };
+  }
+
+  /**
+   * A claim judged against the fold and the local clock (D030 R4, Rulings 10 and 11). Valid when all hold:
    * - its head is the current head;
-   * - the named seat is stalled there, counting only shares and secrets dated at or before the claim;
-   * - `claim.created_at ≥ P + deadline`, where P is the last progress dated at or before the claim;
-   * - the local clock has reached `claim.created_at`.
-   * Events dated after the claim are ignored, so a seat cannot put off every claim by dating an event far ahead.
+   * - some seat is stalled there, and the claimant is not;
+   * - the local clock has reached P + deadline (`progress`).
+   * Its `created_at` plays no part, and the seat it names is a shape check only (a seat other than the claimant):
+   * the effect is the same whichever seat it names.
    */
   private judgeClaim(c: Claim): Claimed {
     const t = c.t;
     if (!this.linked.has(t.headId)) return 'wait';
     if (t.headId !== this.headId()) return reject('the claim names an old head');
-    if (!this.stalled(t.createdAt).includes(t.seat))
-      return reject(`seat ${t.seat} is not stalled at the head`);
-    if (t.createdAt < this.progress(t.createdAt) + this.root.deadline) {
-      return reject('the claim is dated before the deadline');
-    }
-    if (this.clock < t.createdAt) return 'early';
+    const stalled = this.stalled();
+    if (stalled.length === 0) return reject('no seat is stalled at the head');
+    if (stalled.includes(c.claimant))
+      return reject(`the claimant, seat ${c.claimant}, is stalled at the head`);
+    if (this.clock < this.progress() + this.root.deadline) return 'early';
     return 'valid';
   }
 
   /**
-   * Settle the timeout: the lowest-id valid claim on the current head decides. Once one decides, the fold stops,
-   * so its validity cannot change; a lower-id valid claim on the same head that arrives later takes over.
+   * Accept a timeout when some kept claim on the current head is valid (the lowest id is recorded, for the
+   * receive status only): every seat stalled at the head forfeits, whichever seat the claim names. Final: once set,
+   * the fold stops.
    */
   private decideTimeouts(): void {
-    const ids = this.claimsByHead.get(this.headId());
+    if (this.timedOut !== null) return;
+    const head = this.headId();
+    const ids = this.claimsByHead.get(head);
     if (ids === undefined) return;
     for (const id of [...ids].sort()) {
-      if (this.decider !== null && id >= this.decider) return;
       if (this.judgeClaim(this.claims.get(id) as Claim) === 'valid') {
-        this.decider = id;
+        this.timedOut = { claim: id, head, seats: this.stalled() };
         return;
       }
     }
@@ -761,7 +882,7 @@ export class GameSession {
       return 'wait';
 
     this.link(m);
-    for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(seat, pos, share, m.createdAt);
+    for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(seat, pos, share);
     this.state = deepFreeze(r.next);
     this.record(r.events);
     this.actionLog.push({ actor: seat, action: c.action, seq: m.seq });
@@ -890,7 +1011,8 @@ export class GameSession {
 
   /**
    * Fold a Shares event from `seat`: every share must verify against the seat's deck key and the final deck, or
-   * the event is rejected as a whole. Only shares for new (seat, position) pairs are kept.
+   * the event is rejected as a whole. Only shares for new (seat, position) pairs are kept, and only those bump
+   * `sharesVersion`: an earlier-seen copy of a kept share moves P back but cannot let a move link.
    */
   private foldShares(s: ParsedShares, seat: number): Fold | 'nothing-new' {
     const deck = this.finalDeck();
@@ -903,8 +1025,7 @@ export class GameSession {
     }
     this.sharesSeen.set(s.id, s);
     let changed = false;
-    for (const { pos, share } of s.shares)
-      if (this.shares.add(seat, pos, share, s.createdAt) !== 'none') changed = true;
+    for (const { pos, share } of s.shares) if (this.shares.add(seat, pos, share) === 'new') changed = true;
     if (changed) this.sharesVersion++;
     return changed ? 'accepted' : 'nothing-new';
   }
@@ -924,17 +1045,39 @@ export class GameSession {
 
   /**
    * Bring the fold up to date: extend the chain with pooled moves at the head, fold waiting Shares events, take
-   * the phase steps the events allow, then re-examine forks, until nothing changes. Then flag equivocators and
-   * judge the stored timeout claims. Once a timeout has ended the game, nothing changes any more.
+   * the phase steps the events allow, then re-examine forks, until nothing changes. Then judge side moves at old
+   * prevs, flag equivocators and judge the stored timeout claims. Once a timeout has ended the game, nothing
+   * changes any more.
    */
   private settle(): void {
-    if (this.decider !== null) return;
+    if (this.timedOut !== null) return;
     for (;;) {
       this.extend();
       if (!this.resolveForks()) break;
     }
+    this.judgeSides();
     this.flagged = this.equivocators();
     this.decideTimeouts();
+  }
+
+  /**
+   * Judge each pooled move at a prev below the head once, as of that prev, and drop it if it is invalid there. A
+   * move that arrived before its prev and lost to a sibling would otherwise stay pooled, unjudged, while a client
+   * that got it after its prev rejects it at once. A move not judgeable yet (`unknown`) is judged again only once
+   * the shares change.
+   */
+  private judgeSides(): void {
+    for (let j = 0; j < this.chain.length; j++) {
+      const side = this.movesByPrev.get(this.idAt(j));
+      if (side === undefined) continue;
+      for (const m of byId(side.values())) {
+        if (this.validity.get(m.id) === true || this.sideUnknown.get(m.id) === this.sharesVersion) continue;
+        const v = this.validAtPrev(m, this.seatOf.get(m.pubkey) as number);
+        if (typeof v === 'object') this.dropMove(m, v.reject);
+        else if (v === 'ignored') this.dropMove(m, 'too many rival shuffle steps');
+        else if (v === 'unknown') this.sideUnknown.set(m.id, this.sharesVersion);
+      }
+    }
   }
 
   /** Link pooled moves at the head, lowest id first among those that fold, and quiesce, until nothing applies. */
@@ -1042,6 +1185,7 @@ export class GameSession {
     const key = `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}`;
     const known = this.forkMemo.get(prev);
     if (known !== undefined && known.key === key) return known;
+    this.trials++;
     const tail = this.chain.slice(j);
     const top = (tail[0] as ParsedMove).id;
     let best: Branch = { moves: [], over: false };
@@ -1170,14 +1314,13 @@ export class GameSession {
     }
     for (const s of this.sharesSeen.values()) {
       const seat = this.seatOf.get(s.pubkey) as number;
-      for (const { pos, share } of s.shares) this.shares.add(seat, pos, share, s.createdAt);
+      for (const { pos, share } of s.shares) this.shares.add(seat, pos, share);
     }
     for (const m of this.chain) {
       if (m.content.type !== 'action') continue;
       const seat = this.seatOf.get(m.pubkey) as number;
-      for (const { pos, share } of [...m.content.shares, ...m.content.reveals]) {
-        this.shares.add(seat, pos, share, m.createdAt);
-      }
+      for (const { pos, share } of [...m.content.shares, ...m.content.reveals])
+        this.shares.add(seat, pos, share);
     }
   }
 
@@ -1185,7 +1328,8 @@ export class GameSession {
 
   /**
    * The seats with two distinct moves on one (prev, seq), the prev on the chain, both valid as of that prev on
-   * everything but R1 (D030 R2 as refined by Ruling 3). An invalid move never counts. Ascending.
+   * everything but R1 (D030 R2 as refined by Ruling 3). An invalid move never counts, nor does a rival shuffle step
+   * past the verification budget (`MAX_RIVAL_SHUFFLES`) that was never verified. Ascending.
    */
   private equivocators(): number[] {
     const out = new Set<number>();
@@ -1201,19 +1345,22 @@ export class GameSession {
     return ascending(out);
   }
 
-  /** `m` judged as of its prev; definite judgements are kept. */
-  private validAtPrev(m: ParsedMove, seat: number): Judged {
+  /**
+   * `m` judged as of its prev; definite judgements are kept. A shuffle step not verified yet is verified only
+   * while its (prev, signer) has verification budget left (`MAX_RIVAL_SHUFFLES`), else it is `ignored`.
+   */
+  private validAtPrev(m: ParsedMove, seat: number): Judged | 'ignored' {
     const cached = this.validity.get(m.id);
     if (cached === true) return 'valid';
     if (cached !== undefined) return reject(cached);
     const v = this.judgeAtPrev(m, seat);
     if (v === 'valid') this.validity.set(m.id, true);
-    else if (v !== 'unknown') this.validity.set(m.id, v.reject);
+    else if (typeof v === 'object') this.validity.set(m.id, v.reject);
     return v;
   }
 
   /** Judge a move against the chain's state at its prev, which must be the chain's move at `seq − 1`. */
-  private judgeAtPrev(m: ParsedMove, seat: number): Judged {
+  private judgeAtPrev(m: ParsedMove, seat: number): Judged | 'ignored' {
     const shape = this.moveShape(m, seat);
     if (shape !== null) return reject(shape);
     const at = m.seq - 1;
@@ -1223,6 +1370,12 @@ export class GameSession {
     }
     const c = m.content;
     if (c.type === 'shuffle') {
+      if (!this.shuffleChecked.has(m.id)) {
+        const budget = `${m.prevId}:${seat}`;
+        const used = this.rivalShuffles.get(budget) ?? 0;
+        if (used >= MAX_RIVAL_SHUFFLES) return 'ignored';
+        this.rivalShuffles.set(budget, used + 1);
+      }
       return this.shuffleVerifies(m.id, at, c.deck, c.proof)
         ? 'valid'
         : reject('the shuffle proof does not verify');
@@ -1281,7 +1434,7 @@ export class GameSession {
       seats: this.seats,
       deckId: this.deckId,
       deck: this.finalDeck() as Ciphertext[],
-      secrets: Array.from({ length: this.seats }, (_, k) => (this.secrets.get(k) as { x: bigint }).x),
+      secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log: this.actionLog,
       outcome: this.module.outcome(this.state),
@@ -1358,29 +1511,34 @@ export class GameSession {
   }
 
   /**
-   * The game's last progress (D030 R3): the largest `created_at` among the root, the chain's moves, per kept share
-   * the earliest verified copy of it, and, once the game is over, per seat the earliest verified secret. It depends
-   * only on which events are held, not their arrival order. With `limit`, events dated after it are ignored (the
-   * far-future clamp), except the root and the head move, which always count (D030 Ruling 6): a seat that dates
-   * its move ahead only gives the next seat more time, and cannot make it claimable at once.
+   * The game's progress time P (D030 Rulings 10 and 11): the latest local first-seen time over the root, the
+   * canonical chain's moves, and the Shares events and secrets that removed a seat from the stall set at the head
+   * (or let the chain advance). A share that leaves the stall set as it was does not count, so a stalled seat
+   * cannot put its own deadline off by publishing useless shares one at a time. No `created_at` counts.
    */
-  private progress(limit: number | null): number {
-    const counts = (at: number): boolean => limit === null || at <= limit;
-    let out = this.rootCreatedAt;
-    const head = this.chain[this.chain.length - 1];
-    if (head !== undefined && head.createdAt > out) out = head.createdAt;
-    for (const m of this.chain) if (counts(m.createdAt) && m.createdAt > out) out = m.createdAt;
-    const shares = this.shares.latest(limit);
-    if (shares !== null && shares > out) out = shares;
-    if (this.phase === 'end' || this.phase === 'done') {
-      for (const { at } of this.secrets.values()) if (counts(at) && at > out) out = at;
-    }
+  private progress(): number {
+    let out = Math.max(this.rootSeenAt, this.stallProgress);
+    for (const m of this.chain) out = Math.max(out, this.seenOf(m.id));
     return out;
   }
 
+  /** The head and the seats stalled there, before an event is folded, for `noteProgress`. */
+  private stallMark(): { head: Hex; stalled: number[] } {
+    return { head: this.headId(), stalled: this.stalled() };
+  }
+
   /**
-   * The seats stalled at the head (D030 R4), ascending, counting only shares and secrets dated at or before
-   * `limit` (all of them for null):
+   * After Shares event or secret `id` was folded: if it let the chain advance, or removed a seat from the stall
+   * set at the head, its first-seen time counts toward P (D030 Ruling 11).
+   */
+  private noteProgress(before: { head: Hex; stalled: number[] }, id: Hex): void {
+    const after = this.headId() === before.head ? this.stalled() : null;
+    if (after !== null && before.stalled.every((k) => after.includes(k))) return;
+    this.stallProgress = Math.max(this.stallProgress, this.seenOf(id));
+  }
+
+  /**
+   * The seats stalled at the head (D030 R4), ascending:
    * - shuffle: the seat whose step is next;
    * - deal: every seat whose owed deal positions are not all shared;
    * - play: the pending seat, unless the decision needs a card dealt to it that some other seat has not shared,
@@ -1388,22 +1546,19 @@ export class GameSession {
    * - end: every seat whose secret is not in;
    * - otherwise none.
    */
-  private stalled(limit: number | null): number[] {
+  private stalled(): number[] {
     const all = Array.from({ length: this.seats }, (_, k) => k);
     switch (this.phase) {
       case 'shuffle':
         return [this.chain.length];
       case 'deal': {
         const dealt = this.module.dealt(this.state);
-        return all.filter((k) => this.shares.missing(k, dealt, limit).length > 0);
+        return all.filter((k) => this.shares.missing(k, dealt).length > 0);
       }
       case 'play':
-        return this.stalledInPlay(all, limit);
+        return this.stalledInPlay(all);
       case 'end':
-        return all.filter((k) => {
-          const s = this.secrets.get(k);
-          return s === undefined || (limit !== null && s.at > limit);
-        });
+        return all.filter((k) => !this.secrets.has(k));
       default:
         return [];
     }
@@ -1413,20 +1568,20 @@ export class GameSession {
    * The play-phase part of `stalled`. Whether the pending decision needs hidden cards is judged on the public
    * state, so every view agrees: if the module lists actions for the seat with its hand hidden, the seat can act.
    */
-  private stalledInPlay(all: readonly number[], limit: number | null): number[] {
+  private stalledInPlay(all: readonly number[]): number[] {
     const p = this.module.pending(this.state);
     if (p.type === 'reveal') {
-      return all.filter((k) => p.positions.some((pos) => !this.shares.has(k, pos, limit)));
+      return all.filter((k) => p.positions.some((pos) => !this.shares.has(k, pos)));
     }
     if (p.type !== 'player') return [];
     const seat = p.seat;
     const needed = this.module
       .dealt(this.state)
-      .filter((d) => d.to === seat && d.deck === this.deckId && !this.shares.covered(d.pos, seat, limit))
+      .filter((d) => d.to === seat && d.deck === this.deckId && !this.shares.covered(d.pos, seat))
       .map((d) => d.pos);
     if (needed.length === 0) return [seat];
     if (this.module.legalActions(this.module.view(this.state, null), seat).length > 0) return [seat];
-    return all.filter((k) => k !== seat && needed.some((pos) => !this.shares.has(k, pos, limit)));
+    return all.filter((k) => k !== seat && needed.some((pos) => !this.shares.has(k, pos)));
   }
 
   /* -------------------------------------------------------------------------------------------- views */
@@ -1441,7 +1596,7 @@ export class GameSession {
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
       pending: this.pending(),
-      pendingSince: this.progress(null),
+      pendingSince: this.progress(),
       outcome: status.outcome,
       forfeits: status.forfeits,
       equivocators: [...this.flagged],
@@ -1463,7 +1618,7 @@ export class GameSession {
    * equivocating seats move to shared last places and the others keep their declared order.
    */
   private status(): Status {
-    if (this.decider !== null) return this.timeoutStatus(this.decider);
+    if (this.timedOut !== null) return this.timeoutStatus(this.timedOut.seats);
     if (this.phase !== 'done') {
       return { phase: this.phase, outcome: null, audit: 'pending', forfeits: [...this.flagged] };
     }
@@ -1480,35 +1635,27 @@ export class GameSession {
   }
 
   /**
-   * The result once the claim `id` is accepted (PROTOCOL §8.2, D030 R5), from the fold as it stood then:
-   * - before the first game action: `cancelled`, no outcome; the named seat forfeits;
-   * - during play: `done` at once, the named seat (and any equivocator) last, the others ranked by the module's
+   * The result once a timeout is accepted (PROTOCOL §8.2, D030 R5, Ruling 10), from the fold as it stood then;
+   * `stalled` holds every seat stalled at the head then, whichever seat the claim named:
+   * - before the first game action: `cancelled`, no outcome; the stalled seats forfeit;
+   * - during play: `done` at once, the stalled seats (and any equivocator) last, the others ranked by the module's
    *   `standings`. The deck cannot be decrypted without every secret, so the audit cannot run: it records the
    *   forfeits instead, `{fail: forfeits, reason: 'timeout'}` (D030 Ruling 7), and the result can be attested;
-   * - at the end: `done`, every seat whose secret was not in by the claim's date forfeits for a withheld secret,
-   *   and the declared order is adjusted with them (and any equivocator) last; the audit is
-   *   `{fail: forfeits, reason: 'withheld secret'}`.
+   * - at the end: `done`, the seats whose secret was not in forfeit for a withheld secret, and the declared order
+   *   is adjusted with them (and any equivocator) last; the audit is `{fail: forfeits, reason: 'withheld secret'}`.
    */
-  private timeoutStatus(id: Hex): Status {
-    const t = (this.claims.get(id) as Claim).t;
+  private timeoutStatus(stalled: readonly number[]): Status {
     const actions = this.chain.length > this.seats;
+    const forfeits = ascending([...stalled, ...this.flagged]);
     if (this.phase === 'shuffle' || this.phase === 'deal' || (this.phase === 'play' && !actions)) {
-      return {
-        phase: 'cancelled',
-        outcome: null,
-        audit: 'pending',
-        forfeits: ascending([t.seat, ...this.flagged]),
-      };
+      return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits };
     }
     if (this.phase === 'play') {
-      const forfeits = ascending([t.seat, ...this.flagged]);
       const outcome = rankWithForfeits(this.module.standings(this.state), forfeits, null);
-      return { phase: 'done', outcome, audit: { fail: forfeits, reason: 'timeout' }, forfeits };
+      return { phase: 'done', outcome, audit: { fail: [...forfeits], reason: 'timeout' }, forfeits };
     }
     // The end phase: only a seat whose secret is missing can be stalled there.
-    const withheld = this.stalled(t.createdAt);
     const declared = this.module.outcome(this.state) as ModuleOutcome;
-    const forfeits = ascending([...this.flagged, ...withheld]);
     const outcome = rankWithForfeits(declared.scores, forfeits, declared.places);
     return { phase: 'done', outcome, audit: { fail: [...forfeits], reason: 'withheld secret' }, forfeits };
   }
@@ -1520,33 +1667,11 @@ export class GameSession {
     return canonicalJson({ audit, logHash: this.logHash(), outcome });
   }
 
-  /**
-   * Keep only `seat`'s latest attestation (by date, then lowest id) among those that do not match `mine`, this
-   * session's current result (all of them before there is one). The result can change as events arrive, so a
-   * mismatching attestation is kept rather than dropped, but a seat cannot pile them up.
-   */
-  private pruneAttests(seat: number, mine: string | null): void {
-    let keep: Hex | null = null;
-    let keepAt = 0;
-    const stale: Hex[] = [];
-    for (const [id, a] of this.attests) {
-      if (a.seat !== seat || a.content === mine) continue;
-      if (keep === null || a.at > keepAt || (a.at === keepAt && id < keep)) {
-        if (keep !== null) stale.push(keep);
-        keep = id;
-        keepAt = a.at;
-      } else {
-        stale.push(id);
-      }
-    }
-    for (const id of stale) this.attests.delete(id);
-  }
-
-  /** The seats with an attestation that matches this session's result, ascending. */
+  /** The seats whose kept (latest) attestation matches this session's result, ascending. */
   private attested(): number[] {
     const mine = this.attestContent();
     if (mine === null) return [];
-    return ascending([...this.attests.values()].filter((a) => a.content === mine).map((a) => a.seat));
+    return ascending([...this.attests].filter(([, a]) => a.content === mine).map(([seat]) => seat));
   }
 
   /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
@@ -1561,7 +1686,7 @@ export class GameSession {
     const me = this.me;
     if (me === null) return [];
     // After a timeout only the attestation can be due.
-    const live = this.decider === null;
+    const live = this.timedOut === null;
     if (live && this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
     if (
       live &&
@@ -1583,7 +1708,7 @@ export class GameSession {
    * exact whenever it is not empty.
    */
   private decides(me: Identity): boolean {
-    if (this.phase !== 'play' || this.decider !== null) return false;
+    if (this.phase !== 'play' || this.timedOut !== null) return false;
     const p = this.module.pending(this.state);
     if (p.type !== 'player' || p.seat !== me.seat) return false;
     return this.module.legalActions(this.state, me.seat).length > 0;
@@ -1721,30 +1846,33 @@ export class GameSession {
   }
 
   /**
-   * The lowest seat other than mine that is stalled at the head, once `now ≥ P + deadline` with P the last
-   * progress dated at or before `now` (D030 R3, R4); otherwise null. Null for a spectator, and once a timeout has
-   * ended the game.
+   * The lowest seat other than mine that is stalled at the head, once `now ≥ P + deadline` with P the progress
+   * time by this client's first-seen times (D030 Ruling 10); otherwise null. Null for a spectator, while this seat
+   * is stalled there itself (its claim would be rejected), and once a timeout has ended the game.
    */
   timeoutTarget(now: number): number | null {
     const me = this.me;
-    if (me === null || this.decider !== null) return null;
-    if (now < this.progress(now) + this.root.deadline) return null;
-    return this.stalled(now).find((k) => k !== me.seat) ?? null;
+    if (me === null || this.timedOut !== null) return null;
+    if (now < this.progress() + this.root.deadline) return null;
+    const stalled = this.stalled();
+    if (stalled.includes(me.seat)) return null;
+    return stalled.find((k) => k !== me.seat) ?? null;
   }
 
   /**
-   * My Timeout claim (PROTOCOL §4.6) against `seat`, naming the current head and dated `createdAt`. Throws
-   * `ClientError` for a spectator, once a timeout has ended the game, or unless `seat` is another seat stalled at
-   * the head with the deadline passed by `createdAt` (as `timeoutTarget(createdAt)` judges it). Other clients
-   * accept it once their own clock reaches `createdAt`.
+   * My Timeout claim (PROTOCOL §4.6) against `seat`, naming the current head and dated `createdAt`, which is also
+   * taken as the local clock. Throws `ClientError` for a spectator, once a timeout has ended the game, or unless
+   * `seat` is another seat stalled at the head, this seat is not, and `createdAt ≥ P + deadline`. Other clients
+   * accept it once their own clock passes their own P + deadline; its date plays no part there.
    */
   buildTimeout(seat: number, rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireMe();
-    if (this.decider !== null) throw new ClientError('a timeout has already ended the game');
+    if (this.timedOut !== null) throw new ClientError('a timeout has already ended the game');
     if (seat === me.seat) throw new ClientError('a seat cannot claim a timeout against itself');
-    if (!this.stalled(createdAt).includes(seat))
-      throw new ClientError(`seat ${seat} is not stalled at the head`);
-    if (createdAt < this.progress(createdAt) + this.root.deadline) {
+    const stalled = this.stalled();
+    if (!stalled.includes(seat)) throw new ClientError(`seat ${seat} is not stalled at the head`);
+    if (stalled.includes(me.seat)) throw new ClientError('this seat is stalled at the head itself');
+    if (createdAt < this.progress() + this.root.deadline) {
       throw new ClientError(`the deadline for seat ${seat} has not passed`);
     }
     const t = timeoutTemplate({ rootId: this.root.id, headId: this.headId(), seat }, createdAt);

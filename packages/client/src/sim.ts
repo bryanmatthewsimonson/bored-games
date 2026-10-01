@@ -26,6 +26,10 @@ import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.t
  * first, keyed by the decision it answers, so it never builds twice for one decision (as the web controller
  * does). The clock then advances by 1 to 3600 s.
  *
+ * Timeouts run on local receipt time (D030 Ruling 10): each client passes the simulated clock as `now` when it
+ * first receives an event, and remembers that first-seen time, passing it again for every later copy, as the web
+ * controller does across reloads.
+ *
  * An adversary may take one seat's turns over to cheat; its hooks live with the tests and tools, never here.
  *
  * At the end every client, a vanished one included, syncs everything once more, and the sim checks that all of
@@ -90,7 +94,7 @@ export interface SimOptions {
   duplicates?: number;
   /**
    * Each sync re-delivers every event of the game, not only the ones this client has not seen yet. A session
-   * parses an event fully before it finds it a duplicate, so this costs about four times the run time.
+   * answers a known event before parsing it, so this costs little.
    */
   fullSync?: boolean;
   /** Events this client has seen already that a sync delivers again, at random (default 3). */
@@ -174,6 +178,8 @@ interface Client {
   outbox: Map<string, NostrEvent>;
   /** Ids of the events this client has received. */
   delivered: Set<Hex>;
+  /** When this client first received each event it did not reject (the simulated clock then). */
+  seen: Map<Hex, number>;
 }
 
 interface Player {
@@ -277,7 +283,14 @@ export function simulateGame(opts: SimOptions): SimReport {
     const modules =
       adversary !== null && adversary.seat === seat ? (adversary.modules ?? opts.modules) : opts.modules;
     const joins = events.filter((ev) => ev.kind === KIND.join);
-    const session = GameSession.create({ modules, table: tableEv, joins, root, me: identity });
+    const session = GameSession.create({
+      modules,
+      table: tableEv,
+      joins,
+      root,
+      me: identity,
+      rootSeenAt: clock,
+    });
     return {
       label: `seat ${seat}`,
       seat,
@@ -288,6 +301,7 @@ export function simulateGame(opts: SimOptions): SimReport {
       rnd: p.rnd,
       outbox: new Map(),
       delivered: new Set(),
+      seen: new Map(),
     };
   });
   clients.sort((a, b) => (a.seat as number) - (b.seat as number));
@@ -302,6 +316,7 @@ export function simulateGame(opts: SimOptions): SimReport {
       joins: spec.events.filter((ev) => ev.kind === KIND.join),
       root: spec.root,
       me: null,
+      rootSeenAt: clock,
     }),
     identity: null,
     npubSk: null,
@@ -309,6 +324,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     rnd: rngBytes(specRng.fork('bytes')),
     outbox: new Map(),
     delivered: new Set(),
+    seen: new Map(),
   };
   const everyone = [...clients, spectator];
   const rootId = spec.root.id;
@@ -333,7 +349,9 @@ export function simulateGame(opts: SimOptions): SimReport {
 
   const deliver = (c: Client, ev: NostrEvent): string => {
     c.delivered.add(ev.id);
-    const r = c.session.receive(ev, clock);
+    const first = c.seen.get(ev.id);
+    const r = c.session.receive(ev, first ?? clock);
+    if (first === undefined && r.status !== 'rejected') c.seen.set(ev.id, clock);
     record(c, ev.id, r.status);
     return r.status;
   };
