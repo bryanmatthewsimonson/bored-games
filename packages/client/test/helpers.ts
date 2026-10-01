@@ -1,4 +1,4 @@
-import { chainReaction } from '@bored-games/chain-reaction';
+import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
 import { createRng, type GameModule } from '@bored-games/game-kit';
 import {
@@ -60,9 +60,13 @@ export interface TestGame {
 /**
  * A Chain Reaction game of `seats` seats, ready to start: the Table by seat 0, one Join per seat committing to the
  * table's rules hash and version, and the root. Every key comes from `seededRandom(seed)`; events are dated from
- * `T0` on.
+ * `T0` on. The rules are the defaults unless given.
  */
-export function makeGame(seats: number, seed: string): TestGame {
+export function makeGame(
+  seats: number,
+  seed: string,
+  rules: ChainReactionRules = chainReaction.defaultRules(),
+): TestGame {
   const rnd = seededRandom(seed);
   const npubSks = Array.from({ length: seats }, () => secretKey(rnd));
   const ids: Identity[] = Array.from({ length: seats }, (_, seat) => ({
@@ -71,7 +75,6 @@ export function makeGame(seats: number, seed: string): TestGame {
     deckSecret: randomScalar(rnd),
   }));
   const npubs = npubSks.map(getPublicKey);
-  const rules = chainReaction.defaultRules();
   const table = finalizeEvent(
     tableTemplate(
       {

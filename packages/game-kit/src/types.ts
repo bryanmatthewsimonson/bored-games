@@ -105,7 +105,10 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   pending(state: S): Pending;
   /**
    * Every legal action for `seat`. Exact whenever the seat's hidden cards are
-   * known to `state` (always in full mode); otherwise may be empty.
+   * known to `state` (always in full mode). It must return [] whenever the
+   * legality of any action it would list depends on hidden cards the seat has
+   * not learned, so a non-empty list is always exact: a live client offers a
+   * decision as soon as the list is non-empty (D030).
    */
   legalActions(state: S, seat: Seat): readonly unknown[];
   /** Validates and applies any input. Never throws, never mutates `state`. */

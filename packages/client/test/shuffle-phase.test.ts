@@ -101,11 +101,44 @@ describe('shuffle phase', () => {
     const bad = move(1, 2, steps[0]?.id as string, { type: 'shuffle', deck: out, proof });
     const r = fresh.receive(bad, NOW);
     expect(r).toEqual({ status: 'rejected', reason: 'the shuffle proof does not verify' });
-    // Seat 1's honest step on the same prev is a second move under (prev, seq): equivocation (D030 R2). Seat 1
-    // forfeits, and the session stops at that prev.
-    expect(statuses(deliver([fresh], [steps[1], steps[2]]))).toEqual(['accepted', 'rejected']);
-    expect(fresh.view().forfeits).toEqual([1]);
-    expect(fresh.view().head).toEqual({ id: steps[0]?.id, seq: 1 });
+    // Seat 1's honest step on the same prev is not equivocation: the bad step is invalid as of that prev, so it
+    // never counts (D030 R2, Ruling 3). The honest step links and the shuffle goes on.
+    expect(statuses(deliver([fresh], [steps[1], steps[2]]))).toEqual(['accepted', 'accepted']);
+    expect(fresh.view().forfeits).toEqual([]);
+    expect(fresh.view().phase).toBe('deal');
+    expect(fresh.view().head).toEqual(spectator.view().head);
+    // The bad step again, now that its prev has a successor, changes nothing.
+    expect(fresh.receive(bad, NOW).status).toBe('rejected');
+    expect(fresh.view().forfeits).toEqual([]);
+  });
+
+  it('flags a seat that publishes two valid shuffle steps on one prev; the shuffle goes on, in either order', () => {
+    // Seat 1 shuffles twice from the same head: both steps verify against seat 0's deck.
+    const seat1 = newSession(game, 1);
+    expect(statuses(deliver([seat1], [steps[0]]))).toEqual(['accepted']);
+    const a = seat1.buildShuffle(game.rnd, T0 + 300);
+    const b = seat1.buildShuffle(game.rnd, T0 + 301);
+    const lo = a.id < b.id ? a : b;
+    let next: NostrEvent | undefined;
+    const views = [
+      [a, b],
+      [b, a],
+    ].map((pair) => {
+      const s = newSession(game, 2);
+      expect(statuses(deliver([s], [steps[0], ...pair]))).toEqual(['accepted', 'accepted', 'accepted']);
+      const v = s.view();
+      expect(v.phase).toBe('shuffle');
+      expect(v.equivocators).toEqual([1]);
+      expect(v.head).toEqual({ id: lo.id, seq: 2 });
+      // Seat 2 shuffles on the canonical head, the lower id; built once and fed to both sessions.
+      expect(s.duties()).toEqual([{ kind: 'shuffle' }]);
+      next ??= s.buildShuffle(game.rnd, T0 + 302);
+      expect(s.receive(next, NOW)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('deal');
+      expect(statuses(deliver([s], pair))).toEqual(['duplicate', 'duplicate']);
+      return canonicalJson(s.view());
+    });
+    expect(views[0]).toBe(views[1]);
   });
 
   it('reports a duplicate', () => {

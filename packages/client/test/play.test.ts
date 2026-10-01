@@ -218,37 +218,59 @@ describe('play: game-action moves', () => {
     expect((r as { reason: string }).reason).toMatch(/^the module rejects the action: /);
     expect(s.view().head.id).toBe(parseMove(ev, DECK).prevId);
     expect(s.view().forfeits).toEqual([]);
+    // The genuine move on the same prev by the same seat still links: the invalid one never counts.
+    expect(s.receive(ev, T0 + 5000)).toEqual({ status: 'accepted' });
+    expect(s.view().head.id).toBe(ev.id);
+    expect(s.view().forfeits).toEqual([]);
+    expect(s.view().phase).toBe('play');
   });
 
-  it('records equivocation as a forfeit and stops at the common prev, whichever rival arrives first', () => {
+  it('flags two valid rivals; the lowest id is the head until the other branch grows longer, in any order', () => {
     const real = moves[rival.index] as NostrEvent;
     const seat = actionOf(real).actor;
-    const prev = parseMove(real, DECK).prevId;
     const viewer = (seat + 1) % SEATS;
+    const [lo, hi] = [real, rival.move].sort((a, b) => (a.id < b.id ? -1 : 1)) as [NostrEvent, NostrEvent];
+    // A move built on the higher-id rival by the seat that decides next on that branch.
+    let ext: NostrEvent;
+    if (hi === real) ext = moves[rival.index + 1] as NostrEvent;
+    else {
+      const look = sessionBefore(real);
+      look.receive(hi, T0 + 5000);
+      const next = (look.view().pending as { seat: number }).seat;
+      const builder = sessionBefore(real, next);
+      expect(builder.receive(hi, T0 + 5000)).toEqual({ status: 'accepted' });
+      ext = builder.buildAction(builder.legalActions()[0], game.rnd, T0 + 5001);
+    }
+
     const views = [
-      [real, rival.move],
-      [rival.move, real],
-    ].map((pair) => {
+      [lo, hi, ext],
+      [hi, lo, ext],
+      [ext, hi, lo],
+    ].map((events, n) => {
       const s = sessionBefore(real, viewer);
-      expect(statuses(deliver([s], pair))).toEqual(['accepted', 'accepted']);
-      expect(s.view().forfeits).toEqual([seat]);
-      expect(s.view().head.id).toBe(prev);
-      expect(s.duties()).toEqual([]);
-      // Repeats change nothing, and no move past the common prev is folded.
-      expect(statuses(deliver([s], pair))).toEqual(['duplicate', 'duplicate']);
-      expect(s.receive(moves[rival.index + 1], T0 + 5000)).toEqual({
-        status: 'rejected',
-        reason: 'a forfeit is recorded: no further moves are folded',
-      });
-      return s;
+      const [a, b, c] = events as [NostrEvent, NostrEvent, NostrEvent];
+      if (n < 2) {
+        expect(statuses(deliver([s], [a, b]))).toEqual(['accepted', 'accepted']);
+        // Both rivals are depth 1: the lower id is the head, and the seat is flagged. Play goes on.
+        expect(s.view().head.id).toBe(lo.id);
+        expect(s.view().equivocators).toEqual([seat]);
+        expect(s.view().forfeits).toEqual([seat]);
+        expect(s.view().phase).toBe('play');
+        expect(s.receive(c, T0 + 5000)).toEqual({ status: 'accepted' });
+      } else {
+        expect(statuses(deliver([s], events))).toEqual(['stored', 'accepted', 'accepted']);
+      }
+      // The branch through the higher id is now longer, so it wins.
+      expect(s.view().head.id).toBe(ext.id);
+      expect(s.view().equivocators).toEqual([seat]);
+      expect(s.view().outcome).toBeNull();
+      expect(statuses(deliver([s], events))).toEqual(['duplicate', 'duplicate', 'duplicate']);
+      return canonicalJson(s.view());
     });
-    expect(canonicalJson(views[0]?.view())).toBe(canonicalJson(views[1]?.view()));
-    // The public state is the one every seat had at that prev.
-    const before = JSON.parse(agreement[rival.index - 1]?.[0] as string) as { hash: string };
-    expect(publicHash(views[0] as GameSession)).toBe(before.hash);
+    expect(new Set(views).size).toBe(1);
   });
 
-  it('counts two shuffle steps signed by one wrong seat as equivocation, even after the first was rejected', () => {
+  it('does not count two shuffle steps signed by one wrong seat as equivocation: invalid moves never count', () => {
     const step = log[0] as NostrEvent;
     const a = resign<Extract<MoveContent, { type: 'shuffle' }>>(step, 1);
     const b = resign<Extract<MoveContent, { type: 'shuffle' }>>(step, 1, (c) => c, T0 + 101);
@@ -257,17 +279,17 @@ describe('play: game-action moves', () => {
       [b, a],
     ].map((pair) => {
       const s = newSession(game, null);
-      expect(s.receive(pair[0], T0 + 5000)).toEqual({
-        status: 'rejected',
-        reason: 'shuffle step 1 must be signed by seat 0',
-      });
-      expect(statuses(deliver([s], pair))).toEqual(['rejected', 'accepted']);
-      expect(s.view().forfeits).toEqual([1]);
-      // The genuine step 1 is past the common prev (the root).
-      expect(s.receive(step, T0 + 5000).status).toBe('rejected');
+      const reason = 'shuffle step 1 must be signed by seat 0';
+      expect(deliver([s], pair).flat()).toEqual([
+        { status: 'rejected', reason },
+        { status: 'rejected', reason },
+      ]);
+      expect(s.view().forfeits).toEqual([]);
+      // The genuine step 1 still links.
+      expect(s.receive(step, T0 + 5000)).toEqual({ status: 'accepted' });
       return canonicalJson(s.view());
     });
     expect(views[0]).toBe(views[1]);
-    expect(JSON.parse(views[0] as string).head.id).toBe(game.rootId);
+    expect(JSON.parse(views[0] as string).head.id).toBe(step.id);
   });
 });

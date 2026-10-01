@@ -2,6 +2,7 @@
  * Public API of @bored-games/client: the pure game-session fold that turns a game's signed NOSTR events into an
  * agreed state for a seat or a spectator, and builds that seat's next events.
  */
+export { type LoggedAction, rankWithForfeits } from './audit.ts';
 export { ClientError } from './errors.ts';
 export {
   buildJoinTemplate,

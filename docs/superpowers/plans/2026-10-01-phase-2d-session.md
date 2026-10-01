@@ -116,8 +116,10 @@ interface SessionView {
   state: unknown /* module state: view for mySeat, or spectator */;
   pending: Pending; pendingSince: number;
   outcome: Outcome | null; forfeits: number[];
+  equivocators: number[];                    // flagged seats (Ruling 5); play goes on
   audit: 'pending' | 'pass' | { fail: number[]; reason: string };
   logHash: Hex; deadline: number;
+  attested: number[];                        // seats whose attestation matches this session's result
 }
 class GameSession {
   static create(input: SessionInput): GameSession; // throws ClientError if root invalid (validateRoot)
@@ -130,13 +132,13 @@ class GameSession {
   buildDeal(rnd: RandomBytes, createdAt: number): NostrEvent;
   buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent; // attaches owed shares + reveals
   buildSecret(rnd: RandomBytes, createdAt: number): NostrEvent;
-  buildAttest(rnd: RandomBytes, createdAt: number): NostrEvent;
+  attestTemplate(createdAt: number): EventTemplate; // unsigned: the caller signs it with the seat's npub
   timeoutTarget(now: number): number | null;   // a seat I may claim against now
   buildTimeout(seat: number, rnd: RandomBytes, createdAt: number): NostrEvent;
 }
 ```
 
-A `build…` method throws `ClientError` when the duty isn't mine. It does not apply its own event: the caller publishes it and feeds it back through `receive`.
+A `build…` method throws `ClientError` when the duty isn't mine. It does not apply its own event: the caller publishes it and feeds it back through `receive`. Build once per decision and re-send that event: a rebuild has fresh randomness, so it is a rival move (equivocation).
 
 ---
 
@@ -216,9 +218,9 @@ A `build…` method throws `ClientError` when the duty isn't mine. It does not a
 **Behavior:**
 - **Secrets.** When the module reaches `over`, the phase becomes `'end'` and every seat has a `secret` duty. A secret is accepted only if `x·G = X_k` for the signer's seat.
 - **Audit.** When all S secrets are in, run the R6 audit. The phase becomes `'done'`, and every seat gets an `attest` duty until its attestation is accepted.
-- **Attestation.** `buildAttest` carries `{audit, logHash, outcome}`, where `logHash` is `logHash` over the chain's move ids in `seq` order.
+- **Attestation.** `attestTemplate(createdAt)` returns the unsigned event carrying `{audit, logHash, outcome}`, where `logHash` is `logHash` over the chain's move ids in `seq` order; the caller signs it with the seat's npub (it replaced `buildAttest`).
 - **Accepting an attestation.** Its signer is the seat's **npub** (identity key, PROTOCOL §4.8), not its session key, and its content must equal the session's own audit, logHash and outcome. Matching attestations are recorded in `view().attested: number[]`.
-- **Equivocation (R2).** Detected at `receive`, giving a forfeit. R5 decides between cancel and an immediate end.
+- **Equivocation (R2).** Detected at `receive`, giving a forfeit. R5 decides between cancel and an immediate end. *Superseded by Rulings 3–5 (D030): fork choice by the longest valid branch, equivocators flagged in `view().equivocators`, play goes on, and at the end they move to the last places.*
 - **`rankWithForfeits(scores, forfeits, declaredPlaces | null)`** implements R5.
 - **`view().outcome`** comes from `module.outcome` when the game ended normally and passed the audit. A failed audit or a withheld secret (Task 5) applies R5's end-of-game adjustment.
 

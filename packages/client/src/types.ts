@@ -32,7 +32,16 @@ export type ReceiveResult =
   | { status: 'accepted' | 'stored' | 'duplicate' }
   | { status: 'rejected'; reason: string };
 
-/** What this seat must publish next. */
+/**
+ * What this seat must publish next:
+ * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
+ * - `secret`: the game is over and my deck secret is not in yet; `buildSecret`.
+ * - `attest`: the game is done with an audit and my attestation is not accepted yet. Attesting is a SHOULD
+ *   (PROTOCOL §7), so the duty is advisory. Attestations are signed by the seat's npub, which the session does not
+ *   hold: `attestTemplate` returns the unsigned event for the caller's identity signer.
+ *
+ * Each signed event is published by the caller and fed back through `receive`; the builders do not apply it.
+ */
 export type Duty =
   | { kind: 'shuffle' }
   | { kind: 'deal' }
@@ -55,10 +64,24 @@ export interface SessionView {
   pending: Pending;
   /** The largest `created_at` among accepted events: the game's last progress (D030 R3). */
   pendingSince: number;
+  /**
+   * The result: null until the game is done. The declared outcome once the audit passes and nobody equivocated;
+   * otherwise ranked with the forfeiting seats last and the others in their declared order (D030 R5), with reason
+   * `forfeit`.
+   */
   outcome: Outcome | null;
+  /** Seats that forfeit (PROTOCOL §8.2): the equivocators and, once the game is done, the seats the audit failed. */
   forfeits: number[];
+  /**
+   * Seats flagged for equivocation (D030 R2, Ruling 5): two distinct moves on one prev of the chain, both valid as
+   * of that prev. The game goes on; at the end they move to the last places.
+   */
+  equivocators: number[];
+  /** The R6 audit; `pending` until every secret is in. */
   audit: SessionAudit;
   logHash: Hex;
   /** The game's move deadline in seconds, from the root. */
   deadline: number;
+  /** The seats whose Result attestation matches this session's audit, logHash and outcome, ascending. */
+  attested: number[];
 }
