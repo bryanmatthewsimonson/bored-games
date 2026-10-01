@@ -505,7 +505,8 @@ export class GameController {
       this.#d.pool.subscribe(
         [
           { kinds: [KIND.table], authors: [creator as string], '#d': [tableId as string] },
-          { kinds: [KIND.join], '#a': [root.tableAddress] },
+          // Only the Joins the root seats, by id: anyone can tag the public table address with Joins.
+          { kinds: [KIND.join], ids: [...root.joinIds] },
         ],
         (lobbyEv) => this.#onLobby(lobbyEv),
         () => {
