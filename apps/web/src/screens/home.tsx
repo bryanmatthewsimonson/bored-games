@@ -1,0 +1,174 @@
+/*
+ * The Home route (#/): the New table form, the player's own tables and games, and the open tables to join.
+ */
+import { BRAND } from '@bored-games/brand';
+import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import type { Hex } from '@bored-games/protocol';
+import { useState } from 'preact/hooks';
+import { NewTableForm } from '../components/new-table-form.tsx';
+import { TableCard } from '../components/table-card.tsx';
+import { useApp } from '../context.ts';
+import type { MyTable, TableEntry } from '../lobby-controller.ts';
+import { useLobby } from '../lobby-hooks.ts';
+import { attentionBadge, joinCheck, tableChip } from '../lobby-model.ts';
+import { gameHref, tableHref } from '../router.ts';
+
+function MyTables(props: { tables: readonly MyTable[] }) {
+  if (props.tables.length === 0)
+    return (
+      <p class="empty">
+        No games yet. Create a table above, or join one from the list below or from a link a friend sent you.
+      </p>
+    );
+  return (
+    <ul class="cards">
+      {props.tables.map((t) => {
+        const chip = tableChip(t.table, t.lobby);
+        return (
+          <TableCard
+            key={t.address}
+            href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+            game={t.table.game}
+            seats={t.table.seats}
+            deadline={t.table.deadline}
+            creator={t.table.creator}
+            isCreator={t.role === 'creator'}
+            chip={chip}
+            badge={attentionBadge(t.role, chip)}
+            detail={t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`}
+            action={
+              <a
+                class="btn btn-small"
+                href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+              >
+                {t.rootId !== null ? 'Open game' : 'Open table'}
+              </a>
+            }
+          />
+        );
+      })}
+    </ul>
+  );
+}
+
+function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
+  const lobby = useLobby();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<{ address: string; message: string } | null>(null);
+
+  const join = async (t: TableEntry) => {
+    if (busy !== null) return;
+    setBusy(t.address);
+    setError(null);
+    try {
+      const view = await lobby.lobbyOf(t.address);
+      const check = joinCheck(view, props.me);
+      if (view !== null && !check.eligible && check.why !== '') throw new Error(check.why);
+      await lobby.join(t.address);
+      window.location.hash = tableHref(t.table.creator, t.table.tableId);
+    } catch (e) {
+      setError({ address: t.address, message: e instanceof Error ? e.message : 'Could not join.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (lobby.loading.value && props.tables.length === 0) return <p class="empty">Looking for open tables…</p>;
+  if (props.tables.length === 0)
+    return <p class="empty">No open tables right now. Create one above and share its link with friends.</p>;
+  return (
+    <ul class="cards">
+      {props.tables.map((t) => {
+        const invitedMe = t.table.invited.includes(props.me);
+        const free = t.table.open;
+        const failure = error?.address === t.address ? error.message : null;
+        return (
+          <TableCard
+            key={t.address}
+            href={tableHref(t.table.creator, t.table.tableId)}
+            game={t.table.game}
+            seats={t.table.seats}
+            deadline={t.table.deadline}
+            creator={t.table.creator}
+            isCreator={false}
+            chip="open"
+            badge={null}
+            detail={invitedMe ? 'You are invited' : `up to ${free} open ${free === 1 ? 'seat' : 'seats'}`}
+            action={
+              <>
+                <button
+                  type="button"
+                  class="btn btn-small btn-primary"
+                  disabled={busy !== null}
+                  aria-label={`Join the table by ${t.table.creator.slice(0, 8)}`}
+                  onClick={() => void join(t)}
+                >
+                  {busy === t.address ? 'Joining…' : invitedMe ? 'Accept' : 'Join'}
+                </button>
+                {failure !== null && (
+                  <span class="error" role="alert">
+                    {failure}
+                  </span>
+                )}
+              </>
+            }
+          />
+        );
+      })}
+    </ul>
+  );
+}
+
+export function HomeScreen() {
+  const { signer } = useApp();
+  const lobby = useLobby();
+  const me = signer.pubkey;
+  const mine = lobby.myTables.value;
+  const mineAddresses = new Set(mine.map((t) => t.address));
+  // Open tables I can still sit at: not mine, not already joined, and either open to all or inviting me.
+  const open = lobby.openTables.value.filter(
+    (t) =>
+      !mineAddresses.has(t.address) &&
+      t.table.creator !== me &&
+      (t.table.open > 0 || t.table.invited.includes(me)),
+  );
+  return (
+    <div class="home stack">
+      <section class="panel hero" aria-labelledby="home-title">
+        <h1 id="home-title">
+          {BRAND.name}: {CHAIN_REACTION_THEME.title}
+        </h1>
+        <p class="lede">{CHAIN_REACTION_THEME.tagline}</p>
+        <p class="muted">{BRAND.tagline}</p>
+      </section>
+
+      <div class={mine.length > 0 ? 'home-grid lists-first' : 'home-grid'}>
+        <div class="stack">
+          <NewTableForm />
+          <section class="panel" aria-labelledby="how-h">
+            <h2 id="how-h">How it works</h2>
+            <ul class="plain">
+              <li>Games are played at your own pace: your turn may come hours later.</li>
+              <li>Come back whenever you like; the table waits for you.</li>
+              <li>
+                Keep this browser profile: your player key and each game's secrets are stored here. Clearing
+                site data loses your seat.
+              </li>
+            </ul>
+          </section>
+        </div>
+
+        <div class="stack home-lists">
+          <section class="panel" aria-labelledby="mine-h">
+            <h2 id="mine-h">Your games</h2>
+            <MyTables tables={mine} />
+          </section>
+          <section class="panel" aria-labelledby="open-h">
+            <h2 id="open-h">Open tables</h2>
+            <OpenTables tables={open} me={me} />
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

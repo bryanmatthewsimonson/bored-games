@@ -4,7 +4,14 @@
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
-import { finalizeEvent, getPublicKey, KIND, type NostrEvent, tableTemplate } from '@bored-games/protocol';
+import {
+  finalizeEvent,
+  getPublicKey,
+  type Hex,
+  KIND,
+  type NostrEvent,
+  tableTemplate,
+} from '@bored-games/protocol';
 import type { Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -273,6 +280,30 @@ describe('LobbyController', () => {
     expect(await query({ kinds: [KIND.root], '#a': [address] })).toHaveLength(1);
     expect(await query({ kinds: [KIND.join], '#a': [address] })).toHaveLength(3);
   });
+  it('starts with an explicit seat list chosen among more open joiners than seats', async () => {
+    const [a, b, c, d] = [profile('a'), profile('b'), profile('c'), profile('d')];
+    const la = lobby(a);
+    const others = [b, c, d].map((p) => lobby(p));
+    const address = await la.createTable({ seats: 3, deadline: 259200, invited: [], relays: [relay.url] });
+    for (const l of others) {
+      await waitFor('the open table', () => l.openTables.value.some((t) => t.address === address));
+      await l.join(address);
+    }
+    const view = await waitFor('three open joiners', () => {
+      const v = la.table(address).value;
+      return v !== null && v.candidates.length === 4 ? v : null;
+    });
+    const joinOf = (p: Profile) => view.candidates.find((j) => j.npub === p.deps.signer.pubkey)?.id as Hex;
+    // The fold seats at most two open joiners; the creator picks the other pair.
+    const unseated = [b, c, d].filter((p) => !view.joins.some((j) => j.npub === p.deps.signer.pubkey));
+    expect(unseated).toHaveLength(1);
+    const picked = [unseated[0] as Profile, [b, c, d].find((p) => p !== unseated[0]) as Profile];
+    await expect(la.start(address, [joinOf(a), joinOf(b)])).rejects.toThrow(/seats/);
+    const rootId = await la.start(address, [joinOf(a), ...picked.map(joinOf)]);
+    const root = await waitFor('the root', () => la.table(address).value?.root);
+    expect(root.id).toBe(rootId);
+    expect(root.seats.map((s) => s.npub)).toEqual([a, ...picked].map((p) => p.deps.signer.pubkey));
+  }, 30_000);
 });
 
 describe('GameController', () => {

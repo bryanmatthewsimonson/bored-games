@@ -231,6 +231,15 @@ export class LobbyController {
   }
 
   /**
+   * The folded lobby of a table after one query of its Joins and root has finished (unless the table is already
+   * followed), for a check before joining. Null when the table is not found.
+   */
+  async lobbyOf(address: string): Promise<LobbyView | null> {
+    if (!this.#watches.has(address)) await this.#fetchTable(address);
+    return this.#fold(address);
+  }
+
+  /**
    * Join an open table: sign a Join, save the game secrets, publish. Does nothing if already seated. While a
    * call for this address is in flight (a signer prompt may be open), further calls share it.
    */
@@ -254,13 +263,14 @@ export class LobbyController {
   /**
    * Start the game (the creator, once the table is full): sign the root, publish it, then republish the table
    * with status `started`. A root already signed for this table is republished, never signed again, and
-   * concurrent calls share one signing. Returns the root id, the game's id.
+   * concurrent calls share one signing. Returns the root id, the game's id. `seats` (Join ids in seat order)
+   * lets the creator choose among open joiners (D021); it applies only when this call signs the root.
    */
-  start(address: string): Promise<string> {
-    return this.#once(this.#starting, address, () => this.#start(address));
+  start(address: string, seats?: readonly Hex[]): Promise<string> {
+    return this.#once(this.#starting, address, () => this.#start(address, seats));
   }
 
-  async #start(address: string): Promise<string> {
+  async #start(address: string, seats?: readonly Hex[]): Promise<string> {
     const tableEv = this.#tables.get(address)?.event ?? (await this.#fetchTable(address));
     const table = tableEv === null ? null : tryParseTable(tableEv);
     if (tableEv === null || table === null) throw new Error('That table was not found on your relays.');
@@ -278,7 +288,7 @@ export class LobbyController {
     }
     if (rootEv === null) {
       if (view === null || !view.full) throw new Error('The table is not full yet.');
-      rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now()));
+      rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), seats));
       if (!writeJson(this.#d.storage, rootKey, rootEv))
         throw new Error('Could not save the game start in this browser.');
     }

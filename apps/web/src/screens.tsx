@@ -1,43 +1,10 @@
-/*
- * Screens by route. Home and Table are placeholders filled in by a later task; the Game screen lives in
- * screens/game.tsx.
- */
-import { BRAND } from '@bored-games/brand';
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+/* Screens by route. Each real screen lives in screens/. */
 import type { ComponentType } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { npubEncode, shortNpub } from './bech32.ts';
 import { homeHref, type Route } from './router.ts';
 import { GameScreen } from './screens/game.tsx';
-
-export function HomeScreen() {
-  return (
-    <section class="panel" aria-labelledby="home-title">
-      <h1 id="home-title">{BRAND.tagline}</h1>
-      <p>
-        <strong>{CHAIN_REACTION_THEME.title}</strong>: {CHAIN_REACTION_THEME.tagline}
-      </p>
-      <p class="muted">The table list and the create-table form arrive in the next step.</p>
-    </section>
-  );
-}
-
-export function TableScreen(props: { creator: string; tableId: string }) {
-  return (
-    <section class="panel" aria-labelledby="table-title">
-      <h1 id="table-title">Table</h1>
-      <dl class="facts">
-        <dt>Name</dt>
-        <dd>{props.tableId}</dd>
-        <dt>Created by</dt>
-        <dd>
-          <code>{shortNpub(npubEncode(props.creator))}</code>
-        </dd>
-      </dl>
-      <p class="muted">The lobby arrives in the next step.</p>
-    </section>
-  );
-}
+import { HomeScreen } from './screens/home.tsx';
+import { TableScreen } from './screens/table.tsx';
 
 export function NotFoundScreen() {
   return (
