@@ -115,6 +115,7 @@
 - **PWA:** manifest and offline shell; static output with relative paths (Capacitor-ready).
 - **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages once CI passes on `main`, and `.github/workflows/ci.yml` runs `pnpm check` on pushes to `main` and on pull requests.
   - **Status (2026-10-01):** met.
+  - **Hidden holdings (D037, 2026-10-01):** done. The UI shows other players' holdings as chains only and their cash as "has cash" / "no cash", and the log keeps their numbers for the last two turns; engine and protocol unchanged.
   - **Owner to-do:** enable Pages with the source "GitHub Actions", then follow `docs/TESTING.md`.
 
 ### Phase 4: Records
