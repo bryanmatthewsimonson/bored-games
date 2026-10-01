@@ -6,7 +6,7 @@
 import { type ChainReactionAction, chainReaction, viewFor } from '@bored-games/chain-reaction';
 import { useMemo, useState } from 'preact/hooks';
 import { firstLegal, playUntil, randomLegal, type ScriptedGame } from '../games/chain-reaction/fixture.ts';
-import { ChainReactionGame, describeEvent } from '../games/chain-reaction/index.ts';
+import { ChainReactionGame, logLines } from '../games/chain-reaction/index.ts';
 
 const NAMES = ['Ann', 'Bo', 'Cy', 'Di'];
 
@@ -72,7 +72,7 @@ export function BoardPreview(props: { scene: string }) {
         busy={false}
         onAct={setSent}
         names={NAMES}
-        events={game.events.map((e) => describeEvent(e, NAMES))}
+        events={logLines(game.events, { mySeat: seat, over: game.state.phase.kind === 'over', names: NAMES })}
         lastTile={game.lastTile}
         audit={scene === 'over' ? 'pass' : undefined}
         deadline="23h 59m left"

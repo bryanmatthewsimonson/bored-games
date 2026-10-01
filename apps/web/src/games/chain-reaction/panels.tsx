@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { Swatch } from './board.tsx';
-import { type ChainRow, type ChainView, formatMoney, type PlayerRow, type ResultRow } from './model.ts';
+import { type ChainRow, formatMoney, type PlayerRow, type ResultRow } from './model.ts';
 
 export type Audit = 'pending' | 'pass' | { readonly fail: readonly number[]; readonly reason: string };
 
@@ -43,48 +43,61 @@ export function ChainsPanel(props: { rows: readonly ChainRow[]; spectator: boole
   );
 }
 
-export function PlayersPanel(props: { rows: readonly PlayerRow[]; chains: readonly ChainView[] }) {
+/**
+ * One row per player. My own row is exact; for anyone else the row says only which chains they hold and
+ * whether they have cash (RULES "Assets"), until the game is over. The rows carry no hidden numbers.
+ */
+export function PlayersPanel(props: { rows: readonly PlayerRow[] }) {
   return (
     <section class="cr-panel" aria-labelledby="cr-players-h">
       <h2 id="cr-players-h">Players</h2>
       <ul class="cr-players">
-        {props.rows.map((p) => {
-          const held = props.chains.filter((c) => (p.shares[c.index] ?? 0) > 0);
-          return (
-            <li key={p.seat} class={`cr-player${p.acting ? ' cr-player-acting' : ''}`}>
-              <div class="cr-player-head">
-                <span class="cr-player-name">
-                  {p.turn && (
-                    <span class="cr-turn-mark" title="Their turn">
-                      <span aria-hidden="true">▶</span>
-                      <span class="sr-only">Current turn: </span>
-                    </span>
-                  )}
-                  {p.name}
-                  {p.me && <span class="chip">you</span>}
-                  {p.acting && !p.turn && <span class="chip">deciding</span>}
-                </span>
-                <span class="cr-cash">{formatMoney(p.cash)}</span>
-              </div>
-              <div class="cr-player-meta">
-                <span>{p.handSize === 1 ? '1 tile' : `${p.handSize} tiles`}</span>
-                {held.length === 0 ? (
-                  <span class="muted">no shares</span>
-                ) : (
-                  <ul class="cr-holdings" aria-label={`${p.name}'s shares`}>
-                    {held.map((c) => (
-                      <li key={c.id}>
-                        <Swatch chain={c} />
-                        <span class="sr-only">{c.name}: </span>
-                        {p.shares[c.index]}
-                      </li>
-                    ))}
-                  </ul>
+        {props.rows.map((p) => (
+          <li key={p.seat} class={`cr-player${p.acting ? ' cr-player-acting' : ''}`}>
+            <div class="cr-player-head">
+              <span class="cr-player-name">
+                {p.turn && (
+                  <span class="cr-turn-mark" title="Their turn">
+                    <span aria-hidden="true">▶</span>
+                    <span class="sr-only">Current turn: </span>
+                  </span>
                 )}
-              </div>
-            </li>
-          );
-        })}
+                {p.name}
+                {p.me && <span class="chip">you</span>}
+                {p.acting && !p.turn && <span class="chip">deciding</span>}
+              </span>
+              {p.cash !== null ? (
+                <span class="cr-cash">{formatMoney(p.cash)}</span>
+              ) : (
+                <span class={`cr-cash cr-cash-hidden${p.hasCash ? '' : ' muted'}`}>
+                  {p.hasCash ? 'has cash' : 'no cash'}
+                </span>
+              )}
+            </div>
+            <div class="cr-player-meta">
+              <span>{p.handSize === 1 ? '1 tile' : `${p.handSize} tiles`}</span>
+              {p.shares.length === 0 ? (
+                <span class="muted">no shares</span>
+              ) : (
+                <ul class="cr-holdings" aria-label={`${p.name}'s shares`}>
+                  {p.shares.map((h) => (
+                    <li key={h.chain.id}>
+                      <Swatch chain={h.chain} />
+                      {h.count === null ? (
+                        <span class="sr-only">{h.chain.name}</span>
+                      ) : (
+                        <>
+                          <span class="sr-only">{h.chain.name}: </span>
+                          {h.count}
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </li>
+        ))}
       </ul>
     </section>
   );

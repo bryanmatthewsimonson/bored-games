@@ -236,12 +236,28 @@ export function chainRows(s: ChainReactionState, mySeat: number | null): ChainRo
   });
 }
 
+/** A chain a player holds shares in; the count is null when this viewer may not see it. */
+export interface Holding {
+  readonly chain: ChainView;
+  readonly count: number | null;
+}
+
+/**
+ * A player as the viewer may see them (RULES "Assets"): their own cash and holdings exactly; for anyone else
+ * only which chains they hold and whether they have any cash; everything exactly once the game is over. Hidden
+ * numbers are not carried at all, so no component can show them by accident.
+ */
 export interface PlayerRow {
   readonly seat: number;
   readonly name: string;
-  readonly cash: number;
-  /** Shares per chain index (public). */
-  readonly shares: readonly number[];
+  /** True when `cash` and every holding count are exact (my own row, or the game is over). */
+  readonly exact: boolean;
+  /** Exact cash, or null when hidden from this viewer. */
+  readonly cash: number | null;
+  /** Whether the player has any cash at all. */
+  readonly hasCash: boolean;
+  /** The chains the player holds shares in, in chain order. */
+  readonly shares: readonly Holding[];
   readonly handSize: number;
   /** Whose turn it is. */
   readonly turn: boolean;
@@ -255,6 +271,7 @@ function actingSeat(s: ChainReactionState): number | null {
   return p.type === 'player' ? p.seat : null;
 }
 
+/** The players panel's rows for `mySeat` (null for a spectator, who sees every row hidden). */
 export function playerRows(
   s: ChainReactionState,
   names: readonly string[],
@@ -262,16 +279,23 @@ export function playerRows(
 ): PlayerRow[] {
   const acting = actingSeat(s);
   const over = s.phase.kind === 'over';
-  return s.players.map((p, seat) => ({
-    seat,
-    name: seatName(names, seat),
-    cash: p.cash,
-    shares: p.shares,
-    handSize: p.hand.length,
-    turn: !over && s.turn?.seat === seat,
-    acting: acting === seat,
-    me: seat === mySeat,
-  }));
+  return s.players.map((p, seat) => {
+    const exact = over || seat === mySeat;
+    return {
+      seat,
+      name: seatName(names, seat),
+      exact,
+      cash: exact ? p.cash : null,
+      hasCash: p.cash > 0,
+      shares: p.shares.flatMap((n, c) =>
+        n > 0 ? [{ chain: chainView(s.rules, c), count: exact ? n : null }] : [],
+      ),
+      handSize: p.hand.length,
+      turn: !over && s.turn?.seat === seat,
+      acting: acting === seat,
+      me: seat === mySeat,
+    };
+  });
 }
 
 export interface ResultRow {
@@ -614,6 +638,52 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
   }
 }
 
+/**
+ * A log line about another player's purchase, disposal, bonus or final sale, without counts or amounts (RULES
+ * "Assets"). Null for every other event, whose line has nothing to hide. `survivor` is the current merger's
+ * surviving chain id, for trades.
+ */
+function vagueLine(e: ChainReactionEvent, names: readonly string[], survivor: string | null): string | null {
+  const who = (seat: number): string => seatName(names, seat);
+  switch (e.type) {
+    case 'sharesBought': {
+      if (e.shares.length === 0) return null;
+      const chains = [...new Set(e.shares)].map(nameOfChainId);
+      return `${who(e.seat)} bought ${listText(chains)} shares.`;
+    }
+    case 'sharesDisposed': {
+      const chain = nameOfChainId(e.chain);
+      const forSurvivor = survivor === null ? '' : ` for ${nameOfChainId(survivor)}`;
+      const sold = e.sell > 0;
+      const traded = e.trade > 0;
+      const kept = e.keep > 0;
+      if (!sold && !traded && !kept) return null;
+      if (!traded && !kept) return `${who(e.seat)} sold some ${chain} shares.`;
+      if (!sold && !kept) return `${who(e.seat)} traded ${chain} shares${forSurvivor}.`;
+      if (!sold && !traded) return `${who(e.seat)} kept their ${chain} shares.`;
+      const parts = [
+        sold ? 'sold some' : null,
+        traded ? `traded some${forSurvivor}` : null,
+        kept ? 'kept the rest' : null,
+      ].filter((x): x is string => x !== null);
+      return `${who(e.seat)} ${listText(parts)} of their ${chain} shares.`;
+    }
+    case 'bonusPaid':
+      return `${who(e.seat)} received a bonus for ${nameOfChainId(e.chain)}${e.final ? ' at final scoring' : ''}.`;
+    case 'finalSale':
+      return `${who(e.seat)} sold their ${nameOfChainId(e.chain)} shares.`;
+    default:
+      return null;
+  }
+}
+
+/** Who reads the log: their seat (null for a spectator), whether the game is over, and the seat names. */
+export interface LogViewer {
+  readonly mySeat: number | null;
+  readonly over: boolean;
+  readonly names: readonly string[];
+}
+
 /** The most log lines the Game screen shows. */
 export const LOG_LINES = 100;
 
@@ -625,16 +695,28 @@ function isEvent(e: unknown): e is ChainReactionEvent {
 /**
  * The game log from the session's module events (oldest first): one line per event, newest last, at most `max`
  * (the newest ones). Anything that is not an engine event is skipped.
+ *
+ * Lines about another player's shares and money keep their numbers only for events of the current and the
+ * previous turn; older ones say what happened without counts or amounts (RULES "Assets"). The viewer's own
+ * lines stay exact, and every line is exact once the game is over. An event belongs to the turn of the last
+ * `turnStarted` before it, so a merger's bonuses and disposals belong to the turn that caused the merger.
  */
-export function logLines(events: readonly unknown[], names: readonly string[], max = LOG_LINES): string[] {
+export function logLines(events: readonly unknown[], viewer: LogViewer, max = LOG_LINES): string[] {
+  const { mySeat, over, names } = viewer;
+  const known = events.filter(isEvent);
+  let current = 0;
+  for (const e of known) if (e.type === 'turnStarted') current = e.turn;
   const out: string[] = [];
-  for (let i = events.length - 1; i >= 0 && out.length < max; i--) {
-    const e = events[i];
-    if (!isEvent(e)) continue;
-    const line: string | undefined = describeEvent(e, names);
+  let turn = 0;
+  let survivor: string | null = null;
+  for (const e of known) {
+    if (e.type === 'turnStarted') turn = e.turn;
+    if (e.type === 'survivorChosen') survivor = e.chain;
+    const exact = over || turn >= current - 1 || !('seat' in e) || e.seat === mySeat;
+    const line = (exact ? null : vagueLine(e, names, survivor)) ?? describeEvent(e, names);
     if (typeof line === 'string') out.push(line);
   }
-  return out.reverse();
+  return out.slice(Math.max(0, out.length - max));
 }
 
 /** `lastPlacedTile` over the session's module events. */

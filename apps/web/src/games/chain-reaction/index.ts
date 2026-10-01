@@ -4,6 +4,7 @@ export {
   decisionFor,
   describeEvent,
   LOG_LINES,
+  type LogViewer,
   lastPlacedTile,
   lastTileOf,
   logLines,
