@@ -10,10 +10,11 @@ import { TableCard } from '../components/table-card.tsx';
 import { useApp } from '../context.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
-import { attentionBadge, joinCheck, tableChip } from '../lobby-model.ts';
+import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
 import { gameHref, tableHref } from '../router.ts';
 
 function MyTables(props: { tables: readonly MyTable[] }) {
+  const lobby = useLobby();
   if (props.tables.length === 0)
     return (
       <p class="empty">
@@ -23,7 +24,14 @@ function MyTables(props: { tables: readonly MyTable[] }) {
   return (
     <ul class="cards">
       {props.tables.map((t) => {
-        const chip = tableChip(t.table, t.lobby);
+        // A started game's status comes from what its game screen saved; Home never runs a game session.
+        const started = t.rootId !== null || t.table.status === 'started';
+        const known =
+          started && t.table.status !== 'cancelled'
+            ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
+            : { status: null, check: false };
+        const chip = tableChip(t.table, t.lobby, known.status);
+        const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
         return (
           <TableCard
             key={t.address}
@@ -34,8 +42,8 @@ function MyTables(props: { tables: readonly MyTable[] }) {
             creator={t.table.creator}
             isCreator={t.role === 'creator'}
             chip={chip}
-            badge={attentionBadge(t.role, chip)}
-            detail={t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`}
+            badge={attentionBadge(t.role, chip, known.status)}
+            detail={known.check ? 'Open to check' : seated}
             action={
               <a
                 class="btn btn-small"
@@ -82,6 +90,7 @@ function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
         const invitedMe = t.table.invited.includes(props.me);
         const free = t.table.open;
         const failure = error?.address === t.address ? error.message : null;
+        const label = busy === t.address ? 'Joining…' : invitedMe ? 'Accept invitation' : 'Join';
         return (
           <TableCard
             key={t.address}
@@ -100,10 +109,10 @@ function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
                   type="button"
                   class="btn btn-small btn-primary"
                   disabled={busy !== null}
-                  aria-label={`Join the table by ${t.table.creator.slice(0, 8)}`}
+                  aria-label={joinButtonLabel(label, t.table.creator)}
                   onClick={() => void join(t)}
                 >
-                  {busy === t.address ? 'Joining…' : invitedMe ? 'Accept' : 'Join'}
+                  {label}
                 </button>
                 {failure !== null && (
                   <span class="error" role="alert">

@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { bytesToHex, hexToBytes } from '../src/hex.ts';
 import {
   addToTableList,
+  gameStatusKey,
   isPersistentStore,
+  loadGameStatus,
   loadSecrets,
   loadTableList,
   memoryStorage,
+  saveGameStatus,
   saveRootId,
   saveSecrets,
   storageKey,
@@ -101,5 +104,39 @@ describe('root id and table list', () => {
         removeItem: (k) => void m.delete(k),
       }),
     ).toBe(true);
+  });
+});
+
+describe('game status cache', () => {
+  const ROOT = 'b'.repeat(64);
+  it('round-trips under bg:<profile>:gamestatus:<rootId>', () => {
+    const store = memoryStorage();
+    expect(loadGameStatus('alice', store, ROOT)).toBeNull();
+    expect(saveGameStatus('alice', store, ROOT, { status: 'your-turn', seq: 7, updatedAt: 1234 })).toBe(true);
+    expect(gameStatusKey('alice', ROOT)).toBe(`bg:alice:gamestatus:${ROOT}`);
+    expect(JSON.parse(store.getItem(gameStatusKey('alice', ROOT)) ?? '')).toEqual({
+      status: 'your-turn',
+      seq: 7,
+      updatedAt: 1234,
+    });
+    expect(loadGameStatus('alice', store, ROOT)).toEqual({ status: 'your-turn', seq: 7, updatedAt: 1234 });
+    // Profiles do not share entries.
+    expect(loadGameStatus('bob', store, ROOT)).toBeNull();
+  });
+  it('reads malformed entries as absent', () => {
+    const store = memoryStorage();
+    const key = gameStatusKey('alice', ROOT);
+    for (const bad of [
+      'nope',
+      '[]',
+      '{}',
+      JSON.stringify({ status: 'syncing', seq: 1, updatedAt: 1 }),
+      JSON.stringify({ status: 'waiting', seq: -1, updatedAt: 1 }),
+      JSON.stringify({ status: 'waiting', seq: 1.5, updatedAt: 1 }),
+      JSON.stringify({ status: 'waiting', seq: 1, updatedAt: 'now' }),
+    ]) {
+      store.setItem(key, bad);
+      expect(loadGameStatus('alice', store, ROOT)).toBeNull();
+    }
   });
 });

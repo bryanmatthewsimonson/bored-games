@@ -157,3 +157,48 @@ export function addToTableList(profile: string, store: KeyValueStore, tableAddre
   if (list.includes(tableAddress)) return true;
   return writeJson(store, tablesKey(profile), [...list, tableAddress]);
 }
+
+/** The statuses a game controller reports, as stored. `syncing` is never saved. */
+export const CACHED_STATUSES = ['working', 'stuck', 'waiting', 'your-turn', 'done', 'cancelled'] as const;
+export type GameStatusName = (typeof CACHED_STATUSES)[number];
+
+/** What the Home screen may know of a game without running it: the last status a game screen saw. */
+export interface GameStatusCache {
+  status: GameStatusName;
+  /** The head's seq when it was written. */
+  seq: number;
+  /** Unix seconds. */
+  updatedAt: number;
+}
+
+export const gameStatusKey = (profile: string, rootId: string): string =>
+  storageKey(profile, `gamestatus:${rootId}`);
+
+/** Returns false when the entry could not be saved. */
+export function saveGameStatus(
+  profile: string,
+  store: KeyValueStore,
+  rootId: string,
+  entry: GameStatusCache,
+): boolean {
+  return writeJson(store, gameStatusKey(profile, rootId), {
+    status: entry.status,
+    seq: entry.seq,
+    updatedAt: entry.updatedAt,
+  });
+}
+
+/** Null when nothing is stored or what is stored is malformed. */
+export function loadGameStatus(
+  profile: string,
+  store: KeyValueStore,
+  rootId: string,
+): GameStatusCache | null {
+  const v = readJson(store, gameStatusKey(profile, rootId));
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const { status, seq, updatedAt } = v as Record<string, unknown>;
+  if (!(CACHED_STATUSES as readonly unknown[]).includes(status)) return null;
+  if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0) return null;
+  if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
+  return { status: status as GameStatusName, seq, updatedAt };
+}

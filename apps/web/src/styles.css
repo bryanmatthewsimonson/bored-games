@@ -575,8 +575,10 @@ textarea[aria-invalid="true"] {
 
 .npub-tag {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
+  max-width: 100%;
 }
 
 /* Table lists */
@@ -648,10 +650,14 @@ textarea[aria-invalid="true"] {
   display: grid;
   grid-template-columns: 6.5em minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 8px 16px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.seat-who {
+  min-width: 0;
 }
 
 .seat.waiting {
@@ -686,7 +692,14 @@ textarea[aria-invalid="true"] {
 }
 
 .picker legend {
+  /* Floated, the legend leaves the border notch and becomes the first row inside the box: a legend that wraps
+     at 360 px then cannot run over the border. */
+  float: left;
+  width: 100%;
+  margin: 0;
+  padding: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 480px) {

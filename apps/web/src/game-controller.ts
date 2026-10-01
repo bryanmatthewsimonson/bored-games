@@ -25,7 +25,16 @@ import {
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
-import { loadSecrets, readJson, removeItem, saveRootId, storageKey, writeJson } from './storage.ts';
+import {
+  type GameStatusName,
+  loadSecrets,
+  readJson,
+  removeItem,
+  saveGameStatus,
+  saveRootId,
+  storageKey,
+  writeJson,
+} from './storage.ts';
 
 /**
  * - `syncing`: loading from the relays
@@ -91,6 +100,9 @@ interface AttestApi {
 const canAttest = (s: GameSession): boolean =>
   typeof (s as unknown as AttestApi).attestTemplate === 'function';
 
+/** While nothing changes, the Home status entry is rewritten this often (s), so it stays fresh while the game is open. */
+export const STATUS_REFRESH_S = 300;
+
 /** The most game events kept while the session is still loading. */
 const MAX_BUFFER = 10_000;
 
@@ -136,6 +148,8 @@ export class GameController {
   #running = false;
   #dutyQueued = false;
   #refreshQueued = false;
+  /** The last status entry saved for Home, so it is written only on a change (or when it is getting old). */
+  #savedStatus: { status: GameStatusName; seq: number; at: number } | null = null;
   /** Automatic duties that failed at a head (`kind@headId`), not retried until the head moves. */
   readonly #failed = new Set<string>();
   readonly #stops: (() => void)[] = [];
@@ -406,7 +420,20 @@ export class GameController {
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.status.value = this.#statusOf(v, duties);
+    this.#cacheStatus(v.head.seq, this.status.value, now);
     this.#maybePrune(v, duties);
+  }
+
+  /**
+   * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it or the head changed, or the
+   * saved entry is older than `STATUS_REFRESH_S`. Not while loading: `syncing` says nothing.
+   */
+  #cacheStatus(seq: number, status: GameStatus, now: number): void {
+    if (status === 'syncing' || this.#disposed) return;
+    const last = this.#savedStatus;
+    if (last?.status === status && last.seq === seq && now - last.at < STATUS_REFRESH_S) return;
+    if (saveGameStatus(this.#d.profile, this.#d.storage, this.rootId, { status, seq, updatedAt: now }))
+      this.#savedStatus = { status, seq, at: now };
   }
 
   #statusOf(v: SessionView, duties: readonly Duty[]): GameStatus {

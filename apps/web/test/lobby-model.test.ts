@@ -3,15 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { npubEncode, nsecEncode } from '../src/bech32.ts';
 import {
   attentionBadge,
+  cardGameStatus,
   checkNewTable,
   defaultPicks,
   freeOpenSeats,
+  joinButtonLabel,
   joinCheck,
+  joinRequestPending,
   type LobbyLike,
   needsPicker,
   openCandidates,
   openSeats,
   parseInvitees,
+  REQUEST_PENDING,
+  STATUS_FRESH_S,
   seatListFor,
   seatOptions,
   seatRows,
@@ -152,6 +157,86 @@ describe('status chip and badges', () => {
     expect(attentionBadge('creator', 'full')?.kind).toBe('start');
     expect(attentionBadge('player', 'full')).toBeNull();
     expect(attentionBadge('creator', 'open')).toBeNull();
+  });
+});
+
+describe('a game status saved by the game screen, on a Home card', () => {
+  const at = 10_000;
+  const entry = (status: string, age: number) => ({ status, updatedAt: at - age });
+
+  it('shows "Your turn", "Done" and "Cancelled" from the saved status', () => {
+    const started = { status: 'started' } as const;
+    const lobbyView = lobby({ root: { id: 'r' as Hex } });
+    const turn = cardGameStatus(entry('your-turn', 5), at);
+    expect(turn).toEqual({ status: 'your-turn', check: false });
+    expect(attentionBadge('player', tableChip(started, lobbyView, turn.status), turn.status)).toEqual({
+      kind: 'turn',
+      label: 'Your turn',
+    });
+    const done = cardGameStatus(entry('done', 5), at);
+    expect(tableChip(started, lobbyView, done.status)).toBe('done');
+    const cancelled = cardGameStatus(entry('cancelled', 5), at);
+    expect(tableChip(started, lobbyView, cancelled.status)).toBe('cancelled');
+    const waiting = cardGameStatus(entry('waiting', 5), at);
+    expect(waiting).toEqual({ status: 'waiting', check: false });
+    expect(
+      attentionBadge('player', tableChip(started, lobbyView, waiting.status), waiting.status),
+    ).toBeNull();
+  });
+  it('asks to open the game when nothing is saved, or a passing status is older than ten minutes', () => {
+    expect(cardGameStatus(null, at)).toEqual({ status: null, check: true });
+    expect(cardGameStatus(entry('waiting', STATUS_FRESH_S), at).check).toBe(false);
+    expect(cardGameStatus(entry('waiting', STATUS_FRESH_S + 1), at)).toEqual({ status: null, check: true });
+    expect(cardGameStatus(entry('working', 3600), at).check).toBe(true);
+  });
+  it('keeps a turn that waits on the player and a game that has ended, however old', () => {
+    expect(cardGameStatus(entry('your-turn', 86_400), at)).toEqual({ status: 'your-turn', check: false });
+    expect(cardGameStatus(entry('done', 86_400), at)).toEqual({ status: 'done', check: false });
+    expect(cardGameStatus(entry('cancelled', 86_400), at)).toEqual({ status: 'cancelled', check: false });
+  });
+  it('ignores a status it does not know', () => {
+    expect(cardGameStatus(entry('syncing', 1), at)).toEqual({ status: null, check: true });
+    expect(cardGameStatus(entry('bogus', 1), at).check).toBe(true);
+  });
+});
+
+describe('a join request waiting for the creator', () => {
+  // ME creator, B invited; open joiners C and D are seated, E asked too and is not.
+  const full = lobby({ full: true }, [ME, B, C, D], [E]);
+  it('is pending for a valid Join that holds no seat', () => {
+    expect(joinRequestPending(full, E)).toBe(true);
+    expect(joinCheck(full, E)).toEqual({ eligible: false, reason: null, why: REQUEST_PENDING });
+    expect(REQUEST_PENDING).toBe('Your request to join is in. The creator picks who plays.');
+  });
+  it('is not pending for the seated, the creator, the invited or a stranger', () => {
+    expect(joinRequestPending(full, C)).toBe(false);
+    expect(joinRequestPending(full, ME)).toBe(false);
+    expect(joinRequestPending(full, B)).toBe(false);
+    expect(joinRequestPending(full, key(99))).toBe(false);
+    expect(joinCheck(full, key(99)).why).toBe('All open seats are taken.');
+    expect(joinRequestPending(null, E)).toBe(false);
+  });
+  it('ends once the game has started or the table is cancelled', () => {
+    expect(joinRequestPending({ ...full, root: { id: 'r' as Hex } }, E)).toBe(false);
+    const cancelled = lobby({ full: true }, [ME, B, C, D], [E]);
+    cancelled.table = { ...cancelled.table, status: 'cancelled' };
+    expect(joinRequestPending(cancelled, E)).toBe(false);
+  });
+  it("is not offered Join again, and the creator's picker lists the request", () => {
+    expect(joinCheck(full, E).eligible).toBe(false);
+    expect(openCandidates(full).map((c) => c.npub)).toContain(E);
+  });
+});
+
+describe('the join button name', () => {
+  it("starts with the visible text and ends with the creator's short npub", () => {
+    const short = npubEncode(ME);
+    for (const text of ['Join', 'Accept invitation']) {
+      const name = joinButtonLabel(text, ME);
+      expect(name.startsWith(text)).toBe(true);
+      expect(name).toContain(`${short.slice(0, 10)}…${short.slice(-6)}`);
+      expect(name).not.toContain(ME.slice(0, 8));
+    }
   });
 });
 

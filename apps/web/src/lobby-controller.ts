@@ -31,6 +31,8 @@ import { type ControllerDeps, unionRelays } from './net.ts';
 import {
   addToTableList,
   type GameSecrets,
+  type GameStatusCache,
+  loadGameStatus,
   loadSecrets,
   loadTableList,
   readJson,
@@ -188,6 +190,19 @@ export class LobbyController {
       }
     }
     return view;
+  }
+
+  /**
+   * The status a game screen last saved for this game (`bg:<profile>:gamestatus:<rootId>`), or null. Home shows
+   * it without running the game: a game session verifies every shuffle, which is far too heavy for a list.
+   */
+  gameStatus(rootId: string): GameStatusCache | null {
+    return loadGameStatus(this.#d.profile, this.#d.storage, rootId);
+  }
+
+  /** Unix seconds, from the injected clock. */
+  now(): number {
+    return this.#d.now();
   }
 
   /** The latest known Table event at `address`. */

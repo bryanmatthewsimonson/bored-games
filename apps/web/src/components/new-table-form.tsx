@@ -101,28 +101,29 @@ export function NewTableForm() {
           Paste npubs or 64-character hex keys, one per line or separated by commas. Invited players keep a
           seat for them.
         </p>
-        {check.entries.length > 0 && (
-          <ul id="invite-list" class="invite-list">
-            {check.entries.map((en, i) => (
-              <li key={`${i}:${en.input}`} class={en.error === null ? 'entry ok' : 'entry bad'}>
-                {en.error === null ? (
-                  <>
-                    <span class="sr-only">Valid: </span>
-                    <code>{en.short}</code>
-                  </>
-                ) : (
-                  <>
-                    {en.input !== '' && <code>{en.input}</code>} <span class="error">{en.error}</span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {check.entries.length === 0 && <span id="invite-list" />}
+        <div id="invite-list" aria-live="polite">
+          {check.entries.length > 0 && (
+            <ul class="invite-list">
+              {check.entries.map((en, i) => (
+                <li key={`${i}:${en.input}`} class={en.error === null ? 'entry ok' : 'entry bad'}>
+                  {en.error === null ? (
+                    <>
+                      <span class="sr-only">Valid: </span>
+                      <code>{en.short}</code>
+                    </>
+                  ) : (
+                    <>
+                      {en.input !== '' && <code>{en.input}</code>} <span class="error">{en.error}</span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
-      <p class="seat-summary" role="status">
+      <p class="seat-summary">
         <strong>
           {check.open >= 0
             ? `${check.open} open ${check.open === 1 ? 'seat' : 'seats'}`

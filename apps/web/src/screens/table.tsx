@@ -16,8 +16,10 @@ import {
   defaultPicks,
   freeOpenSeats,
   joinCheck,
+  joinRequestPending,
   needsPicker,
   openCandidates,
+  REQUEST_PENDING,
   seatListFor,
   seatRows,
   shareUrl,
@@ -139,6 +141,7 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const chip = tableChip(t, view);
   const check = joinCheck(view, me);
   const seated = view.joins.some((j) => j.npub === me);
+  const pending = joinRequestPending(view, me);
   const missing = t.seats - view.seatsFilled;
   const picker = needsPicker(view);
   const chosen = picks ?? defaultPicks(view);
@@ -209,7 +212,10 @@ export function TableScreen(props: { creator: string; tableId: string }) {
                 </span>
               </div>
             )}
-            {!check.eligible && !seated && !isCreator && check.why !== '' && <p class="muted">{check.why}</p>}
+            {pending && <p>{REQUEST_PENDING}</p>}
+            {!check.eligible && !seated && !isCreator && !pending && check.why !== '' && (
+              <p class="muted">{check.why}</p>
+            )}
             {seated && !isCreator && (
               <p>
                 You are seated.{' '}

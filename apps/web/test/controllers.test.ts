@@ -21,7 +21,13 @@ import { handTiles } from '../src/games/chain-reaction/model.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
-import { type KeyValueStore, loadSecrets, loadTableList, memoryStorage } from '../src/storage.ts';
+import {
+  type KeyValueStore,
+  loadGameStatus,
+  loadSecrets,
+  loadTableList,
+  memoryStorage,
+} from '../src/storage.ts';
 
 const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
 const now = (): number => Math.floor(Date.now() / 1000);
@@ -306,6 +312,69 @@ describe('LobbyController', () => {
   }, 30_000);
 });
 
+describe('LobbyController.lobbyOf', () => {
+  /** A pool that counts the subscriptions it is asked to open. */
+  function countingPool(real: PoolLike): { pool: PoolLike; count: () => number } {
+    let n = 0;
+    return {
+      pool: {
+        publish: (ev, urls) => real.publish(ev, urls),
+        subscribe: (...args) => {
+          n++;
+          return real.subscribe(...args);
+        },
+      },
+      count: () => n,
+    };
+  }
+
+  it('folds an address that is not watched after EOSE, and returns null for an unknown one', async () => {
+    const [a, b] = [profile('a'), profile('b')];
+    const address = await lobby(a).createTable({
+      seats: 3,
+      deadline: 259200,
+      invited: [],
+      relays: [relay.url],
+    });
+    // A controller that never listens: nothing is known about the table until lobbyOf asks.
+    const lb = new LobbyController(b.deps);
+    disposers.push(() => lb.dispose());
+    expect(lb.tableEvent(address)).toBeNull();
+    const view = await lb.lobbyOf(address);
+    expect(view?.table.address).toBe(address);
+    expect(view?.table.creator).toBe(a.deps.signer.pubkey);
+    expect(view?.joins.map((j) => j.npub)).toEqual([a.deps.signer.pubkey]);
+    expect(view?.root).toBeNull();
+
+    const unknown = `37450:${'ab'.repeat(32)}:no-such-table`;
+    expect(await lb.lobbyOf(unknown)).toBeNull();
+    expect(await lb.lobbyOf('not an address')).toBeNull();
+  }, 30_000);
+
+  it('does not query again for a watched address', async () => {
+    const [a, b] = [profile('a'), profile('b')];
+    const address = await lobby(a).createTable({
+      seats: 3,
+      deadline: 259200,
+      invited: [],
+      relays: [relay.url],
+    });
+    const counted = countingPool(b.deps.pool);
+    const lb = new LobbyController({ ...b.deps, pool: counted.pool });
+    disposers.push(() => lb.dispose());
+    const watched = lb.table(address);
+    const followed = await waitFor('the watched table', () => watched.value);
+    const before = counted.count();
+    expect(before).toBeGreaterThan(0);
+    const view = await lb.lobbyOf(address);
+    expect(counted.count()).toBe(before);
+    expect(view).toEqual(followed);
+    // An address that is not watched does query.
+    await lb.lobbyOf(`37450:${'cd'.repeat(32)}:other`);
+    expect(counted.count()).toBe(before + 1);
+  }, 30_000);
+});
+
 describe('GameController', () => {
   it('three players reach play with no input (automatic shuffle and deal); a spectator agrees', async () => {
     const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
@@ -358,6 +427,13 @@ describe('GameController', () => {
       expect(hand).toHaveLength(6);
       expect(hand.every((t) => t.tile !== null)).toBe(true);
       await waitFor('a settled status', () => ['waiting', 'your-turn'].includes(g.status.value));
+      // Home reads the status from a small entry the controller keeps in step with it.
+      const seat = bySeat[i] as Profile;
+      expect(loadGameStatus(seat.name, seat.deps.storage, rootId)).toMatchObject({
+        status: g.status.value,
+        seq: head?.seq,
+      });
+      expect(loadGameStatus(seat.name, seat.deps.storage, rootId)?.updatedAt).toBeGreaterThan(0);
     }
     expect(spectator.view.value?.mySeat).toBeNull();
     expect(spectator.table.value?.creator).toBe(bySeat[0]?.deps.signer.pubkey);

@@ -145,7 +145,43 @@ export interface LobbyLike {
 }
 
 /** What a game controller can say about one game. */
-export type KnownGameStatus = 'syncing' | 'working' | 'waiting' | 'your-turn' | 'done' | 'cancelled';
+export type KnownGameStatus =
+  | 'syncing'
+  | 'working'
+  | 'stuck'
+  | 'waiting'
+  | 'your-turn'
+  | 'done'
+  | 'cancelled';
+
+/** How long a saved game status counts as fresh, in seconds. */
+export const STATUS_FRESH_S = 600;
+
+/** The game's status for a Home card, from the entry a game screen saved (or none). */
+export interface CardGameStatus {
+  /** Passed to `tableChip` and `attentionBadge`; null when nothing trustworthy is known. */
+  status: KnownGameStatus | null;
+  /** True when the player has to open the game to learn where it stands. */
+  check: boolean;
+}
+
+const KNOWN: readonly string[] = ['working', 'stuck', 'waiting', 'your-turn', 'done', 'cancelled'];
+
+/**
+ * What Home may say about a started game without running it. An ended game stays ended, and a turn that was
+ * waiting on the player stays theirs (only they can end it), however old the entry. Anything else older than
+ * `STATUS_FRESH_S` (or missing) is unknown: the player is asked to open the game.
+ */
+export function cardGameStatus(
+  cached: { status: string; updatedAt: number } | null,
+  now: number,
+): CardGameStatus {
+  if (cached === null || !KNOWN.includes(cached.status)) return { status: null, check: true };
+  const status = cached.status as KnownGameStatus;
+  if (status === 'done' || status === 'cancelled' || status === 'your-turn') return { status, check: false };
+  if (now - cached.updatedAt > STATUS_FRESH_S) return { status: null, check: true };
+  return { status, check: false };
+}
 
 export type TableChip = 'open' | 'full' | 'started' | 'done' | 'cancelled';
 
@@ -197,6 +233,27 @@ export function attentionBadge(
 
 export type JoinReason = 'invited' | 'open';
 
+/** The message for a visitor whose Join is valid but not seated: the creator picks among the joiners. */
+export const REQUEST_PENDING = 'Your request to join is in. The creator picks who plays.';
+
+/**
+ * True when `me` has a valid Join among the candidates but holds no seat: more players asked for the open seats
+ * than there are, and the creator chooses. False for the creator, the invited and anyone seated.
+ */
+export function joinRequestPending(lobby: LobbyLike | null, me: Hex): boolean {
+  if (lobby === null || lobby.root !== null || lobby.table.status !== 'open') return false;
+  if (!isUninvited(lobby.table, me)) return false;
+  return lobby.candidates.some((j) => j.npub === me) && !lobby.joins.some((j) => j.npub === me);
+}
+
+/**
+ * An accessible name that starts with the button's visible text (WCAG 2.5.3) and says whose table it is:
+ * "Join (table by npub1abc…xyz)".
+ */
+export function joinButtonLabel(visible: string, creator: Hex): string {
+  return `${visible} (table by ${shortNpub(npubEncode(creator))})`;
+}
+
 export interface JoinCheck {
   eligible: boolean;
   /** Why the visitor may join. */
@@ -222,6 +279,7 @@ export function joinCheck(lobby: LobbyLike | null, me: Hex): JoinCheck {
   if (t.status === 'cancelled') return no('This table was cancelled.');
   if (me === t.creator) return no('You created this table.');
   if (lobby.joins.some((j) => j.npub === me)) return no('You are seated at this table.');
+  if (joinRequestPending(lobby, me)) return no(REQUEST_PENDING);
   if (t.invited.includes(me)) return { eligible: true, reason: 'invited', why: '' };
   if (freeOpenSeats(lobby) > 0) return { eligible: true, reason: 'open', why: '' };
   return no(
