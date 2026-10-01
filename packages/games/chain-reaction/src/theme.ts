@@ -1,6 +1,6 @@
 /**
- * THE one file holding every user-facing name for Tilestock (working
- * codename). Renaming the game or its chains is a change to this file only.
+ * THE one file holding every user-facing name for Chain Reaction.
+ * Renaming the game or its chains is a change to this file only.
  * Engine code never imports it; ids on the left are permanent engine ids.
  *
  * Every chain is distinguished by a letter label and a fill pattern as well as
@@ -14,8 +14,8 @@ export interface ChainTheme {
   readonly pattern: 'solid' | 'stripes' | 'dots' | 'grid' | 'diagonal' | 'waves' | 'checks';
 }
 
-export const TILESTOCK_THEME = {
-  title: 'Tilestock',
+export const CHAIN_REACTION_THEME = {
+  title: 'Chain Reaction',
   tagline: 'Found chains, trade shares, force mergers.',
   chains: {
     b1: { name: 'Jade', label: 'J', color: '#2e9d6b', pattern: 'solid' },

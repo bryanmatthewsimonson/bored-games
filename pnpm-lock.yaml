@@ -31,7 +31,7 @@ importers:
 
   packages/game-kit: {}
 
-  packages/games/tilestock:
+  packages/games/chain-reaction:
     dependencies:
       '@bored-games/game-kit':
         specifier: workspace:*
@@ -39,12 +39,12 @@ importers:
 
   tools/fuzz:
     dependencies:
+      '@bored-games/chain-reaction':
+        specifier: workspace:*
+        version: link:../../packages/games/chain-reaction
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
-      '@bored-games/tilestock':
-        specifier: workspace:*
-        version: link:../../packages/games/tilestock
 
 packages:
 

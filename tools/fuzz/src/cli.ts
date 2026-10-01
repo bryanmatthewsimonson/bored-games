@@ -1,5 +1,5 @@
 /**
- * pnpm fuzz [--game tilestock] [--games 1000] [--seed fuzz] [--players 3-6]
+ * pnpm fuzz [--game chain-reaction] [--games 1000] [--seed fuzz] [--players 3-6]
  *           [--workers 4] [--no-views] [--max-steps 20000] [--json]
  * pnpm fuzz --one "<game seed>" --players <n>     (re-run one game, verbose)
  *
@@ -87,7 +87,7 @@ function repro(f: FuzzFailure, game: string): string {
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
-      game: { type: 'string', default: 'tilestock' },
+      game: { type: 'string', default: 'chain-reaction' },
       games: { type: 'string', default: '1000' },
       seed: { type: 'string', default: 'fuzz' },
       players: { type: 'string' },

@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "@bored-games/game-kit": "workspace:*",
-    "@bored-games/tilestock": "workspace:*"
+    "@bored-games/chain-reaction": "workspace:*"
   }
 }

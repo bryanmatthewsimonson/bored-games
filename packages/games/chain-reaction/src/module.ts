@@ -3,15 +3,15 @@ import { classifyTile } from './board.ts';
 import { applyAction, learnTile, setupGame } from './engine.ts';
 import { checkInvariants } from './invariants.ts';
 import { legalActions, pendingDecision } from './legal.ts';
-import { DEFAULT_RULES, type TilestockRules, validateRules } from './rules.ts';
+import { type ChainReactionRules, DEFAULT_RULES, validateRules } from './rules.ts';
 import { TILE_COUNT } from './tiles.ts';
-import type { TilestockEvent, TilestockState } from './types.ts';
+import type { ChainReactionEvent, ChainReactionState } from './types.ts';
 
-export const TILESTOCK_ID = 'tilestock';
-export const TILESTOCK_VERSION = '0.2.0';
+export const CHAIN_REACTION_ID = 'chain-reaction';
+export const CHAIN_REACTION_VERSION = '0.2.0';
 
 /** Redacts a state to what `viewer` may know: opponents' hands and the deck order are hidden. */
-export function viewFor(s: TilestockState, viewer: Seat | null): TilestockState {
+export function viewFor(s: ChainReactionState, viewer: Seat | null): ChainReactionState {
   return {
     ...s,
     mode: 'view',
@@ -23,19 +23,19 @@ export function viewFor(s: TilestockState, viewer: Seat | null): TilestockState 
   };
 }
 
-export function knownTo(s: TilestockState, seat: Seat): Learn[] {
+export function knownTo(s: ChainReactionState, seat: Seat): Learn[] {
   return (s.players[seat]?.hand ?? []).flatMap((h) =>
     h.tile === null ? [] : [{ deck: 'tiles', pos: h.pos, card: h.tile }],
   );
 }
 
-export function outcomeOf(s: TilestockState): Outcome | null {
+export function outcomeOf(s: ChainReactionState): Outcome | null {
   if (!s.result) return null;
   return { places: s.result.places, scores: s.result.cash, reason: s.result.reason };
 }
 
 /** Rare-event tags for the fuzzer's coverage report. */
-export function coverageTags(s: TilestockState, events: readonly TilestockEvent[]): string[] {
+export function coverageTags(s: ChainReactionState, events: readonly ChainReactionEvent[]): string[] {
   const tags: string[] = [];
   for (const e of events) {
     switch (e.type) {
@@ -99,9 +99,9 @@ export function coverageTags(s: TilestockState, events: readonly TilestockEvent[
   return tags;
 }
 
-export const tilestock: GameModule<TilestockState, TilestockEvent, TilestockRules> = {
-  id: TILESTOCK_ID,
-  version: TILESTOCK_VERSION,
+export const chainReaction: GameModule<ChainReactionState, ChainReactionEvent, ChainReactionRules> = {
+  id: CHAIN_REACTION_ID,
+  version: CHAIN_REACTION_VERSION,
   defaultRules: () => DEFAULT_RULES,
   validateRules,
   seatRange: (rules) => ({ min: rules.minPlayers, max: rules.maxPlayers }),

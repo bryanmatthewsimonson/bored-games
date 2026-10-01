@@ -1,8 +1,8 @@
-import type { TilestockRules } from './rules.ts';
+import type { ChainReactionRules } from './rules.ts';
 import type { BonusRole } from './types.ts';
 
 /** Share price of a chain at a given size; 0 when the chain is not on the board. */
-export function sharePrice(rules: TilestockRules, chain: number, size: number): number {
+export function sharePrice(rules: ChainReactionRules, chain: number, size: number): number {
   if (size < 2) return 0;
   const tier = rules.chains[chain]?.tier;
   if (!tier) return 0;
@@ -36,7 +36,7 @@ export interface BonusPayout {
  * Split portions round up to the next $100. Seats are listed in seat order.
  */
 export function bonusPayouts(
-  rules: TilestockRules,
+  rules: ChainReactionRules,
   holdings: readonly number[],
   price: number,
 ): BonusPayout[] {

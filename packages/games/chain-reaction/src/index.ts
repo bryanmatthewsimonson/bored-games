@@ -3,22 +3,22 @@ export { applyAction, learnTile, setupGame } from './engine.ts';
 export { checkInvariants } from './invariants.ts';
 export { buyOptions, legalActions, pendingDecision } from './legal.ts';
 export {
+  CHAIN_REACTION_ID,
+  CHAIN_REACTION_VERSION,
+  chainReaction,
   coverageTags,
   knownTo,
   outcomeOf,
-  TILESTOCK_ID,
-  TILESTOCK_VERSION,
-  tilestock,
   viewFor,
 } from './module.ts';
 export { bonusPayouts, sharePrice, splitUp100 } from './pricing.ts';
 export {
   type ChainDef,
+  type ChainReactionRules,
   chainId,
   chainIndex,
   DEFAULT_RULES,
   type Tier,
-  type TilestockRules,
   validateRules,
 } from './rules.ts';
 export {

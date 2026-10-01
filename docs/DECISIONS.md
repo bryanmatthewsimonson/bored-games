@@ -39,9 +39,9 @@ Runtime dependencies so far: **none**. Phase 2 will add `@noble/curves` and `@no
 - **Package scope:** `@bored-games/*`, independent of any product name.
 - **Working names** (placeholders, all in one file each):
   - platform "Bored Games" in `packages/brand/src/brand.ts`
-  - first game "Tilestock" in `packages/games/tilestock/src/theme.ts`, with chain display names Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz.
+  - first game "Chain Reaction" in `packages/games/chain-reaction/src/theme.ts`, with chain display names Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz.
 - **Theme labels:** each chain has a letter label and a fill pattern, so color is never the only cue. Label letters avoid A–I, which are board row letters.
-- **Engine ids** (`tilestock`, `b1 b2 s1 s2 s3 p1 p2`) are neutral and permanent, because they appear in network events.
+- **Engine ids** (`chain-reaction`, `b1 b2 s1 s2 s3 p1 p2`) are neutral and permanent, because they appear in network events.
 
 ## D007: Engine API and state
 - **Pure functions over plain-JSON state.** `apply(state, unknown)` returns `{ok, state, events}` or `{ok:false, error}`. It never throws and never mutates; tests and the fuzzer deep-freeze inputs to prove it.
@@ -49,7 +49,7 @@ Runtime dependencies so far: **none**. Phase 2 will add `@noble/curves` and `@no
 - **Integer money.** Every amount is a multiple of $100. Absent values are `null`, never missing keys.
 - **The pending decision is the phase.** `pending()` derives who acts: a seat or a public deck reveal. `legalActions` returns only that seat's choices.
 - **Automatic steps run inside `apply`.** A bounded `advance()` loop handles bonuses, skipping holders with no shares, flood-fill relabels, turn advance and scoring.
-- **Rule options.** Every OPEN rule is a `TilestockRules` option with a documented default.
+- **Rule options.** Every OPEN rule is a `ChainReactionRules` option with a documented default.
 
 ## D008: Hidden cards are deck positions, with private learns and public reveals
 - Draws assign deck positions; identities live only in full states or in a viewer's learned cards. This one model serves:
@@ -58,8 +58,8 @@ Runtime dependencies so far: **none**. Phase 2 will add `@noble/curves` and `@no
   - the mental-poker protocol, which supplies learns and reveals.
 - Dead-tile discards are part of the turn-ending action, because only the hand's owner can evaluate them. Completeness and "no playable tile" claims are checked at the end-of-game audit.
 
-## D009: Rule interpretations for Tilestock (2026-10-01, owner)
-Details are in `docs/games/tilestock/RULES.md` under "Sources and interpretations":
+## D009: Rule interpretations for Chain Reaction (2026-10-01, owner)
+Details are in `docs/games/chain-reaction/RULES.md` under "Sources and interpretations":
 - The owner-pasted officialgamerules.org text is the primary reference.
 - First player is decided row-then-column.
 - Declaring the end is optional, and the declarer finishes their turn.
@@ -112,6 +112,11 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 - **Ruling:** the game ends only by declaration, as in the reference rules. The kickoff's house rule (bag empty plus a full round with no tile placed) is gone, along with its `stallRule` option, the `stall` counter and the per-turn `placed` flag.
 - **Engine version:** bumped to 0.2.0, because the ending rules changed.
 - **If a game ever fails to end,** the fuzzer reports "no termination within N steps" with a reproducible seed. That is a bug to fix, not an ending.
+
+## D017: The first game is named Chain Reaction (2026-10-01, owner)
+- **Before:** the game was called Tilestock, a working codename.
+- **Renamed everywhere,** not just the display name: nothing had been published on NOSTR yet, so the internal id could still change for free. That covers the package `@bored-games/chain-reaction`, the module id `chain-reaction`, the folders, the docs path `docs/games/chain-reaction/` and the code names (`ChainReactionState`, …).
+- **Unchanged:** the chain ids (`b1`…`p2`) and the engine version (0.2.0).
 
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.

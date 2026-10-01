@@ -1,15 +1,15 @@
 import { expect } from 'vitest';
 import {
   applyAction,
+  type ChainReactionAction,
+  type ChainReactionEvent,
+  type ChainReactionRules,
+  type ChainReactionState,
   checkInvariants,
   DEFAULT_RULES,
   endCondition,
   LOOSE,
   TILE_COUNT,
-  type TilestockAction,
-  type TilestockEvent,
-  type TilestockRules,
-  type TilestockState,
   tileColumn,
   tileId,
   tileIndex,
@@ -40,7 +40,7 @@ export function tiles(spec: string): number[] {
 
 export interface ScenarioSpec {
   readonly seats?: number;
-  readonly rules?: Partial<TilestockRules>;
+  readonly rules?: Partial<ChainReactionRules>;
   /** Chain id -> tile spec. */
   readonly chains?: Readonly<Record<string, string>>;
   readonly loose?: string;
@@ -63,9 +63,9 @@ export interface ScenarioSpec {
 }
 
 /** Builds a full-mode mid-game state. Throws if the result violates an invariant. */
-export function scenario(spec: ScenarioSpec): TilestockState {
+export function scenario(spec: ScenarioSpec): ChainReactionState {
   const seats = spec.seats ?? 3;
-  const rules: TilestockRules = { ...DEFAULT_RULES, ...spec.rules };
+  const rules: ChainReactionRules = { ...DEFAULT_RULES, ...spec.rules };
   const chainCount = rules.chains.length;
   const board: (number | null)[] = new Array(TILE_COUNT).fill(null);
   const used = new Set<number>();
@@ -127,8 +127,8 @@ export function scenario(spec: ScenarioSpec): TilestockState {
   );
   const phase = spec.phase ?? 'place';
   const turnSeat = spec.turn ?? 0;
-  const state: TilestockState = {
-    game: 'tilestock',
+  const state: ChainReactionState = {
+    game: 'chain-reaction',
     rules,
     seats,
     mode: 'full',
@@ -155,12 +155,12 @@ export function scenario(spec: ScenarioSpec): TilestockState {
 }
 
 export interface Step {
-  readonly state: TilestockState;
-  readonly events: readonly TilestockEvent[];
+  readonly state: ChainReactionState;
+  readonly events: readonly ChainReactionEvent[];
 }
 
 /** Applies an action that must succeed and leave a sound state. */
-export function act(state: TilestockState, action: unknown): Step {
+export function act(state: ChainReactionState, action: unknown): Step {
   const res = applyAction(state, action);
   if (!res.ok) throw new Error(`rejected ${JSON.stringify(action)}: ${res.error.code} ${res.error.message}`);
   expect(checkInvariants(res.state)).toEqual([]);
@@ -168,9 +168,9 @@ export function act(state: TilestockState, action: unknown): Step {
 }
 
 /** Applies a sequence of actions that must all succeed. */
-export function run(state: TilestockState, actions: readonly unknown[]): Step {
+export function run(state: ChainReactionState, actions: readonly unknown[]): Step {
   let step: Step = { state, events: [] };
-  const events: TilestockEvent[] = [];
+  const events: ChainReactionEvent[] = [];
   for (const a of actions) {
     step = act(step.state, a);
     events.push(...step.events);
@@ -179,27 +179,27 @@ export function run(state: TilestockState, actions: readonly unknown[]): Step {
 }
 
 /** Asserts that an action is rejected, optionally with a given error code. */
-export function rejects(state: TilestockState, action: unknown, code?: string): void {
+export function rejects(state: ChainReactionState, action: unknown, code?: string): void {
   const res = applyAction(state, action);
   expect(res.ok, `expected rejection of ${JSON.stringify(action)}`).toBe(false);
   if (!res.ok && code) expect(res.error.code).toBe(code);
 }
 
-export function posOf(state: TilestockState, seat: number, tile: string): number {
+export function posOf(state: ChainReactionState, seat: number, tile: string): number {
   const t = tileIndex(tile);
   const slot = state.players[seat]?.hand.find((h) => h.tile === t);
   if (!slot) throw new Error(`seat ${seat} does not hold ${tile}`);
   return slot.pos;
 }
 
-export function place(state: TilestockState, seat: number, tile: string): TilestockAction {
+export function place(state: ChainReactionState, seat: number, tile: string): ChainReactionAction {
   return { type: 'place', actor: seat, pos: posOf(state, seat, tile), tile };
 }
 
 export function endTurn(
   seat: number,
   opts: { buy?: string[]; declareEnd?: boolean; discard?: { pos: number; tile: string }[] } = {},
-): TilestockAction {
+): ChainReactionAction {
   return {
     type: 'endTurn',
     actor: seat,
@@ -209,41 +209,41 @@ export function endTurn(
   };
 }
 
-export function dispose(seat: number, chain: string, sell: number, trade: number): TilestockAction {
+export function dispose(seat: number, chain: string, sell: number, trade: number): ChainReactionAction {
   return { type: 'dispose', actor: seat, chain, sell, trade };
 }
 
-export function sizeOf(state: TilestockState, chain: string): number {
+export function sizeOf(state: ChainReactionState, chain: string): number {
   const c = state.rules.chains.findIndex((x) => x.id === chain);
   return state.board.filter((x) => x === c).length;
 }
 
-export function chainTiles(state: TilestockState, chain: string): string[] {
+export function chainTiles(state: ChainReactionState, chain: string): string[] {
   const c = state.rules.chains.findIndex((x) => x.id === chain);
   return state.board.flatMap((x, t) => (x === c ? [tileId(t)] : []));
 }
 
-export function cellOf(state: TilestockState, tile: string): number | null {
+export function cellOf(state: ChainReactionState, tile: string): number | null {
   return state.board[tileIndex(tile) as number] ?? null;
 }
 
-export function sharesOf(state: TilestockState, seat: number, chain: string): number {
+export function sharesOf(state: ChainReactionState, seat: number, chain: string): number {
   const c = state.rules.chains.findIndex((x) => x.id === chain);
   return state.players[seat]?.shares[c] ?? 0;
 }
 
-export function bankOf(state: TilestockState, chain: string): number {
+export function bankOf(state: ChainReactionState, chain: string): number {
   const c = state.rules.chains.findIndex((x) => x.id === chain);
   return state.bank[c] ?? 0;
 }
 
-export function cash(state: TilestockState): number[] {
+export function cash(state: ChainReactionState): number[] {
   return state.players.map((p) => p.cash);
 }
 
-export function ofType<T extends TilestockEvent['type']>(
-  events: readonly TilestockEvent[],
+export function ofType<T extends ChainReactionEvent['type']>(
+  events: readonly ChainReactionEvent[],
   type: T,
-): Extract<TilestockEvent, { type: T }>[] {
-  return events.filter((e) => e.type === type) as Extract<TilestockEvent, { type: T }>[];
+): Extract<ChainReactionEvent, { type: T }>[] {
+  return events.filter((e) => e.type === type) as Extract<ChainReactionEvent, { type: T }>[];
 }

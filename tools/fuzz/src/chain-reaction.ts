@@ -1,22 +1,22 @@
-import type { DeckSpec, FuzzPolicy, Rng } from '@bored-games/game-kit';
 import {
+  type ChainReactionAction,
+  type ChainReactionState,
   classifyTile,
   NEIGHBORS,
   TILE_COUNT,
-  type TilestockAction,
-  type TilestockState,
   tileColumn,
   tileIndex,
   tileRow,
-} from '@bored-games/tilestock';
+} from '@bored-games/chain-reaction';
+import type { DeckSpec, FuzzPolicy, Rng } from '@bored-games/game-kit';
 
 /**
- * Fuzzing policies for Tilestock. These are test drivers that bias random
+ * Fuzzing policies for Chain Reaction. These are test drivers that bias random
  * play toward rare rule paths (multi-way mergers, safe chains, dead and
  * blocked tiles, supply limits, the bag running out). They are never players.
  */
 
-type Weigh = (state: TilestockState, action: TilestockAction) => number;
+type Weigh = (state: ChainReactionState, action: ChainReactionAction) => number;
 
 interface Style {
   readonly name: string;
@@ -39,22 +39,22 @@ function weighted<T>(items: readonly T[], weight: (item: T) => number, rng: Rng)
   return items[items.length - 1] as T;
 }
 
-function placeKind(state: TilestockState, action: TilestockAction): string {
+function placeKind(state: ChainReactionState, action: ChainReactionAction): string {
   if (action.type !== 'place') return action.type;
   return classifyTile(state.board, state.rules, tileIndex(action.tile) as number).kind;
 }
 
-function mergeWidth(state: TilestockState, action: TilestockAction): number {
+function mergeWidth(state: ChainReactionState, action: ChainReactionAction): number {
   if (action.type !== 'place') return 0;
   const cls = classifyTile(state.board, state.rules, tileIndex(action.tile) as number);
   return cls.kind === 'merge' ? cls.chains.length : 0;
 }
 
-function makePolicy(style: Style): FuzzPolicy<TilestockState> {
+function makePolicy(style: Style): FuzzPolicy<ChainReactionState> {
   return {
     name: style.name,
     choose(state, _seat, legal, rng) {
-      const actions = legal as TilestockAction[];
+      const actions = legal as ChainReactionAction[];
       const first = actions[0];
       if (!first) throw new Error('no legal actions');
       if (first.type === 'place' && style.place)
@@ -75,9 +75,9 @@ function makePolicy(style: Style): FuzzPolicy<TilestockState> {
   };
 }
 
-const buyCount = (a: TilestockAction): number => (a.type === 'endTurn' ? a.buy.length : 0);
+const buyCount = (a: ChainReactionAction): number => (a.type === 'endTurn' ? a.buy.length : 0);
 
-export const TILESTOCK_POLICIES: readonly FuzzPolicy<TilestockState>[] = [
+export const CHAIN_REACTION_POLICIES: readonly FuzzPolicy<ChainReactionState>[] = [
   makePolicy({ name: 'uniform', declare: 0.5 }),
   makePolicy({
     name: 'mergerSeeker',
@@ -119,7 +119,7 @@ export const TILESTOCK_POLICIES: readonly FuzzPolicy<TilestockState>[] = [
  *   the board fills with loose tiles; the second colour then founds and merges
  *   massively (4-way mergers, 8th-chain blocks, dead tiles).
  */
-export function tilestockDeckOrder(_deck: DeckSpec, rng: Rng): number[] {
+export function chainReactionDeckOrder(_deck: DeckSpec, rng: Rng): number[] {
   const tiles = Array.from({ length: TILE_COUNT }, (_, i) => i);
   const mode = rng.pick(['uniform', 'uniform', 'clustered', 'parity'] as const);
   const noise = tiles.map(() => rng.float());
@@ -136,7 +136,7 @@ export function tilestockDeckOrder(_deck: DeckSpec, rng: Rng): number[] {
 }
 
 /** Tags every rare path the fuzzer should reach; the CLI reports any that stay at zero. */
-export const TILESTOCK_EXPECTED_COVERAGE: readonly string[] = [
+export const CHAIN_REACTION_EXPECTED_COVERAGE: readonly string[] = [
   'merger:2way',
   'merger:3way',
   'merger:4way',

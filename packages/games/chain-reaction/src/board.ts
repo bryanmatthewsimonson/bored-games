@@ -1,4 +1,4 @@
-import type { TilestockRules } from './rules.ts';
+import type { ChainReactionRules } from './rules.ts';
 import { NEIGHBORS } from './tiles.ts';
 import { type Cell, LOOSE } from './types.ts';
 
@@ -42,7 +42,7 @@ export type TileClass =
   | { readonly kind: 'blocked' };
 
 /** What placing `tile` on an empty cell would do. Assumes no pending tile on the board. */
-export function classifyTile(board: readonly Cell[], rules: TilestockRules, tile: number): TileClass {
+export function classifyTile(board: readonly Cell[], rules: ChainReactionRules, tile: number): TileClass {
   const chains: number[] = [];
   let loose = false;
   for (const n of NEIGHBORS[tile] ?? []) {
@@ -67,7 +67,10 @@ export function isPlayable(cls: TileClass): boolean {
 }
 
 /** Which end condition (if any) currently lets the active player declare the end. */
-export function endCondition(board: readonly Cell[], rules: TilestockRules): 'endSize' | 'allSafe' | null {
+export function endCondition(
+  board: readonly Cell[],
+  rules: ChainReactionRules,
+): 'endSize' | 'allSafe' | null {
   const sizes = chainSizes(board, rules.chains.length);
   const active = activeChains(sizes);
   if (active.some((c) => (sizes[c] ?? 0) >= rules.endSize)) return 'endSize';

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type ChainReactionState,
   DEFAULT_RULES,
   LOOSE,
   pendingDecision,
   setupGame,
   TILE_COUNT,
-  type TilestockState,
   tileIndex,
 } from '../../src/index.ts';
 import { act, ofType } from '../helpers.ts';
@@ -16,13 +16,13 @@ function deckWith(front: string[]): number[] {
   return [...f, ...Array.from({ length: TILE_COUNT }, (_, i) => i).filter((i) => !f.includes(i))];
 }
 
-function newGame(setup: string[], rules = DEFAULT_RULES): TilestockState {
+function newGame(setup: string[], rules = DEFAULT_RULES): ChainReactionState {
   const res = setupGame({ rules, seats: setup.length, mode: 'full', deckOrders: { tiles: deckWith(setup) } });
   if (!res.ok) throw new Error(res.error.message);
   return res.value;
 }
 
-function revealAll(s: TilestockState) {
+function revealAll(s: ChainReactionState) {
   let state = s;
   const events = [];
   for (let pos = 0; pos < s.seats; pos++) {

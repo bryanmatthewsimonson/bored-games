@@ -10,10 +10,10 @@ export interface ChainDef {
 }
 
 /**
- * Everything configurable about a Tilestock game. Values marked OPEN in
- * docs/games/tilestock/RULES.md are options here with documented defaults.
+ * Everything configurable about a Chain Reaction game. Values marked OPEN in
+ * docs/games/chain-reaction/RULES.md are options here with documented defaults.
  */
-export interface TilestockRules {
+export interface ChainReactionRules {
   readonly minPlayers: number;
   readonly maxPlayers: number;
   readonly handSize: number;
@@ -43,7 +43,7 @@ export interface TilestockRules {
   readonly endDeclaration: 'finishTurn';
 }
 
-export const DEFAULT_RULES: TilestockRules = {
+export const DEFAULT_RULES: ChainReactionRules = {
   minPlayers: 3,
   maxPlayers: 6,
   handSize: 6,
@@ -77,21 +77,26 @@ export const DEFAULT_RULES: TilestockRules = {
   endDeclaration: 'finishTurn',
 };
 
-const fail = (message: string): Result<TilestockRules> => ({ ok: false, error: { code: 'rules', message } });
+const fail = (message: string): Result<ChainReactionRules> => ({
+  ok: false,
+  error: { code: 'rules', message },
+});
 
 const isInt = (v: unknown, min: number, max = Number.MAX_SAFE_INTEGER): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
-const KEYS: readonly (keyof TilestockRules)[] = Object.keys(DEFAULT_RULES) as (keyof TilestockRules)[];
+const KEYS: readonly (keyof ChainReactionRules)[] = Object.keys(
+  DEFAULT_RULES,
+) as (keyof ChainReactionRules)[];
 
-export function validateRules(input: unknown): Result<TilestockRules> {
+export function validateRules(input: unknown): Result<ChainReactionRules> {
   if (input === null || typeof input !== 'object' || Array.isArray(input))
     return fail('rules must be an object');
   const r = input as Record<string, unknown>;
   for (const key of Object.keys(r))
-    if (!KEYS.includes(key as keyof TilestockRules)) return fail(`unknown key ${key}`);
+    if (!KEYS.includes(key as keyof ChainReactionRules)) return fail(`unknown key ${key}`);
   for (const key of KEYS) if (!(key in r)) return fail(`missing key ${key}`);
-  const rules = r as unknown as TilestockRules;
+  const rules = r as unknown as ChainReactionRules;
   // 2-player play is OPEN (some editions add special rules); not supported yet.
   if (!isInt(rules.minPlayers, 3, 6) || !isInt(rules.maxPlayers, rules.minPlayers, 6)) {
     return fail('players must be within 3..6');
@@ -136,12 +141,12 @@ export function validateRules(input: unknown): Result<TilestockRules> {
   return { ok: true, value: rules };
 }
 
-export function chainIndex(rules: TilestockRules, id: unknown): number | null {
+export function chainIndex(rules: ChainReactionRules, id: unknown): number | null {
   if (typeof id !== 'string') return null;
   const i = rules.chains.findIndex((c) => c.id === id);
   return i < 0 ? null : i;
 }
 
-export function chainId(rules: TilestockRules, index: number): string {
+export function chainId(rules: ChainReactionRules, index: number): string {
   return rules.chains[index]?.id ?? '?';
 }

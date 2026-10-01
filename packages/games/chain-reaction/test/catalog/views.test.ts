@@ -2,14 +2,14 @@ import { jsonEqual, type LogEntry, replay } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import {
   applyAction,
+  type ChainReactionState,
+  chainReaction,
   knownTo,
   learnTile,
   legalActions,
   setupGame,
-  type TilestockState,
   tileId,
   tileIndex,
-  tilestock,
   viewFor,
 } from '../../src/index.ts';
 import { act, endTurn, place, rejects, scenario } from '../helpers.ts';
@@ -17,9 +17,9 @@ import { act, endTurn, place, rejects, scenario } from '../helpers.ts';
 const ORDER = Array.from({ length: 108 }, (_, i) => (i * 37) % 108);
 
 /** A full game after setup, plus the public log so far. */
-function started(): { full: TilestockState; log: unknown[] } {
+function started(): { full: ChainReactionState; log: unknown[] } {
   const init = setupGame({
-    rules: tilestock.defaultRules(),
+    rules: chainReaction.defaultRules(),
     seats: 3,
     mode: 'full',
     deckOrders: { tiles: ORDER },
@@ -48,7 +48,7 @@ describe('hidden information and integrity', () => {
     expect(viewFor(full, null).players.every((p) => p.hand.every((h) => h.tile === null))).toBe(true);
 
     // A live client starts with unknown tiles and cannot act until it learns them.
-    const fresh = setupGame({ rules: tilestock.defaultRules(), seats: 3, mode: 'view', viewer: seat });
+    const fresh = setupGame({ rules: chainReaction.defaultRules(), seats: 3, mode: 'view', viewer: seat });
     if (!fresh.ok) throw new Error('setup');
     let mine = fresh.value;
     for (const a of log) mine = act(mine, a).state;
@@ -92,8 +92,8 @@ describe('hidden information and integrity', () => {
       const entries: LogEntry[] = publicLog.map((action) => ({ kind: 'action', action }));
       if (viewer !== null) for (const learn of knownTo(final, viewer)) entries.push({ kind: 'learn', learn });
       const r = replay(
-        tilestock,
-        { rules: tilestock.defaultRules(), seats: 3, mode: 'view', viewer },
+        chainReaction,
+        { rules: chainReaction.defaultRules(), seats: 3, mode: 'view', viewer },
         entries,
       );
       expect(r.ok && jsonEqual(r.state, v)).toBe(true);

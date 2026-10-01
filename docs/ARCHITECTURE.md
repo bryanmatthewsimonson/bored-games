@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** Phases 0–1 are built: the game kit and the Tilestock engine. Everything networked described here is the agreed design for Phase 2 onward. `docs/PROTOCOL.md` will make it precise as a NIP-style draft before any of it is implemented.
+**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. Everything networked described here is the agreed design for Phase 2 onward. `docs/PROTOCOL.md` will make it precise as a NIP-style draft before any of it is implemented.
 
 ## What we are building
 
@@ -8,7 +8,7 @@ A platform for **online, human-only, multiplayer board games** (in the spirit of
 
 - **Decentralized.** Only the players' clients and NOSTR relays are involved. There is no referee, dealer, matchmaking server or stats server that anyone has to trust or run.
 - **Asynchronous first.** A player is never required to be online outside their own turn.
-- **Many games.** Each game is a pure rules module behind one contract. The first is Tilestock, an implementation of *Acquire*'s mechanics.
+- **Many games.** Each game is a pure rules module behind one contract. The first is Chain Reaction, an implementation of *Acquire*'s mechanics.
 - **Persistent records.** Game history, wins, scores and ratings come from verifiable games. Friends, matchmaking and invites come later.
 - **Static and portable.** A static SPA/PWA (later wrapped with Capacitor) that runs on phones, tablets and desktops.
 
@@ -21,7 +21,7 @@ apps/web (Phase 3)          platform shell + per-game UI modules
 packages/client (Phase 2)   game sessions: relay pool, ordering, validation, auto-shares, audit
 packages/protocol (Phase 2) NOSTR event schemas, encoding, validation
 packages/deck (Phase 2)     mental-poker deck: shuffle, decryption shares, proofs, audit
-packages/games/*            pure rules modules (Tilestock today)
+packages/games/*            pure rules modules (Chain Reaction today)
 packages/game-kit           GameModule contract, canonical JSON, hashing, PRNG, replay, fuzzer
 ```
 
@@ -39,7 +39,7 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 |---|---|
 | `id`, `version` | Permanent internal id; engine semver. A game is pinned to the version it started on. |
 | `defaultRules`, `validateRules`, `seatRange` | Rule configuration; every OPEN rule is an option. |
-| `decks(rules)` | The shuffled decks the game needs (Tilestock: one deck of 108 tiles). |
+| `decks(rules)` | The shuffled decks the game needs (Chain Reaction: one deck of 108 tiles). |
 | `setup({rules, seats, mode})` | **Full mode:** deck orders known (tests, fuzzing, post-game audit). **View mode:** a live client for one seat, or a spectator. |
 | `pending(state)` | Who must act: a seat with a named decision, a public `reveal` of deck positions, or `over`. |
 | `legalActions(state, seat)` | Exact whenever the seat's hidden cards are known. |
@@ -51,9 +51,9 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 
 **Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action.
 
-**Hidden cards are deck positions.** When a player draws, the engine deterministically assigns the next deck position to them. The identity is never in the public log until the card is played, discarded or revealed. Public reveals, such as Tilestock's setup tiles, are `reveal` actions from the pseudo-actor `deck`, which `pending()` requests.
+**Hidden cards are deck positions.** When a player draws, the engine deterministically assigns the next deck position to them. The identity is never in the public log until the card is played, discarded or revealed. Public reveals, such as Chain Reaction's setup tiles, are `reveal` actions from the pseudo-actor `deck`, which `pending()` requests.
 
-**Async requirement.** Hidden-card dealing (below) relies on every seat acting at least once between two consecutive turns of any seat. Tilestock satisfies this. Future games that need instant randomness, such as dice, must design around it (see Risks).
+**Async requirement.** Hidden-card dealing (below) relies on every seat acting at least once between two consecutive turns of any seat. Chain Reaction satisfies this. Future games that need instant randomness, such as dice, must design around it (see Risks).
 
 ## Dealing hidden cards without a dealer
 
@@ -84,12 +84,12 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - Every player reveals `x_k` and their shuffle secrets. Any client recomputes the whole deck and checks:
   - every shuffle step
   - every hand
-  - every claim that depended on hidden information, such as Tilestock's "no playable tile" and "no other dead tile".
+  - every claim that depended on hidden information, such as Chain Reaction's "no playable tile" and "no other dead tile".
 - A failed check or a refusal to reveal marks that player as cheating, which counts as a forfeit (policy OPEN).
 
 **Known limitations.**
 - Shuffle correctness is checked at the audit, not proven live. A zero-knowledge shuffle proof (Bayer–Groth style) is a later hardening option.
-- A player making an out-of-turn decision, such as a Tilestock merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn. This is a minor information difference from tabletop play.
+- A player making an out-of-turn decision, such as a Chain Reaction merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn. This is a minor information difference from tabletop play.
 
 **Alternatives rejected:**
 - A trusted dealer or referee: the owner ruled it out.
@@ -111,7 +111,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 ## Ratifying results
 
 - There is no authority.
-- Final scoring in Tilestock uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a signed **result attestation**: game root, final log hash, outcome, and audit verdict.
+- Final scoring in Chain Reaction uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a signed **result attestation**: game root, final log hash, outcome, and audit verdict.
 - A result is **valid** if its log verifies. It is **finalized** when every player attests and the audit passes.
 - Stats and ratings use only valid, audited games.
 
@@ -131,9 +131,9 @@ Event kinds are chosen in Phase 2 after checking the NIPs registry, avoiding 300
 
 ## Names and branding
 
-Internal ids are permanent once they appear in network events: `tilestock`, and chain ids `b1 b2 s1 s2 s3 p1 p2`. User-facing names live only in:
+Internal ids are permanent once they appear in network events: `chain-reaction`, and chain ids `b1 b2 s1 s2 s3 p1 p2`. User-facing names live only in:
 - `packages/brand/src/brand.ts` for the platform
-- one theme file per game, e.g. `packages/games/tilestock/src/theme.ts`.
+- one theme file per game, e.g. `packages/games/chain-reaction/src/theme.ts`.
 
 The reference game's name and its editions' chain names never appear in source; a repo test enforces this.
 

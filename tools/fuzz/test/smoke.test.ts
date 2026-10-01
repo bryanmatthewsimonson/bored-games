@@ -2,9 +2,9 @@ import { fuzzBatch } from '@bored-games/game-kit';
 import { expect, it } from 'vitest';
 import { TARGETS } from '../src/index.ts';
 
-it('tilestock: a few hundred fuzzed games keep every invariant', () => {
-  const target = TARGETS.tilestock;
-  if (!target) throw new Error('tilestock target missing');
+it('chain-reaction: a few hundred fuzzed games keep every invariant', () => {
+  const target = TARGETS['chain-reaction'];
+  if (!target) throw new Error('chain-reaction target missing');
   const report = fuzzBatch(target.module, {
     seed: 'vitest-smoke',
     games: 150,

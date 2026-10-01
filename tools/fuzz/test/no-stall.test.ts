@@ -2,8 +2,8 @@ import { fuzzGame } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { TARGETS } from '../src/index.ts';
 
-const target = TARGETS.tilestock;
-if (!target) throw new Error('tilestock target missing');
+const target = TARGETS['chain-reaction'];
+if (!target) throw new Error('chain-reaction target missing');
 
 /**
  * Seeds that stalled in the first checkpoint-1 run (game i has 3 + i % 4 seats).

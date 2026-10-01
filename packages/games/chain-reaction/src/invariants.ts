@@ -1,10 +1,10 @@
 import { chainSizes, flood } from './board.ts';
 import { chainId } from './rules.ts';
 import { NEIGHBORS, TILE_COUNT, tileId } from './tiles.ts';
-import { LOOSE, PENDING, type TilestockState } from './types.ts';
+import { type ChainReactionState, LOOSE, PENDING } from './types.ts';
 
-/** Structural invariants of a Tilestock state. Returns human-readable violations. */
-export function checkInvariants(s: TilestockState): string[] {
+/** Structural invariants of a Chain Reaction state. Returns human-readable violations. */
+export function checkInvariants(s: ChainReactionState): string[] {
   const out: string[] = [];
   const rules = s.rules;
   const n = rules.chains.length;

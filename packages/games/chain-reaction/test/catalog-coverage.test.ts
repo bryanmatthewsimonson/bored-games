@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 
 const here = import.meta.dirname;
-const rulesPath = join(here, '../../../../docs/games/tilestock/RULES.md');
+const rulesPath = join(here, '../../../../docs/games/chain-reaction/RULES.md');
 const catalogDir = join(here, 'catalog');
 
 it('every catalog entry in RULES.md has a named test, and every catalog test is documented', () => {

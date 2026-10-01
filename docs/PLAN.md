@@ -5,9 +5,9 @@
 1. **UI framework for apps/web**, needed before Phase 3. Proposal D014 in `docs/DECISIONS.md` offers two options: Svelte 5 or Preact + Signals.
 2. **Abandonment and timeouts.** When a player stops taking turns, the game cannot continue, because their decryption shares are needed. What per-move time limit should apply, what does a timeout claim do (forfeit? game void?), and how should it count in ratings?
 3. **Shuffle proofs.** Shuffle cheating is detected at the end-of-game audit, not prevented live. Is post-game detection plus forfeit acceptable at launch, or should zero-knowledge shuffle proofs come first?
-4. **Tilestock 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
+4. **Chain Reaction 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
 5. **Second game** (Phase 6). Which game should validate the contract?
-6. **Final names.** The platform ("Bored Games"), the first game ("Tilestock") and its chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are placeholders.
+6. **Final names.** The first game is now named **Chain Reaction** (owner, 2026-10-01). The platform name ("Bored Games") and the chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are still placeholders. Other games already use the name "Chain Reaction"; a trademark check belongs to Phase 7.
 7. **Relay URL** for your nostr-rs-relay, needed in Phase 2.
 8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
 
@@ -16,9 +16,9 @@
 | Phase | State |
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
-| 1. Game kit plus Tilestock engine | **Done, at the checkpoint** |
+| 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
 | 2. Decentralized protocol | Not started |
-| 3. Web shell plus Tilestock UI | Not started (needs open question 1) |
+| 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
@@ -30,14 +30,14 @@
 
 ### Phase 0: Platform docs and scaffolding (done)
 - pnpm workspace with strict TypeScript, Vitest + fast-check, and Biome.
-- `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/PLAN.md` and `docs/games/tilestock/RULES.md`, plus a `CLAUDE.md` under 60 lines.
+- `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/PLAN.md` and `docs/games/chain-reaction/RULES.md`, plus a `CLAUDE.md` under 60 lines.
 - Repo guards: engine purity scan; no reference-game names in any `src`.
 
-### Phase 1: Game kit plus Tilestock engine (done, at the checkpoint)
+### Phase 1: Game kit plus Chain Reaction engine (done, at the checkpoint)
 - `@bored-games/game-kit`:
   - the `GameModule` contract, canonical JSON, hashing, PRNG, replay
   - the generic fuzzer, tested on a toy hidden-hand game, including detection of five kinds of planted bugs.
-- `@bored-games/tilestock`: the full rules engine, implementing every RULES.md rule and option.
+- `@bored-games/chain-reaction`: the full rules engine, implementing every RULES.md rule and option.
 - **Acceptance:**
   - every RULES.md catalog entry (C01–C58) has a named test, enforced by a meta-test
   - `pnpm check` is green
@@ -65,10 +65,10 @@
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.
   - A smoke test runs against the owner's relay plus a public relay.
 
-### Phase 3: Web shell plus Tilestock UI
+### Phase 3: Web shell plus Chain Reaction UI
 - The framework is the owner's choice from D014.
 - **Shell:** NIP-07 and NIP-46 login, profiles, lobby, games list, and an async "your turn" inbox.
-- **Tilestock board:**
+- **Chain Reaction board:**
   - a hand that previews where each tile lands and marks dead and blocked tiles
   - a share and price panel, and the merger decision flow
   - chains distinguished by label and pattern, not color alone.

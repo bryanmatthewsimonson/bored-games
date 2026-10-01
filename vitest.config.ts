@@ -6,8 +6,8 @@ export default defineConfig({
       { test: { name: 'game-kit', root: 'packages/game-kit', include: ['test/**/*.test.ts'] } },
       {
         test: {
-          name: 'tilestock',
-          root: 'packages/games/tilestock',
+          name: 'chain-reaction',
+          root: 'packages/games/chain-reaction',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
         },

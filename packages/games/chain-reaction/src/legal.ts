@@ -4,9 +4,9 @@ import { defunctCandidates } from './engine.ts';
 import { sharePrice } from './pricing.ts';
 import { chainId } from './rules.ts';
 import { tileId } from './tiles.ts';
-import type { TilestockAction, TilestockState } from './types.ts';
+import type { ChainReactionAction, ChainReactionState } from './types.ts';
 
-export function pendingDecision(s: TilestockState): Pending {
+export function pendingDecision(s: ChainReactionState): Pending {
   const phase = s.phase;
   switch (phase.kind) {
     case 'over':
@@ -40,7 +40,7 @@ function permutations<T>(items: readonly T[]): T[][] {
 }
 
 /** Every share purchase (as chain indices in chain order) affordable from the bank and cash. */
-export function buyOptions(s: TilestockState, seat: Seat): number[][] {
+export function buyOptions(s: ChainReactionState, seat: Seat): number[][] {
   const sizes = chainSizes(s.board, s.rules.chains.length);
   const active = activeChains(sizes);
   const price = (c: number): number => sharePrice(s.rules, c, sizes[c] ?? 0);
@@ -66,7 +66,7 @@ export function buyOptions(s: TilestockState, seat: Seat): number[][] {
  * Every legal action for `seat`. Exact when the seat's hand is known to the
  * state (always in full mode); empty while a needed tile is still unknown.
  */
-export function legalActions(s: TilestockState, seat: Seat): TilestockAction[] {
+export function legalActions(s: ChainReactionState, seat: Seat): ChainReactionAction[] {
   const pending = pendingDecision(s);
   if (pending.type !== 'player' || pending.seat !== seat) return [];
   const hand = s.players[seat]?.hand ?? [];
@@ -114,7 +114,7 @@ export function legalActions(s: TilestockState, seat: Seat): TilestockAction[] {
       const head = m.defuncts[0] as number;
       const held = s.players[seat]?.shares[head] ?? 0;
       const maxPairs = Math.min(Math.floor(held / 2), s.bank[m.survivor] ?? 0);
-      const out: TilestockAction[] = [];
+      const out: ChainReactionAction[] = [];
       for (let pairs = 0; pairs <= maxPairs; pairs++) {
         for (let sell = 0; sell + 2 * pairs <= held; sell++) {
           out.push({ type: 'dispose', actor: seat, chain: id(head), sell, trade: 2 * pairs });

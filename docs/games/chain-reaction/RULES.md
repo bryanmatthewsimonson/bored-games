@@ -1,8 +1,8 @@
-# Tilestock rules
+# Chain Reaction rules
 
-Tilestock (working codename) implements the mechanics of Sid Sackson's *Acquire*: tile placement, chains, mergers and shares. This file is the **source of truth** for the engine in `packages/games/tilestock`. The reference game is named only in documentation; nothing user-facing uses its name, its editions' chain names or its art.
+Chain Reaction implements the mechanics of Sid Sackson's *Acquire*: tile placement, chains, mergers and shares. This file is the **source of truth** for the engine in `packages/games/chain-reaction`. The reference game is named only in documentation; nothing user-facing uses its name, its editions' chain names or its art.
 
-Display names (game title, chain names, colors) live in `packages/games/tilestock/src/theme.ts`. This file uses the permanent engine chain ids:
+Display names (game title, chain names, colors) live in `packages/games/chain-reaction/src/theme.ts`. This file uses the permanent engine chain ids:
 
 | Tier | Chain ids | Theme names (placeholder) |
 |---|---|---|
@@ -123,7 +123,7 @@ Only hands and the bag order are secret. Everything else derives from the public
 - A tile's identity becomes public when it is placed, discarded or (for setup tiles) revealed.
 - Honesty claims that depend on a hidden hand, such as "I have no playable tile" or "I hold no other dead tile", are checked by the end-of-game audit.
 
-## Rule options (`TilestockRules`)
+## Rule options (`ChainReactionRules`)
 
 | Option | Default | Notes |
 |---|---|---|
@@ -145,7 +145,7 @@ Only hands and the bag order are secret. Everything else derives from the public
 
 ## Edge-case catalog
 
-Each entry has a named test in `packages/games/tilestock/test/catalog/` whose title starts with its id. `catalog-coverage.test.ts` fails if any id below has no test.
+Each entry has a named test in `packages/games/chain-reaction/test/catalog/` whose title starts with its id. `catalog-coverage.test.ts` fails if any id below has no test.
 
 **Notation:**
 - `s1: 1A-5A` means chain s1 occupies 1A through 5A.

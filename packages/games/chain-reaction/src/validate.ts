@@ -1,5 +1,5 @@
 import type { EngineError, Seat } from '@bored-games/game-kit';
-import { chainIndex, type TilestockRules } from './rules.ts';
+import { type ChainReactionRules, chainIndex } from './rules.ts';
 import { TILE_COUNT, tileIndex } from './tiles.ts';
 
 /** An action after shape validation, with ids resolved to indices. */
@@ -42,7 +42,7 @@ function hasExactKeys(o: Record<string, unknown>, keys: readonly string[]): bool
  * engine). Each move has exactly one accepted encoding: exact key sets,
  * integer fields, known ids, buys in chain order, discards by position.
  */
-export function parseAction(rules: TilestockRules, seats: number, raw: unknown): Parse {
+export function parseAction(rules: ChainReactionRules, seats: number, raw: unknown): Parse {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return bad('action must be an object');
   const a = raw as Record<string, unknown>;
   const actorOk = isNat(a.actor, seats - 1);

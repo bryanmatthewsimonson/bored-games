@@ -1,5 +1,5 @@
 import type { Seat } from '@bored-games/game-kit';
-import type { TilestockRules } from './rules.ts';
+import type { ChainReactionRules } from './rules.ts';
 import type { TileId } from './tiles.ts';
 
 /** Board cell: null = empty, LOOSE = unincorporated, PENDING = placed tile awaiting resolution, n >= 0 = chain. */
@@ -56,9 +56,9 @@ export interface GameResult {
   readonly places: readonly number[];
 }
 
-export interface TilestockState {
-  readonly game: 'tilestock';
-  readonly rules: TilestockRules;
+export interface ChainReactionState {
+  readonly game: 'chain-reaction';
+  readonly rules: ChainReactionRules;
   readonly seats: number;
   readonly mode: 'full' | 'view';
   readonly viewer: Seat | null;
@@ -83,7 +83,7 @@ export interface DiscardEntry {
   readonly tile: TileId;
 }
 
-export type TilestockAction =
+export type ChainReactionAction =
   | {
       readonly type: 'reveal';
       readonly actor: 'deck';
@@ -115,7 +115,7 @@ export type TilestockAction =
 
 export type BonusRole = 'majority' | 'minority' | 'sole' | 'majorityTie' | 'minorityTie';
 
-export type TilestockEvent =
+export type ChainReactionEvent =
   | { readonly type: 'setupTileRevealed'; readonly seat: Seat; readonly tile: TileId }
   | { readonly type: 'firstPlayer'; readonly seat: Seat }
   | { readonly type: 'tilesDealt'; readonly seat: Seat; readonly positions: readonly number[] }

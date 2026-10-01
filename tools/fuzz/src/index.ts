@@ -1,6 +1,10 @@
+import { chainReaction } from '@bored-games/chain-reaction';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
-import { tilestock } from '@bored-games/tilestock';
-import { TILESTOCK_EXPECTED_COVERAGE, TILESTOCK_POLICIES, tilestockDeckOrder } from './tilestock.ts';
+import {
+  CHAIN_REACTION_EXPECTED_COVERAGE,
+  CHAIN_REACTION_POLICIES,
+  chainReactionDeckOrder,
+} from './chain-reaction.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
 export interface FuzzTarget {
@@ -16,13 +20,13 @@ export interface FuzzTarget {
 }
 
 export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
-  tilestock: {
-    module: tilestock,
-    policies: TILESTOCK_POLICIES,
-    deckOrder: tilestockDeckOrder,
-    expectedCoverage: TILESTOCK_EXPECTED_COVERAGE,
+  'chain-reaction': {
+    module: chainReaction,
+    policies: CHAIN_REACTION_POLICIES,
+    deckOrder: chainReactionDeckOrder,
+    expectedCoverage: CHAIN_REACTION_EXPECTED_COVERAGE,
     defaultSeatCounts: [3, 4, 5, 6],
   },
 };
 
-export { TILESTOCK_EXPECTED_COVERAGE, TILESTOCK_POLICIES, tilestockDeckOrder };
+export { CHAIN_REACTION_EXPECTED_COVERAGE, CHAIN_REACTION_POLICIES, chainReactionDeckOrder };

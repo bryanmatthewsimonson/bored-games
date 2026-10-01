@@ -1,18 +1,18 @@
 import type { ApplyResult, EngineError, Result, Seat, SetupInput } from '@bored-games/game-kit';
 import { activeChains, chainSizes, classifyTile, endCondition, flood, isPlayable } from './board.ts';
 import { bonusPayouts, sharePrice } from './pricing.ts';
-import { chainId, type TilestockRules, validateRules } from './rules.ts';
+import { type ChainReactionRules, chainId, validateRules } from './rules.ts';
 import { compareCloseness, TILE_COUNT, tileId } from './tiles.ts';
 import {
   type Cell,
+  type ChainReactionEvent,
+  type ChainReactionState,
   type HandSlot,
   LOOSE,
   type MergerState,
   PENDING,
   type Phase,
   type PlayerState,
-  type TilestockEvent,
-  type TilestockState,
   type TurnState,
 } from './types.ts';
 import { type ParsedAction, parseAction } from './validate.ts';
@@ -23,8 +23,8 @@ type DeepMutable<T> = T extends readonly (infer U)[]
     ? { -readonly [K in keyof T]: DeepMutable<T[K]> }
     : T;
 
-type Draft = DeepMutable<TilestockState>;
-type Events = TilestockEvent[];
+type Draft = DeepMutable<ChainReactionState>;
+type Events = ChainReactionEvent[];
 
 const err = (code: string, message: string): EngineError => ({ code, message });
 
@@ -33,7 +33,7 @@ const err = (code: string, message: string): EngineError => ({ code, message });
  * mutated, so they are shared with the input. Key order is preserved so that
  * equal states serialize identically.
  */
-function clone(s: TilestockState): Draft {
+function clone(s: ChainReactionState): Draft {
   const phase = s.phase;
   return {
     ...s,
@@ -66,7 +66,7 @@ function clone(s: TilestockState): Draft {
 
 // ---------------------------------------------------------------- setup
 
-export function setupGame(input: SetupInput<TilestockRules>): Result<TilestockState> {
+export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainReactionState> {
   const r = validateRules(input.rules);
   if (!r.ok) return r;
   const rules = r.value;
@@ -99,7 +99,7 @@ export function setupGame(input: SetupInput<TilestockRules>): Result<TilestockSt
   return {
     ok: true,
     value: {
-      game: 'tilestock',
+      game: 'chain-reaction',
       rules,
       seats: input.seats,
       mode: input.mode,
@@ -122,13 +122,13 @@ export function setupGame(input: SetupInput<TilestockRules>): Result<TilestockSt
 
 // ---------------------------------------------------------------- helpers
 
-function sizesOf(d: Draft | TilestockState): number[] {
+function sizesOf(d: Draft | ChainReactionState): number[] {
   return chainSizes(d.board, d.rules.chains.length);
 }
 
 /** True when `tile` already has a known location (board, discard, or a known hand slot other than `except`). */
 function tileKnownElsewhere(
-  d: Draft | TilestockState,
+  d: Draft | ChainReactionState,
   tile: number,
   except: { seat: Seat; pos: number } | null,
 ): boolean {
@@ -569,7 +569,10 @@ function handle(d: Draft, a: ParsedAction, events: Events): EngineError | null {
   }
 }
 
-export function applyAction(s: TilestockState, raw: unknown): ApplyResult<TilestockState, TilestockEvent> {
+export function applyAction(
+  s: ChainReactionState,
+  raw: unknown,
+): ApplyResult<ChainReactionState, ChainReactionEvent> {
   if (s.phase.kind === 'over') return { ok: false, error: err('over', 'the game is over') };
   const parsed = parseAction(s.rules, s.seats, raw);
   if (!parsed.ok) return parsed;
@@ -579,15 +582,15 @@ export function applyAction(s: TilestockState, raw: unknown): ApplyResult<Tilest
   if (problem) return { ok: false, error: problem };
   advance(d, events);
   d.seq++;
-  return { ok: true, state: d as TilestockState, events };
+  return { ok: true, state: d as ChainReactionState, events };
 }
 
 // ---------------------------------------------------------------- private knowledge
 
 export function learnTile(
-  s: TilestockState,
+  s: ChainReactionState,
   learn: { deck: string; pos: number; card: number },
-): ApplyResult<TilestockState, TilestockEvent> {
+): ApplyResult<ChainReactionState, ChainReactionEvent> {
   if (s.mode !== 'view' || s.viewer === null)
     return { ok: false, error: err('learn', 'only a player view can learn') };
   if (learn.deck !== 'tiles' || !Number.isInteger(learn.card) || learn.card < 0 || learn.card >= TILE_COUNT) {
@@ -603,5 +606,5 @@ export function learnTile(
   const d = clone(s);
   const hand = (d.players[viewer] as DeepMutable<PlayerState>).hand as DeepMutable<HandSlot>[];
   for (const h of hand) if (h.pos === learn.pos) h.tile = learn.card;
-  return { ok: true, state: d as TilestockState, events: [] };
+  return { ok: true, state: d as ChainReactionState, events: [] };
 }
