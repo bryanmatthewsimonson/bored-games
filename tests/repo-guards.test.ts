@@ -60,7 +60,31 @@ describe('engine purity', () => {
   }
 });
 
+describe('web app impurity', () => {
+  // apps/web is not a pure package, but clock, randomness and storage enter only through three files.
+  const allowed = ['clock.ts', 'random.ts', 'storage.ts'];
+  const banned: [string, RegExp][] = [
+    ['Math.random', /Math\.random/],
+    ['Date', /\bDate\b/],
+    ['crypto', /\bcrypto\b/],
+    ['storage', /\b(localStorage|sessionStorage|indexedDB)\b/],
+    ['timers', /\b(setTimeout|setInterval)\b/],
+  ];
+  for (const file of files(join(root, 'apps/web/src'), /\.tsx?$/)) {
+    if (allowed.includes(file.slice(file.lastIndexOf('/') + 1))) continue;
+    it(`${relative(root, file)} reaches no clock, randomness or storage directly`, () => {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      for (const [label, re] of banned)
+        expect(re.test(code), `${label} in ${relative(root, file)}`).toBe(false);
+    });
+  }
+});
+
 describe('branding', () => {
+  it('scans the web app source', () => {
+    expect(srcDirs().map((d) => relative(root, d))).toContain('apps/web/src');
+  });
+
   // The reference game's name and its published editions' chain names must never appear in shipped code.
   const forbidden =
     /\b(Acquire|Sackson|Tower|Luxor|American|Worldwide|Festival|Imperial|Continental|Zeta|Hydra|Fusion|America|Quantum|Phoenix)\b/;

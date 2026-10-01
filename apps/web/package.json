@@ -1,0 +1,23 @@
+{
+  "name": "@bored-games/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@bored-games/brand": "workspace:*",
+    "@bored-games/chain-reaction": "workspace:*",
+    "@bored-games/protocol": "workspace:*",
+    "@preact/signals": "2.11.3",
+    "preact": "11.0.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.6",
+    "vite": "8.3.1"
+  }
+}

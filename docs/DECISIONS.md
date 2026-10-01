@@ -240,6 +240,16 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **`logHash`.** The SHA-256 hex of the UTF-8 of the move ids joined with `\n`. An empty log hashes the empty string.
 - **Shape only.** Parsers do not verify proofs, owed shares or `x·G = X_k`. The session engine does (2d).
 
+## D031: Phase 3 frontend dependencies (2026-10-01, Phase 3 Task 2)
+- **Frontend (apps/web).** Preact + Signals + Vite (D014 option B), chosen by the controller during the owner-authorized overnight run because it keeps the TypeScript 7 toolchain; the owner may revisit. All three are pinned exactly:
+  - `preact` `11.0.0` (the current stable release) and `@preact/signals` `2.11.3`. Together they are about 30 KB gzipped with the protocol code, and signals give the router, the settings and later the game state fine-grained updates without a store library.
+  - `@preact/preset-vite` `2.10.6` (dev). It works with the repo's Vite `8.3.1` (its peer range includes `8.x`), so JSX goes through the preset with `jsxImportSource: 'preact'`. It also pulls in `@babel/core`, a dev-time transitive dependency of the build only.
+  - `vite` `8.3.1`, the version the root already pins, is repeated in `apps/web` so the package builds on its own.
+- **No other dependency.** Bech32 (BIP-173, for `npub` and `nsec`) is about 100 lines in `apps/web/src/bech32.ts`, tested against the NIP-19 vector. The `pnpm dev` launcher is a plain Node script (`scripts/dev.ts`) that spawns the relay and Vite.
+- **Impure code.** `apps/web` is not a pure package, but the clock, randomness and storage enter only through `src/clock.ts`, `src/random.ts` and `src/storage.ts`. A repo guard enforces it. Everything else takes them as arguments, so the tests run in Node with fakes.
+- **Identity.** A profile (`?profile=<name>`, default `default`) namespaces every key as `bg:<profile>:<name>`. The local secret key is stored as hex. NIP-07 is used only when the user chose it, and every event the extension returns is checked with `verifyEvent`, against the extension's own public key, and against the template that was sent.
+- **Note.** Another branch also adds a D029, for `ws`; the two entries are to be merged under one number.
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 
