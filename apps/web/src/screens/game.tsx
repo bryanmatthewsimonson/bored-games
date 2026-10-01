@@ -8,6 +8,7 @@ import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { SessionView } from '@bored-games/client';
 import { useEffect, useMemo } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
+import { ClaimTimeout } from '../components/claim-timeout.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { type Audit, ChainReactionGame, lastTileOf, logLines } from '../games/chain-reaction/index.ts';
@@ -53,6 +54,27 @@ export function equivocatorsOf(view: SessionView | null): readonly number[] {
   return Array.isArray(e) ? e.filter((x): x is number => Number.isInteger(x)) : [];
 }
 
+/**
+ * What claiming a timeout against `who` does (PROTOCOL §8.2, D030 R5), for the claim's confirm step. Before the
+ * first game action (the shuffle, the deal, or play before any move after them) the game is cancelled instead.
+ */
+export function timeoutExplanation(view: SessionView, who: string): string {
+  const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.seats;
+  if (!started)
+    return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits, and because no move has been played yet the game is cancelled without a result.`;
+  if (view.phase === 'end')
+    return `${who} has not sent their end-of-game secret in time. If you claim the timeout, ${who} forfeits and is ranked last.`;
+  return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits: the game ends now, ${who} is ranked last and the others are ranked by their cash as if the game ended now.`;
+}
+
+/** The seats a timeout claim made forfeit, when one ended the game; empty otherwise. */
+export function timedOutSeats(view: SessionView | null): readonly number[] {
+  const a = view?.phase === 'done' ? view.audit : null;
+  return typeof a === 'object' && a !== null && (a.reason === 'timeout' || a.reason === 'withheld secret')
+    ? a.fail
+    : [];
+}
+
 /** Why the decision form is disabled, for `lockedReason`. */
 function lockedReason(status: GameStatus): string {
   if (status === 'syncing') return 'Still loading the game from the relays.';
@@ -61,7 +83,12 @@ function lockedReason(status: GameStatus): string {
   return 'It is not your decision right now.';
 }
 
-function SetupProgress(props: { view: SessionView | null; status: GameStatus; error: string | null }) {
+function SetupProgress(props: {
+  view: SessionView | null;
+  status: GameStatus;
+  error: string | null;
+  claim: { explanation: string; busy: boolean; onClaim: () => void } | null;
+}) {
   const v = props.view;
   const step =
     v === null
@@ -80,6 +107,11 @@ function SetupProgress(props: { view: SessionView | null; status: GameStatus; er
         </p>
       )}
       {props.status === 'waiting' && <p class="muted">Waiting for the other players' clients.</p>}
+      {props.claim !== null && (
+        <div class="row">
+          <ClaimTimeout {...props.claim} />
+        </div>
+      )}
       {props.error !== null && (
         <p class="error" role="alert">
           {props.error}
@@ -124,11 +156,20 @@ export function GameScreen(props: { rootId: string }) {
       </section>
     );
   }
+  const claim =
+    target === null || view === null
+      ? null
+      : {
+          explanation: timeoutExplanation(view, names[target] ?? `Seat ${target + 1}`),
+          busy,
+          onClaim: () => void ctl.claimTimeout(),
+        };
   if (state === null || view === null || view.phase === 'shuffle' || view.phase === 'deal')
-    return <SetupProgress view={view} status={status} error={error} />;
+    return <SetupProgress view={view} status={status} error={error} claim={claim} />;
 
   const audit: Audit | undefined = view.phase === 'end' || view.phase === 'done' ? view.audit : undefined;
   const cheats = equivocatorsOf(view);
+  const timedOut = timedOutSeats(view);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   return (
     <>
@@ -141,6 +182,12 @@ export function GameScreen(props: { rootId: string }) {
         <p class="warning" role="alert">
           {cheats.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ')}{' '}
           {cheats.length === 1 ? 'has' : 'have'} signed two rival moves for the same turn.
+        </p>
+      )}
+      {timedOut.length > 0 && (
+        <p class="warning" role="status">
+          The game is over: {timedOut.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ')} ran out of
+          time and {timedOut.length === 1 ? 'forfeits' : 'forfeit'}.
         </p>
       )}
       <ChainReactionGame
@@ -157,7 +204,8 @@ export function GameScreen(props: { rootId: string }) {
         audit={audit}
         notice={notice ?? statusNotice(status, view)}
         deadline={view.phase === 'play' ? formatDeadline(deadlineLeft) : undefined}
-        onClaimTimeout={target === null ? undefined : () => void ctl.claimTimeout()}
+        onClaimTimeout={claim?.onClaim}
+        timeoutExplanation={claim?.explanation}
       />
     </>
   );

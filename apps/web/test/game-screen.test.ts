@@ -1,5 +1,15 @@
+import type { SessionView } from '@bored-games/client';
 import { describe, expect, it } from 'vitest';
-import { equivocatorsOf, formatDeadline, statusNotice } from '../src/screens/game.tsx';
+import {
+  equivocatorsOf,
+  formatDeadline,
+  statusNotice,
+  timedOutSeats,
+  timeoutExplanation,
+} from '../src/screens/game.tsx';
+
+const viewOf = (v: Partial<SessionView>): SessionView =>
+  ({ seats: 3, head: { id: 'h', seq: 3 }, ...v }) as SessionView;
 
 describe('game screen helpers', () => {
   it('formats the time left on the deadline', () => {
@@ -22,5 +32,34 @@ describe('game screen helpers', () => {
     expect(equivocatorsOf(null)).toEqual([]);
     expect(equivocatorsOf({ phase: 'play' } as never)).toEqual([]);
     expect(equivocatorsOf({ equivocators: [2, 'x'] } as never)).toEqual([2]);
+  });
+
+  it('explains what a timeout claim does: cancel before the first action, forfeit after', () => {
+    for (const v of [
+      viewOf({ phase: 'shuffle', head: { id: 'h', seq: 1 } }),
+      viewOf({ phase: 'deal' }),
+      viewOf({ phase: 'play', head: { id: 'h', seq: 3 } }),
+    ]) {
+      expect(timeoutExplanation(v, 'Bo')).toMatch(
+        /Bo forfeits, and because no move .* cancelled without a result/,
+      );
+    }
+    expect(timeoutExplanation(viewOf({ phase: 'play', head: { id: 'h', seq: 4 } }), 'Bo')).toMatch(
+      /Bo forfeits: the game ends now, Bo is ranked last/,
+    );
+    expect(timeoutExplanation(viewOf({ phase: 'end', head: { id: 'h', seq: 90 } }), 'Bo')).toMatch(
+      /end-of-game secret .* Bo forfeits and is ranked last/,
+    );
+  });
+
+  it('names the seats a timeout made forfeit once the game is done', () => {
+    expect(timedOutSeats(null)).toEqual([]);
+    expect(timedOutSeats(viewOf({ phase: 'done', audit: 'pass' }))).toEqual([]);
+    expect(timedOutSeats(viewOf({ phase: 'done', audit: { fail: [1], reason: 'timeout' } }))).toEqual([1]);
+    expect(
+      timedOutSeats(viewOf({ phase: 'done', audit: { fail: [0, 2], reason: 'withheld secret' } })),
+    ).toEqual([0, 2]);
+    expect(timedOutSeats(viewOf({ phase: 'done', audit: { fail: [1], reason: 'bad shuffle' } }))).toEqual([]);
+    expect(timedOutSeats(viewOf({ phase: 'play', audit: { fail: [1], reason: 'timeout' } }))).toEqual([]);
   });
 });

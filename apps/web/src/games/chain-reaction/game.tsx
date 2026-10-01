@@ -43,8 +43,10 @@ export interface ChainReactionGameProps {
   notice?: string | undefined;
   /** The current deadline, already formatted ("2h 14m left"). */
   deadline?: string | undefined;
-  /** Shown as a button when a timeout may be claimed. */
+  /** Shown as a button, with a confirm step, when a timeout may be claimed. */
   onClaimTimeout?: (() => void) | undefined;
+  /** What the claim does (who forfeits), for the confirm step. */
+  timeoutExplanation?: string | undefined;
 }
 
 export function ChainReactionGame(props: ChainReactionGameProps) {
@@ -100,6 +102,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
         notice={props.notice}
         deadline={props.deadline}
         onClaimTimeout={props.onClaimTimeout}
+        timeoutExplanation={props.timeoutExplanation}
         busy={props.busy}
       />
       <div class="cr-main">

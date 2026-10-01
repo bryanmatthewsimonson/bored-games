@@ -3,6 +3,7 @@
  * WebSocket, local signers and memory stores, one per profile. Shuffle proofs make these tests slow.
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
+import type { SessionView } from '@bored-games/client';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import {
   finalizeEvent,
@@ -21,6 +22,7 @@ import { handTiles } from '../src/games/chain-reaction/model.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
+import { timedOutSeats, timeoutExplanation } from '../src/screens/game.tsx';
 import {
   type KeyValueStore,
   loadGameStatus,
@@ -575,6 +577,48 @@ describe('GameController', () => {
     expect(
       [...loadOutbox(p.deps.storage, p.name, rootId).keys()].filter((k) => k.startsWith('move:')),
     ).toHaveLength(2);
+  }, 180_000);
+
+  it('names a stalled seat once the deadline has passed, and a timeout claim ends the game', async () => {
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const decider = () =>
+      waitFor(
+        'a decision',
+        () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+        120_000,
+      );
+    // Before the first game action a claim would cancel the game; play one action first.
+    const first = await decider();
+    expect(timeoutExplanation(first.view.value as SessionView, 'Bo')).toMatch(/cancelled without a result/);
+    await first.act(first.legal.value[0]);
+    for (const g of players) await waitFor('the first action everywhere', () => g.view.value?.head.seq === 4);
+
+    const mover = await decider();
+    const stalled = players.indexOf(mover);
+    const claimer = (stalled + 1) % 3;
+    const waiting = players[claimer] as GameController;
+    await waitFor('a settled claimer', () => waiting.status.value === 'waiting');
+    expect(waiting.timeoutTarget.value).toBeNull();
+
+    // The claimer's tab reopens with a clock past the deadline.
+    const deadline = waiting.view.value?.deadline ?? 0;
+    expect(deadline).toBe(259200);
+    waiting.dispose();
+    const p = bySeat[claimer] as Profile;
+    const late = game(rootId, { ...p.deps, now: () => now() + deadline + 60 });
+    const target = await waitFor('a timeout target', () => late.timeoutTarget.value ?? false);
+    expect(target).toBe(stalled);
+    const view = late.view.value as SessionView;
+    expect(timeoutExplanation(view, 'Ann')).toMatch(/Ann forfeits: the game ends now/);
+
+    await late.claimTimeout();
+    await waitFor('the end of the game', () => late.view.value?.phase === 'done');
+    expect(late.error.value).toBeNull();
+    expect(timedOutSeats(late.view.value)).toEqual([stalled]);
+    await waitFor('the attestation sent', () => late.status.value === 'done');
+    expect(late.timeoutTarget.value).toBeNull();
+    expect(await query({ kinds: [KIND.timeout], '#e': [rootId] })).toHaveLength(1);
   }, 180_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {

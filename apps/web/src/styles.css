@@ -711,3 +711,18 @@ textarea[aria-invalid="true"] {
     grid-column: 1 / -1;
   }
 }
+
+/* The timeout claim's confirm step, in the game's status bar or the setup panel. */
+.claim-confirm {
+  display: grid;
+  flex-basis: 100%;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.claim-confirm p {
+  margin: 0;
+}

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'preact/hooks';
+import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { Swatch } from './board.tsx';
 import { type ChainRow, type ChainView, formatMoney, type PlayerRow, type ResultRow } from './model.ts';
 
@@ -163,6 +164,8 @@ export function StatusBar(props: {
   notice: string | undefined;
   deadline: string | undefined;
   onClaimTimeout: (() => void) | undefined;
+  /** What a timeout claim would do, shown in its confirm step. */
+  timeoutExplanation: string | undefined;
   busy: boolean;
 }) {
   return (
@@ -172,9 +175,11 @@ export function StatusBar(props: {
       {props.notice && <span class="chip">{props.notice}</span>}
       {props.deadline && <span class="chip">{props.deadline}</span>}
       {props.onClaimTimeout && (
-        <button type="button" class="btn btn-small" onClick={props.onClaimTimeout}>
-          Claim timeout
-        </button>
+        <ClaimTimeout
+          explanation={props.timeoutExplanation ?? 'The stalled player forfeits.'}
+          busy={props.busy}
+          onClaim={props.onClaimTimeout}
+        />
       )}
     </div>
   );
