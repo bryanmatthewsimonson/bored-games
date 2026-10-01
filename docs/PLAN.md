@@ -17,14 +17,16 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal, game actions, end of game and timeouts); 2e not started |
-| 3. Web shell plus Chain Reaction UI | **In progress** (Preact + Signals, D031): relay pool and dev relay, identity and settings, Chain Reaction screen components, lobby and game controllers with the Game route (D034); Home and Table screens and the end-to-end test next |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal, game actions, the end of game and timeouts done; the simulations and the D030 write-up remaining); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`); the NIP-78 secret backup and the smoke test against the owner's relay are still open |
+| 3. Web shell plus Chain Reaction UI | **Playable end to end** (Preact + Signals, D031): identity and settings, Home, Table and Game screens, lobby and game controllers (D034), the end-to-end browser test (`pnpm e2e`), CI, and GitHub Pages deployment. The owner's guide is `docs/TESTING.md`. Remaining: NIP-46 login, the game log panel, and the offline PWA shell |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Last verified (2026-10-01, end of 2b):** `pnpm check` passes (typecheck, Biome, 379 tests, 254 of them in `deck`).
+**Last verified (2026-10-01, Phase 3 Task 6):** `pnpm check` passes (typecheck, Biome, 968 tests in 50 files, about 4 minutes). `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
+
+**Earlier (end of 2b):** `pnpm check` passed (379 tests, 254 of them in `deck`).
 
 **Earlier (Phase 1):** after the stall rule was removed (engine 0.2.0), `pnpm fuzz --games 10000 --seed no-stall-rule` gave 0 failures, and all 10,000 games ended by declaration.
 
@@ -108,6 +110,9 @@
   - chains distinguished by label and pattern, not color alone.
 - **Layouts:** phone portrait, iPad landscape, desktop.
 - **PWA:** manifest and offline shell; static output with relative paths (Capacitor-ready).
+- **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages on push to `main`, and `.github/workflows/ci.yml` runs `pnpm check` on every push and pull request.
+  - **Status (2026-10-01):** met.
+  - **Owner to-do:** enable Pages with the source "GitHub Actions", then follow `docs/TESTING.md`.
 
 ### Phase 4: Records
 Verified history, games played, wins and scores per game, and deterministic ratings, all client-side. An optional untrusted cache for leaderboards.
