@@ -2,12 +2,13 @@
  * `pnpm e2e`: the end-to-end browser test, self-contained.
  *
  * 1. Starts the in-memory dev relay on a free port (in this process).
- * 2. Builds apps/web and serves it with `vite preview` on another free port.
+ * 2. Builds apps/web into apps/web/dist-e2e (with `VITE_ALLOW_LINK_RELAYS=1`, so it never lands in the deployable
+ *    apps/web/dist) and serves it with `vite preview` on another free port.
  * 3. Runs Playwright (apps/web/playwright.config.ts) with E2E_BASE_URL and E2E_RELAY set.
  * 4. Stops both servers, whatever happened, and exits with Playwright's exit code.
  *
  * Extra arguments go to `playwright test` (for example `pnpm e2e --headed`). Set E2E_SKIP_BUILD=1 to reuse
- * an existing apps/web/dist.
+ * an existing apps/web/dist-e2e.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -71,6 +72,9 @@ function stop(child: ChildProcess | null): Promise<void> {
   });
 }
 
+/** The e2e build's own output directory, under apps/web: a flag-enabled build must not replace dist. */
+const OUT_DIR = 'dist-e2e';
+
 const relay = await startDevRelay({ port: 0 });
 console.log(`[e2e] dev relay on ${relay.url}`);
 let preview: ChildProcess | null = null;
@@ -78,16 +82,23 @@ let code = 1;
 try {
   if (process.env.E2E_SKIP_BUILD !== '1') {
     // The test points each page at the in-process relay with `?relays=`, which only such a build honours.
-    const built = await run('pnpm', ['run', 'build'], { ...process.env, VITE_ALLOW_LINK_RELAYS: '1' });
+    const built = await run('pnpm', ['exec', 'vite', 'build', '--outDir', OUT_DIR, '--emptyOutDir'], {
+      ...process.env,
+      VITE_ALLOW_LINK_RELAYS: '1',
+    });
     if (built !== 0) throw new Error(`the web build failed (exit ${built})`);
   }
   const port = await freePort();
   const baseUrl = `http://localhost:${port}/`;
-  preview = spawn('pnpm', ['exec', 'vite', 'preview', '--port', String(port), '--strictPort'], {
-    cwd: webDir,
-    stdio: ['ignore', 'inherit', 'inherit'],
-    detached: true,
-  });
+  preview = spawn(
+    'pnpm',
+    ['exec', 'vite', 'preview', '--outDir', OUT_DIR, '--port', String(port), '--strictPort'],
+    {
+      cwd: webDir,
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: true,
+    },
+  );
   await waitForHttp(baseUrl, 30_000);
   console.log(`[e2e] app on ${baseUrl}`);
   code = await run('pnpm', ['exec', 'playwright', 'test', ...process.argv.slice(2)], {
