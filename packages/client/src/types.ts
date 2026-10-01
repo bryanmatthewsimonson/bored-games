@@ -86,9 +86,9 @@ export interface SessionView {
    */
   equivocators: number[];
   /**
-   * The R6 audit; `pending` until every secret is in. It stays `pending` when a timeout ends the game during play
-   * (the deck cannot be decrypted without every secret), and is `{fail: [withholders], reason: 'withheld secret'}`
-   * when one ends it at the end of the game.
+   * The R6 audit; `pending` until every secret is in. When a timeout ends the game (D030 Ruling 7) the audit cannot
+   * run, and it records the forfeiting seats instead: `{fail: forfeits, reason: 'timeout'}` during play, or
+   * `{fail: forfeits, reason: 'withheld secret'}` at the end. A cancelled game stays `pending`.
    */
   audit: SessionAudit;
   logHash: Hex;

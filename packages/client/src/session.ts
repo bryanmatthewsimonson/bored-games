@@ -105,6 +105,9 @@ type Claimed = 'valid' | 'wait' | 'early' | { reject: string };
 /** The module events `view().events` keeps. */
 const MAX_EVENTS = 300;
 
+/** The Timeout claims kept per signer per head (D030 Ruling 8); more are ignored. */
+const MAX_CLAIMS = 4;
+
 /** A move judged as of its prev (D030 R2 as refined by Ruling 3): valid, not known yet, or why it is invalid. */
 type Judged = 'valid' | 'unknown' | { reject: string };
 
@@ -249,8 +252,8 @@ export class GameSession {
   private events: readonly unknown[] = Object.freeze([]);
 
   /**
-   * Every well-formed Timeout claim from a seated key against another seat, by id, kept whatever its judgement:
-   * a claim is judged again whenever the fold or the clock changes.
+   * Every well-formed Timeout claim from a seated key against another seat, by id, kept whatever its judgement
+   * (at most `MAX_CLAIMS` per signer per head): a claim is judged again whenever the fold or the clock changes.
    */
   private readonly claims = new Map<Hex, Claim>();
   /** Claim ids by the head they name. */
@@ -578,6 +581,9 @@ export class GameSession {
     if (t.seat >= this.seats) return this.rejectEvent(t.id, `there is no seat ${t.seat}`);
     if (t.seat === claimant) return this.rejectEvent(t.id, 'a seat cannot claim a timeout against itself');
     const seen = this.claims.has(t.id);
+    if (!seen && this.claimCount(t.headId, claimant) >= MAX_CLAIMS) {
+      return { status: 'rejected', reason: 'claim limit' };
+    }
     if (!seen) {
       const claim = { t, claimant };
       this.claims.set(t.id, claim);
@@ -593,6 +599,13 @@ export class GameSession {
     const v = this.judgeClaim(this.claims.get(t.id) as Claim);
     if (typeof v === 'object') return { status: 'rejected', reason: v.reject };
     return { status: seen || v === 'valid' ? 'duplicate' : 'stored' };
+  }
+
+  /** How many claims `claimant` has stored against `headId`. */
+  private claimCount(headId: Hex, claimant: number): number {
+    let n = 0;
+    for (const id of this.claimsByHead.get(headId) ?? []) if (this.claims.get(id)?.claimant === claimant) n++;
+    return n;
   }
 
   /**
@@ -1183,11 +1196,14 @@ export class GameSession {
    * The game's last progress (D030 R3): the largest `created_at` among the root, the chain's moves, per kept share
    * the earliest verified copy of it, and, once the game is over, per seat the earliest verified secret. It depends
    * only on which events are held, not their arrival order. With `limit`, events dated after it are ignored (the
-   * far-future clamp); the root always counts.
+   * far-future clamp), except the root and the head move, which always count (D030 Ruling 6): a seat that dates
+   * its move ahead only gives the next seat more time, and cannot make it claimable at once.
    */
   private progress(limit: number | null): number {
     const counts = (at: number): boolean => limit === null || at <= limit;
     let out = this.rootCreatedAt;
+    const head = this.chain[this.chain.length - 1];
+    if (head !== undefined && head.createdAt > out) out = head.createdAt;
     for (const m of this.chain) if (counts(m.createdAt) && m.createdAt > out) out = m.createdAt;
     const shares = this.shares.latest(limit);
     if (shares !== null && shares > out) out = shares;
@@ -1302,10 +1318,11 @@ export class GameSession {
    * The result once the claim `id` is accepted (PROTOCOL §8.2, D030 R5), from the fold as it stood then:
    * - before the first game action: `cancelled`, no outcome; the named seat forfeits;
    * - during play: `done` at once, the named seat (and any equivocator) last, the others ranked by the module's
-   *   `standings`. The audit is skipped, since the deck cannot be decrypted without every secret: it stays
-   *   `pending`, and there is nothing to attest;
-   * - at the end: `done`, every seat whose secret was not in by the claim's date fails the audit for a withheld
-   *   secret, and the declared order is adjusted with them (and any equivocator) last.
+   *   `standings`. The deck cannot be decrypted without every secret, so the audit cannot run: it records the
+   *   forfeits instead, `{fail: forfeits, reason: 'timeout'}` (D030 Ruling 7), and the result can be attested;
+   * - at the end: `done`, every seat whose secret was not in by the claim's date forfeits for a withheld secret,
+   *   and the declared order is adjusted with them (and any equivocator) last; the audit is
+   *   `{fail: forfeits, reason: 'withheld secret'}`.
    */
   private timeoutStatus(id: Hex): Status {
     const t = (this.claims.get(id) as Claim).t;
@@ -1321,14 +1338,14 @@ export class GameSession {
     if (this.phase === 'play') {
       const forfeits = ascending([t.seat, ...this.flagged]);
       const outcome = rankWithForfeits(this.module.standings(this.state), forfeits, null);
-      return { phase: 'done', outcome, audit: 'pending', forfeits };
+      return { phase: 'done', outcome, audit: { fail: forfeits, reason: 'timeout' }, forfeits };
     }
     // The end phase: only a seat whose secret is missing can be stalled there.
     const withheld = this.stalled(t.createdAt);
     const declared = this.module.outcome(this.state) as ModuleOutcome;
     const forfeits = ascending([...this.flagged, ...withheld]);
     const outcome = rankWithForfeits(declared.scores, forfeits, declared.places);
-    return { phase: 'done', outcome, audit: { fail: withheld, reason: 'withheld secret' }, forfeits };
+    return { phase: 'done', outcome, audit: { fail: [...forfeits], reason: 'withheld secret' }, forfeits };
   }
 
   /** The canonical `{audit, logHash, outcome}` this session would attest (PROTOCOL §4.8), or null before `done`. */

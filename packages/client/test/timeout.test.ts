@@ -83,6 +83,9 @@ function claim(game: TestGame, by: number, seat: number, headId: Hex, createdAt:
 
 const rejected = (reason: string) => ({ status: 'rejected', reason });
 
+const actionOf = (ev: NostrEvent): Action =>
+  (parseMove(ev, DECK).content as { action: unknown }).action as Action;
+
 describe('timeouts during the shuffle and the deal', () => {
   const game = makeGame(SEATS, 'client-timeout-setup');
   let steps: NostrEvent[];
@@ -235,6 +238,22 @@ describe('timeouts during the shuffle and the deal', () => {
     expect(watcher.view().forfeits).toEqual([1]);
   });
 
+  it('keeps at most 4 claims per signer per head, and rejects the rest with "claim limit"', () => {
+    const watcher = newSession(game, null);
+    const root = game.rootId;
+    const kept = [0, 1, 2, 3].map((i) => claim(game, 1, 0, root, ROOT_AT + D + i));
+    for (const ev of kept) expect(watcher.receive(ev, ROOT_AT)).toEqual({ status: 'stored' });
+    expect(watcher.receive(claim(game, 1, 0, root, ROOT_AT + D + 4), ROOT_AT)).toEqual(
+      rejected('claim limit'),
+    );
+    // A kept claim is still a duplicate, and another signer has its own allowance.
+    expect(watcher.receive(kept[0], ROOT_AT)).toEqual({ status: 'duplicate' });
+    expect(watcher.receive(claim(game, 2, 0, root, ROOT_AT + D), ROOT_AT)).toEqual({ status: 'stored' });
+    watcher.tick(LATE);
+    expect(watcher.view().phase).toBe('cancelled');
+    expect(watcher.view().forfeits).toEqual([0]);
+  });
+
   it('decides between valid claims by the lowest id, whatever their arrival order', () => {
     const events = [...steps, deals[0] as NostrEvent];
     const head = (steps[SEATS - 1] as NostrEvent).id;
@@ -347,14 +366,15 @@ describe('timeouts during play and at the end', () => {
     for (const x of [watcher, s]) {
       const v = x.view();
       expect(v.phase).toBe('done');
-      expect(v.audit).toBe('pending');
+      // The audit cannot run without every secret; it records the forfeit (D030 Ruling 7).
+      expect(v.audit).toEqual({ fail: [stalled], reason: 'timeout' });
       expect(v.forfeits).toEqual([stalled]);
       const standings = chainReaction.standings(v.state as ChainReactionState);
       expect(v.outcome).toEqual(rankWithForfeits(standings, [stalled], null));
       expect(v.outcome?.reason).toBe('forfeit');
       expect(v.outcome?.places[stalled]).toBe(SEATS);
-      // The audit is skipped, so there is nothing to attest, and nothing else is due.
-      expect(x.duties()).toEqual([]);
+      // The result can be attested; nothing else is due.
+      expect(x.duties()).toEqual(x === s ? [{ kind: 'attest' }] : []);
       expect(x.legalActions()).toEqual([]);
       expect(x.timeoutTarget(LATE)).toBeNull();
     }
@@ -362,6 +382,35 @@ describe('timeouts during play and at the end', () => {
     expect(watcher.receive(moves[k], LATE)).toEqual({ status: 'stored' });
     expect(watcher.view().head).toEqual(head);
     expect(watcher.receive(ev, LATE)).toEqual({ status: 'duplicate' });
+  });
+
+  it('counts the head move whatever its date: a seat that dates its move far ahead cannot claim at once', () => {
+    // A move that passes the turn to another seat.
+    const seatOf = (ev: NostrEvent): number => (actionOf(ev) as Action).actor;
+    const k = moves.findIndex(
+      (ev, i) => i > 0 && i + 1 < moves.length && seatOf(ev) !== seatOf(moves[i + 1] as NostrEvent),
+    );
+    expect(k).toBeGreaterThan(0);
+    const x = seatOf(moves[k] as NostrEvent);
+    const prefix = [...setup, ...moves.slice(0, k)];
+    const watcher = catchUp(game, null, prefix);
+    const sx = catchUp(game, x, prefix);
+    const t0 = (moves[k - 1] as NostrEvent).created_at;
+    expect(watcher.view().pendingSince).toBe(t0);
+    // Just before its own deadline, X makes its move, dated far ahead.
+    const far = T0 + 1_000_000_000;
+    const ev = sx.buildAction(actionOf(moves[k] as NostrEvent), game.rnd, far);
+    expect(statuses(deliver([watcher, sx], [ev], undefined, t0 + D - 1))).toEqual(['accepted', 'accepted']);
+    const y = (watcher.view().pending as { seat: number }).seat;
+    expect(y).not.toBe(x);
+    // One second after t0 + D, X claims against Y: rejected, since the head is X's own move.
+    const head = watcher.view().head.id;
+    expect(watcher.receive(claim(game, x, y, head, t0 + D + 1), t0 + D + 1)).toEqual(
+      rejected('the claim is dated before the deadline'),
+    );
+    expect(sx.timeoutTarget(t0 + D + 1)).toBeNull();
+    expect(() => sx.buildTimeout(y, game.rnd, t0 + D + 1)).toThrow(ClientError);
+    expect(watcher.view().phase).toBe('play');
   });
 
   it('keeps the module events of the canonical chain, frozen, from the setup reveals to the end', () => {
