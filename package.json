@@ -1,0 +1,25 @@
+{
+  "name": "bored-games",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck && tsc -p tests/tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "fuzz": "node tools/fuzz/src/cli.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^22.18.0",
+    "fast-check": "4.10.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.3"
+  }
+}
