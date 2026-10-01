@@ -110,8 +110,9 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
       <Section id="goal">
         <p>
           Place tiles to found chains, buy shares in them, and collect bonuses when they are taken over. When
-          the game ends, every share is sold. The player with the most cash wins; tied players share the
-          place.
+          the game ends, the last bonuses are paid and every share of a chain on the board is sold; shares of
+          chains no longer on the board are worthless. The player with the most cash wins; tied players share
+          the place.
         </p>
       </Section>
 
@@ -287,7 +288,8 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
         </ul>
         <p>
           For example, {exName} is taken over at {tiles(exSize)}, so its price is {formatMoney(exPrice)}: the
-          majority bonus is {formatMoney(exMajority)} and the minority bonus {formatMoney(exMinority)}.
+          majority bonus is {formatMoney(exMajority)} and the minority bonus {formatMoney(exMinority)}. In
+          each case below, the listed players are the only ones holding {exName} shares.
         </p>
         <ul>
           <li>
