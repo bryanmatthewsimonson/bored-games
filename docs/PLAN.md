@@ -24,7 +24,7 @@
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Last verified:** `pnpm check` passes (typecheck, Biome, 108 tests). `pnpm fuzz --games 10000 --seed checkpoint-1` reports no invariant failures; numbers are in the Phase 1 section below.
+**Last verified (2026-10-01):** `pnpm check` passes (typecheck, Biome, 108 tests). `pnpm fuzz --games 10000 --seed checkpoint-1` reports 0 failures over 10,000 games.
 
 ## Phases and acceptance criteria
 
@@ -42,10 +42,13 @@
   - every RULES.md catalog entry (C01–C58) has a named test, enforced by a meta-test
   - `pnpm check` is green
   - `pnpm fuzz --games 10000` reports zero failures, with the coverage report reviewed.
-- **Result:**
-  - 10,000 games (3–6 seats) with zero invariant failures.
-  - Rare paths reached: 4-way mergers, survivor and defunct ties, safe-absorbs-unsafe, every bonus case, trades capped by supply, refounding with kept shares, dead and blocked tiles held, all-unplayable hands, both declaration conditions, stall endings, the bag emptying.
-  - Reached only by catalog tests: "founder gets no share because players hold all 25" (C07). Random play essentially never collects all 25 shares of an inactive chain.
+- **Result** (`pnpm fuzz --games 10000 --seed checkpoint-1`, 4 workers, 222 s): 10,000 games, 1,743,953 actions, **zero invariant failures**, with view checks on.
+  - **Ends:** 8,933 declared (5,975 by the 41-tile condition, 2,958 by all-safe) and 1,067 stalls.
+  - **Mergers:** 61,017 two-way, 1,442 three-way and 6 four-way; 4,292 survivor ties and 359 defunct ties.
+  - **Every bonus case,** including 4,702 sole holders. 62,898 trades were capped by supply. 21,458 chains were refounded while players still held kept shares. The founder got no share twice (players held all 25).
+  - **Unplayable tiles:** 47,228 dead-tile discards, and 8,781 turns with no playable tile.
+  - The bag emptied in 4,784 games.
+  - `pnpm fuzz --one "<seed>" --players N` reproduces a single game deterministically (verified).
 
 ### Phase 2: Decentralized protocol
 - **First,** write `docs/PROTOCOL.md` as a NIP-style draft covering:
