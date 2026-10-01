@@ -51,7 +51,66 @@ export function compareCodeUnits(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Deep equality of plain JSON data via canonical encoding. */
+/**
+ * Structural equality of plain JSON data (object key order ignored). Faster
+ * than comparing encodings; both sides are assumed JSON-safe.
+ */
 export function jsonEqual(a: unknown, b: unknown): boolean {
-  return canonicalJson(a) === canonicalJson(b);
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!jsonEqual(a[i], b[i])) return false;
+    return true;
+  }
+  if (Array.isArray(b)) return false;
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  const ka = Object.keys(ra);
+  if (ka.length !== Object.keys(rb).length) return false;
+  for (const k of ka) if (!Object.hasOwn(rb, k) || !jsonEqual(ra[k], rb[k])) return false;
+  return true;
+}
+
+/** Throws (like canonicalJson) on any value that would not survive a JSON round trip, without encoding. */
+export function assertJsonSafe(value: unknown): void {
+  const path: (string | number)[] = [];
+  const where = (): string => `$${path.map((p) => (typeof p === 'number' ? `[${p}]` : `.${p}`)).join('')}`;
+  const walk = (v: unknown): void => {
+    if (v === null) return;
+    switch (typeof v) {
+      case 'boolean':
+      case 'string':
+        return;
+      case 'number':
+        if (!Number.isFinite(v)) throw new TypeError(`non-finite number at ${where()}`);
+        if (Object.is(v, -0)) throw new TypeError(`negative zero at ${where()}`);
+        return;
+      case 'object': {
+        if (Array.isArray(v)) {
+          for (let i = 0; i < v.length; i++) {
+            path.push(i);
+            if (!(i in v)) throw new TypeError(`sparse array at ${where()}`);
+            walk(v[i]);
+            path.pop();
+          }
+          return;
+        }
+        const proto = Object.getPrototypeOf(v);
+        if (proto !== Object.prototype && proto !== null)
+          throw new TypeError(`non-plain object at ${where()}`);
+        for (const k in v as Record<string, unknown>) {
+          path.push(k);
+          const child = (v as Record<string, unknown>)[k];
+          if (child === undefined) throw new TypeError(`undefined at ${where()}`);
+          walk(child);
+          path.pop();
+        }
+        return;
+      }
+      default:
+        throw new TypeError(`unsupported ${typeof v} at ${where()}`);
+    }
+  };
+  walk(value);
 }

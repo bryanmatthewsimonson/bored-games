@@ -1,4 +1,4 @@
-import { canonicalJson } from './canonical.ts';
+import { assertJsonSafe, jsonEqual } from './canonical.ts';
 import { stateHash } from './hash.ts';
 import { createRng, type Rng, range, shuffle } from './prng.ts';
 import { replay } from './replay.ts';
@@ -69,6 +69,8 @@ export function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+
+const sameData = jsonEqual;
 
 function learnKey(l: Learn): string {
   return `${l.deck}:${l.pos}`;
@@ -144,8 +146,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
             viewLogs[i]?.push({ kind: 'learn', learn: l });
           }
         }
-        const expected = canonicalJson(module.view(full, viewer));
-        if (canonicalJson(views[i]) !== expected) {
+        if (!sameData(views[i], module.view(full, viewer))) {
           return `view mismatch for viewer ${viewer === null ? 'spectator' : `seat ${viewer}`}`;
         }
       }
@@ -204,9 +205,8 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
 
       const violations = module.invariants(full);
       if (violations.length > 0) return fail(`invariant: ${violations.join('; ')}`);
-      const encoded = canonicalJson(full);
-      if (canonicalJson(JSON.parse(JSON.stringify(full))) !== encoded)
-        return fail('state changed in JSON round trip');
+      // Throws on anything that would not survive a JSON round trip (undefined, NaN, -0, Map...).
+      assertJsonSafe(full);
 
       bump(`event:${pending.type === 'reveal' ? 'reveal' : 'move'}`);
       for (const ev of res.events) bump(`event:${ev.type}`);
@@ -235,8 +235,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
     const entries: LogEntry[] = actions.map((a) => ({ kind: 'action', action: a }));
     const rep = replay(module, { rules: opts.rules, seats: opts.seats, mode: 'full', deckOrders }, entries);
     if (!rep.ok) return fail(`replay failed at ${rep.index}: ${rep.error.message}`);
-    if (canonicalJson(rep.state) !== canonicalJson(full))
-      return fail('replay produced a different final state');
+    if (!sameData(rep.state, full)) return fail('replay produced a different final state');
     if (checkViews) {
       for (let i = 0; i < viewers.length; i++) {
         const viewer = viewers[i] ?? null;
@@ -246,7 +245,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
           viewLogs[i] ?? [],
         );
         if (!vr.ok) return fail(`view replay failed at ${vr.index}: ${vr.error.message}`);
-        if (canonicalJson(vr.state) !== canonicalJson(module.view(full, viewer))) {
+        if (!sameData(vr.state, module.view(full, viewer))) {
           return fail(`view replay mismatch for ${viewer === null ? 'spectator' : `seat ${viewer}`}`);
         }
       }

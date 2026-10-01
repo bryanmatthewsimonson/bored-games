@@ -1,4 +1,4 @@
-export { canonicalJson, compareCodeUnits, jsonEqual } from './canonical.ts';
+export { assertJsonSafe, canonicalJson, compareCodeUnits, jsonEqual } from './canonical.ts';
 export type {
   FuzzBatchOptions,
   FuzzBatchReport,
