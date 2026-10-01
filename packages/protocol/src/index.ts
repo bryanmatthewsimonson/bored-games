@@ -3,6 +3,34 @@
  * Signing and verification use @noble/curves `schnorr` directly, not nostr-tools (D026).
  */
 export { ProtocolError } from './errors.ts';
+export {
+  type AttestSpec,
+  type Audit,
+  attestTemplate,
+  logHash,
+  type MoveContent,
+  type MoveSpec,
+  moveTemplate,
+  type Outcome,
+  type Parsed,
+  type ParsedAttest,
+  type ParsedMove,
+  type ParsedSecret,
+  type ParsedShares,
+  type ParsedTimeout,
+  type PosShare,
+  parseAttest,
+  parseMove,
+  parseSecret,
+  parseShares,
+  parseTimeout,
+  type SecretSpec,
+  type SharesSpec,
+  secretTemplate,
+  sharesTemplate,
+  type TimeoutSpec,
+  timeoutTemplate,
+} from './game.ts';
 export { DEADLINES, DEFAULT_DEADLINE, KIND, MAX_EVENT_BYTES, PROTO } from './kinds.ts';
 export {
   isRelayUrl,

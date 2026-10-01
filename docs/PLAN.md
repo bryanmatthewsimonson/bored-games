@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); 2c–2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); 2d–2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -70,6 +70,13 @@
     - **One noble copy (D023).** nostr-tools 2.25.2 pins `@noble/curves` and `@noble/hashes` 2.0.1, while the deck pins 2.4.0. A second copy's points fail the deck's `instanceof` checks, so its verifiers would silently return false. Add a pnpm override to a single version, or route every point through `decodePoint`.
     - Hash context strings in their NOSTR hex forms (D025), and decrypt only through `decryptPosition`.
 - **`packages/protocol`:** event builders and parsers, and validation.
+  - **2c result (done, 2026-10-01).** Pure package `@bored-games/protocol`, with no new third-party dependency (D026).
+    - NIP-01 layer: event ids, BIP-340 signing with injected randomness, a strict `verifyEvent` that never throws, and the 262144-byte size cap.
+    - Lobby events: Table, Join (with its proof of knowledge) and Game root, plus `validateRoot` (D027).
+    - In-game events: Move (shuffle step and action, with decoded deck types), Shares, Timeout claim, Secret reveal and Result attestation, plus `logHash` (D028). Every parser runs the same pipeline and throws only `ProtocolError`.
+    - A real 108-card shuffle move (about 36 KB) parses under the size cap.
+    - The purity guard covers `packages/protocol/src`.
+    - Not in 2c: the session engine (folding the log, owed shares, deadlines, equivocation, the audit), relay transport and the NIP-78 key backup. These are 2d and 2e.
 - **`packages/client`:** a session engine over a pluggable relay transport.
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.

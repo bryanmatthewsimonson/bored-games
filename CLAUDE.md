@@ -14,6 +14,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 ## Repo map
 - `packages/game-kit/`: the `GameModule` contract, canonical JSON, hash, PRNG, replay and generic fuzzer (pure)
 - `packages/deck/`: mental-poker deck crypto on secp256k1: ElGamal, shuffle proofs, DLEQ shares, wire codecs (pure `src/`, randomness injected; `scripts/` holds `vectors` and `bench`)
+- `packages/protocol/`: NOSTR events for the protocol: NIP-01 ids and signatures, lobby events (Table, Join, Game root) and in-game events (Move, Shares, Timeout, Secret, Attestation), strict parsers (pure)
 - `packages/games/chain-reaction/`: the Chain Reaction rules engine (pure). `src/theme.ts` is the only file with user-facing game names.
 - `packages/brand/`: platform display name
 - `tools/fuzz/`: fuzz CLI, plus per-game policies and deck orders (test tooling only)

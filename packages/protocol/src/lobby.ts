@@ -117,15 +117,15 @@ export function tableAddress(creator: Hex, tableId: string): string {
   return `${KIND.table}:${creator}:${tableId}`;
 }
 
-const badTag = (message: string): never => {
+export const badTag = (message: string): never => {
   throw new ProtocolError('bad-tag', message);
 };
 
-const badContent = (message: string): never => {
+export const badContent = (message: string): never => {
   throw new ProtocolError('bad-content', message);
 };
 
-function decimal(s: string, name: string): number {
+export function decimal(s: string, name: string): number {
   const n = Number(s);
   if (!DECIMAL.test(s) || !Number.isSafeInteger(n)) badTag(`"${name}" must be a decimal integer`);
   return n;
@@ -159,7 +159,7 @@ function relayTags(tags: readonly string[][]): string[] {
 }
 
 /** The parsed content, which must be canonical JSON (PROTOCOL §2). */
-function canonicalContent(content: string): unknown {
+export function canonicalContent(content: string): unknown {
   let value: unknown;
   try {
     value = JSON.parse(content);
@@ -177,7 +177,7 @@ function canonicalContent(content: string): unknown {
 }
 
 /** A JSON object with exactly `keys`. */
-function record(v: unknown, path: string, keys: readonly string[]): Record<string, unknown> {
+export function record(v: unknown, path: string, keys: readonly string[]): Record<string, unknown> {
   if (typeof v !== 'object' || v === null || Array.isArray(v))
     return badContent(`${path}: expected an object`);
   const own = Object.keys(v).sort();
@@ -188,12 +188,12 @@ function record(v: unknown, path: string, keys: readonly string[]): Record<strin
   return v as Record<string, unknown>;
 }
 
-function list(v: unknown, path: string): unknown[] {
+export function list(v: unknown, path: string): unknown[] {
   if (!Array.isArray(v)) return badContent(`${path}: expected an array`);
   return v;
 }
 
-function hex64(v: unknown, path: string): Hex {
+export function hex64(v: unknown, path: string): Hex {
   if (!isHex64(v)) return badContent(`${path}: expected 64 lowercase hex characters`);
   return v;
 }
@@ -225,7 +225,7 @@ function relayList(v: unknown, path: string): string[] {
 
 /* --------------------------------------------------------------------------------- parse framing */
 
-function isProtocolError(e: unknown): e is ProtocolError {
+export function isProtocolError(e: unknown): e is ProtocolError {
   try {
     return e instanceof ProtocolError;
   } catch {
@@ -233,7 +233,7 @@ function isProtocolError(e: unknown): e is ProtocolError {
   }
 }
 
-function reason(e: unknown): string {
+export function reason(e: unknown): string {
   try {
     if (e instanceof Error && typeof e.message === 'string') return e.message;
   } catch {
@@ -243,7 +243,7 @@ function reason(e: unknown): string {
 }
 
 /** The size cap, then NIP-01 validity, the kind and the `proto` tag; then `body`. Throws only `ProtocolError`. */
-function parseEvent<T>(ev: unknown, kind: number, body: (ev: NostrEvent) => T): T {
+export function parseEvent<T>(ev: unknown, kind: number, body: (ev: NostrEvent) => T): T {
   try {
     let size: number;
     try {
