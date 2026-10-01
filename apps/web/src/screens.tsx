@@ -4,6 +4,8 @@
  */
 import { BRAND } from '@bored-games/brand';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import type { ComponentType } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from './bech32.ts';
 import { homeHref, type Route } from './router.ts';
 
@@ -62,6 +64,17 @@ export function NotFoundScreen() {
   );
 }
 
+/** Dev-only previews, loaded on demand so that production builds leave them out. */
+function DevScreen(props: { page: string; scene: string | null }) {
+  const [Preview, setPreview] = useState<ComponentType<{ scene: string }> | null>(null);
+  useEffect(() => {
+    if (!import.meta.env.DEV || props.page !== 'board') return;
+    import('./dev/board-preview.tsx').then((m) => setPreview(() => m.BoardPreview));
+  }, [props.page]);
+  if (props.page !== 'board') return <NotFoundScreen />;
+  return Preview ? <Preview scene={props.scene ?? 'mid'} /> : <p class="muted">Loading the preview…</p>;
+}
+
 export function Screen(props: { route: Route }) {
   const r = props.route;
   switch (r.name) {
@@ -71,6 +84,8 @@ export function Screen(props: { route: Route }) {
       return <TableScreen creator={r.creator} tableId={r.tableId} />;
     case 'game':
       return <GameScreen rootId={r.rootId} />;
+    case 'dev':
+      return import.meta.env.DEV ? <DevScreen page={r.page} scene={r.scene} /> : <NotFoundScreen />;
     case 'not-found':
       return <NotFoundScreen />;
   }

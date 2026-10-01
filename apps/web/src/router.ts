@@ -5,15 +5,18 @@ import { signal } from '@preact/signals';
  *   #/                          Home
  *   #/t/<creatorHex>/<tableId>  a Table (lobby)
  *   #/g/<rootId>                a Game
+ *   #/dev/<page>[/<scene>]      a dev-only preview (rendered only when import.meta.env.DEV)
  */
 export type Route =
   | { name: 'home' }
   | { name: 'table'; creator: string; tableId: string }
   | { name: 'game'; rootId: string }
+  | { name: 'dev'; page: string; scene: string | null }
   | { name: 'not-found'; hash: string };
 
 const TABLE = /^\/t\/([0-9a-f]{64})\/([A-Za-z0-9._-]{1,64})\/?$/;
 const GAME = /^\/g\/([0-9a-f]{64})\/?$/;
+const DEV = /^\/dev\/([a-z0-9-]{1,32})(?:\/([a-z0-9-]{1,32}))?\/?$/;
 
 export function parseRoute(hash: string): Route {
   const path = hash.startsWith('#') ? hash.slice(1) : hash;
@@ -22,6 +25,8 @@ export function parseRoute(hash: string): Route {
   if (t) return { name: 'table', creator: t[1] as string, tableId: t[2] as string };
   const g = GAME.exec(path);
   if (g) return { name: 'game', rootId: g[1] as string };
+  const d = DEV.exec(path);
+  if (d) return { name: 'dev', page: d[1] as string, scene: d[2] ?? null };
   return { name: 'not-found', hash };
 }
 

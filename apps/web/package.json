@@ -12,6 +12,7 @@
   "dependencies": {
     "@bored-games/brand": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
+    "@bored-games/game-kit": "workspace:*",
     "@bored-games/protocol": "workspace:*",
     "@preact/signals": "2.11.3",
     "preact": "11.0.0"

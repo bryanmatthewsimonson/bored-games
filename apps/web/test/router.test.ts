@@ -25,6 +25,13 @@ describe('parseRoute', () => {
     expect(parseRoute(`#/g/${B}/`)).toEqual({ name: 'game', rootId: B });
   });
 
+  it('parses a dev preview page, with or without a scene', () => {
+    expect(parseRoute('#/dev/board')).toEqual({ name: 'dev', page: 'board', scene: null });
+    expect(parseRoute('#/dev/board/merger')).toEqual({ name: 'dev', page: 'board', scene: 'merger' });
+    expect(parseRoute('#/dev/Board')).toEqual({ name: 'not-found', hash: '#/dev/Board' });
+    expect(parseRoute('#/dev/a/b/c')).toEqual({ name: 'not-found', hash: '#/dev/a/b/c' });
+  });
+
   it('rejects malformed routes as not-found', () => {
     for (const h of [
       '#/t/abc/x',

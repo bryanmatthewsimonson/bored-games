@@ -35,6 +35,9 @@ importers:
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../../packages/games/chain-reaction
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../packages/game-kit
       '@bored-games/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
