@@ -149,6 +149,7 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 - **Forfeit:**
   - The abandoner ranks last.
   - The others are ranked by `standings(state)`, the score as if the game ended now.
+    - Chain Reaction: final scoring on a copy of the current state, except that bonuses already paid in the current merger are not paid again. A mid-merger standing still prices defunct chains at their pre-merger size and does not count the pending tile in the survivor; this is accepted as "if it ended now" (Phase 2c Task 2).
   - The game counts for stats.
   - Equivocation, a failed audit or a withheld deck secret are forfeits too.
 - **Cancellation:** a stall before the first game action cancels the game with no result.

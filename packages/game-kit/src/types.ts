@@ -39,11 +39,6 @@ export interface Learn {
 }
 
 /**
- * The standard public reveal action. The deck "actor" is not a person: in
- * production a reveal is backed by every player's decryption share; in tests
- * and audits it comes from the known deck order.
- */
-/**
  * A deck position assigned so far. `to` is the seat that owns the card (it
  * learns it privately), or null for a public position, whose card is revealed
  * to everyone (a requested or completed reveal).
@@ -54,6 +49,11 @@ export interface DealtPosition {
   readonly to: Seat | null;
 }
 
+/**
+ * The standard public reveal action. The deck "actor" is not a person: in
+ * production a reveal is backed by every player's decryption share; in tests
+ * and audits it comes from the known deck order.
+ */
 export interface RevealAction {
   readonly type: 'reveal';
   readonly actor: 'deck';

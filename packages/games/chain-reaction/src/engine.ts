@@ -218,11 +218,15 @@ function payBonuses(d: Ledger, chain: number, price: number, final: boolean, eve
 /**
  * Final scoring: pays every active chain's final bonuses and sells every share
  * of it to the bank. Reads only public data. Mutates `d`; returns cash per seat.
+ * Chains in `bonusPaid` (already paid in the current merger) get no second bonus;
+ * their shares are still sold.
  */
-function settle(d: Ledger, events: Events): number[] {
+function settle(d: Ledger, events: Events, bonusPaid: ReadonlySet<number> = new Set()): number[] {
   const sizes = sizesOf(d);
   const active = activeChains(sizes);
-  for (const c of active) payBonuses(d, c, sharePrice(d.rules, c, sizes[c] ?? 0), true, events);
+  for (const c of active) {
+    if (!bonusPaid.has(c)) payBonuses(d, c, sharePrice(d.rules, c, sizes[c] ?? 0), true, events);
+  }
   for (let seat = 0; seat < d.seats; seat++) {
     const player = d.players[seat] as Ledger['players'][number];
     for (const c of active) {
@@ -249,11 +253,24 @@ function finalScore(d: Draft, events: Events): void {
 
 /**
  * Each seat's cash as if the game were declared over now: final scoring on a
- * copy (PROTOCOL §8.2). Public data only, so every view agrees. Once the game is
- * over every share has been sold, so this is the final cash. Only the parts
- * `settle` mutates are copied; this runs for every view on every fuzz step.
+ * copy (PROTOCOL §8.2, D020). Public data only, so every view agrees. Once the
+ * game is over every share has been sold, so this is the final cash. Only the
+ * parts `settle` mutates are copied; this runs for every view on every fuzz step.
+ *
+ * Mid-merger, defunct chains whose bonuses were already paid (resolved ones, and
+ * the head once its holders are queued) still have their cells on the board, so
+ * they are excluded from a second bonus.
  */
 export function standingsOf(s: ChainReactionState): number[] {
+  const bonusPaid = new Set<number>();
+  if (s.phase.kind === 'merger') {
+    const m = s.phase.merger;
+    if (m.defuncts !== null) {
+      for (const c of m.chains) if (c !== m.survivor && !m.defuncts.includes(c)) bonusPaid.add(c);
+      const head = m.defuncts[0];
+      if (m.holders !== null && head !== undefined) bonusPaid.add(head);
+    }
+  }
   return settle(
     {
       rules: s.rules,
@@ -263,6 +280,7 @@ export function standingsOf(s: ChainReactionState): number[] {
       bank: s.bank.slice(),
     },
     [],
+    bonusPaid,
   );
 }
 

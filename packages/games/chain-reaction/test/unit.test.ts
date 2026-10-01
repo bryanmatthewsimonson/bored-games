@@ -19,7 +19,7 @@ import {
   validateRules,
   viewFor,
 } from '../src/index.ts';
-import { act, endTurn, place, posOf, scenario } from './helpers.ts';
+import { act, dispose, endTurn, place, posOf, scenario } from './helpers.ts';
 
 describe('tiles', () => {
   it('round-trips every tile id and rejects non-ids', () => {
@@ -230,5 +230,48 @@ describe('protocol hooks', () => {
     const over = applyAction(s, endTurn(0, { declareEnd: true }));
     if (!over.ok) throw new Error(over.error.message);
     expect(chainReaction.standings(over.state)).toEqual(chainReaction.outcome(over.state)?.scores);
+  });
+
+  it('standings do not repay the bonus of the defunct chain being disposed of', () => {
+    // s1 (standard, 5 tiles) absorbs b1 (budget, 3 tiles): prices $600 and $300.
+    const s = scenario({
+      chains: { s1: '1A-5A', b1: '7A-9A' },
+      hands: ['6A'],
+      shares: { b1: [0, 2, 0], s1: [1, 0, 0] },
+    });
+    const merged = act(s, place(s, 0, '6A')).state;
+    expect(merged.phase.kind === 'merger' && merged.phase.merger.holders).toEqual([1]);
+    expect(merged.players.map((p) => p.cash)).toEqual([6000, 10500, 6000]); // b1 sole bonus 3000 + 1500 paid
+    // Seat 0: s1 sole bonus 6000 + 3000, sells 1 x 600. Seat 1: no second b1 bonus, sells 2 x 300.
+    expect(chainReaction.standings(merged)).toEqual([15600, 11100, 6000]);
+    for (const viewer of [0, 1, 2, null]) {
+      expect(chainReaction.standings(viewFor(merged, viewer))).toEqual([15600, 11100, 6000]);
+    }
+    // Merger complete: s1 has 9 tiles ($700), and b1 shares are worthless.
+    const done = act(merged, dispose(1, 'b1', 0, 0)).state;
+    expect(done.phase.kind).toBe('buy');
+    expect(chainReaction.standings(done)).toEqual([6000 + 7000 + 3500 + 700, 10500, 6000]);
+  });
+
+  it('standings do not repay the bonus of a defunct chain already resolved in a multi-way merger', () => {
+    // s1 (standard, 5 tiles, $600) absorbs p1 (premium, 4 tiles, $600) then b1 (budget, 3 tiles, $300).
+    const s = scenario({
+      chains: { s1: '5A-5D 6A', p1: '6E-9E', b1: '2E-4E' },
+      hands: ['5E'],
+      shares: { s1: [3, 0, 0], p1: [0, 2, 0], b1: [0, 0, 2] },
+    });
+    // Seat 0: s1 sole bonus 6000 + 3000, sells 3 x 600. Seat 1: p1 bonus 9000 already paid, sells 2 x 600.
+    // Seat 2: b1 bonus 3000 + 1500 (paid now or already), sells 2 x 300.
+    const expected = [6000 + 9000 + 1800, 6000 + 9000 + 1200, 6000 + 4500 + 600];
+    const placed = act(s, place(s, 0, '5E')).state;
+    expect(placed.players.map((p) => p.cash)).toEqual([6000, 15000, 6000]);
+    expect(chainReaction.standings(placed)).toEqual(expected);
+    // Seat 1 keeps its p1 shares; p1 is resolved but its cells stay until the merger completes.
+    const p1Resolved = act(placed, dispose(1, 'p1', 0, 0)).state;
+    const m = p1Resolved.phase.kind === 'merger' ? p1Resolved.phase.merger : null;
+    expect(m?.defuncts?.map((c) => DEFAULT_RULES.chains[c]?.id)).toEqual(['b1']);
+    expect(m?.holders).toEqual([2]);
+    expect(p1Resolved.players.map((p) => p.cash)).toEqual([6000, 15000, 10500]);
+    expect(chainReaction.standings(p1Resolved)).toEqual(expected);
   });
 });
