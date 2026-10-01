@@ -387,6 +387,8 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 **DoS bounds.**
 - **Claims (Ruling 8, made order-independent).** A session keeps the 4 lowest-id claims per signer per head, evicting the highest, and at most 8 claims per signer naming heads it has not linked.
 - **Rival shuffle steps.** Per (prev, signer), only the 3 lowest-id shuffle steps other than the chain's own are verified, evicting the highest when a lower one arrives; higher ids are ignored, neither counting as equivocation nor linking. The kept set depends only on the ids held, so every client agrees. A seat that grinds low ids can hide its own valid rival, equally on every client, which is accepted.
+  - **OPEN residual: the cap can still split clients for good** (final re-review, reproduced). Three things make the kept set depend on arrival order after all: junk steps whose proofs fail still occupy the 3 lowest ids; `shuffleKept` leaves out the chain's own step, and which step is on the chain depends on order while a fork is undecided; and a capped rival is rejected permanently, so it is never looked at again even when the kept set later changes. A seat that publishes a valid rival plus low-id junk, timed differently to different relays, can leave some clients flagging it as an equivocator and others not, and they then disagree on forfeits and the outcome. Only the equivocating seat can cause it.
+  - **Direction for the fix (not done):** never reject a capped rival for good. Keep it pooled and unverified, and verify it only when another seat's move builds on it (it then matters for fork choice) or when the kept set changes. Count toward the cap only candidates whose proofs verified, so failing junk cannot crowd out a valid rival.
 - **Duplicates.** A held event id is answered `duplicate` before parsing, so a re-sent shuffle step is not verified again (a sim finding).
 - **Fork trials (Task 4 review, with Ruling 9):**
   - A pooled move found unable to link at its prev (waiting on R1 or a missing reveal share) is marked stuck for the current share set. It counts as depth 1 at most, and nothing below it counts.
@@ -406,6 +408,7 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 
 **Deferred.**
 - The claim race (above) is documented, not solved.
+- The rival-shuffle cap can split clients (OPEN, under DoS bounds above).
 - A derived reveal that fails to decrypt or apply stops silently. It cannot happen with verified proofs.
 - The pool of moves under unlinked prevs is bounded only by the event-size cap and the seated-key check.
 - The validity of a seat's own moves is view-dependent: a cheater's own client judges its forged move with its real hand. Other seats' moves are judged the same by every view.

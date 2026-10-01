@@ -14,6 +14,9 @@
    - What counts as timeout progress was ruled overnight (D030, Ruling 11): only events that change who is stalled.
    - The claim race (§11) is accepted as a residual risk.
    - Clients ignore the table's `status` when validating a root (§4.3).
+   - **Join binding of `deadline` and `seats` (D036).** The Table is addressable, so its creator can republish it after the start. Clients now save the Table they validated, but a fresh client that only sees a republished version cannot load the game. Binding `deadline` and `seats` into the Join, so the root validates without the mutable Table, needs a protocol change.
+   - **Rival-shuffle cap split (D030, OPEN).** The cap on rival shuffle verifications can still leave clients disagreeing on whether a shuffler equivocated. The direction for a fix is in D030.
+   - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 
 ## Status
 
