@@ -159,6 +159,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/game-kit
 
+  tools/sim:
+    dependencies:
+      '@bored-games/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@bored-games/fuzz':
+        specifier: workspace:*
+        version: link:../fuzz
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../packages/game-kit
+
 packages:
 
   '@babel/code-frame@7.29.7':

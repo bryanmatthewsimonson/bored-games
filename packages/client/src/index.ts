@@ -14,6 +14,15 @@ export {
   rootSeatOrder,
 } from './lobby.ts';
 export { GameSession } from './session.ts';
+export {
+  type Adversary,
+  type CheatRecord,
+  type SimOptions,
+  type SimPolicy,
+  type SimReport,
+  type SimTurn,
+  simulateGame,
+} from './sim.ts';
 export type {
   Duty,
   Identity,
