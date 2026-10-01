@@ -64,6 +64,10 @@ importers:
       '@noble/hashes':
         specifier: 2.4.0
         version: 2.4.0
+    devDependencies:
+      '@bored-games/chain-reaction':
+        specifier: workspace:*
+        version: link:../games/chain-reaction
 
   tools/fuzz:
     dependencies:

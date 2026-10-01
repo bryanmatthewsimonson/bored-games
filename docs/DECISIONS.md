@@ -207,6 +207,22 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Dependencies.** No new third-party dependency. `@noble/curves` and `@noble/hashes` stay pinned to `2.4.0` (D023), and the workspace packages `@bored-games/deck` and `@bored-games/game-kit` are added.
 - **Behavior.** `verifyEvent` is stricter than NIP-01: exact key set, lowercase hex, `kind` in [0, 65535], `created_at` a non-negative safe integer, tags as arrays of strings. It returns false and never throws. `finalizeEvent` takes the 32 bytes of BIP-340 auxiliary randomness from an injected `RandomBytes`.
 
+## D027: Lobby event parsing (2026-10-01, Phase 2c Task 4)
+- **Order.** Parsers check the size cap before `verifyEvent`, so an oversized event is dropped before it is hashed. The rest follows PROTOCOL §4: kind, `proto`, required tags, canonical content, then the content's exact shape.
+- **Errors.** Parsers throw only `ProtocolError`, with these codes: `too-large`, `invalid-event`, `wrong-kind`, `bad-proto`, `bad-tag`, `bad-content`, and `malformed` for anything unexpected. Deck wire errors and JSON errors are wrapped.
+- **Tags.**
+  - A listed tag has exactly the items PROTOCOL shows. A relay hint on a `p` tag, for example, is rejected.
+  - Tags with other names are ignored, so clients may add `client` or `alt` tags.
+- **Formats.**
+  - `tableId` has 1–64 characters from `[A-Za-z0-9._-]`.
+  - `game` and `v` have 1–64 characters.
+  - Counts are decimal without leading zeros.
+  - A relay URL is `ws://` or `wss://` with a host, has no whitespace and has at most 256 characters. It is checked by hand, because the `URL` global is outside the pure packages' lib.
+  - A Join's `relays` has one or more entries. A root `e` tag's relay hint is a relay URL or `""`.
+- **`validateRoot` additions beyond PROTOCOL §4.3's original list:**
+  - The root's rules must equal the table's rules, so a creator cannot switch rules after players join.
+  - The joint key must not be the identity, which D024 assigns to the protocol layer. If every seat colludes, the seats can choose deck keys that sum to zero, each with a valid proof of knowledge. The cards would then be readable.
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 

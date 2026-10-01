@@ -82,6 +82,18 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
 
+**Parsing (D027).** Clients reject a game event unless all of these hold, checked in this order:
+1. Its serialized JSON is at most 262,144 bytes of UTF-8 (§11).
+2. It is a valid NIP-01 event: exact key set, lowercase hex, and a correct id and signature.
+3. It has the expected kind and exactly one `["proto", "1"]` tag.
+4. Each tag this section lists appears exactly once, unless it is marked "zero or more" or "one or more", and has exactly the items shown. Tags with other names are ignored.
+5. The content is canonical JSON (§2) with exactly the keys shown.
+
+**Field formats:**
+- Pubkeys and event ids are 64 lowercase hex characters (D025).
+- Counts and seconds (`seats`, `open`, `deadline`) are decimal integers without leading zeros.
+- A relay URL starts with `wss://` or `ws://` and names a host. It has no whitespace or control characters and at most 256 characters.
+
 ### 4.1 Table (37450)
 The lobby listing. It may be updated (it is addressable) until the game starts.
 
@@ -99,6 +111,9 @@ The lobby listing. It may be updated (it is addressable) until the game starts.
 **Content:** `{"rules": <rules object>}`.
 
 The number of `p` tags plus `open` MUST equal `seats` minus 1 (the creator holds a seat).
+- `tableId` has 1–64 characters from `[A-Za-z0-9._-]`. `moduleId` and the engine version have 1–64 characters.
+- `seats` is at least 2.
+- Invited pubkeys are distinct and never the creator.
 
 ### 4.2 Join (7451)
 Claims a seat: an invited seat, or one of the open seats.
@@ -110,6 +125,9 @@ Claims a seat: an invited seat, or one of the open seats.
 {"deckKey":"<point>","pok":{"c":"<scalar>","s":"<scalar>"},"relays":["wss://…"],"session":"<hex x-only pubkey>"}
 ```
 The creator also publishes a Join for its own seat.
+- The `p` tag MUST be the creator named in the `a` address.
+- `relays` holds one or more relay URLs.
+- `session` is 64 lowercase hex characters (D025).
 
 ### 4.3 Game root (7450)
 Starts the game. It is immutable, and **the game id is this event's id**. The creator publishes it once the seats are filled with valid Joins.
@@ -118,19 +136,27 @@ Starts the game. It is immutable, and **the game id is this event's id**. The cr
 - `["a", <table address>]`
 - `["game", …]`, `["v", …]`, `["deadline", …]`
 - `["rules-hash", <hex SHA-256 of canonical rules>]`
-- one `["e", <join id>, <relay>, "seat:<i>"]` per seat, in seat order
+- one `["e", <join id>, <relay>, "seat:<i>"]` per seat, in seat order (`i` = 0, 1, …). The join ids are distinct, and `<relay>` is a relay URL or `""`.
 - `["relay", <url>]`, one or more
 
 **Content:**
 ```json
 {"rules":{…},"seats":[{"deckKey":"…","npub":"…","session":"…"}, …]}
 ```
+- `seats` has one entry per `e` tag, in the same order.
+- `seats[].npub` and `seats[].session` are 64-character lowercase hex x-only pubkeys, not bech32 (D025).
+- `seats[].deckKey` is a point (§2).
 
 **Seat order.** The creator chooses the seat order, and the root fixes it. Clients MUST check that:
-- every seat matches a valid Join for that table
+- the root is signed by the table's creator and names its address, with the table's `game`, `v` and `deadline`
+- there are exactly as many seats as the table's `seats`
+- every seat matches a valid Join for that table: same npub, session and deck key
 - each Join's proof of knowledge verifies
 - no npub, session key or deck key appears twice
-- the rules validate under the named module and version.
+- the creator holds a seat, and every other seat is either invited or one of the `open` seats
+- the `rules-hash` is the hash of the rules, and the rules equal the table's rules
+- the joint key `X` is not the identity (D024)
+- the named module exists at that version, its `validateRules` accepts the rules, and the seat count is within its `seatRange`.
 
 **Joint key:** `X = Σ_k X_k`.
 

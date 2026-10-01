@@ -14,5 +14,8 @@
     "@bored-games/game-kit": "workspace:*",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "@bored-games/chain-reaction": "workspace:*"
   }
 }
