@@ -140,6 +140,7 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
   - Bayer–Groth: smaller proofs, but much harder to implement correctly.
   - Cut-and-choose: megabyte-sized proofs.
   - Audit-only: catches tampering only after the game.
+- **Cross-check (2026-10-01):** the Task 7 equations were compared against the CHVote Protocol Specification (IACR ePrint 2017/325), Alg. 8.41–8.47 (GenShuffle, GenPermutation, GenReEncryption, GenShuffleProof, GenPermutationCommitment, GenCommitmentChain, CheckShuffleProof). **Verdict:** every equation matches, up to the additive notation, our swapped ciphertext components (`a = r·G`, `b = M + r·X`), re-encryption randomness indexed by output (`Σ_j r̃_j u_j = Σ_i u_{ψ(i)} r'_i`) and the response sign (`s = ω + ch·secret`, so the verifier subtracts `ch·(…)`). **One structural difference, kept:** CHVote transmits `(ch, s, c, ĉ)` and the verifier recomputes `t`; PROTOCOL §5.3 transmits `t` and the verifier checks each equation plus `ch = HS(…t…)`. Both are standard Fiat–Shamir forms of the same Σ-protocol with equal soundness; ours costs about N + 5 more points (≈ 5.3 KB at N = 108), stays inside the 40,000-byte budget and matches the approved field names.
 
 ## D020: Abandonment and deadlines (2026-10-01, owner)
 - **Deadline:** the creator picks 1, 3 or 7 days per move (default 3), fixed for the game.
