@@ -308,7 +308,7 @@ Either keeps the client a static SPA with relative asset paths, ready for Capaci
 - **Workspace dependencies of `apps/web`:** `@bored-games/client`, `@bored-games/relay` and `@bored-games/deck` (first-party), and `@bored-games/dev-relay` for tests. No third-party dependency is added.
 
 ## D030: Game-session rulings (2026-10-01, Phase 2d)
-The rules the session engine (`GameSession` in `packages/client`) implements. They were set as R1–R6 in the Phase 2d plan, then amended by the review rulings (numbered 1–10 in the order they were made; Ruling 1 was process, and Ruling 2 is D033). They change PROTOCOL v1, which is not yet published, so there is no version bump. PROTOCOL §6–§8, §10 and §11 state them normatively; this entry records the reasons.
+The rules the session engine (`GameSession` in `packages/client`) implements. They were set as R1–R6 in the Phase 2d plan, then amended by the review rulings (numbered 1–12 in the order they were made; Ruling 1 was process, and Ruling 2 is D033). They change PROTOCOL v1, which is not yet published, so there is no version bump. PROTOCOL §6–§8, §10 and §11 state them normatively; this entry records the reasons.
 
 **Owed shares (R1, PROTOCOL §6.2).**
 - A game-action move by seat k on parent state S is acceptable only if, counting k's verified shares already held plus those in the move, k has a share for every position that `dealt(S)` assigns to another seat or to `null`.
@@ -328,7 +328,7 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - **Contract.** It relies on `GameModule.legalActions` being exact or empty (below).
 
 **Equivocation (R2, refined by Rulings 3 and 5).**
-- **What counts (Ruling 3).** Two distinct moves with the same (prev, seq, signer), both valid as of prev on everything except R1. For a shuffle step, the proof verifies against prev's deck. For a game action, the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `module.apply` accepts. An invalid move is ignored and never counts. The original R2 counted any two parseable moves, which would have let a seat's own malformed retry or a module-rejected action trip it.
+- **What counts (Ruling 3).** Two distinct moves with the same (prev, seq, signer), both valid as of prev on everything except R1: the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `module.apply` accepts. An invalid move is ignored and never counts. The original R2 counted any two parseable moves, which would have let a seat's own malformed retry or a module-rejected action trip it. Shuffle steps: Ruling 12 (below), which counts them without their proofs.
 - **What it does (Ruling 5).** The seat is flagged (`view().equivocators`). The game is never stopped, rewound or cancelled. At the end the flagged seats forfeit with R5's end adjustment, and the audit still runs.
 - **Why (Ruling 5 replaced rollback and "equivocation before the first action cancels").** With rollback, one `receive` of a late re-signed old move let a seat rewind or cancel any game, even a finished one.
 - **Builders.** Each builder draws fresh randomness, so building twice for one decision is equivocation. Clients build once, persist and rebroadcast (the web controller's outbox, D034).
@@ -337,6 +337,19 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - From the root, at each prev on the chain, the next move is the successor heading the best valid branch, ranked by **(reaches the module's `over` desc, length in accepted moves desc, lowest id)**.
 - **Why `over` first (Ruling 9).** With length alone, the last mover could reopen a done game, with every secret already public: either a rival to its final move without `declareEnd` and with a lower id, or a longer replacement for its last turn.
 - **Two endings.** When two branches both reach `over`, length and then id decide, and the equivocator is flagged and ranked last either way. The last mover can therefore still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. This is accepted as weak, because it costs the seat its own place.
+
+**Shuffle candidates (Ruling 12, which replaces the rival-shuffle cap).**
+- **(a) Flagging without proofs.** Two distinct well-formed shuffle steps flag their seat when both are seq ≤ S, signed by seat seq − 1, on the same prev, and that prev is the chain's move at seq − 1. Their proofs are not checked. Well-formed means the event parsed and passed the shape check: the right signer for its seq. Only that seat's key can sign both, and an honest client never signs twice, because the web outbox and the sim persist what they built. Ruling 3 still governs game actions.
+- **(b) Eligibility.** Per group `prev:seq:seat`, let C be the well-formed steps held. If |C| ≤ 3, every step in C is a fork-choice candidate. If |C| > 3, only **acknowledged** steps are: a step is acknowledged when some well-formed move signed by another seat lies 1 to 32 moves below it along `prev`, every move on that path held. Both conditions only grow with the event set and read no chain or proof state, so every client holding the same events has the same candidates.
+- **(c) No cap rejections.** A step that is not a candidate stays pooled and unverified, and becomes a candidate if it is acknowledged later. The only rejections left are a bad shape and a failed proof. A step on the chain that stops being a candidate (its group grew past 3 and nobody acknowledged it) is cut back off the chain, with everything after it.
+- **(d) Fork choice is unchanged:** (reaches `over`, length, lowest id), over candidates only.
+- **Why.** The cap it replaces (per prev and signer, verify only the 3 lowest-id steps other than the chain's own) still split clients for good, as the final re-review reproduced. Seat 1 signs valid steps `a` and `b` and 3 junk steps with lower ids, and seat 2 builds `c` on `a`. Delivered as `[s0, junk×3, b, a, c]`, a client linked `b` at the head, then ignored `a` for good as the 4th rival, so `c` never linked: the chain stopped at `[s0, b]`. Delivered as `[s0, junk×3, a, b, c]`, it ended at `[s0, a, c]`. Neither flagged seat 1, because the junk never verified and one valid step was always ignored. Three things made the kept set depend on arrival order: failing junk took cap slots, the exemption for the chain's own step depended on which step linked first, and an ignored rival was rejected for good. The cap did not bound the work either: delivered in descending id order, every junk step was briefly among the 3 lowest and was verified.
+- **Bound.** Per group, a client verifies at most the 3 steps that arrive while the group holds 3 or fewer, plus the acknowledged ones. Acknowledging junk takes another seat's signed move.
+- **Accepted consequence.** A seat that publishes more than 3 unacknowledged steps on one prev stalls its own position: none of them links, so the timeout falls on it (cancel, or forfeit once play started). It is flagged as well.
+- **Residuals.**
+  - Colluding seats can acknowledge junk, at one verification per colluder move.
+  - The last shuffler, if it is also the first actor, can withdraw its step (by publishing 3 more) until someone else moves. The deal's Shares events are not moves, so this window spans the deal. It flags the seat, but a withdrawal inside the window between clients' acceptance of a timeout claim splits them like the claim race (below), as a lower-id re-signed head move already can.
+  - The pool of held moves still grows without bound (Deferred, below).
 
 **Timeouts (Ruling 10, which replaces R3's date rules, the far-future clamp and Ruling 6).**
 - **Local time.** `receive(ev, now)` takes `now` as the time this client first saw `ev`. Clients persist first-seen times by event id (the web controller does), so a reload keeps them.
@@ -386,9 +399,7 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 
 **DoS bounds.**
 - **Claims (Ruling 8, made order-independent).** A session keeps the 4 lowest-id claims per signer per head, evicting the highest, and at most 8 claims per signer naming heads it has not linked.
-- **Rival shuffle steps.** Per (prev, signer), only the 3 lowest-id shuffle steps other than the chain's own are verified, evicting the highest when a lower one arrives; higher ids are ignored, neither counting as equivocation nor linking. The kept set depends only on the ids held, so every client agrees. A seat that grinds low ids can hide its own valid rival, equally on every client, which is accepted.
-  - **OPEN residual: the cap can still split clients for good** (final re-review, reproduced). Three things make the kept set depend on arrival order after all: junk steps whose proofs fail still occupy the 3 lowest ids; `shuffleKept` leaves out the chain's own step, and which step is on the chain depends on order while a fork is undecided; and a capped rival is rejected permanently, so it is never looked at again even when the kept set later changes. A seat that publishes a valid rival plus low-id junk, timed differently to different relays, can leave some clients flagging it as an equivocator and others not, and they then disagree on forfeits and the outcome. Only the equivocating seat can cause it.
-  - **Direction for the fix (not done):** never reject a capped rival for good. Keep it pooled and unverified, and verify it only when another seat's move builds on it (it then matters for fork choice) or when the kept set changes. Count toward the cap only candidates whose proofs verified, so failing junk cannot crowd out a valid rival.
+- **Rival shuffle steps (Ruling 12).** Per `prev:seq:seat` group, only the steps that arrive while it holds 3 or fewer are verified, plus those another seat acknowledges; the rest stay pooled and unverified, whatever the arrival order.
 - **Duplicates.** A held event id is answered `duplicate` before parsing, so a re-sent shuffle step is not verified again (a sim finding).
 - **Fork trials (Task 4 review, with Ruling 9):**
   - A pooled move found unable to link at its prev (waiting on R1 or a missing reveal share) is marked stuck for the current share set. It counts as depth 1 at most, and nothing below it counts.
@@ -408,7 +419,6 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 
 **Deferred.**
 - The claim race (above) is documented, not solved.
-- The rival-shuffle cap can split clients (OPEN, under DoS bounds above).
 - A derived reveal that fails to decrypt or apply stops silently. It cannot happen with verified proofs.
 - The pool of moves under unlinked prevs is bounded only by the event-size cap and the seated-key check.
 - The validity of a seat's own moves is view-dependent: a cheater's own client judges its forged move with its real hand. Other seats' moves are judged the same by every view.

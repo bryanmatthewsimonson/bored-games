@@ -15,7 +15,7 @@
    - The claim race (§11) is accepted as a residual risk.
    - Clients ignore the table's `status` when validating a root (§4.3).
    - **Join binding of `deadline` and `seats` (D036).** The Table is addressable, so its creator can republish it after the start. Clients now save the Table they validated, but a fresh client that only sees a republished version cannot load the game. Binding `deadline` and `seats` into the Join, so the root validates without the mutable Table, needs a protocol change.
-   - **Rival-shuffle cap split (D030, OPEN).** The cap on rival shuffle verifications can still leave clients disagreeing on whether a shuffler equivocated. The direction for a fix is in D030.
+   - **Rival shuffle steps (D030, Ruling 12).** The arrival-order split in the old rival-shuffle cap is fixed: two well-formed steps by one seat on a chain prev flag it without proofs, and past 3 steps per prev only steps another seat acknowledged are fork-choice candidates. Owner to confirm the residuals: colluders can acknowledge junk, and the last shuffler can withdraw its step (stalling and flagging itself) until another seat moves.
    - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 
 ## Status
