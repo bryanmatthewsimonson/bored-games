@@ -13,7 +13,7 @@ import {
 /**
  * Fuzzing policies for Tilestock. These are test drivers that bias random
  * play toward rare rule paths (multi-way mergers, safe chains, dead and
- * blocked tiles, supply limits, stalls). They are never players.
+ * blocked tiles, supply limits, the bag running out). They are never players.
  */
 
 type Weigh = (state: TilestockState, action: TilestockAction) => number;
@@ -63,7 +63,7 @@ function makePolicy(style: Style): FuzzPolicy<TilestockState> {
         return weighted(actions, (a) => style.dispose?.(state, a) ?? 1, rng);
       if (first.type === 'endTurn') {
         // With the bag empty no new tile can ever arrive, so a real player ends the
-        // game rather than declining an available end forever (which would stall).
+        // game rather than declining an available end forever (the game would never end).
         const bagEmpty = state.deck.next >= TILE_COUNT;
         const wantDeclare = bagEmpty || rng.float() < style.declare;
         const pool = actions.filter((a) => a.type === 'endTurn' && a.declareEnd === wantDeclare);

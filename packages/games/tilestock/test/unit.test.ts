@@ -104,7 +104,8 @@ describe('rules validation', () => {
         ],
       }).ok,
     ).toBe(false);
-    expect(validateRules({ ...DEFAULT_RULES, stallRule: 'off' }).ok).toBe(true);
+    // There is no stall rule: games end only by declaration.
+    expect(validateRules({ ...DEFAULT_RULES, stallRule: 'off' }).ok).toBe(false);
     expect(validateRules(null).ok).toBe(false);
   });
 });

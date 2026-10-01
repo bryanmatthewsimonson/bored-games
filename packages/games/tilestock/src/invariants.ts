@@ -130,6 +130,5 @@ export function checkInvariants(s: TilestockState): string[] {
     }
   }
   if (s.phase.kind !== 'setup' && s.phase.kind !== 'over' && s.turn === null) out.push('turn missing');
-  if (s.stall < 0) out.push('negative stall counter');
   return out;
 }

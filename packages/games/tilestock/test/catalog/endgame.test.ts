@@ -64,18 +64,19 @@ describe('end of game', () => {
     expect(outcomeOf(state)?.places).toEqual([1, 1, 3]);
   });
 
-  it('C52 the stall rule ends the game', () => {
-    const spec = { loose: '1A 6E 12I', emptyBag: true } as const;
-    const s = scenario(spec);
+  it('C52 the game ends only by declaration', () => {
+    const s = scenario({ chains: { s1: '1A-11A' }, loose: '1E 6E', emptyBag: true });
+    expect(s.turn?.endCondition).toBe('allSafe');
     const skip = (seat: number) => [{ type: 'skipPlace', actor: seat }, endTurn(seat)];
-    const { state, events } = run(s, [...skip(0), ...skip(1), ...skip(2)]);
-    expect(ofType(events, 'gameEnded')[0]?.reason).toBe('stall');
-    expect(state.result?.reason).toBe('stall');
-
-    const off = scenario({ ...spec, rules: { stallRule: 'off' } });
-    const continued = run(off, [...skip(0), ...skip(1), ...skip(2)]).state;
-    expect(continued.phase.kind).toBe('place');
-    expect(continued.stall).toBe(3);
+    const continued = run(s, [...skip(0), ...skip(1), ...skip(2)]).state;
+    expect(continued.result).toBeNull();
+    expect(pendingDecision(continued)).toEqual({ type: 'player', seat: 0, decision: 'place' });
+    const { state, events } = run(continued, [
+      { type: 'skipPlace', actor: 0 },
+      endTurn(0, { declareEnd: true }),
+    ]);
+    expect(ofType(events, 'gameEnded')[0]?.reason).toBe('declared');
+    expect(state.result?.reason).toBe('declared');
   });
 
   it('C53 the bag can empty partway through a refill', () => {

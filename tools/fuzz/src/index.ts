@@ -21,9 +21,6 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     policies: TILESTOCK_POLICIES,
     deckOrder: tilestockDeckOrder,
     expectedCoverage: TILESTOCK_EXPECTED_COVERAGE,
-    // A correct game always ends by declaration; a stall means the rules or the
-    // engine are wrong (owner, 2026-10-01).
-    checkOutcome: (o) => (o.reason === 'stall' ? 'game stalled instead of ending by declaration' : null),
     defaultSeatCounts: [3, 4, 5, 6],
   },
 };

@@ -55,7 +55,6 @@ export interface ScenarioSpec {
   readonly bag?: string;
   /** Put every tile not otherwise placed in the discard pile (so the bag holds only `bag`). */
   readonly emptyBag?: boolean;
-  readonly stall?: number;
   /**
    * Give 1 share of each active chain nobody holds to the last seat, so the
    * state satisfies "every chain on the board has a shareholder". Default true.
@@ -145,9 +144,8 @@ export function scenario(spec: ScenarioSpec): TilestockState {
     bank,
     discard: discard.slice().sort((a, b) => a - b),
     firstPlayer: 0,
-    turn: { seat: turnSeat, number: 10, placed: phase === 'buy', endCondition: endCondition(board, rules) },
+    turn: { seat: turnSeat, number: 10, endCondition: endCondition(board, rules) },
     phase: { kind: phase },
-    stall: spec.stall ?? 0,
     result: null,
     seq: 0,
   };

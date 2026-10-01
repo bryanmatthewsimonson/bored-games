@@ -23,7 +23,7 @@ Display names (game title, chain names, colors) live in `packages/games/tilestoc
 |---|---|---|
 | First player | Closest to 1A comparing **row, then column**: 9A beats 1B, 2A beats 2B. `firstPlayerOrder: 'columnThenRow'` is available. | Reference page examples; owner chose it over the kickoff's column-first convention |
 | End declaration | Optional, on your own turn, when an end condition held at the start of the turn or after your placement resolved. The declarer finishes the turn (buys), then the game is scored. | Reference page ("if either condition has been met during your turn… declare… after completing your turn") |
-| Stall | **House rule:** if the bag is empty and a full round passes with no tile placed, the game ends and is scored. Under correct play it never fires, because an end condition is always declarable by then. A stall is treated as a bug (see DECISIONS D015). | Kickoff; owner ruling that games never stall |
+| Ending | The game ends **only** by declaration. There is no stall or timeout ending in the rules. Once the tiles run out, an end condition is always declarable, so a game that does not end is a bug (DECISIONS D015, D016). | Reference page; owner ruling |
 | Dead tiles | At the **end of your turn**, every dead tile you held during the turn is revealed, discarded, and replaced. The page says "only once per turn": a replacement that is itself dead waits until the end of your next turn. | Reference page. Literal reading: the tiles you *held during the turn* |
 | Blocked tiles | A tile that would found an 8th chain is not dead. You keep it until a chain becomes available. | Reference page |
 | No playable tile | Skip placement and still buy. | Kickoff default; consistent with "play one tile each turn, if possible" |
@@ -109,7 +109,7 @@ The player who placed the merging tile is the **mergemaker**.
   - every chain on the board (at least one) is safe.
 
   You finish your turn (buying), and then the game is scored.
-- **Stall (house rule).** If the bag is empty and a full round passes with no tile placed, the game ends and is scored.
+- **No other ending.** Declaration is the only way a game ends. Play continues with players who cannot place a tile still taking their turns to buy shares, until someone declares.
 - **Final scoring:**
   1. Each chain on the board pays majority and minority bonuses at its current size, using the same tie rules.
   2. Every share of a chain on the board is sold at its current price.
@@ -142,7 +142,6 @@ Only hands and the bag order are secret. Everything else derives from the public
 | `deadTiles` | `endOfTurnOncePerTurn` | |
 | `noPlayableTile` | `skipPlacement` | |
 | `endDeclaration` | `finishTurn` | |
-| `stallRule` | `emptyBagFullRound` | or `off` |
 
 ## Edge-case catalog
 
@@ -458,14 +457,16 @@ Each entry has a named test in `packages/games/tilestock/test/catalog/` whose ti
 #### C51 Tied final cash shares the place
 **Expected:** Two players finishing with equal cash both get place 1; the next player gets place 3.
 
-#### C52 The stall rule ends the game
+#### C52 The game ends only by declaration
 **Setup:**
 - The bag is empty and all hands are empty.
-- Three seats each skip placement in turn.
+- s1 (11 tiles) is the only chain, so the all-safe condition holds.
+- All three seats skip placement and end their turns without declaring.
 
 **Expected:**
-- After the third skip the game ends (reason `stall`) and is scored.
-- With `stallRule: 'off'`, play continues.
+- The game is not over; it is seat 0's turn again.
+- When seat 0 then declares, the game ends with reason `declared`.
+- A `stallRule` option is rejected as an unknown rule.
 
 #### C53 The bag can empty partway through a refill
 **Setup:** One tile is left in the bag. A player ends their turn holding 4 tiles.

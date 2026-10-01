@@ -114,7 +114,6 @@ export function setupGame(input: SetupInput<TilestockRules>): Result<TilestockSt
       firstPlayer: null,
       turn: null,
       phase: { kind: 'setup' },
-      stall: 0,
       result: null,
       seq: 0,
     },
@@ -154,7 +153,7 @@ function drawTo(d: Draft, seat: Seat, count: number): number[] {
 }
 
 function startTurn(d: Draft, seat: Seat, number: number, events: Events): void {
-  d.turn = { seat, number, placed: false, endCondition: endCondition(d.board, d.rules) };
+  d.turn = { seat, number, endCondition: endCondition(d.board, d.rules) };
   d.phase = { kind: 'place' };
   events.push({ type: 'turnStarted', seat, turn: number });
 }
@@ -191,7 +190,8 @@ function payBonuses(d: Draft, chain: number, price: number, final: boolean, even
   }
 }
 
-function finalScore(d: Draft, reason: 'declared' | 'stall', events: Events): void {
+function finalScore(d: Draft, events: Events): void {
+  const reason = 'declared';
   const sizes = sizesOf(d);
   const active = activeChains(sizes);
   for (const c of active) payBonuses(d, c, sharePrice(d.rules, c, sizes[c] ?? 0), true, events);
@@ -344,7 +344,6 @@ function handle(d: Draft, a: ParsedAction, events: Events): EngineError | null {
       const cls = classifyTile(d.board, d.rules, a.tile);
       if (!isPlayable(cls)) return err('unplayable', `${tileId(a.tile)} is ${cls.kind}`);
       player.hand.splice(idx, 1);
-      turn.placed = true;
       events.push({ type: 'tilePlaced', seat: a.actor, tile: tileId(a.tile), kind: cls.kind as 'lone' });
       if (cls.kind === 'lone') {
         d.board[a.tile] = LOOSE;
@@ -559,16 +558,11 @@ function handle(d: Draft, a: ParsedAction, events: Events): EngineError | null {
         events.push({ type: 'tilesDiscarded', seat: a.actor, tiles: a.discard.map((e) => tileId(e.tile)) });
       }
       if (a.declareEnd) {
-        finalScore(d, 'declared', events);
+        finalScore(d, events);
         return null;
       }
       const drawn = drawTo(d, a.actor, d.rules.handSize - player.hand.length);
       if (drawn.length > 0) events.push({ type: 'tilesDealt', seat: a.actor, positions: drawn });
-      d.stall = turn.placed ? 0 : d.stall + 1;
-      if (d.rules.stallRule === 'emptyBagFullRound' && d.deck.next >= TILE_COUNT && d.stall >= d.seats) {
-        finalScore(d, 'stall', events);
-        return null;
-      }
       startTurn(d, (a.actor + 1) % d.seats, turn.number + 1, events);
       return null;
     }

@@ -48,7 +48,7 @@ Runtime dependencies so far: **none**. Phase 2 will add `@noble/curves` and `@no
 - **Canonical actions.** Exact key sets, integer fields, buys in chain order, discards in position order.
 - **Integer money.** Every amount is a multiple of $100. Absent values are `null`, never missing keys.
 - **The pending decision is the phase.** `pending()` derives who acts: a seat or a public deck reveal. `legalActions` returns only that seat's choices.
-- **Automatic steps run inside `apply`.** A bounded `advance()` loop handles bonuses, skipping holders with no shares, flood-fill relabels, turn advance, stall and scoring.
+- **Automatic steps run inside `apply`.** A bounded `advance()` loop handles bonuses, skipping holders with no shares, flood-fill relabels, turn advance and scoring.
 - **Rule options.** Every OPEN rule is a `TilestockRules` option with a documented default.
 
 ## D008: Hidden cards are deck positions, with private learns and public reveals
@@ -64,7 +64,7 @@ Details are in `docs/games/tilestock/RULES.md` under "Sources and interpretation
 - First player is decided row-then-column.
 - Declaring the end is optional, and the declarer finishes their turn.
 - Dead tiles held during a turn are replaced at its end, once per turn.
-- The empty-bag stall house rule is kept, with no other liveness rule.
+- The game ends only by declaration. The kickoff's empty-bag stall house rule was later removed (D016).
 - Bonus splits round up to $100.
 
 ## D010: Fuzzer instead of bots
@@ -103,10 +103,15 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
   - The bag and hands were empty, and every empty space was dead.
 - **Root cause:** fuzz policies that rarely or never declare kept declining an available end. The rules and engine were correct.
 - **Fix:**
-  - The fuzz target reports any stall outcome as a failure (`checkOutcome` in the kit).
+  - The fuzz target reported any stall outcome as a failure (`checkOutcome` in the kit). This was superseded by D016, which removed the stall ending.
   - Simulated players declare once the bag is empty.
   - The formerly stalled seeds are regression tests.
-- The engine's stall house rule stays as a dormant safeguard, pending the owner's decision (PLAN open question 8).
+- The engine's stall house rule was then removed entirely (D016).
+
+## D016: Stall rule removed (2026-10-01, owner)
+- **Ruling:** the game ends only by declaration, as in the reference rules. The kickoff's house rule (bag empty plus a full round with no tile placed) is gone, along with its `stallRule` option, the `stall` counter and the per-turn `placed` flag.
+- **Engine version:** bumped to 0.2.0, because the ending rules changed.
+- **If a game ever fails to end,** the fuzzer reports "no termination within N steps" with a reproducible seed. That is a bug to fix, not an ending.
 
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.

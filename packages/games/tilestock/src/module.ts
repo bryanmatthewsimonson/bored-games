@@ -8,7 +8,7 @@ import { TILE_COUNT } from './tiles.ts';
 import type { TilestockEvent, TilestockState } from './types.ts';
 
 export const TILESTOCK_ID = 'tilestock';
-export const TILESTOCK_VERSION = '0.1.0';
+export const TILESTOCK_VERSION = '0.2.0';
 
 /** Redacts a state to what `viewer` may know: opponents' hands and the deck order are hidden. */
 export function viewFor(s: TilestockState, viewer: Seat | null): TilestockState {

@@ -46,13 +46,12 @@ export type Phase =
 export interface TurnState {
   readonly seat: Seat;
   readonly number: number;
-  readonly placed: boolean;
   /** An end condition that held at the start of this turn or after its placement resolved. */
   readonly endCondition: 'endSize' | 'allSafe' | null;
 }
 
 export interface GameResult {
-  readonly reason: 'declared' | 'stall';
+  readonly reason: 'declared';
   readonly cash: readonly number[];
   readonly places: readonly number[];
 }
@@ -75,8 +74,6 @@ export interface TilestockState {
   readonly firstPlayer: Seat | null;
   readonly turn: TurnState | null;
   readonly phase: Phase;
-  /** Consecutive completed turns without a placed tile. */
-  readonly stall: number;
   readonly result: GameResult | null;
   readonly seq: number;
 }
@@ -189,7 +186,7 @@ export type TilestockEvent =
     }
   | {
       readonly type: 'gameEnded';
-      readonly reason: 'declared' | 'stall';
+      readonly reason: 'declared';
       readonly cash: readonly number[];
       readonly places: readonly number[];
     };

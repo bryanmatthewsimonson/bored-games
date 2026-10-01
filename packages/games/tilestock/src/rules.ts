@@ -41,8 +41,6 @@ export interface TilestockRules {
   readonly noPlayableTile: 'skipPlacement';
   /** The declaring player finishes their turn before final scoring. */
   readonly endDeclaration: 'finishTurn';
-  /** House rule: bag empty and a full round without a placed tile ends the game. */
-  readonly stallRule: 'emptyBagFullRound' | 'off';
 }
 
 export const DEFAULT_RULES: TilestockRules = {
@@ -77,7 +75,6 @@ export const DEFAULT_RULES: TilestockRules = {
   deadTiles: 'endOfTurnOncePerTurn',
   noPlayableTile: 'skipPlacement',
   endDeclaration: 'finishTurn',
-  stallRule: 'emptyBagFullRound',
 };
 
 const fail = (message: string): Result<TilestockRules> => ({ ok: false, error: { code: 'rules', message } });
@@ -136,7 +133,6 @@ export function validateRules(input: unknown): Result<TilestockRules> {
   if (rules.deadTiles !== 'endOfTurnOncePerTurn') return fail('deadTiles');
   if (rules.noPlayableTile !== 'skipPlacement') return fail('noPlayableTile');
   if (rules.endDeclaration !== 'finishTurn') return fail('endDeclaration');
-  if (rules.stallRule !== 'emptyBagFullRound' && rules.stallRule !== 'off') return fail('stallRule');
   return { ok: true, value: rules };
 }
 

@@ -39,7 +39,7 @@ export interface FuzzGameOptions<S, R> {
   readonly checkViews?: boolean;
   /** Extra legal actions test-applied per step (0 disables). */
   readonly legalitySample?: number;
-  /** Returns a reason when a finished game's outcome must never happen (e.g. a stall); reported as a failure. */
+  /** Returns a reason when a finished game's outcome must never happen; reported as a failure. */
   readonly checkOutcome?: (outcome: Outcome) => string | null;
 }
 
