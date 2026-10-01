@@ -393,6 +393,20 @@ describe('GameController', () => {
       JSON.stringify({ deal: { event: strayDeal, confirmed: false, orphan: false } }),
     );
     const players = bySeat.map((p) => game(rootId, p.deps));
+    // Another tab of seat 2 saves a stray deal after this tab loaded: the deal duty commits it, the session
+    // refuses it, and the duty builds a fresh deal in the same step instead of getting stuck.
+    const seat2 = bySeat[2] as Profile;
+    const strayDeal2 = finalizeEvent(
+      { kind: KIND.shares, created_at: now(), tags: [['e', rootId, '', 'root']], content: '{}' },
+      rnd(32),
+      rnd,
+    );
+    const key2 = `bg:${seat2.name}:outbox:${rootId}`;
+    const held2 = JSON.parse(seat2.deps.storage.getItem(key2) ?? '{}') as Record<string, unknown>;
+    seat2.deps.storage.setItem(
+      key2,
+      JSON.stringify({ ...held2, deal: { event: strayDeal2, confirmed: false, orphan: false } }),
+    );
     // The spectator's relays also deliver forgeries: a Table at the same `d` tag from another author, dated far
     // in the future, a Join naming another table, and a Join for this table that the root does not seat.
     const tableId = address.split(':')[2] as string;
@@ -471,13 +485,14 @@ describe('GameController', () => {
     expect(spectator.error.value).toBeNull();
     expect(spectator.status.value).toBe('waiting');
     expect(players.every((g) => g.error.value === null)).toBe(true);
+    expect(players.every((g) => g.status.value !== 'stuck')).toBe(true);
     // Every event this seat built is confirmed by the relay.
     for (const [i, p] of bySeat.entries()) {
       const outbox = loadOutbox(p.deps.storage, p.name, rootId);
       expect(outbox.size).toBe(2);
       expect(outbox.get('deal')?.confirmed).toBe(true);
       expect(outbox.get('deal')?.orphan).toBe(false);
-      expect(outbox.get('deal')?.event.id).not.toBe(strayDeal.id);
+      expect([strayDeal.id, strayDeal2.id]).not.toContain(outbox.get('deal')?.event.id);
       // The shuffle is kept under the head it was built on.
       const prev = i === 0 ? rootId : null;
       const [slot, entry] = [...outbox.entries()].find(([k]) => k.startsWith(`move:${i + 1}:`)) ?? [];

@@ -796,11 +796,27 @@ export class GameController {
     // A deal, secret or attestation the session refused (an orphan: after a shuffle fork, or a changed result) is
     // built anew. None of them is a chain move, so a second one is never equivocation: a seat's later shares of a
     // position are ignored, its secret is one value, and its latest attestation is the one that counts.
-    if (kind === 'deal') return this.#commit('deal', this.#live('deal') ?? session.buildDeal(rnd, now()));
-    if (kind === 'secret')
-      return this.#commit('secret', this.#live('secret') ?? session.buildSecret(rnd, now()));
-    if (kind === 'attest')
-      return this.#commit('attest', this.#live('attest') ?? (await this.#attestEvent(session)));
+    if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
+    if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
+    if (kind === 'attest') {
+      // A new attestation must be later than the refused one, or it would not replace it (latest wins).
+      const after = (): number => (this.#outbox.get('attest')?.event.created_at ?? 0) + 1;
+      return this.#single('attest', () => this.#attestEvent(session, after()));
+    }
+  }
+
+  /**
+   * Commit the saved event for a single-slot duty, or a new one. If the session refuses the event it committed
+   * (saved by this or another tab, now an orphan), build anew once, in this same step, rather than leaving the
+   * duty failed until the head moves.
+   */
+  async #single(slot: string, build: () => NostrEvent | Promise<NostrEvent>): Promise<void> {
+    try {
+      return this.#commit(slot, this.#live(slot) ?? (await build()));
+    } catch (e) {
+      if (!(e instanceof ClientError) || this.#outbox.get(slot)?.orphan !== true) throw e;
+    }
+    return this.#commit(slot, await build());
   }
 
   /** The event saved for a single-slot duty (`deal`, `secret`, `attest`), unless the session refused it. */
@@ -809,11 +825,14 @@ export class GameController {
     return entry !== undefined && !entry.orphan ? entry.event : null;
   }
 
-  /** The attestation: the session's `attestTemplate(createdAt)`, signed by the player's npub (§4.8). */
-  async #attestEvent(session: GameSession): Promise<NostrEvent> {
+  /**
+   * The attestation: the session's `attestTemplate(createdAt)`, signed by the player's npub (§4.8), dated now or
+   * `notBefore`, whichever is later.
+   */
+  async #attestEvent(session: GameSession, notBefore = 0): Promise<NostrEvent> {
     const api = session as unknown as AttestApi;
     if (typeof api.attestTemplate !== 'function') throw new ClientError('this session cannot attest');
-    const ev = await this.#d.signer.sign(api.attestTemplate(this.#d.now()));
+    const ev = await this.#d.signer.sign(api.attestTemplate(Math.max(this.#d.now(), notBefore)));
     // The signer may have kept a prompt open while the screen closed.
     if (this.#disposed) throw new Error('the game screen was closed');
     return ev;
