@@ -87,7 +87,8 @@
     - Game actions (§6.5): the signer must be the pending seat, every share and reveal must verify, the module must accept the action, and each reveal must decrypt to the card `revealsOf` claims. A move missing only shares that another event may still bring (its owed shares, R1, or another seat's share of a revealed card) is buffered, then accepted when they arrive. `buildAction` attaches the owed shares and the reveal shares.
     - `pendingSince` is computed from the held events: the root, the accepted moves and, per kept share, its earliest verified copy. Arrival order does not change it.
     - Equivocation (R2): every well-formed move from a seated key is indexed by (prev, seq, signer), and a second id under one key is a forfeit. The session then stops at the common prev, rolling the chain back if it had linked either rival, so every client judges the forfeit on the same state.
-    - Next: the end of the game and the audit, forfeit outcomes, timeouts, the lobby fold and simulations (Tasks 4–7).
+    - Lobby: `foldLobby` seats Joins by priority slot with collision checks and recovery, and `buildRootTemplate` accepts an explicit seat list (D021). Joins prove possession of their session key (D033).
+    - Next: the end of the game and the audit, forfeit outcomes, timeouts and simulations (Tasks 4, 5 and 7).
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.

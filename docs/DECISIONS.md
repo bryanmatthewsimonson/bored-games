@@ -156,6 +156,10 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 
 ## D021: Seating (2026-10-01, owner)
 The table lists invited npubs and/or open seats; anyone can claim an open seat until the table fills, and the creator then publishes the game root, which fixes the seat order. This covers friends now and public matchmaking later with no protocol change.
+- **Default fill order (client, Phase 2d).** `foldLobby` seats the creator, then the invited npubs in list order, then open joiners by the self-declared `created_at` of their earliest valid Join (then id). `created_at` is attacker-controllable: a joiner can backdate a Join to jump the open-seat queue, though never past the creator or an invited player.
+- **Explicit seats.** The creator is not bound by that order. `buildRootTemplate(view, relays, createdAt, seats)` takes the Join ids in seat order and checks them with `validateRoot`'s seat rules (creator first, every invited npub present, at most `open` others, no colliding keys), so the creator can choose among open joiners. The root is what fixes the seats; peers accept any valid one.
+- **Collisions and recovery.** The fold drops a Join whose session key is its own npub or its deck key's x-coordinate, then walks each npub's Joins in time order and seats the first that collides with no seat already taken. A player whose earlier Join collides can re-join with fresh keys and take its slot. With D033, only the holder of a key can cause a collision with it.
+- **Later.** Hardening open seats for public matchmaking is deferred to the matchmaking work.
 
 ## D022: Initial hands are dealt at setup, in seat order (2026-10-01, protocol-driven)
 - **Why:** the deal round needs every hand position assigned before any card is revealed (PROTOCOL §6.1).

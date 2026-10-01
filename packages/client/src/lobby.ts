@@ -1,4 +1,4 @@
-import { G, type Point, type RandomBytes, randomScalar } from '@bored-games/deck';
+import { G, jointKey, type Point, type RandomBytes, randomScalar } from '@bored-games/deck';
 import type { GameModule } from '@bored-games/game-kit';
 import {
   type EventTemplate,
@@ -42,10 +42,16 @@ export interface GameKeys {
 export interface LobbyView {
   table: ParsedTable;
   /**
-   * The valid Joins that hold a seat: the creator's, then invited npubs that joined (in invited-list order), then
-   * other joiners by `created_at` and id, capped at the table's open seats. One per npub, the earliest.
+   * The valid Joins that hold a seat, one per npub: the creator's, then invited npubs that joined (in invited-list
+   * order), then other joiners in the order of their earliest valid Join (`created_at`, then id), capped at the
+   * table's open seats. Each npub gets its first Join, in time order, that collides with no seat already taken.
    */
   joins: ParsedJoin[];
+  /**
+   * Every valid Join for this table, seated or not, in `created_at` then id order: the pool an explicit seat list
+   * for `buildRootTemplate` picks from.
+   */
+  candidates: ParsedJoin[];
   seatsFilled: number;
   /** The creator, every invited npub and `open` uninvited joiners have all joined. */
   full: boolean;
@@ -83,11 +89,55 @@ function tryParse<T>(parse: (ev: unknown) => T, ev: unknown): T | null {
 const byTimeThenId = (a: { created_at: number; id: Hex }, b: { created_at: number; id: Hex }): number =>
   a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** The x-coordinate of a deck key as 64 lowercase hex characters, the form a session key would share. */
+const deckX = (deckKey: Point): Hex => deckKey.toHex(true).slice(2);
+
+/**
+ * Seats Joins one at a time, refusing any that collides with a seat already taken: a repeated npub, session key or
+ * deck key, a session key equal to a seated npub, or an npub equal to a seated session key.
+ */
+class Seating {
+  readonly seated: ParsedJoin[] = [];
+  private readonly npubs = new Set<string>();
+  private readonly sessions = new Set<string>();
+  private readonly deckKeys = new Set<string>();
+
+  /** Seat `j` unless it collides; whether it was seated. */
+  add(j: ParsedJoin): boolean {
+    const dk = j.deckKey.toHex(true);
+    if (
+      this.npubs.has(j.npub) ||
+      this.sessions.has(j.session) ||
+      this.deckKeys.has(dk) ||
+      this.npubs.has(j.session) ||
+      this.sessions.has(j.npub)
+    )
+      return false;
+    this.seated.push(j);
+    this.npubs.add(j.npub);
+    this.sessions.add(j.session);
+    this.deckKeys.add(dk);
+    return true;
+  }
+}
+
 /**
  * Fold the lobby events seen for one table. `tableEv` is the latest version of the Table; `events` may hold
- * anything: Joins and roots for this table count, everything else (unparseable events, other tables, Joins
- * committed to other rules or another version, bad proofs of knowledge) is ignored. Order and duplicates do not
- * matter. Throws `ClientError` only if `tableEv` itself is not a valid Table.
+ * anything: Joins and roots for this table count, everything else (unparseable events and non-events, other
+ * tables, Joins committed to other rules or another version, bad proofs of knowledge, a session key equal to the
+ * Join's own npub or to its deck key's x-coordinate) is ignored. Order and duplicates do not matter: the result is
+ * a function of the set of events. Throws `ClientError` only if `tableEv` itself is not a valid Table.
+ *
+ * Seating, in this order:
+ * 1. Drop the Joins that collide with themselves (above).
+ * 2. Group the rest by npub, each npub's Joins in `created_at` then id order. An npub's priority slot is the
+ *    creator's, its invited-list position or, for an open seat, the time of its earliest Join.
+ * 3. Walk the slots in priority order and seat each npub's first Join that collides with no seat already taken, so a
+ *    player whose earlier Join collides can re-join with fresh keys. Open seats stop at `open`.
+ *
+ * `created_at` is self-declared, so the default order of the open seats is attacker-controllable: a joiner can
+ * backdate a Join to jump the queue, though never past the creator or an invited player. The creator can pick the
+ * seats explicitly with `buildRootTemplate` (D021).
  */
 export function foldLobby(
   tableEv: NostrEvent,
@@ -99,86 +149,60 @@ export function foldLobby(
   if (table === null) throw new ClientError('the table event is not a valid Table');
   const hash = rulesHash(table.rules);
 
-  // Valid Joins, one per npub: the earliest, then the lowest id.
-  const candidates: { join: ParsedJoin; created_at: number }[] = [];
-  const parsedRoots: { root: ParsedRoot; created_at: number }[] = [];
+  const joins = new Map<Hex, { join: ParsedJoin; created_at: number }>();
+  const roots = new Map<Hex, { root: ParsedRoot; created_at: number }>();
   for (const ev of events) {
-    const kind = (ev as { kind?: unknown } | null)?.kind;
-    if (kind === KIND.join) {
-      const join = tryParse(parseJoin, ev);
-      if (join === null) continue;
-      if (join.tableAddress !== table.address) continue;
-      if (join.rulesHash !== hash || join.version !== table.version) continue;
-      if (join.session === join.npub) continue;
-      if (join.deckKey.toHex(true).slice(2) === join.session) continue;
-      if (!verifyJoin(join)) continue;
-      candidates.push({ join, created_at: ev.created_at });
-    } else if (kind === KIND.root) {
-      const root = tryParse(parseRoot, ev);
-      if (root !== null && root.tableAddress === table.address)
-        parsedRoots.push({ root, created_at: ev.created_at });
+    try {
+      const kind = (ev as { kind?: unknown } | null)?.kind;
+      if (kind === KIND.join) {
+        const join = tryParse(parseJoin, ev);
+        if (join === null || joins.has(join.id)) continue;
+        if (join.tableAddress !== table.address) continue;
+        if (join.rulesHash !== hash || join.version !== table.version) continue;
+        if (join.session === join.npub || deckX(join.deckKey) === join.session) continue;
+        if (!verifyJoin(join)) continue;
+        joins.set(join.id, { join, created_at: ev.created_at });
+      } else if (kind === KIND.root) {
+        const root = tryParse(parseRoot, ev);
+        if (root === null || root.tableAddress !== table.address || roots.has(root.id)) continue;
+        roots.set(root.id, { root, created_at: ev.created_at });
+      }
+    } catch {
+      // A hostile object whose fields throw: ignore it.
     }
   }
 
-  const earliest = new Map<Hex, { join: ParsedJoin; created_at: number }>();
-  for (const c of candidates) {
-    const held = earliest.get(c.join.npub);
-    if (
-      held === undefined ||
-      byTimeThenId(
-        { created_at: c.created_at, id: c.join.id },
-        { created_at: held.created_at, id: held.join.id },
-      ) < 0
+  const candidates = [...joins.values()]
+    .sort((a, b) =>
+      byTimeThenId({ created_at: a.created_at, id: a.join.id }, { created_at: b.created_at, id: b.join.id }),
     )
-      earliest.set(c.join.npub, c);
-  }
-  const valid = [...earliest.values()].sort((a, b) =>
-    byTimeThenId({ created_at: a.created_at, id: a.join.id }, { created_at: b.created_at, id: b.join.id }),
-  );
+    .map((c) => c.join);
 
-  // Seats: the creator, the invited in list order, then other joiners in time order, capped at `open`.
-  const byNpub = new Map(valid.map((c) => [c.join.npub, c.join]));
-  const ordered: ParsedJoin[] = [];
-  const creatorJoin = byNpub.get(table.creator);
-  if (creatorJoin !== undefined) ordered.push(creatorJoin);
-  for (const p of table.invited) {
-    const j = byNpub.get(p);
-    if (j !== undefined) ordered.push(j);
+  // Each npub's Joins in time order. The map's key order is the order of each npub's earliest Join.
+  const byNpub = new Map<Hex, ParsedJoin[]>();
+  for (const j of candidates) {
+    const list = byNpub.get(j.npub);
+    if (list === undefined) byNpub.set(j.npub, [j]);
+    else list.push(j);
   }
-  const others = valid
-    .map((c) => c.join)
-    .filter((j) => j.npub !== table.creator && !table.invited.includes(j.npub));
 
-  const seated: ParsedJoin[] = [];
-  const npubs = new Set<string>();
-  const sessions = new Set<string>();
-  const deckKeys = new Set<string>();
-  const seatIn = (j: ParsedJoin): boolean => {
-    const dk = j.deckKey.toHex(true);
-    if (sessions.has(j.session) || deckKeys.has(dk) || npubs.has(j.session) || sessions.has(j.npub))
-      return false;
-    seated.push(j);
-    npubs.add(j.npub);
-    sessions.add(j.session);
-    deckKeys.add(dk);
-    return true;
-  };
-  for (const j of ordered) seatIn(j);
+  const seating = new Seating();
+  const seatNpub = (npub: Hex): boolean => (byNpub.get(npub) ?? []).some((j) => seating.add(j));
+  const creatorSeated = seatNpub(table.creator);
+  let invitedSeated = 0;
+  for (const p of table.invited) if (seatNpub(p)) invitedSeated++;
   let openTaken = 0;
-  for (const j of others) {
+  for (const npub of byNpub.keys()) {
     if (openTaken >= table.open) break;
-    if (seatIn(j)) openTaken++;
+    if (npub === table.creator || table.invited.includes(npub)) continue;
+    if (seatNpub(npub)) openTaken++;
   }
+  const seated = seating.seated;
+  const full = creatorSeated && invitedSeated === table.invited.length && openTaken === table.open;
 
-  const full =
-    creatorJoin !== undefined &&
-    seated.includes(creatorJoin) &&
-    table.invited.every((p) => seated.some((j) => j.npub === p)) &&
-    openTaken === table.open;
-
-  const joinsById = new Map<Hex, ParsedJoin>(valid.map((c) => [c.join.id, c.join]));
+  const joinsById = new Map<Hex, ParsedJoin>(candidates.map((j) => [j.id, j]));
   const root =
-    parsedRoots
+    [...roots.values()]
       .sort((a, b) =>
         byTimeThenId(
           { created_at: a.created_at, id: a.root.id },
@@ -187,7 +211,7 @@ export function foldLobby(
       )
       .find((r) => validateRoot(r.root, table, joinsById, modules).length === 0)?.root ?? null;
 
-  return { table, joins: seated, seatsFilled: seated.length, full, root };
+  return { table, joins: seated, candidates, seatsFilled: seated.length, full, root };
 }
 
 /** The seats in root order: the creator first, then the rest in `foldLobby` order. */
@@ -198,7 +222,10 @@ export function rootSeatOrder(view: LobbyView): ParsedJoin[] {
 
 /**
  * The unsigned Join for `table`, claiming a seat for `npub` with these keys. The npub's signer signs it, outside
- * this package. It commits to the table's rules hash and version (PROTOCOL §4.2).
+ * this package. It commits to the table's rules hash and version (PROTOCOL §4.2) and carries the session key's
+ * proof of possession (D033). Throws `ClientError` when `keys.sessionPub` is not the public key of
+ * `keys.sessionSk`, or when the session key equals `npub` or the deck key's x-coordinate, since peers drop such a
+ * Join.
  */
 export function buildJoinTemplate(
   table: ParsedTable,
@@ -208,6 +235,17 @@ export function buildJoinTemplate(
   rnd: RandomBytes,
   createdAt: number,
 ): EventTemplate {
+  let derived: Hex | null;
+  try {
+    derived = getPublicKey(keys.sessionSk);
+  } catch {
+    derived = null;
+  }
+  if (derived === null || derived !== keys.sessionPub)
+    throw new ClientError('the session public key is not the public key of the session secret key');
+  if (keys.sessionPub === npub) throw new ClientError('the session key must differ from the npub');
+  if (deckX(keys.deckKey) === keys.sessionPub)
+    throw new ClientError("the session key must differ from the deck key's x-coordinate");
   return joinTemplate(
     {
       tableAddress: table.address,
@@ -224,15 +262,62 @@ export function buildJoinTemplate(
   );
 }
 
-/** The unsigned root for a full lobby, for the table creator to sign. Throws `ClientError` unless `view.full`. */
+/**
+ * The Joins of an explicit seat list, or why it cannot start the game at `view.table`: the checks of `validateRoot`
+ * (PROTOCOL §4.3) that depend on the choice of seats. Every id names a Join of `view.candidates`, listed once, one
+ * per seat; the creator's Join comes first; every invited npub and at most `open` others are seated; no npub,
+ * session key or deck key repeats and no session key is a seat's npub; the joint key is not the identity.
+ */
+function explicitSeats(view: LobbyView, ids: readonly Hex[]): { joins: ParsedJoin[]; problems: string[] } {
+  const { table } = view;
+  const problems: string[] = [];
+  const known = new Map(view.candidates.map((j) => [j.id, j]));
+  if (ids.length !== table.seats)
+    problems.push(`${ids.length} seats listed but the table has ${table.seats}`);
+  const joins: ParsedJoin[] = [];
+  for (const [i, id] of ids.entries()) {
+    const j = known.get(id);
+    if (j === undefined) problems.push(`seat ${i}: ${String(id)} is not a valid Join for this table`);
+    else if (joins.includes(j)) problems.push(`seat ${i}: join ${id} is listed twice`);
+    else joins.push(j);
+  }
+  if (problems.length > 0) return { joins, problems };
+  if (joins[0]?.npub !== table.creator) problems.push("the creator's Join must hold seat 0");
+  for (const p of table.invited)
+    if (!joins.some((j) => j.npub === p)) problems.push(`invited npub ${p} holds no seat`);
+  const uninvited = joins.filter((j) => j.npub !== table.creator && !table.invited.includes(j.npub)).length;
+  if (uninvited > table.open)
+    problems.push(
+      `${uninvited} seated npubs are not invited, more than the table's ${table.open} open seats`,
+    );
+  const seating = new Seating();
+  for (const [i, j] of joins.entries())
+    if (!seating.add(j))
+      problems.push(`seat ${i}: its npub, session key or deck key collides with another seat`);
+  if (jointKey(joins.map((j) => j.deckKey)).is0()) problems.push('the joint key is the identity');
+  return { joins, problems };
+}
+
+/**
+ * The unsigned root for the lobby, for the table creator to sign. By default the seats are `rootSeatOrder(view)`,
+ * and it throws `ClientError` unless `view.full`. `seats`, the Join ids in seat order, lets the creator choose among
+ * the open joiners instead (D021). It throws `ClientError` unless that list passes the seat checks of
+ * `validateRoot`: the creator first, every invited npub present, the open count respected and no collisions.
+ */
 export function buildRootTemplate(
   view: LobbyView,
   relays: readonly string[],
   createdAt: number,
+  seats?: readonly Hex[],
 ): EventTemplate {
-  if (!view.full) throw new ClientError('the lobby is not full');
-  return rootTemplate(
-    { table: view.table, joins: rootSeatOrder(view), rules: view.table.rules, relays: [...relays] },
-    createdAt,
-  );
+  let joins: ParsedJoin[];
+  if (seats === undefined) {
+    if (!view.full) throw new ClientError('the lobby is not full');
+    joins = rootSeatOrder(view);
+  } else {
+    const picked = explicitSeats(view, seats);
+    if (picked.problems.length > 0) throw new ClientError(`invalid seat list: ${picked.problems.join('; ')}`);
+    joins = picked.joins;
+  }
+  return rootTemplate({ table: view.table, joins, rules: view.table.rules, relays: [...relays] }, createdAt);
 }
