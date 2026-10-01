@@ -8,6 +8,11 @@ export function Hand(props: {
   tiles: readonly HandTile[];
   /** Tile indices the seat may place now. */
   placeable: ReadonlySet<number>;
+  /**
+   * Show each tile's badge and preview text. Off outside the place phase: while a founding or merger
+   * resolves, the pending tile makes the classification unreliable.
+   */
+  showBadges: boolean;
   selected: number | null;
   disabled: boolean;
   onSelect: (tile: number) => void;
@@ -30,15 +35,16 @@ export function Hand(props: {
         const canPick = !props.disabled && props.placeable.has(tile);
         const enter = () => props.onPreview(t);
         const leave = () => props.onPreview(null);
+        const badge = props.showBadges ? t.badge : null;
         return (
           <li key={t.pos}>
             <button
               type="button"
-              class={`cr-tile cr-badge-${t.badge}`}
+              class={badge === null ? 'cr-tile' : `cr-tile cr-badge-${badge}`}
               aria-pressed={canPick ? props.selected === tile : undefined}
               aria-disabled={!canPick}
-              aria-label={`${t.id}, ${t.badge}: ${t.preview}`}
-              title={t.preview}
+              aria-label={badge === null ? `${t.id}` : `${t.id}, ${badge}: ${t.preview}`}
+              title={badge === null ? undefined : t.preview}
               onMouseEnter={enter}
               onMouseLeave={leave}
               onFocus={enter}
@@ -48,9 +54,11 @@ export function Hand(props: {
               }}
             >
               <span class="cr-tile-id">{t.id}</span>
-              <span class="cr-tile-badge" aria-hidden="true">
-                {t.badge}
-              </span>
+              {badge !== null && (
+                <span class="cr-tile-badge" aria-hidden="true">
+                  {badge}
+                </span>
+              )}
             </button>
           </li>
         );

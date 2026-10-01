@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
 import { Hand } from './hand.tsx';
+import { isLocked, submitUnderLock } from './lock.ts';
 import {
   boardCells,
   chainRows,
@@ -25,9 +26,12 @@ export interface ChainReactionGameProps {
   legal: readonly ChainReactionAction[];
   /** False while the viewer may not act (out of turn, still syncing, signer unavailable). */
   canAct: boolean;
+  /** Why the viewer may not act, shown above a disabled decision form. */
+  lockedReason?: string | undefined;
   /** True while a submitted move is being signed and published. */
   busy: boolean;
-  onAct: (a: ChainReactionAction) => void;
+  /** Submits a move. A rejected promise (or a throw) releases the controls so the player can retry. */
+  onAct: (a: ChainReactionAction) => void | Promise<void>;
   /** Display name per seat. */
   names: readonly string[];
   /** Log lines, newest last. */
@@ -67,12 +71,19 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   const status = statusLine(state, names, mySeat);
   const over = state.phase.kind === 'over';
 
-  const locked = !props.canAct || props.busy || sentAt === state.seq;
+  const lock = { canAct: props.canAct, busy: props.busy, sentAt, seq: state.seq };
+  const locked = isLocked(lock);
   const submit = (a: ChainReactionAction): void => {
-    if (locked) return;
-    setSentAt(state.seq);
-    props.onAct(a);
+    submitUnderLock(a, lock, { setSentAt, onAct: props.onAct });
   };
+  const lockNote =
+    decision.kind === 'wait'
+      ? ''
+      : props.busy || (sentAt === state.seq && props.canAct)
+        ? 'Sending your move…'
+        : !props.canAct
+          ? (props.lockedReason ?? 'You cannot act right now.')
+          : '';
   const placeable = new Set(decision.kind === 'place' ? decision.options.map((o) => o.tile) : []);
 
   return (
@@ -93,6 +104,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
             <Hand
               tiles={hand}
               placeable={placeable}
+              showBadges={state.phase.kind === 'place'}
               selected={selected}
               disabled={locked}
               onSelect={setSelected}
@@ -105,6 +117,11 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
         ) : (
           mySeat !== null && (
             <section class="cr-panel cr-decision" aria-label="Your decision">
+              {lockNote !== '' && (
+                <p class="cr-hint cr-lock-note" role="note">
+                  {lockNote}
+                </p>
+              )}
               <DecisionArea
                 key={state.seq}
                 decision={decision}

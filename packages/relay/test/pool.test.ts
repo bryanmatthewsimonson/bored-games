@@ -67,6 +67,9 @@ function pool(urls = [A, B], backoffMs?: number[]) {
   });
 }
 
+/** Run queued microtasks (onEose is delivered in one). */
+const flush = () => vi.advanceTimersByTimeAsync(0);
+
 beforeEach(() => {
   FakeSocket.instances = [];
   vi.useFakeTimers();
@@ -244,17 +247,20 @@ describe('RelayPool', () => {
     p.close();
   });
 
-  it('calls onEose once, after every relay has answered; a closed relay does not block it', () => {
+  it('calls onEose once, after every relay has answered; a closed relay does not block it', async () => {
     const p = pool();
     latest(A).open();
     latest(B).open();
     const onEose = vi.fn();
     p.subscribe([{}], () => {}, onEose);
     latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
     expect(onEose).not.toHaveBeenCalled();
     latest(B).receive(['EOSE', 'bg-1']);
+    await flush();
     expect(onEose).toHaveBeenCalledTimes(1);
     latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
     expect(onEose).toHaveBeenCalledTimes(1);
     p.close();
 
@@ -263,19 +269,130 @@ describe('RelayPool', () => {
     const onEose2 = vi.fn();
     q.subscribe([{}], () => {}, onEose2);
     latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
     expect(onEose2).not.toHaveBeenCalled();
     latest(B).drop();
+    await flush();
     expect(onEose2).toHaveBeenCalledTimes(1);
     q.close();
   });
 
-  it('counts a CLOSED subscription from a relay as answered', () => {
+  it('counts a CLOSED subscription from a relay as answered', async () => {
     const p = pool([A]);
     latest(A).open();
     const onEose = vi.fn();
     p.subscribe([{}], () => {}, onEose);
     latest(A).receive(['CLOSED', 'bg-1', 'auth-required: no']);
+    await flush();
     expect(onEose).toHaveBeenCalledTimes(1);
+    p.close();
+  });
+
+  it('never calls onEose inside subscribe, even when every relay is already down', async () => {
+    const p = pool([A]);
+    latest(A).drop();
+    const order: string[] = [];
+    const onEose = vi.fn(() => order.push('eose'));
+    const unsub = p.subscribe([{}], () => {}, onEose);
+    order.push('returned');
+    expect(onEose).not.toHaveBeenCalled();
+    await flush();
+    expect(order).toEqual(['returned', 'eose']);
+    unsub();
+    p.close();
+  });
+
+  it('does not call onEose after unsubscribing in the same tick', async () => {
+    const p = pool([A]);
+    latest(A).open();
+    const onEose = vi.fn();
+    const unsub = p.subscribe([{}], () => {}, onEose);
+    latest(A).receive(['EOSE', 'bg-1']);
+    unsub();
+    await flush();
+    expect(onEose).not.toHaveBeenCalled();
+    p.close();
+  });
+
+  it('fires onEose at the EOSE deadline (8 s by default) when a relay never answers', async () => {
+    const p = pool();
+    latest(A).open();
+    latest(B).open();
+    const onEose = vi.fn();
+    p.subscribe([{}], () => {}, onEose);
+    latest(A).receive(['EOSE', 'bg-1']);
+    await vi.advanceTimersByTimeAsync(7999);
+    expect(onEose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onEose).toHaveBeenCalledTimes(1);
+    // The late EOSE does not fire it again.
+    latest(B).receive(['EOSE', 'bg-1']);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onEose).toHaveBeenCalledTimes(1);
+    p.close();
+  });
+
+  it('takes a per-subscription EOSE deadline and clears it on unsubscribe', async () => {
+    const p = pool([A]);
+    latest(A).open();
+    const fast = vi.fn();
+    const gone = vi.fn();
+    p.subscribe([{}], () => {}, fast, { eoseTimeoutMs: 500 });
+    const unsub = p.subscribe([{}], () => {}, gone, { eoseTimeoutMs: 500 });
+    unsub();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fast).toHaveBeenCalledTimes(1);
+    expect(gone).not.toHaveBeenCalled();
+    p.close();
+  });
+
+  it('keeps delivering when an onEvent or onEose consumer throws', async () => {
+    const p = pool([A]);
+    latest(A).open();
+    const got: string[] = [];
+    p.subscribe(
+      [{}],
+      (ev) => {
+        got.push(ev.id);
+        throw new Error('consumer bug');
+      },
+      () => {
+        throw new Error('consumer bug');
+      },
+    );
+    const other: string[] = [];
+    p.subscribe([{}], (ev) => other.push(ev.id));
+    const e1 = makeEvent('one');
+    const e2 = makeEvent('two');
+    expect(() => latest(A).receive(['EVENT', 'bg-1', e1])).not.toThrow();
+    latest(A).receive(['EVENT', 'bg-1', e2]);
+    latest(A).receive(['EVENT', 'bg-2', e1]);
+    latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
+    expect(got).toEqual([e1.id, e2.id]);
+    expect(other).toEqual([e1.id]);
+    p.close();
+  });
+
+  it('adds relays later, replays open subscriptions to them, and publishes to a chosen subset', async () => {
+    const p = pool([A]);
+    latest(A).open();
+    p.subscribe([{ kinds: [7452] }], () => {});
+    p.addRelays([A, B]);
+    expect(sockets(A)).toHaveLength(1);
+    expect(p.status().map((s) => s.url)).toEqual([A, B]);
+    latest(B).open();
+    expect(latest(B).frames()).toEqual([['REQ', 'bg-1', { kinds: [7452] }]]);
+
+    const ev = makeEvent('subset');
+    const res = p.publish(ev, [B]);
+    expect(
+      latest(A)
+        .frames()
+        .some((f) => f[0] === 'EVENT'),
+    ).toBe(false);
+    latest(B).receive(['OK', ev.id, true, '']);
+    expect(await res).toEqual([{ url: B, ok: true, message: '' }]);
     p.close();
   });
 

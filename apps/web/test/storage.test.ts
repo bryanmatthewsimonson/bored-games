@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { bytesToHex, hexToBytes } from '../src/hex.ts';
-import { loadSecrets, memoryStorage, saveSecrets, storageKey } from '../src/storage.ts';
+import {
+  addToTableList,
+  isPersistentStore,
+  loadSecrets,
+  loadTableList,
+  memoryStorage,
+  saveRootId,
+  saveSecrets,
+  storageKey,
+} from '../src/storage.ts';
 
 const ADDR = `31923:${'a'.repeat(64)}:table-1`;
 const SECRETS = { sessionSk: new Uint8Array(32).fill(7), deckSecret: new Uint8Array(32).fill(9) };
@@ -48,5 +57,49 @@ describe('game secrets', () => {
       store.setItem(key, bad);
       expect(loadSecrets('alice', store, ADDR), bad).toBeNull();
     }
+  });
+});
+
+describe('root id and table list', () => {
+  const ROOT = 'b'.repeat(64);
+
+  it('saves the root id with existing secrets only', () => {
+    const store = memoryStorage();
+    expect(saveRootId('alice', store, ADDR, ROOT)).toBe(false);
+    saveSecrets('alice', store, ADDR, SECRETS);
+    expect(saveRootId('alice', store, ADDR, ROOT)).toBe(true);
+    expect(loadSecrets('alice', store, ADDR)).toEqual({ ...SECRETS, rootId: ROOT });
+  });
+
+  it('ignores a malformed stored root id', () => {
+    const store = memoryStorage();
+    store.setItem(
+      storageKey('alice', `secrets:${ADDR}`),
+      JSON.stringify({ sessionSk: '07'.repeat(32), deckSecret: '09'.repeat(32), rootId: 'nope' }),
+    );
+    expect(loadSecrets('alice', store, ADDR)).toEqual(SECRETS);
+  });
+
+  it('keeps a per-profile list of table addresses without duplicates', () => {
+    const store = memoryStorage();
+    addToTableList('alice', store, ADDR);
+    addToTableList('alice', store, ADDR);
+    addToTableList('alice', store, `${ADDR}-2`);
+    expect(loadTableList('alice', store)).toEqual([ADDR, `${ADDR}-2`]);
+    expect(loadTableList('bob', store)).toEqual([]);
+    store.setItem(storageKey('bob', 'tables'), '{"no":1}');
+    expect(loadTableList('bob', store)).toEqual([]);
+  });
+
+  it('knows a memory store is not persistent', () => {
+    expect(isPersistentStore(memoryStorage())).toBe(false);
+    const m = new Map<string, string>();
+    expect(
+      isPersistentStore({
+        getItem: (k) => m.get(k) ?? null,
+        setItem: (k, v) => void m.set(k, v),
+        removeItem: (k) => void m.delete(k),
+      }),
+    ).toBe(true);
   });
 });

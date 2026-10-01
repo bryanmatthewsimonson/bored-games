@@ -10,7 +10,7 @@ import {
 import { nsecEncode } from './bech32.ts';
 import { bytesToHex, hexToBytes } from './hex.ts';
 import type { RandomBytes } from './random.ts';
-import { type KeyValueStore, readItem, storageKey, writeItem } from './storage.ts';
+import { isPersistentStore, type KeyValueStore, readItem, storageKey, writeItem } from './storage.ts';
 
 export type SignerKind = 'nip07' | 'local';
 
@@ -19,6 +19,9 @@ export interface Signer {
   sign(t: EventTemplate): Promise<NostrEvent>;
   kind: SignerKind;
 }
+
+/** A loaded identity: its signer, and whether its key survives a reload (NIP-07 keys always do). */
+export type LoadedSigner = Signer & { persistent: boolean };
 
 /** The parts of the NIP-07 `window.nostr` object that this app uses. */
 export interface Nip07 {
@@ -42,6 +45,12 @@ export const DEFAULT_PROFILE = 'default';
 export function profileFromLocation(loc: { search: string }): string {
   const name = new URLSearchParams(loc.search).get('profile');
   return name !== null && PROFILE.test(name) ? name : DEFAULT_PROFILE;
+}
+
+/** The `?profile=` value when one was given but is not a valid name (so the default profile is used). */
+export function invalidProfileName(loc: { search: string }): string | null {
+  const name = new URLSearchParams(loc.search).get('profile');
+  return name !== null && !PROFILE.test(name) ? name : null;
 }
 
 export function readSignerChoice(profile: string, store: KeyValueStore): SignerKind {
@@ -118,22 +127,25 @@ async function nip07Signer(ext: Nip07): Promise<Signer> {
 /**
  * The signer for a profile: the NIP-07 extension when it exists and the user chose it, otherwise a local key
  * from `bg:<profile>:sk`, created on first use. A stored key that is malformed is replaced. When storage is
- * blocked the key lives in memory for this session only.
+ * blocked the key lives in memory for this session only, and `persistent` is false.
  */
 export async function loadIdentity(
   profile: string,
   store: KeyValueStore,
   rnd: RandomBytes,
   nostr?: Nip07,
-): Promise<Signer> {
-  if (nostr !== undefined && readSignerChoice(profile, store) === 'nip07') return nip07Signer(nostr);
+): Promise<LoadedSigner> {
+  if (nostr !== undefined && readSignerChoice(profile, store) === 'nip07')
+    return { ...(await nip07Signer(nostr)), persistent: true };
   const key = storageKey(profile, 'sk');
   let sk = validSecretKey(readItem(store, key));
   if (sk === null) {
     sk = newSecretKey(rnd);
     writeItem(store, key, bytesToHex(sk));
   }
-  return localSigner(sk, rnd);
+  // Persistent only if the key reads back from a store that outlives the page.
+  const persistent = isPersistentStore(store) && readItem(store, key) === bytesToHex(sk);
+  return { ...localSigner(sk, rnd), persistent };
 }
 
 /** The local secret key as `nsec1…`, or null when this profile has no valid local key stored. */

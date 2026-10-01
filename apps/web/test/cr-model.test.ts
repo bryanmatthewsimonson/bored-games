@@ -29,6 +29,7 @@ import {
   formatMoney,
   handTiles,
   lastPlacedTile,
+  newlyPlacedTile,
   playerRows,
   resultRows,
   statusLine,
@@ -391,5 +392,20 @@ describe('helpers', () => {
     expect(formatMoney(6000)).toBe('$6,000');
     expect(formatMoney(1234500)).toBe('$1,234,500');
     expect(formatMoney(-300)).toBe('-$300');
+  });
+});
+
+describe('newlyPlacedTile', () => {
+  it('finds the one cell a step fills, and nothing for no change or several', () => {
+    const g = playUntil('placed', 3, firstLegal, (x) => (x.state.turn?.number ?? 0) >= 3);
+    if (!g) throw new Error('no game');
+    const s = g.state;
+    const empty = s.board.indexOf(null);
+    const next = { ...s, board: s.board.map((c, i) => (i === empty ? -1 : c)) } as ChainReactionState;
+    expect(newlyPlacedTile(s, next)).toBe(empty);
+    expect(newlyPlacedTile(s, s)).toBeNull();
+    expect(newlyPlacedTile(null, s)).toBeNull();
+    const two = { ...s, board: s.board.map((c) => (c === null ? -1 : c)) } as ChainReactionState;
+    expect(newlyPlacedTile(s, two)).toBeNull();
   });
 });

@@ -75,3 +75,21 @@ describe('settings', () => {
     expect(store.getItem('bg:alice:relays')).toBeNull();
   });
 });
+
+describe('settings when storage fails', () => {
+  it('applies the list for this visit and reports that it was not saved', () => {
+    const store = memoryStorage();
+    const s = createSettings('alice', store, false);
+    store.setItem = () => {
+      throw new Error('quota');
+    };
+    expect(s.setRelays(['wss://x.example'])).toBe(false);
+    expect(s.relays.value).toEqual(['wss://x.example']);
+  });
+
+  it('reports a successful save', () => {
+    const s = createSettings('alice', memoryStorage(), false);
+    expect(s.setRelays(['wss://x.example'])).toBe(true);
+    expect(s.resetRelays()).toBe(true);
+  });
+});

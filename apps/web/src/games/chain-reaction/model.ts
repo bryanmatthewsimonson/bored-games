@@ -110,6 +110,22 @@ export function lastPlacedTile(events: readonly ChainReactionEvent[]): number | 
   return null;
 }
 
+/**
+ * The tile that `next` adds to the board of `prev`, when exactly one cell went from empty to filled; null
+ * otherwise (no change, the setup reveals, or unrelated states). Used where no event log is at hand.
+ */
+export function newlyPlacedTile(prev: ChainReactionState | null, next: ChainReactionState): number | null {
+  if (prev === null || prev.board.length !== next.board.length) return null;
+  let found: number | null = null;
+  for (let i = 0; i < next.board.length; i++) {
+    if (prev.board[i] === null && next.board[i] !== null) {
+      if (found !== null) return null;
+      found = i;
+    }
+  }
+  return found;
+}
+
 /** The tile awaiting a founding or a merger, if any. */
 function pendingTile(s: ChainReactionState): number | null {
   if (s.phase.kind === 'found') return s.phase.tile;

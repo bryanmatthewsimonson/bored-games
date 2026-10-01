@@ -346,3 +346,22 @@ input[aria-invalid="true"] {
     align-items: flex-start;
   }
 }
+
+/* Page banners and the game screen */
+.banners {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--gutter) var(--gutter) 0;
+}
+
+.banners .warning {
+  margin: 0;
+}
+
+.game-loading {
+  display: grid;
+  gap: 8px;
+}

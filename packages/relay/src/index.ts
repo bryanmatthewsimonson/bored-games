@@ -4,6 +4,7 @@
  */
 export {
   DEFAULT_BACKOFF_MS,
+  EOSE_TIMEOUT_MS,
   type Filter,
   PUBLISH_TIMEOUT_MS,
   type PublishResult,
@@ -12,4 +13,5 @@ export {
   type RelayState,
   type SocketConstructor,
   type SocketLike,
+  type SubscribeOptions,
 } from './pool.ts';

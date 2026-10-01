@@ -10,11 +10,11 @@ function RelaySection() {
   const [draft, setDraft] = useState<string[]>(() => [...settings.relays.value]);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<'no' | 'yes' | 'failed'>('no');
 
   const change = (next: string[]) => {
     setDraft(next);
-    setSaved(false);
+    setSaved('no');
   };
   const add = (e: Event) => {
     e.preventDefault();
@@ -74,9 +74,9 @@ function RelaySection() {
           type="button"
           class="btn btn-primary"
           onClick={() => {
-            settings.setRelays(draft);
+            const ok = settings.setRelays(draft);
             setDraft([...settings.relays.value]);
-            setSaved(true);
+            setSaved(ok ? 'yes' : 'failed');
           }}
         >
           Save relays
@@ -85,15 +85,19 @@ function RelaySection() {
           type="button"
           class="btn"
           onClick={() => {
-            settings.resetRelays();
+            const ok = settings.resetRelays();
             setDraft([...settings.relays.value]);
-            setSaved(true);
+            setSaved(ok ? 'yes' : 'failed');
           }}
         >
           Reset to defaults
         </button>
-        <span role="status" class="muted">
-          {saved ? 'Saved.' : ''}
+        <span role="status" class={saved === 'failed' ? 'error' : 'muted'}>
+          {saved === 'yes'
+            ? 'Saved.'
+            : saved === 'failed'
+              ? 'Applied for this visit only: this browser would not save the list.'
+              : ''}
         </span>
       </div>
     </section>
@@ -105,6 +109,8 @@ function IdentitySection() {
   const [reveal, setReveal] = useState(false);
   const npub = npubEncode(signer.pubkey);
   const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
+  // Reveal reads the key back from storage; when storage is blocked there is nothing to show.
+  const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 
   const useExtension = (on: boolean) => {
     writeSignerChoice(profile, store, on ? 'nip07' : 'local');
@@ -140,15 +146,23 @@ function IdentitySection() {
             play as you, and clearing this site's data deletes it for good. Back it up before you do.
           </p>
           {nsec === null ? (
-            <button type="button" class="btn" onClick={() => setReveal(true)}>
-              Show secret key (nsec)
-            </button>
+            <>
+              <button type="button" class="btn" onClick={() => setReveal(true)}>
+                Show secret key (nsec)
+              </button>
+              <p class="error" role="alert">
+                {revealFailed
+                  ? 'Could not read the secret key: this browser is not storing it, so it cannot be exported.'
+                  : ''}
+              </p>
+            </>
           ) : (
             <div>
               <label for="nsec">Secret key (nsec)</label>
               <div class="row">
                 <input
                   id="nsec"
+                  type="text"
                   class="grow"
                   readOnly
                   value={nsec}

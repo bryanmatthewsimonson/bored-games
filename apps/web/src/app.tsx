@@ -1,5 +1,5 @@
 import { BRAND } from '@bored-games/brand';
-import { type AppContext, AppCtx } from './context.ts';
+import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
 import { route } from './router.ts';
 import { Screen } from './screens.tsx';
@@ -12,12 +12,35 @@ export function App(props: { ctx: AppContext }) {
         Skip to content
       </a>
       <Header />
+      <Banners />
       <main id="main" tabIndex={-1}>
         <Screen route={route.value} />
       </main>
       <footer class="app-footer">{BRAND.name}</footer>
       <SettingsDialog />
     </AppCtx.Provider>
+  );
+}
+
+/** Page-wide warnings: a key that will not survive a reload, and an ignored `?profile=` value. */
+function Banners() {
+  const { persistent, signer, invalidProfile, profile } = useApp();
+  if (persistent && invalidProfile === null) return null;
+  return (
+    <div class="banners">
+      {!persistent && signer.kind === 'local' && (
+        <p class="warning" role="alert">
+          <strong>Your key is not being saved.</strong> This browser is blocking site storage, so your key and
+          your games last only until this tab closes. Allow site data, or export your key from Settings.
+        </p>
+      )}
+      {invalidProfile !== null && (
+        <p class="warning" role="status">
+          "{invalidProfile}" is not a valid profile name (use 1 to 32 letters, digits, dots, dashes or
+          underscores), so the {profile} profile is in use.
+        </p>
+      )}
+    </div>
   );
 }
 

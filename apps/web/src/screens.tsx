@@ -1,6 +1,6 @@
 /*
- * Placeholder screens. Home, Table and Game are filled in by later tasks; the router and the shell around
- * them are final.
+ * Screens by route. Home and Table are placeholders filled in by a later task; the Game screen lives in
+ * screens/game.tsx.
  */
 import { BRAND } from '@bored-games/brand';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
@@ -8,6 +8,7 @@ import type { ComponentType } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from './bech32.ts';
 import { homeHref, type Route } from './router.ts';
+import { GameScreen } from './screens/game.tsx';
 
 export function HomeScreen() {
   return (
@@ -34,21 +35,6 @@ export function TableScreen(props: { creator: string; tableId: string }) {
         </dd>
       </dl>
       <p class="muted">The lobby arrives in the next step.</p>
-    </section>
-  );
-}
-
-export function GameScreen(props: { rootId: string }) {
-  return (
-    <section class="panel" aria-labelledby="game-title">
-      <h1 id="game-title">Game</h1>
-      <dl class="facts">
-        <dt>Game id</dt>
-        <dd>
-          <code>{props.rootId.slice(0, 12)}…</code>
-        </dd>
-      </dl>
-      <p class="muted">The board arrives in a later step.</p>
     </section>
   );
 }

@@ -32,9 +32,12 @@ function clean(list: readonly unknown[]): string[] {
 export interface Settings {
   /** The relay list, in priority order. Never empty. */
   relays: Signal<string[]>;
-  /** Saves a cleaned list (invalid and duplicate entries dropped); an empty result restores the defaults. */
-  setRelays(list: readonly string[]): void;
-  resetRelays(): void;
+  /**
+   * Saves a cleaned list (invalid and duplicate entries dropped); an empty result restores the defaults.
+   * The list applies to this page either way; returns false when it could not be saved for the next visit.
+   */
+  setRelays(list: readonly string[]): boolean;
+  resetRelays(): boolean;
 }
 
 /** Settings persisted per profile under `bg:<profile>:relays`. */
@@ -61,12 +64,14 @@ export function createSettings(profile: string, store: KeyValueStore, dev: boole
     setRelays(list) {
       const next = clean(list);
       if (next.length === 0) return this.resetRelays();
-      writeItem(store, key, JSON.stringify(next));
+      const saved = writeItem(store, key, JSON.stringify(next));
       relays.value = next;
+      return saved;
     },
     resetRelays() {
       removeItem(store, key);
       relays.value = defaultRelays(dev);
+      return readItem(store, key) === null;
     },
   };
 }

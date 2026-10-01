@@ -4,6 +4,7 @@ import { decodeNostrKey } from '../src/bech32.ts';
 import { hexToBytes } from '../src/hex.ts';
 import {
   exportNsec,
+  invalidProfileName,
   loadIdentity,
   type Nip07,
   profileFromLocation,
@@ -185,5 +186,50 @@ describe('NIP-07 identity', () => {
     writeSignerChoice('alice', store, 'nip07');
     const bad: Nip07 = { getPublicKey: async () => 'xyz', signEvent: ext.signEvent };
     await expect(loadIdentity('alice', store, seeded(), bad)).rejects.toThrow();
+  });
+});
+
+describe('persistence and profile notices', () => {
+  /** A Storage-like map that is not a memory store, as `localStorage` would be. */
+  function durable(): KeyValueStore {
+    const m = new Map<string, string>();
+    return {
+      getItem: (k) => m.get(k) ?? null,
+      setItem: (k, v) => void m.set(k, v),
+      removeItem: (k) => void m.delete(k),
+    };
+  }
+
+  it('reports a local key in durable storage as persistent', async () => {
+    expect((await loadIdentity('alice', durable(), seeded())).persistent).toBe(true);
+  });
+
+  it('reports a key in a memory store, or in storage that refuses writes, as not persistent', async () => {
+    expect((await loadIdentity('alice', memoryStorage(), seeded())).persistent).toBe(false);
+    const readOnly: KeyValueStore = {
+      ...durable(),
+      setItem: () => {
+        throw new Error('quota');
+      },
+    };
+    expect((await loadIdentity('alice', readOnly, seeded())).persistent).toBe(false);
+  });
+
+  it('reports an extension key as persistent', async () => {
+    const store = durable();
+    writeSignerChoice('alice', store, 'nip07');
+    const sk = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    const ext: Nip07 = {
+      getPublicKey: async () => getPublicKey(sk),
+      signEvent: async (t) => finalizeEvent(t, sk, seeded(3)),
+    };
+    expect((await loadIdentity('alice', store, seeded(), ext)).persistent).toBe(true);
+  });
+
+  it('names an invalid ?profile= value and nothing otherwise', () => {
+    expect(invalidProfileName({ search: '?profile=a:b' })).toBe('a:b');
+    expect(invalidProfileName({ search: '?profile=' })).toBe('');
+    expect(invalidProfileName({ search: '?profile=bob' })).toBeNull();
+    expect(invalidProfileName({ search: '' })).toBeNull();
   });
 });

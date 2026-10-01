@@ -2,7 +2,15 @@ import { BRAND } from '@bored-games/brand';
 import { signal } from '@preact/signals';
 import { render } from 'preact';
 import { App, IdentityError } from './app.tsx';
-import { DEFAULT_PROFILE, loadIdentity, profileFromLocation, writeSignerChoice } from './identity.ts';
+import { nowSeconds, platformTimers } from './clock.ts';
+import {
+  DEFAULT_PROFILE,
+  invalidProfileName,
+  loadIdentity,
+  profileFromLocation,
+  writeSignerChoice,
+} from './identity.ts';
+import { appPool, MODULES } from './net.ts';
 import { randomBytes } from './random.ts';
 import { startRouter } from './router.ts';
 import { createSettings } from './settings.ts';
@@ -35,16 +43,31 @@ async function main(): Promise<void> {
     return;
   }
 
+  const settings = createSettings(profile, store, import.meta.env.DEV);
+  const pool = appPool(settings);
   startRouter(window);
   render(
     <App
       ctx={{
         profile,
+        invalidProfile: invalidProfileName(window.location),
         store,
         nostr,
         signer,
-        settings: createSettings(profile, store, import.meta.env.DEV),
+        persistent: signer.persistent,
+        settings,
         settingsOpen: signal(false),
+        deps: {
+          pool,
+          signer,
+          storage: store,
+          profile,
+          relays: () => settings.relays.value,
+          rnd: randomBytes,
+          now: nowSeconds,
+          modules: MODULES,
+          timers: platformTimers,
+        },
       }}
     />,
     root,
