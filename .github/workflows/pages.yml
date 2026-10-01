@@ -1,8 +1,11 @@
 name: Deploy web app to GitHub Pages
 
 # One-time setup: repository Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Deploys only after CI (ci.yml, `pnpm check`) has passed on a push to main, and builds the commit CI checked.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -18,10 +21,15 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       # The pnpm version comes from "packageManager" in package.json.
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
