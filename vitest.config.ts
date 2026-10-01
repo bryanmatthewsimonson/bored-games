@@ -15,6 +15,14 @@ export default defineConfig({
       {
         test: { name: 'deck', root: 'packages/deck', include: ['test/**/*.test.ts'], testTimeout: 60_000 },
       },
+      {
+        test: {
+          name: 'protocol',
+          root: 'packages/protocol',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 60_000,
+        },
+      },
       { test: { name: 'brand', root: 'packages/brand', include: ['test/**/*.test.ts'] } },
       { test: { name: 'repo', root: '.', include: ['tests/**/*.test.ts'] } },
       {

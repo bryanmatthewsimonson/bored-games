@@ -1,7 +1,14 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/coverage", "!packages/deck/test/vectors", "!.claude"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/coverage",
+      "!packages/deck/test/vectors",
+      "!.claude"
+    ]
   },
   "formatter": {
     "enabled": true,

@@ -201,6 +201,12 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
   - **Argument order.** `table` comes before `own` so that `own` can be a trailing optional parameter.
   - **`combine`** stays exported, documented as low level: it does not verify shares and does not detect duplicates.
 
+## D026: Protocol signs and verifies with noble `schnorr`, not nostr-tools (2026-10-01, Phase 2c)
+- **Decision.** `@bored-games/protocol` implements NIP-01 ids, signing and verification directly on `schnorr` from `@noble/curves` (BIP-340) and `sha256` from `@noble/hashes`. It does not use nostr-tools.
+- **Why.** nostr-tools bundles its own noble copy, which would give the repo a second copy of the curve code. D023 already records that the deck verifiers check `instanceof` against one copy and fail on a point from another. The NIP-01 pieces needed here are small: the id hash, one signature and one verification.
+- **Dependencies.** No new third-party dependency. `@noble/curves` and `@noble/hashes` stay pinned to `2.4.0` (D023), and the workspace packages `@bored-games/deck` and `@bored-games/game-kit` are added.
+- **Behavior.** `verifyEvent` is stricter than NIP-01: exact key set, lowercase hex, `kind` in [0, 65535], `created_at` a non-negative safe integer, tags as arrays of strings. It returns false and never throws. `finalizeEvent` takes the 32 bytes of BIP-340 auxiliary randomness from an injected `RandomBytes`.
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 

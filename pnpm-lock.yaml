@@ -50,6 +50,21 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/protocol:
+    dependencies:
+      '@bored-games/deck':
+        specifier: workspace:*
+        version: link:../deck
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../game-kit
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+
   tools/fuzz:
     dependencies:
       '@bored-games/chain-reaction':
