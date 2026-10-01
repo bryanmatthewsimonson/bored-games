@@ -439,8 +439,9 @@ export class GameController {
 
   /**
    * Follow the game's events from the seated keys only, so strangers' events cannot crowd a relay's answer. The
-   * first page stays open for new events; while a page brings events not seen before, an older page follows,
-   * up to its oldest date. Loading is complete when a page brings nothing new.
+   * first page stays open for new events; while a page brings events not seen before, an older page follows, up
+   * to the oldest date among those new events. Loading is complete when a page brings nothing new. The pool
+   * merges relays, so one `until` serves them all (D036: a gap across relays).
    */
   #subscribeGame(root: ParsedRoot): void {
     this.#sessionKeys = new Set(root.seats.map((s) => s.session));
@@ -458,8 +459,12 @@ export class GameController {
       let stop = (): void => {};
       const onEvent = (ev: NostrEvent): void => {
         if (this.#disposed) return;
-        if (this.#seated(ev) && !this.#got.has(ev.id)) fresh++;
-        if (ev.created_at < oldest) oldest = ev.created_at;
+        // Only seated events this client had not seen move the page: a stranger's event, or an old one dated far
+        // back, must not steer `until`.
+        if (this.#seated(ev) && !this.#got.has(ev.id)) {
+          fresh++;
+          if (ev.created_at < oldest) oldest = ev.created_at;
+        }
         this.#onEvent(ev);
       };
       const onEose = (): void => {
