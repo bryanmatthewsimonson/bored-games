@@ -32,6 +32,11 @@ export function getPublicKey(sk: Uint8Array): Hex {
   return bytesToHex(schnorr.getPublicKey(sk));
 }
 
+/** SHA-256 of `bytes` as 64 lowercase hex characters (Blossom blob hashes, BUD-02). */
+export function sha256Hex(bytes: Uint8Array): Hex {
+  return bytesToHex(sha256(bytes));
+}
+
 /** NIP-01 id: SHA-256 of the UTF-8 of `[0, pubkey, created_at, kind, tags, content]` serialized as JSON. */
 export function eventId(pubkey: Hex, t: EventTemplate): Hex {
   const text = JSON.stringify([0, pubkey, t.created_at, t.kind, t.tags, t.content]);

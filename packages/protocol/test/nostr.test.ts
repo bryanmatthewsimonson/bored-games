@@ -11,6 +11,7 @@ import {
   getPublicKey,
   isHex64,
   type NostrEvent,
+  sha256Hex as sha256OfBytes,
   verifyEvent,
 } from '../src/nostr.ts';
 
@@ -272,5 +273,15 @@ describe('helpers and constants', () => {
     expect(e.name).toBe('ProtocolError');
     expect(e.code).toBe('bad-thing');
     expect(e.message).toBe('it went wrong');
+  });
+});
+
+describe('sha256Hex', () => {
+  it('hashes bytes to lowercase hex, matching node:crypto', () => {
+    expect(sha256OfBytes(new Uint8Array())).toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    );
+    const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 7) & 0xff);
+    expect(sha256OfBytes(bytes)).toBe(createHash('sha256').update(bytes).digest('hex'));
   });
 });
