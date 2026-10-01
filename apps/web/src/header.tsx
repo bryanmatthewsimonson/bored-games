@@ -59,6 +59,8 @@ export function Header() {
           class="header-link"
           href={rulesHref()}
           aria-current={route.value.name === 'rules' ? 'page' : undefined}
+          // In a game, a new tab keeps the running game open instead of rebuilding it on return.
+          {...(route.value.name === 'game' ? { target: '_blank', rel: 'noopener' } : {})}
         >
           Rules
         </a>
