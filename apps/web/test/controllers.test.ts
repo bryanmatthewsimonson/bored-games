@@ -609,6 +609,20 @@ describe('GameController', () => {
     const late = game(rootId, { ...p.deps, now: () => now() + deadline + 60 });
     const target = await waitFor('a timeout target', () => late.timeoutTarget.value ?? false);
     expect(target).toBe(stalled);
+
+    // A seat's kind 0 metadata names it; a newer event replaces an older one.
+    const named = bySeat[stalled] as Profile;
+    for (const [i, display_name] of ['Old', 'Ann‮'].entries()) {
+      const meta = {
+        kind: 0,
+        created_at: now() - 10 + i,
+        tags: [],
+        content: JSON.stringify({ display_name }),
+      };
+      await named.deps.pool.publish(await named.deps.signer.sign(meta));
+    }
+    await waitFor('the profile name', () => late.profileNames.value[stalled] === 'Ann');
+    expect(late.profileNames.value.filter((n) => n !== null)).toEqual(['Ann']);
     const view = late.view.value as SessionView;
     expect(timeoutExplanation(view, 'Ann')).toMatch(/Ann forfeits: the game ends now/);
 

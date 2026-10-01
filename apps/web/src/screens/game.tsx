@@ -75,6 +75,15 @@ export function timedOutSeats(view: SessionView | null): readonly number[] {
     : [];
 }
 
+/** Each seat's short npub, after its profile name when it has one: "Ann (npub1abcdef…uvwxyz)". */
+export function playerNames(seats: readonly string[], profiles: readonly (string | null)[]): string[] {
+  return seats.map((pubkey, i) => {
+    const short = shortNpub(npubEncode(pubkey));
+    const name = profiles[i];
+    return name ? `${name} (${short})` : short;
+  });
+}
+
 /** Why the decision form is disabled, for `lockedReason`. */
 function lockedReason(status: GameStatus): string {
   if (status === 'syncing') return 'Still loading the game from the relays.';
@@ -139,7 +148,8 @@ export function GameScreen(props: { rootId: string }) {
   const target = ctl.timeoutTarget.value;
   const state = (view?.state ?? null) as ChainReactionState | null;
 
-  const names = useMemo(() => seats.map((npub) => shortNpub(npubEncode(npub))), [seats]);
+  const profiles = ctl.profileNames.value;
+  const names = useMemo(() => playerNames(seats, profiles), [seats, profiles]);
   // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
   const events = view?.events ?? NO_EVENTS;
   const log = useMemo(() => logLines(events, names), [events, names]);

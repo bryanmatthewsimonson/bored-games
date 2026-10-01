@@ -1,8 +1,11 @@
 import type { SessionView } from '@bored-games/client';
 import { describe, expect, it } from 'vitest';
+import { npubEncode, shortNpub } from '../src/bech32.ts';
+import { MAX_PROFILE_NAME, profileName } from '../src/game-controller.ts';
 import {
   equivocatorsOf,
   formatDeadline,
+  playerNames,
   statusNotice,
   timedOutSeats,
   timeoutExplanation,
@@ -61,5 +64,31 @@ describe('game screen helpers', () => {
     ).toEqual([0, 2]);
     expect(timedOutSeats(viewOf({ phase: 'done', audit: { fail: [1], reason: 'bad shuffle' } }))).toEqual([]);
     expect(timedOutSeats(viewOf({ phase: 'play', audit: { fail: [1], reason: 'timeout' } }))).toEqual([]);
+  });
+});
+
+describe('player names', () => {
+  it('reads display_name, else name, from kind 0 metadata', () => {
+    expect(profileName('{"display_name":"Ann Lee","name":"ann"}')).toBe('Ann Lee');
+    expect(profileName('{"display_name":"  ","name":"ann"}')).toBe('ann');
+    expect(profileName('{"name":42}')).toBeNull();
+    expect(profileName('{}')).toBeNull();
+    expect(profileName('null')).toBeNull();
+    expect(profileName('not json')).toBeNull();
+  });
+
+  it('removes control and format characters, collapses whitespace and cuts to 32 characters', () => {
+    expect(profileName(JSON.stringify({ name: 'An‮ne​\n\tLee\u0007' }))).toBe('Anne Lee');
+    const long = profileName(JSON.stringify({ name: `${'x'.repeat(31)}😀😀` }));
+    expect(long).toBe(`${'x'.repeat(31)}😀`);
+    expect([...(long ?? '')]).toHaveLength(MAX_PROFILE_NAME);
+  });
+
+  it('shows the short npub, after the profile name when there is one', () => {
+    const pk = 'a'.repeat(64);
+    const short = shortNpub(npubEncode(pk));
+    expect(short).toMatch(/^npub1.{5}….{6}$/);
+    expect(playerNames([pk, pk], ['Ann', null])).toEqual([`Ann (${short})`, short]);
+    expect(playerNames([pk], [])).toEqual([short]);
   });
 });
