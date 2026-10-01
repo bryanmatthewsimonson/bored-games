@@ -13,7 +13,7 @@ import {
 import { appPool, MODULES } from './net.ts';
 import { randomBytes } from './random.ts';
 import { startRouter } from './router.ts';
-import { createSettings } from './settings.ts';
+import { createSettings, relaysFromLocation } from './settings.ts';
 import { browserStorage } from './storage.ts';
 import './styles.css';
 
@@ -44,6 +44,9 @@ async function main(): Promise<void> {
   }
 
   const settings = createSettings(profile, store, import.meta.env.DEV);
+  // `?relays=` replaces this profile's relay list (saved, as if edited in Settings).
+  const urlRelays = relaysFromLocation(window.location);
+  if (urlRelays !== null) settings.setRelays(urlRelays);
   const pool = appPool(settings);
   startRouter(window);
   render(

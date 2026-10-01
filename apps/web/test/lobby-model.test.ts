@@ -318,4 +318,10 @@ describe('share link', () => {
     );
     expect(shareUrl('http://localhost:5173/?profile=a', ME, 't')).toBe(`http://localhost:5173/#/t/${ME}/t`);
   });
+
+  it('drops a ?relays override', () => {
+    expect(shareUrl('http://localhost:4173/?profile=a&relays=ws://localhost:9', ME, 't')).toBe(
+      `http://localhost:4173/#/t/${ME}/t`,
+    );
+  });
 });

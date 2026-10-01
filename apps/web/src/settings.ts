@@ -29,6 +29,21 @@ function clean(list: readonly unknown[]): string[] {
   return out;
 }
 
+/**
+ * Relays from the page URL: `?relays=ws://localhost:7777,wss://relay.example` (comma separated, or the parameter
+ * repeated). Invalid and duplicate entries are dropped; null when the parameter is absent or nothing valid is
+ * left. The app saves such a list as this profile's relays on load, so a test or a local setup can point a
+ * production build at its own relay without opening Settings.
+ */
+export function relaysFromLocation(loc: { search: string }): string[] | null {
+  const raw = new URLSearchParams(loc.search)
+    .getAll('relays')
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim());
+  const list = clean(raw);
+  return list.length > 0 ? list : null;
+}
+
 export interface Settings {
   /** The relay list, in priority order. Never empty. */
   relays: Signal<string[]>;

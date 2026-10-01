@@ -5,6 +5,7 @@ import {
   DEV_RELAY,
   defaultRelays,
   parseRelayInput,
+  relaysFromLocation,
 } from '../src/settings.ts';
 import { memoryStorage } from '../src/storage.ts';
 
@@ -91,5 +92,23 @@ describe('settings when storage fails', () => {
     const s = createSettings('alice', memoryStorage(), false);
     expect(s.setRelays(['wss://x.example'])).toBe(true);
     expect(s.resetRelays()).toBe(true);
+  });
+});
+
+describe('relaysFromLocation', () => {
+  it('reads a comma-separated or repeated ?relays= list, cleaned', () => {
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,wss://a.example' })).toEqual([
+      'ws://localhost:9',
+      'wss://a.example',
+    ]);
+    expect(
+      relaysFromLocation({ search: '?profile=b&relays=ws://localhost:9&relays=bad&relays=ws://localhost:9' }),
+    ).toEqual(['ws://localhost:9']);
+  });
+
+  it('is null without the parameter or without a valid relay', () => {
+    expect(relaysFromLocation({ search: '' })).toBeNull();
+    expect(relaysFromLocation({ search: '?profile=a' })).toBeNull();
+    expect(relaysFromLocation({ search: '?relays=https://x.example' })).toBeNull();
   });
 });

@@ -87,7 +87,13 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   const placeable = new Set(decision.kind === 'place' ? decision.options.map((o) => o.tile) : []);
 
   return (
-    <div class="cr-game">
+    <div
+      class="cr-game"
+      data-testid="cr-game"
+      data-seq={state.seq}
+      data-turn={state.turn?.number ?? 0}
+      data-phase={state.phase.kind}
+    >
       <h1 class="sr-only">{CHAIN_REACTION_THEME.title}</h1>
       <StatusBar
         line={status}

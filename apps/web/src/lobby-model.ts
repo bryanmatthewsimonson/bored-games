@@ -376,10 +376,14 @@ export function defaultPicks(lobby: LobbyLike): Hex[] {
 
 /* ------------------------------------------------------------------------------------------ links */
 
-/** The full URL of a table's page with `?profile=` removed: profiles are local to a browser. */
+/**
+ * The full URL of a table's page with `?profile=` and `?relays=` removed: profiles are local to a browser, and a
+ * relay override must not replace the recipient's relay list.
+ */
 export function shareUrl(currentHref: string, creator: string, tableId: string): string {
   const u = new URL(currentHref);
   u.searchParams.delete('profile');
+  u.searchParams.delete('relays');
   u.hash = `#/t/${creator}/${tableId}`;
   return u.toString();
 }
