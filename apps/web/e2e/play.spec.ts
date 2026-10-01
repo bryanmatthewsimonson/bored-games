@@ -1,14 +1,17 @@
 /*
- * End to end: three players in three browser contexts play a real game through the UI, against the dev relay.
+ * End to end: 3 players (up to 6, see E2E_SEATS) in as many browser contexts play a real game through the UI,
+ * against the dev relay.
  *
- * - a creates a 3-seat table with 2 open seats; b and c join from the share link; a starts the game.
- * - Every client shuffles and deals automatically; all three reach the play screen.
+ * - a creates a table with all the seats but hers open; b, c, ... join from the share link; a starts the game.
+ * - Every client shuffles and deals automatically; all of them reach the play screen.
  * - Then whoever holds the decision answers it with the first legal option, for at least 2 full rounds.
  * - At the end every context shows the same board, turn number and state seq.
  *
  * Run it with `pnpm e2e` (apps/web/e2e/run.ts), which provides E2E_BASE_URL and E2E_RELAY. Options:
- * - E2E_TURNS: play at least this many turns (default 7).
- * - E2E_ONE_CONTEXT=1: three tabs of one browser context instead (shared storage, as in docs/TESTING.md).
+ * - E2E_SEATS: the number of players, 3 to 6 (default 3). The shuffle and deal, and the time allowed for them,
+ *   grow with it.
+ * - E2E_TURNS: play at least this many turns (default 2 full rounds and one more turn: 7 for 3 players).
+ * - E2E_ONE_CONTEXT=1: one tab per player of one browser context instead (shared storage, as in docs/TESTING.md).
  * - E2E_RELAY=none: leave out `?relays=`, so the app uses its own relay settings (for a `pnpm dev` server).
  * - E2E_SCREENSHOTS=<dir>: save a full-page screenshot per player mid-game, as <dir>/e2e-<profile>.png, and
  *   one of a at phone width (e2e-a-phone.png).
@@ -19,12 +22,16 @@ import { type Browser, type BrowserContext, expect, type Locator, type Page, tes
 
 const RELAY = process.env.E2E_RELAY ?? 'ws://localhost:7777';
 const ONE_CONTEXT = process.env.E2E_ONE_CONTEXT === '1';
-/** 2 full rounds of 3 players by default: turns 1 to 6 done, turn 7 under way. E2E_TURNS plays longer. */
-const UNTIL_TURN = Math.max(7, Number(process.env.E2E_TURNS ?? 7) || 7);
+/** The number of players: E2E_SEATS clamped to 3 to 6, 3 by default. */
+const SEATS = Math.min(6, Math.max(3, Math.trunc(Number(process.env.E2E_SEATS ?? 3)) || 3));
+/** The players' profile names: a, b, c, ... */
+const NAMES = 'abcdef'.slice(0, SEATS);
+/** 2 full rounds by default (6 turns for 3 players): turns 1 to 6 done, turn 7 under way. E2E_TURNS plays longer. */
+const UNTIL_TURN = Math.max(2 * SEATS + 1, Number(process.env.E2E_TURNS ?? 0) || 0);
 /** Past UNTIL_TURN the game goes on until a merger disposal was answered, but not beyond this turn. */
 const MAX_TURN = Math.max(UNTIL_TURN, 120);
-/** Shuffle and deal proofs for 3 players. */
-const SETUP_MS = 5 * 60_000;
+/** Shuffle and deal proofs: 5 minutes for 3 players, in proportion to the seats (each player shuffles in turn). */
+const SETUP_MS = (5 * 60_000 * SEATS) / 3;
 /** One decision, including relay round trips. */
 const MOVE_MS = 60_000;
 const SHOTS = process.env.E2E_SCREENSHOTS;
@@ -131,25 +138,28 @@ async function decide(p: Player, declare = false): Promise<string> {
   return `${legend}: ${label}${detail}`.replace(/\s+/g, ' ');
 }
 
-test('three players set up a game and play it through the UI', async ({ browser }) => {
+test(`${SEATS} players set up a game and play it through the UI`, async ({ browser }) => {
+  // playwright.config.ts allows 15 minutes for 3 players; more seats take proportionally longer.
+  test.setTimeout((15 * 60_000 * SEATS) / 3);
   const started = Date.now();
   const log = (msg: string) => console.log(`[${((Date.now() - started) / 1000).toFixed(1)}s] ${msg}`);
 
-  // a creates a 3-seat table: herself plus 2 open seats.
+  // a creates a table: herself plus the other seats, open.
   const a = await open(browser, 'a', appUrl('a'));
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
-  await a.page.getByLabel('Players', { exact: true }).selectOption('3');
-  await expect(a.page.getByText('2 open seats')).toBeVisible();
+  await a.page.getByLabel('Players', { exact: true }).selectOption(String(SEATS));
+  await expect(a.page.getByText(`${SEATS - 1} open seats`)).toBeVisible();
   await a.page.getByRole('button', { name: 'Create table' }).click();
   await expect(a.page).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.page.getByLabel('Table link').inputValue();
   expect(share).not.toContain('profile=');
   log(`table created: ${share}`);
 
-  // b and c join from the share link.
-  const b = await open(browser, 'b', appUrl('b', share));
-  const c = await open(browser, 'c', appUrl('c', share));
-  for (const p of [b, c]) {
+  // The others join from the share link, each in a context of its own.
+  const joiners: Player[] = [];
+  for (const name of NAMES.slice(1)) joiners.push(await open(browser, name, appUrl(name, share)));
+  const b = joiners[0] as Player;
+  for (const p of joiners) {
     await p.page.getByRole('button', { name: 'Join this table' }).click();
     await expect(p.page.getByText('You are seated.')).toBeVisible();
     log(`${p.name} joined`);
@@ -159,13 +169,14 @@ test('three players set up a game and play it through the UI', async ({ browser 
   await expect(a.page.getByText('Every seat is taken.')).toBeVisible();
   await a.page.getByRole('button', { name: 'Start game' }).click();
   await a.page.getByRole('button', { name: 'Yes, start the game' }).click();
+  const startedGame = Date.now();
   log('game started');
 
-  const players = [a, b, c];
+  const players = [a, ...joiners];
   // Everyone is taken to the game, shuffles, deals, and reaches the play screen.
   for (const p of players) await expect(p.page).toHaveURL(/#\/g\/[0-9a-f]{64}$/, { timeout: 60_000 });
   for (const p of players) await expect(game(p)).toBeVisible({ timeout: SETUP_MS });
-  log('all three on the play screen');
+  log(`all ${SEATS} on the play screen, ${((Date.now() - startedGame) / 1000).toFixed(1)}s after Start game`);
   expect(new Set(players.map((p) => p.page.url().split('#')[1])).size).toBe(1);
 
   // Play: whoever holds the decision answers it. At least 2 full rounds, then on until a merger disposal has
@@ -186,6 +197,7 @@ test('three players set up a game and play it through the UI', async ({ browser 
       log(`b reloaded at turn ${turn} and rebuilt the game`);
     }
     const actor = await nextToAct(players);
+    if (moves === 0) log(`first decision ${((Date.now() - startedGame) / 1000).toFixed(1)}s after Start game`);
     const before = await stateOf(actor);
     const what = await decide(actor);
     moves++;
