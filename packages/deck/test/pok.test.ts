@@ -68,6 +68,7 @@ describe('proof of knowledge of the deck key', () => {
     expect(verifyPok(X, null as unknown as { c: bigint; s: bigint }, ctx)).toBe(false);
     expect(verifyPok(Point.ZERO, proof, ctx)).toBe(false); // identity X
     expect(verifyPok(null as unknown as typeof G, proof, ctx)).toBe(false);
+    expect(verifyPok({ is0: () => false } as unknown as typeof G, proof, ctx)).toBe(false); // not a Point
     expect(verifyPok(X, proof, [Number.NaN])).toBe(false);
   });
 

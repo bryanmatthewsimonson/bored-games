@@ -20,6 +20,11 @@ export function h2c(label: string): Point {
   return P;
 }
 
+/** True for a bigint scalar in [0, q). */
+export function inRange(k: unknown): k is bigint {
+  return typeof k === 'bigint' && k >= 0n && k < q;
+}
+
 let cachedH: Point | null = null;
 const cachedHs: Point[] = [];
 

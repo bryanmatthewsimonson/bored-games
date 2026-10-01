@@ -2,7 +2,7 @@ import { secp256k1 } from '@noble/curves/secp256k1.js';
 import type { Ciphertext } from './elgamal.ts';
 import type { Point } from './encoding.ts';
 import { hs } from './encoding.ts';
-import { G, msm, q } from './group.ts';
+import { G, inRange, msm, q } from './group.ts';
 import { type RandomBytes, randomScalar } from './random.ts';
 
 const PointClass = secp256k1.Point;
@@ -21,10 +21,6 @@ export interface ShareCtx {
   readonly pos: number;
 }
 
-function inRange(k: unknown): k is bigint {
-  return typeof k === 'bigint' && k >= 0n && k < q;
-}
-
 function validPos(pos: unknown): pos is number {
   return typeof pos === 'number' && Number.isSafeInteger(pos) && pos >= 0;
 }
@@ -37,7 +33,7 @@ function challenge(ctx: ShareCtx, X: Point, a: Point, D: Point, T1: Point, T2: P
  * Seat `x`'s decryption share of `ct` with its proof (PROTOCOL §5.4):
  * `D = x·a`, `T1 = w·G`, `T2 = w·a`, `c = HS("dleq", rootId, deckId, pos, X, a, D, T1, T2)`, `s = w + c·x mod q`.
  * Throws on a secret outside [1, q), an identity `a` (nothing to decrypt; verifiers reject it) or a bad `pos`.
- * All randomness comes from `rnd`; every multiplication of a secret is constant time.
+ * All randomness comes from `rnd`; curve multiplications by secrets are constant time (bigint scalar arithmetic in JS is not).
  */
 export function makeShare(x: bigint, ct: Ciphertext, ctx: ShareCtx, rnd: RandomBytes): Share {
   if (typeof x !== 'bigint' || x < 1n || x >= q) throw new RangeError('makeShare: x must lie in [1, q)');

@@ -1,7 +1,10 @@
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import type { Part, Point } from './encoding.ts';
 import { hs } from './encoding.ts';
-import { G, msm, q } from './group.ts';
+import { G, inRange, msm, q } from './group.ts';
 import { type RandomBytes, randomScalar } from './random.ts';
+
+const PointClass = secp256k1.Point;
 
 /** Schnorr proof of knowledge of `x` with `X = x·G`. */
 export interface PokProof {
@@ -9,15 +12,10 @@ export interface PokProof {
   readonly s: bigint;
 }
 
-/** True for a bigint scalar in [0, q). */
-function inRange(k: unknown): k is bigint {
-  return typeof k === 'bigint' && k >= 0n && k < q;
-}
-
 /**
  * Prove knowledge of the deck secret `x` (PROTOCOL §3), bound to `ctx` (callers pass
  * `[tableAddress, npub, sessionPub]`). `T = w·G`, `c = HS("pok", ...ctx, X, T)`, `s = w + c·x mod q`.
- * All randomness comes from `rnd`; every multiplication of a secret is constant time.
+ * All randomness comes from `rnd`; curve multiplications by secrets are constant time (bigint scalar arithmetic in JS is not).
  */
 export function provePok(x: bigint, ctx: readonly Part[], rnd: RandomBytes): PokProof {
   if (typeof x !== 'bigint' || x < 1n || x >= q) throw new RangeError('provePok: x must lie in [1, q)');
@@ -34,7 +32,7 @@ export function provePok(x: bigint, ctx: readonly Part[], rnd: RandomBytes): Pok
  */
 export function verifyPok(X: Point, proof: PokProof, ctx: readonly Part[]): boolean {
   try {
-    if (!X || X.is0()) return false;
+    if (!(X instanceof PointClass) || X.is0()) return false;
     const { c, s } = proof;
     if (!inRange(c) || !inRange(s)) return false;
     // T' = s·G − c·X
