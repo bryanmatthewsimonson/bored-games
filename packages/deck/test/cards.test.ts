@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { cardOf, cardPoint, cardTable } from '../src/cards.ts';
 import { encodePoint } from '../src/encoding.ts';
 import { G, generators, h2c, msm, q } from '../src/group.ts';
+import { randomScalar } from '../src/random.ts';
+import { seededRandom } from './util.ts';
 
 const Point = secp256k1.Point;
 
@@ -81,6 +83,22 @@ describe('msm', () => {
   it('gives the identity for the empty list and for all-zero scalars', () => {
     expect(msm([], []).is0()).toBe(true);
     expect(msm([P, Q], [0n, 0n]).is0()).toBe(true);
+  });
+
+  it('matches naive summation on 70 terms with scattered zero scalars and identity points', () => {
+    const rnd = seededRandom('msm-70');
+    const points: (typeof P)[] = [];
+    const scalars: bigint[] = [];
+    for (let i = 0; i < 70; i++) {
+      points.push(i % 11 === 3 ? Point.ZERO : G.multiply(randomScalar(rnd)));
+      scalars.push(i % 7 === 0 ? 0n : i === 40 ? q - 1n : randomScalar(rnd));
+    }
+    let naive = Point.ZERO;
+    for (let i = 0; i < 70; i++) {
+      const k = scalars[i] as bigint;
+      if (k !== 0n) naive = naive.add((points[i] as typeof P).multiplyUnsafe(k));
+    }
+    expect(msm(points, scalars).equals(naive)).toBe(true);
   });
 
   it('rejects mismatched lengths and out-of-range scalars', () => {

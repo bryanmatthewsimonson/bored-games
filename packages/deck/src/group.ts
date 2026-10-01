@@ -44,7 +44,7 @@ export function msm(points: readonly Point[], scalars: readonly bigint[]): Point
   for (const k of scalars) {
     if (typeof k !== 'bigint' || k < 0n || k >= q) throw new RangeError('msm: scalar out of range [0, q)');
   }
-  // Zero terms contribute nothing; dropping them keeps pippenger's inputs well inside its documented domain.
+  // Zero terms and identity points contribute nothing. pippenger accepts them, so dropping them is only a harmless optimization.
   const ps: Point[] = [];
   const ks: bigint[] = [];
   for (let i = 0; i < points.length; i++) {
