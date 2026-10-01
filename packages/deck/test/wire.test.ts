@@ -5,7 +5,7 @@ import { makeShare, verifyShare } from '../src/dleq.ts';
 import { initialDeck, jointKey } from '../src/elgamal.ts';
 import { b64u, encodePoint, encodeScalar, type Point } from '../src/encoding.ts';
 import { G, q } from '../src/group.ts';
-import { provePok, verifyPok } from '../src/pok.ts';
+import { type PokProof, provePok, verifyPok } from '../src/pok.ts';
 import { randomScalar } from '../src/random.ts';
 import { proveShuffle, type ShuffleCtx, shuffleDeck, verifyShuffle } from '../src/shuffle.ts';
 import {
@@ -147,19 +147,18 @@ describe('DeckWireError', () => {
 });
 
 describe('deck codec', () => {
-  it('round-trips, with and without a length', () => {
-    for (const back of [decodeDeck(wireDeck), decodeDeck(wireDeck, N)]) {
-      expect(back).toHaveLength(N);
-      back.forEach((e, i) => {
-        expect(e.a.equals((fx.out[i] as { a: Point }).a)).toBe(true);
-        expect(e.b.equals((fx.out[i] as { b: Point }).b)).toBe(true);
-      });
-    }
+  it('round-trips', () => {
+    const back = decodeDeck(wireDeck, N);
+    expect(back).toHaveLength(N);
+    back.forEach((e, i) => {
+      expect(e.a.equals((fx.out[i] as { a: Point }).a)).toBe(true);
+      expect(e.b.equals((fx.out[i] as { b: Point }).b)).toBe(true);
+    });
   });
 
   it('survives a JSON round trip and the canonical form', () => {
     const text = canonicalJson(wireDeck);
-    expect(canonicalJson(encodeDeck(decodeDeck(JSON.parse(text))))).toBe(text);
+    expect(canonicalJson(encodeDeck(decodeDeck(JSON.parse(text), N)))).toBe(text);
   });
 
   it('encodes points as 44-character base64url strings', () => {
@@ -175,11 +174,15 @@ describe('deck codec', () => {
   });
 
   it('rejects an empty deck, whatever n is', () => {
-    expect(() => decodeDeck([])).toThrow(DeckWireError);
-    expect(() => decodeDeck([], 0)).toThrow();
+    expect(() => decodeDeck([], 1)).toThrow(DeckWireError);
+    expect(() => decodeDeck([], 0)).toThrow(RangeError);
   });
 
-  it('rejects a wrong length when n is given', () => {
+  it('requires n: a missing n is a caller error, not "any length"', () => {
+    expect(() => (decodeDeck as (v: unknown) => unknown)(wireDeck)).toThrow(RangeError);
+  });
+
+  it('rejects a wrong length', () => {
     expect(() => decodeDeck(wireDeck, N + 1)).toThrow(DeckWireError);
     expect(() => decodeDeck(wireDeck, N - 1)).toThrow(DeckWireError);
   });
@@ -191,30 +194,30 @@ describe('deck codec', () => {
 
   it('rejects a non-array, a non-pair, a triple and a non-array row', () => {
     for (const bad of [null, 5, 'x', {}, { length: 1, 0: [good, good] }]) {
-      expect(() => decodeDeck(bad)).toThrow(DeckWireError);
+      expect(() => decodeDeck(bad, 1)).toThrow(DeckWireError);
     }
-    expect(() => decodeDeck([[good]])).toThrow(DeckWireError);
-    expect(() => decodeDeck([[good, good, good]])).toThrow(DeckWireError);
-    expect(() => decodeDeck([good])).toThrow(DeckWireError);
-    expect(() => decodeDeck([{ 0: good, 1: good, length: 2 }])).toThrow(DeckWireError);
+    expect(() => decodeDeck([[good]], 1)).toThrow(DeckWireError);
+    expect(() => decodeDeck([[good, good, good]], 1)).toThrow(DeckWireError);
+    expect(() => decodeDeck([good], 1)).toThrow(DeckWireError);
+    expect(() => decodeDeck([{ 0: good, 1: good, length: 2 }], 1)).toThrow(DeckWireError);
   });
 
   it('rejects holes in the deck and in a pair', () => {
     expect(() => decodeDeck(holeAt(wireDeck, 2), N)).toThrow(DeckWireError);
-    expect(() => decodeDeck([holeAt([good, good], 1)])).toThrow(DeckWireError);
-    expect(() => decodeDeck([holeAt([good, good], 0)])).toThrow(DeckWireError);
+    expect(() => decodeDeck([holeAt([good, good], 1)], 1)).toThrow(DeckWireError);
+    expect(() => decodeDeck([holeAt([good, good], 0)], 1)).toThrow(DeckWireError);
   });
 
   for (const [name, bad] of BAD_POINTS) {
     it(`rejects ${name} as a or b`, () => {
-      expect(() => decodeDeck(withAt(wireDeck, [0, 0], bad))).toThrow(DeckWireError);
+      expect(() => decodeDeck(withAt(wireDeck, [0, 0], bad), N)).toThrow(DeckWireError);
       expect(() => decodeDeck(withAt(wireDeck, [N - 1, 1], bad), N)).toThrow(DeckWireError);
     });
   }
 
   it('names the path of the defect', () => {
-    expect(() => decodeDeck(withAt(wireDeck, [3, 1], 'AA'))).toThrow(/^deck\[3\]\[1\]: /);
-    expect(() => decodeDeck(withAt(wireDeck, [2], [good]))).toThrow(/^deck\[2\]: /);
+    expect(() => decodeDeck(withAt(wireDeck, [3, 1], 'AA'), N)).toThrow(/^deck\[3\]\[1\]: /);
+    expect(() => decodeDeck(withAt(wireDeck, [2], [good]), N)).toThrow(/^deck\[2\]: /);
   });
 });
 
@@ -227,6 +230,13 @@ describe('shuffle proof codec', () => {
     expect((w.c as unknown[]).length).toBe(N);
     expect(((w.t as Record<string, unknown[]>).t4 as unknown[]).length).toBe(2);
     expect(((w.s as Record<string, unknown[]>).sPrime as unknown[]).length).toBe(N);
+  });
+
+  it('types t4 as a pair', () => {
+    // A compile-time check as much as a runtime one: `t4` is `[string, string]`, not `string[]`.
+    const [t40, t41]: [string, string] = wireProof.t.t4;
+    expect(t40).toHaveLength(44);
+    expect(t41).toHaveLength(44);
   });
 
   it('round-trips', () => {
@@ -453,7 +463,7 @@ describe('share codec', () => {
   });
 
   it('encoder rejects a bad pos and an identity D', () => {
-    for (const pos of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
+    for (const pos of [-1, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53]) {
       expect(() => encodeShare({ pos, share })).toThrow();
     }
     expect(() => encodeShare({ pos: 0, share: { ...share, D: ZERO } })).toThrow();
@@ -475,6 +485,13 @@ describe('share codec', () => {
     ]) {
       expect(() => decodeShare({ ...wire, pos }), String(pos)).toThrow(/^share\.pos: /);
     }
+  });
+
+  it('rejects pos -0, which canonical JSON never carries but JSON.parse produces', () => {
+    const parsed = JSON.parse(canonicalJson(wire).replace('"pos":17', '"pos":-0')) as { pos: number };
+    expect(Object.is(parsed.pos, -0)).toBe(true);
+    expect(() => decodeShare(parsed)).toThrow(/^share\.pos: /);
+    expect(() => decodeShare({ ...wire, pos: -0 })).toThrow(/^share\.pos: /);
   });
 
   it('rejects non-objects, extra keys and missing keys', () => {
@@ -519,7 +536,8 @@ describe('pok codec', () => {
   it('has the PROTOCOL shape and round-trips', () => {
     expect(Object.keys(wire).sort()).toEqual(['c', 's']);
     expect(wire.c).toHaveLength(43);
-    expect(decodePok(JSON.parse(canonicalJson(wire)))).toEqual({ c: proof.c, s: proof.s });
+    const back: PokProof = decodePok(JSON.parse(canonicalJson(wire)));
+    expect(back).toEqual({ c: proof.c, s: proof.s });
   });
 
   it('a decoded proof still verifies', () => {
@@ -576,7 +594,7 @@ describe('hostile objects', () => {
   it('rejects an accessor array entry', () => {
     const deck = clone(wireDeck);
     Object.defineProperty(deck, 1, { get: () => wireDeck[1], enumerable: true });
-    expect(() => decodeDeck(deck)).toThrow(/^deck\[1\]: missing entry/);
+    expect(() => decodeDeck(deck, N)).toThrow(/^deck\[1\]: missing entry/);
     const c = clone(wireProof.c);
     Object.defineProperty(c, 0, { get: () => wireProof.c[0], enumerable: true });
     expect(() => decodeShuffleProof({ ...clone(wireProof), c }, N)).toThrow(/^proof\.c\[0\]: /);
@@ -585,7 +603,7 @@ describe('hostile objects', () => {
   it('rejects an array with an extra non-index property', () => {
     const deck = clone(wireDeck);
     Object.defineProperty(deck, 'extra', { value: 1, enumerable: false });
-    expect(() => decodeDeck(deck)).toThrow(/^deck: sparse array or extra properties/);
+    expect(() => decodeDeck(deck, N)).toThrow(/^deck: sparse array or extra properties/);
     const sHat = clone(wireProof.s.sHat) as string[] & { extra?: number };
     sHat.extra = 1;
     expect(() => decodeShuffleProof(withAt(wireProof, ['s', 'sHat'], sHat), N)).toThrow(/^proof\.s\.sHat: /);
@@ -601,7 +619,7 @@ describe('hostile objects', () => {
     const proto = new Proxy({ ...share }, { getPrototypeOf: boom });
     expect(() => decodeShare(proto)).toThrow(/^share: trap$/);
     const arr = new Proxy(clone(wireDeck), { getOwnPropertyDescriptor: boom });
-    expect(() => decodeDeck(arr)).toThrow(/^deck: trap$/);
+    expect(() => decodeDeck(arr, N)).toThrow(/^deck: trap$/);
     const t = new Proxy({ ...clone(wireProof).t }, { ownKeys: boom });
     expect(() => decodeShuffleProof({ ...clone(wireProof), t }, N)).toThrow(/^proof: trap$/);
   });
@@ -609,7 +627,7 @@ describe('hostile objects', () => {
   it('turns a revoked Proxy into a DeckWireError', () => {
     const { proxy, revoke } = Proxy.revocable(clone(wireDeck), {});
     revoke();
-    expect(() => decodeDeck(proxy)).toThrow(DeckWireError);
+    expect(() => decodeDeck(proxy, N)).toThrow(DeckWireError);
     const r = Proxy.revocable({ ...pok }, {});
     r.revoke();
     expect(() => decodePok(r.proxy)).toThrow(DeckWireError);
@@ -644,7 +662,7 @@ describe('hostile objects', () => {
 });
 
 describe('size', () => {
-  it('a 108-card shuffle step is under 40000 bytes of canonical JSON', { timeout: 60_000 }, () => {
+  it('a 108-card shuffle step is under 40000 bytes of canonical JSON', () => {
     const big = setup(108, 'wire-108');
     const bytes =
       canonicalJson(encodeShuffleProof(big.proof)).length + canonicalJson(encodeDeck(big.out)).length;

@@ -207,7 +207,7 @@ describe('proveShuffle / verifyShuffle: completeness', () => {
     });
   }
 
-  it('an honest proof verifies for N = 108, from the initial deck and chained', { timeout: 60_000 }, () => {
+  it('an honest proof verifies for N = 108, from the initial deck and chained', () => {
     const { X } = keys('tw-comp-108');
     const deck0 = initialDeck(DECK, 108);
     const ctx0: ShuffleCtx = { rootId: 'root', seat: 0, deckId: DECK };
@@ -533,7 +533,7 @@ describe('proveShuffle / verifyShuffle: soundness (N = 108)', () => {
     return fixture;
   };
 
-  it('tampers at the first, middle and last index of each array fail', { timeout: 120_000 }, () => {
+  it('tampers at the first, middle and last index of each array fail', () => {
     const { out, proof } = get();
     expect(verifyShuffle(input, out, X, proof, ctx)).toBe(true);
     const cases = tamperings(proof, [0, 54, 107]);
@@ -541,7 +541,7 @@ describe('proveShuffle / verifyShuffle: soundness (N = 108)', () => {
     expect(accepted).toEqual([]);
   });
 
-  it('a replaced card, swapped outputs and a wrong context fail', { timeout: 60_000 }, () => {
+  it('a replaced card, swapped outputs and a wrong context fail', () => {
     const { out, proof } = get();
     const fresh = reEncrypt({ a: ZERO, b: cardPoint(DECK, n) }, X, 99n);
     const cases: [string, () => boolean][] = [
@@ -576,6 +576,37 @@ describe('proveShuffle: input checks', () => {
     expect(() => proveShuffle(input, out, X, psi, rPrime.slice(0, 3), ctx, rnd)).toThrow(RangeError);
     expect(() => proveShuffle(input, out, X, [0, 0, 1, 2], rPrime, ctx, rnd)).toThrow(RangeError);
     expect(() => proveShuffle(input, out, X, psi, setAt(rPrime, 0, 0n), ctx, rnd)).toThrow(RangeError);
+  });
+
+  it('throws on an identity or non-point X', () => {
+    expect(() => proveShuffle(input, out, ZERO, psi, rPrime, ctx, rnd)).toThrow(RangeError);
+    expect(() => proveShuffle(input, out, null as unknown as Point, psi, rPrime, ctx, rnd)).toThrow(
+      RangeError,
+    );
+  });
+
+  it('validates ctx exactly as verifyShuffle does: what one rejects, the other refuses', () => {
+    const bad: unknown[] = [
+      null,
+      'ctx',
+      { ...ctx, seat: -1 },
+      { ...ctx, seat: -0 },
+      { ...ctx, seat: 1.5 },
+      { ...ctx, seat: Number.NaN },
+      { ...ctx, seat: 2 ** 53 },
+      { ...ctx, seat: '0' },
+      { ...ctx, rootId: 5 },
+      { ...ctx, deckId: null },
+      { rootId: 'r', deckId: DECK },
+    ];
+    const proof = proveShuffle(input, out, X, psi, rPrime, ctx, rnd);
+    expect(verifyShuffle(input, out, X, proof, ctx)).toBe(true);
+    for (const c of bad) {
+      expect(() => proveShuffle(input, out, X, psi, rPrime, c as ShuffleCtx, rnd), JSON.stringify(c)).toThrow(
+        RangeError,
+      );
+      expect(verifyShuffle(input, out, X, proof, c as ShuffleCtx), JSON.stringify(c)).toBe(false);
+    }
   });
 });
 

@@ -1,4 +1,5 @@
 import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { validPos } from './dleq.ts';
 import type { Ciphertext } from './elgamal.ts';
 import { reEncrypt } from './elgamal.ts';
 import { hs, type Point } from './encoding.ts';
@@ -6,6 +7,9 @@ import { G, generators, inRange, msm, q } from './group.ts';
 import { type RandomBytes, randomIndex, randomScalar } from './random.ts';
 
 const PointClass = secp256k1.Point;
+
+const isPoint = (P: unknown): P is Point => P instanceof PointClass;
+const isNonZeroPoint = (P: unknown): P is Point => P instanceof PointClass && !P.is0();
 
 /*
  * Prover-side shuffle building blocks. Everything here is secret (the permutation is revealed by the order of
@@ -40,8 +44,9 @@ function isPermutation(psi: readonly number[], n: number): boolean {
 
 /**
  * Permute `deck` by a fresh uniform permutation and re-encrypt every card under `X`:
- * `out[i] = reEncrypt(deck[psi[i]], X, rPrime[i])` with `rPrime[i]` uniform in [1, q). Throws on an empty deck.
- * Does not mutate `deck`. All randomness comes from `rnd`.
+ * `out[i] = reEncrypt(deck[psi[i]], X, rPrime[i])` with `rPrime[i]` uniform in [1, q). Throws on an empty deck
+ * and on an `X` that is not a point or is the identity (re-encrypting under it hides nothing, and `proveShuffle`
+ * refuses it). Does not mutate `deck`. All randomness comes from `rnd`.
  */
 export function shuffleDeck(
   deck: readonly Ciphertext[],
@@ -50,6 +55,7 @@ export function shuffleDeck(
 ): { out: Ciphertext[]; psi: number[]; rPrime: bigint[] } {
   const n = deck.length;
   if (n === 0) throw new RangeError('shuffleDeck: empty deck');
+  if (!isNonZeroPoint(X)) throw new RangeError('shuffleDeck: X must be a non-identity point');
   const psi = randomPermutation(n, rnd);
   const rPrime: bigint[] = [];
   const out: Ciphertext[] = [];
@@ -183,6 +189,13 @@ function mainChallenge(
 
 const mod = (k: bigint): bigint => ((k % q) + q) % q;
 
+/** The context check shared by the prover (throws) and the verifier (returns false). */
+function validCtx(ctx: unknown): ctx is ShuffleCtx {
+  if (ctx === null || typeof ctx !== 'object') return false;
+  const { rootId, seat, deckId } = ctx as ShuffleCtx;
+  return typeof rootId === 'string' && typeof deckId === 'string' && validPos(seat);
+}
+
 /** The Fiat–Shamir values of one shuffle step: the context hash, every `u_i` (by input index) and `ch`. */
 export interface ShuffleTranscript {
   readonly d: bigint;
@@ -205,7 +218,8 @@ function transcript(
 /**
  * Prove that `output[i] = reEncrypt(input[psi[i]], X, rPrime[i])` for a secret permutation `psi` (the index
  * convention of `shuffleDeck`), in context `ctx`. Throws on inconsistent inputs: an empty deck, length
- * mismatches, `psi` not a permutation, `rPrime` outside [1, q) or an identity `X`. It does not check that
+ * mismatches, `psi` not a permutation, `rPrime` outside [1, q), an identity `X`, or a `ctx` that `verifyShuffle`
+ * would reject (non-string `rootId` or `deckId`, a `seat` that is not a non-negative safe integer). It does not check that
  * `output` really is that shuffle; a wrong one yields a proof that fails verification.
  *
  * Every curve multiplication by a secret scalar (ω's, r's, r̂'s, and anything multiplied by u′ or ω′, since the
@@ -228,7 +242,9 @@ export function proveShuffle(
   for (const r of rPrime) {
     if (!inRange(r) || r === 0n) throw new RangeError('proveShuffle: rPrime must lie in [1, q)');
   }
-  if (X.is0()) throw new RangeError('proveShuffle: X is the identity');
+  if (!isNonZeroPoint(X)) throw new RangeError('proveShuffle: X must be a non-identity point');
+  if (!validCtx(ctx))
+    throw new RangeError('proveShuffle: ctx must have string rootId and deckId and a seat index');
 
   const { h, hs: H } = generators(n);
   const d = contextHash(ctx, X, input, output);
@@ -292,9 +308,6 @@ export function proveShuffle(
   return { c, cHat, t, s };
 }
 
-const isPoint = (P: unknown): P is Point => P instanceof PointClass;
-const isNonZeroPoint = (P: unknown): P is Point => P instanceof PointClass && !P.is0();
-
 /**
  * True when `xs` is an array of length `n` whose every index satisfies `ok`. An explicit index loop, not
  * `.every`, so the holes of a sparse array are checked (as `undefined`) and rejected instead of skipped.
@@ -331,9 +344,7 @@ function wellFormed(
   if (!listOf(input, n, (e) => isCiphertext(e, isPoint))) return false;
   if (!listOf(output, n, (e) => isCiphertext(e, isNonZeroPoint))) return false;
   if (!isNonZeroPoint(X)) return false;
-  if (ctx === null || typeof ctx !== 'object') return false;
-  if (typeof ctx.rootId !== 'string' || typeof ctx.deckId !== 'string') return false;
-  if (typeof ctx.seat !== 'number' || !Number.isSafeInteger(ctx.seat) || ctx.seat < 0) return false;
+  if (!validCtx(ctx)) return false;
   if (proof === null || typeof proof !== 'object') return false;
   const { t, s } = proof;
   if (t === null || typeof t !== 'object' || s === null || typeof s !== 'object') return false;

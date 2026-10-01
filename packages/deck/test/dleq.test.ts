@@ -110,10 +110,18 @@ describe('decryption shares', () => {
     expect(verifyShare(K, { a: Point.ZERO, b: ct.b }, sh, ctx)).toBe(false);
     expect(verifyShare(K, ct, { ...sh, D: Point.ZERO }, ctx)).toBe(false);
     expect(verifyShare(K, ct, { ...sh, D: undefined as unknown as typeof X }, ctx)).toBe(false);
-    for (const pos of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53, '7' as unknown as number])
+    for (const pos of [-1, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53, '7' as unknown as number])
       expect(verifyShare(K, ct, sh, { ...ctx, pos }), `pos=${String(pos)}`).toBe(false);
     expect(verifyShare(K, ct, sh, null as unknown as ShareCtx)).toBe(false);
     expect(verifyShare(K, ct, sh, { ...ctx, rootId: 5 as unknown as string })).toBe(false);
+  });
+
+  it('position -0 is rejected (verifyShare false, makeShare throws), while position 0 works', () => {
+    const at0 = { ...ctx, pos: 0 };
+    const sh = makeShare(secrets[0] as bigint, ct, at0, rnd);
+    expect(verifyShare(keys[0] as typeof X, ct, sh, at0)).toBe(true);
+    expect(verifyShare(keys[0] as typeof X, ct, sh, { ...ctx, pos: -0 })).toBe(false);
+    expect(() => makeShare(secrets[0] as bigint, ct, { ...ctx, pos: -0 }, rnd)).toThrow(RangeError);
   });
 
   it('the identity D with the identity-a ciphertext is rejected, not accepted as a trivial proof', () => {
@@ -124,7 +132,8 @@ describe('decryption shares', () => {
   it('makeShare rejects bad secrets, an identity a, and a bad pos', () => {
     for (const bad of [0n, q, q + 1n, -1n]) expect(() => makeShare(bad, ct, ctx, rnd)).toThrow(RangeError);
     expect(() => makeShare(1n, initialDeck('tiles', 1)[0] as Ciphertext, ctx, rnd)).toThrow(RangeError);
-    for (const pos of [-1, 1.5, Number.NaN]) expect(() => makeShare(1n, ct, { ...ctx, pos }, rnd)).toThrow();
+    for (const pos of [-1, -0, 1.5, Number.NaN])
+      expect(() => makeShare(1n, ct, { ...ctx, pos }, rnd), String(pos)).toThrow(RangeError);
   });
 });
 

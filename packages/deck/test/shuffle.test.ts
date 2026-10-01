@@ -93,6 +93,14 @@ describe('shuffleDeck', () => {
     const { rnd, X } = setup('shuffle-empty');
     expect(() => shuffleDeck([], X, rnd)).toThrow(RangeError);
   });
+
+  it('rejects an identity or non-point X, which proveShuffle would refuse anyway', () => {
+    const { rnd } = setup('shuffle-x');
+    const deck = initialDeck('tiles', 3);
+    expect(() => shuffleDeck(deck, G.subtract(G), rnd)).toThrow(RangeError);
+    expect(() => shuffleDeck(deck, null as unknown as typeof G, rnd)).toThrow(RangeError);
+    expect(() => shuffleDeck(deck, 5n as unknown as typeof G, rnd)).toThrow(RangeError);
+  });
 });
 
 describe('permutationCommitment', () => {

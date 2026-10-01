@@ -1,4 +1,4 @@
-import type { Share } from './dleq.ts';
+import { type Share, validPos } from './dleq.ts';
 import type { Ciphertext } from './elgamal.ts';
 import { decodePoint, decodeScalar, encodePoint, encodeScalar, type Point } from './encoding.ts';
 import type { PokProof } from './pok.ts';
@@ -42,10 +42,10 @@ function record(v: unknown, path: string, keys: readonly string[]): Record<strin
   return out;
 }
 
-/** A real, dense array of exactly `len` entries (`len` omitted: any length). Walks indices, never `.every`. */
-function list(v: unknown, path: string, len?: number): unknown[] {
+/** A real, dense array of exactly `len` entries. Walks indices, never `.every`. */
+function list(v: unknown, path: string, len: number): unknown[] {
   if (!Array.isArray(v)) return fail(path, 'expected an array');
-  if (len !== undefined && v.length !== len) return fail(path, `expected ${len} entries, got ${v.length}`);
+  if (v.length !== len) return fail(path, `expected ${len} entries, got ${v.length}`);
   if (Reflect.ownKeys(v).length !== v.length + 1) return fail(path, 'sparse array or extra properties');
   const out: unknown[] = [];
   for (let i = 0; i < v.length; i++) {
@@ -100,7 +100,7 @@ const scalar = (v: unknown, path: string): bigint =>
     return decodeScalar(v);
   });
 
-const points = (v: unknown, path: string, len?: number): Point[] =>
+const points = (v: unknown, path: string, len: number): Point[] =>
   list(v, path, len).map((x, i) => point(x, `${path}[${i}]`));
 
 const scalars = (v: unknown, path: string, len: number): bigint[] =>
@@ -120,7 +120,7 @@ export interface ShuffleProofWire {
   c: string[];
   cHat: string[];
   s: { s1: string; s2: string; s3: string; s4: string; sHat: string[]; sPrime: string[] };
-  t: { t1: string; t2: string; t3: string; t4: string[]; tHat: string[] };
+  t: { t1: string; t2: string; t3: string; t4: [string, string]; tHat: string[] };
 }
 
 /** A decryption share on the wire (PROTOCOL §4.4). */
@@ -143,13 +143,14 @@ export function encodeDeck(deck: readonly Ciphertext[]): DeckWire {
   return deck.map((e) => [encodePoint(e.a), encodePoint(e.b)]);
 }
 
-/** Strict inverse of `encodeDeck`. Never empty; if `n` is given the length must equal it. */
-export function decodeDeck(v: unknown, n?: number): Ciphertext[] {
-  if (n !== undefined) size(n, 'decodeDeck');
+/**
+ * Strict inverse of `encodeDeck` for a deck of exactly `n ≥ 1` cards. Callers take `n` from the input deck (or
+ * the module's deck size), never from the message. Throws a `RangeError` on a bad `n`.
+ */
+export function decodeDeck(v: unknown, n: number): Ciphertext[] {
+  size(n, 'decodeDeck');
   return withPath('deck', () => {
-    const rows = list(v, 'deck', n);
-    if (rows.length === 0) return fail('deck', 'expected at least one ciphertext');
-    return rows.map((row, i) => {
+    return list(v, 'deck', n).map((row, i) => {
       const pair = list(row, `deck[${i}]`, 2);
       return { a: point(pair[0], `deck[${i}][0]`), b: point(pair[1], `deck[${i}][1]`) };
     });
@@ -177,7 +178,7 @@ export function encodeShuffleProof(p: ShuffleProof): ShuffleProofWire {
       t1: encodePoint(p.t.t1),
       t2: encodePoint(p.t.t2),
       t3: encodePoint(p.t.t3),
-      t4: pts(p.t.t4),
+      t4: [encodePoint(p.t.t4[0]), encodePoint(p.t.t4[1])],
       tHat: pts(p.t.tHat),
     },
   };
@@ -217,10 +218,6 @@ function decodeShuffleProofBody(v: unknown, n: number): ShuffleProof {
 
 /* -------------------------------------------------------------------------------------------------- share */
 
-function validPos(pos: unknown): pos is number {
-  return typeof pos === 'number' && Number.isSafeInteger(pos) && pos >= 0;
-}
-
 /** `{d, pos, proof: {c, s}}` (PROTOCOL §4.4). Throws on an identity `D`, a bad `pos` or a scalar outside [0, q). */
 export function encodeShare(x: { pos: number; share: Share }): ShareWire {
   if (!validPos(x.pos)) throw new RangeError('encodeShare: pos must be a non-negative safe integer');
@@ -256,7 +253,7 @@ export function encodePok(proof: PokProof): PokWire {
 }
 
 /** Strict inverse of `encodePok`. Parses only; does not verify. */
-export function decodePok(v: unknown): { c: bigint; s: bigint } {
+export function decodePok(v: unknown): PokProof {
   return withPath('pok', () => {
     const root = record(v, 'pok', ['c', 's']);
     return { c: scalar(root.c, 'pok.c'), s: scalar(root.s, 'pok.s') };

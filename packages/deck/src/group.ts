@@ -41,7 +41,8 @@ export function generators(n: number): { h: Point; hs: Point[] } {
 }
 
 /**
- * Multi-scalar multiplication `Σ scalars[i]·points[i]` for PUBLIC scalars (not constant time).
+ * Multi-scalar multiplication `Σ scalars[i]·points[i]` for PUBLIC scalars (not constant time). Internal to the
+ * package's verifiers; deliberately not exported from the index.
  * Scalars must lie in [0, q). Zero scalars and identity points are allowed; the empty sum is the identity.
  */
 export function msm(points: readonly Point[], scalars: readonly bigint[]): Point {

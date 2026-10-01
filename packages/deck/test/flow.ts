@@ -1,5 +1,7 @@
 import { canonicalJson } from '@bored-games/game-kit';
-import { describe, expect, it } from 'vitest';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { expect } from 'vitest';
 import {
   type Ciphertext,
   cardOf,
@@ -46,8 +48,14 @@ import { seededRandom } from './util.ts';
 const SIZE = 108;
 const HAND = 6;
 const DECK_ID = 'tiles';
-const ROOT = 'root-flow';
-const TABLE = '37450:table-author-pubkey:flow-table';
+
+/** A stand-in NOSTR id or x-only pubkey in its hashed text form: 64 lowercase hex characters (D025). */
+const hex64 = (label: string): string => bytesToHex(sha256(utf8ToBytes(`flow/${label}`)));
+const ROOT = hex64('root');
+const npub = (k: number): string => hex64(`npub/${k}`);
+const sessionPub = (k: number): string => hex64(`session/${k}`);
+/** The NIP-01 address of the Table event; seat 0 is the creator. */
+const TABLE = `37450:${npub(0)}:flow-table`;
 
 /** What an honest peer sends: canonical JSON, parsed back on the other side. */
 const overTheWire = (v: unknown): unknown => JSON.parse(canonicalJson(v)) as unknown;
@@ -59,7 +67,11 @@ function ownerOf(pos: number, seats: number): number | null {
   return k < seats ? k : null;
 }
 
-function runFlow(seats: number, seed: string): void {
+/**
+ * The whole deal for `seats` seats. Shared by `flow-3.test.ts` and `flow-6.test.ts`, which are separate files so
+ * vitest runs them in parallel. (This file is not matched by the `*.test.ts` include.)
+ */
+export function runFlow(seats: number, seed: string): void {
   const rnd = seededRandom(seed);
   const table = cardTable(DECK_ID, SIZE);
 
@@ -68,7 +80,7 @@ function runFlow(seats: number, seed: string): void {
   const keys: Point[] = [];
   for (let k = 0; k < seats; k++) {
     const x = randomScalar(rnd);
-    const ctx = [TABLE, `npub-seat-${k}`, `session-pub-${k}`];
+    const ctx = [TABLE, npub(k), sessionPub(k)];
     const pok = provePok(x, ctx, rnd);
     const msg = overTheWire({ key: encodePoint(G.multiply(x)), pok: encodePok(pok) }) as {
       key: unknown;
@@ -77,7 +89,7 @@ function runFlow(seats: number, seed: string): void {
     const X_k = decodePoint(msg.key as string);
     expect(verifyPok(X_k, decodePok(msg.pok), ctx), `pok of seat ${k}`).toBe(true);
     // The proof is bound to its context: another seat's npub fails.
-    expect(verifyPok(X_k, decodePok(msg.pok), [TABLE, `npub-seat-${k + 1}`, `session-pub-${k}`])).toBe(false);
+    expect(verifyPok(X_k, decodePok(msg.pok), [TABLE, npub(k + 1), sessionPub(k)])).toBe(false);
     secrets.push(x);
     keys.push(X_k);
   }
@@ -170,13 +182,3 @@ function runFlow(seats: number, seed: string): void {
   );
   for (const [pos, card] of learned) expect(order[pos], `audit agrees at ${pos}`).toBe(card);
 }
-
-describe('end-to-end deck flow', () => {
-  it('3 seats: keys, shuffles, deal, private and public cards, audit', { timeout: 180_000 }, () => {
-    runFlow(3, 'flow-3');
-  });
-
-  it('6 seats: keys, shuffles, deal, private and public cards, audit', { timeout: 300_000 }, () => {
-    runFlow(6, 'flow-6');
-  });
-});
