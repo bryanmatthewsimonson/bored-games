@@ -17,14 +17,16 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; 2b–2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); 2c–2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Last verified (2026-10-01):** `pnpm check` passes (typecheck, Biome, 115 tests). After the stall rule was removed (engine 0.2.0), `pnpm fuzz --games 10000 --seed no-stall-rule` gave 0 failures, and all 10,000 games ended by declaration.
+**Last verified (2026-10-01, end of 2b):** `pnpm check` passes (typecheck, Biome, 379 tests, 254 of them in `deck`).
+
+**Earlier (Phase 1):** after the stall rule was removed (engine 0.2.0), `pnpm fuzz --games 10000 --seed no-stall-rule` gave 0 failures, and all 10,000 games ended by declaration.
 
 ## Phases and acceptance criteria
 
@@ -58,6 +60,10 @@
   - moves with piggybacked shares, reveals, equivocation proofs
   - audit reveal, result attestation, timeout claims, encrypted secret backup.
 - **`packages/deck`:** secp256k1 ElGamal, hash-to-curve card points, shuffle with commitments, DLEQ shares, audit. Dependencies: `@noble/curves`, `@noble/hashes`.
+  - **2b result (done, 2026-10-01).** Pure package: ElGamal, card points, proof of knowledge, DLEQ shares, shuffle with the Terelius–Wikström proof (cross-checked against CHVote, D019), strict wire codecs. 254 tests, including a tamper suite, hostile wire values, and an end-to-end flow at 3 and 6 seats that decrypts every position to a permutation of the 108 tiles, both by shares and after the secret reveal. Test vectors: `packages/deck/test/vectors/v1.json`. Rulings: D023, D024.
+  - **Bench** (`pnpm --filter @bored-games/deck bench`, N = 108, Node 22): `shuffleDeck` about 0.4 s, `proveShuffle` 1.7 s, `verifyShuffle` 1.0–1.1 s; a share takes 6–7 ms to make and 10–11 ms to verify. A shuffle step is 36,051 bytes of content (deck 10,369 + proof 25,682), under the 40,000-byte budget; a share is 170 bytes.
+  - **Follow-up (not needed for 2c):** `msm` always runs `pippenger`, about 3× slower than a plain sum for 2–3 terms. A small-input fast path would make `verifyShare` 2–3× faster and take roughly a third off `verifyShuffle` (D024).
+  - **Carried into 2c:** reject a joint key equal to the identity (D024); the engine change D022 and `GameModule.standings`.
 - **`packages/protocol`:** event builders and parsers, and validation.
 - **`packages/client`:** a session engine over a pluggable relay transport.
 - **Acceptance:**
@@ -89,6 +95,6 @@ Final names and theme, accessibility pass, Capacitor packaging.
 
 ## Risks
 See the risks table in `docs/ARCHITECTURE.md`. The top three are:
-1. Abandonment policy (open question 2).
-2. Correctness of the zero-knowledge shuffle proof implementation (D019): follow CHVote's algorithms exactly, plus tamper tests and test vectors.
+1. Correctness of the zero-knowledge shuffle proof implementation (D019). Mitigated in 2b: the equations were cross-checked against CHVote, and there are tamper tests and test vectors.
+2. Verification cost on phones: about 1 s per shuffle step on a desktop CPU (D019, D024).
 3. Contract fit for the second game (Phase 6).

@@ -135,12 +135,13 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 
 ## D019: Zero-knowledge shuffle proofs from day one (2026-10-01, owner)
 - **Choice:** Terelius–Wikström shuffle proof, following the CHVote specification's GenShuffleProof / CheckShuffleProof algorithms, translated to secp256k1. It is used in real elections and specified step by step.
-- **Size:** about 34 KB per shuffle step for 108 cards.
+- **Size:** 36,051 bytes of canonical JSON per shuffle step for 108 cards (deck 10,369 + proof 25,682), measured in Phase 2b.
 - **Rejected:**
   - Bayer–Groth: smaller proofs, but much harder to implement correctly.
   - Cut-and-choose: megabyte-sized proofs.
   - Audit-only: catches tampering only after the game.
 - **Cross-check (2026-10-01):** the Task 7 equations were compared against the CHVote Protocol Specification (IACR ePrint 2017/325), Alg. 8.41–8.47 (GenShuffle, GenPermutation, GenReEncryption, GenShuffleProof, GenPermutationCommitment, GenCommitmentChain, CheckShuffleProof). **Verdict:** every equation matches, up to the additive notation, our swapped ciphertext components (`a = r·G`, `b = M + r·X`), re-encryption randomness indexed by output (`Σ_j r̃_j u_j = Σ_i u_{ψ(i)} r'_i`) and the response sign (`s = ω + ch·secret`, so the verifier subtracts `ch·(…)`). **One structural difference, kept:** CHVote transmits `(ch, s, c, ĉ)` and the verifier recomputes `t`; PROTOCOL §5.3 transmits `t` and the verifier checks each equation plus `ch = HS(…t…)`. Both are standard Fiat–Shamir forms of the same Σ-protocol with equal soundness; ours costs about N + 5 more points (≈ 5.3 KB at N = 108), stays inside the 40,000-byte budget and matches the approved field names.
+- **Cost (measured 2026-10-01, `pnpm --filter @bored-games/deck bench`, Node 22, single-threaded, on the development container's x64 CPU):** at N = 108, about 0.4 s for `shuffleDeck`, 1.7 s for `proveShuffle` and 1.0–1.1 s for `verifyShuffle`; a decryption share takes 6–7 ms to make and 10–11 ms to verify. Every client verifies every step once, so a 6-seat game costs about 7 s of verification at setup. Acceptable for asynchronous play; a phone may be several times slower (see D024 on `msm`).
 
 ## D020: Abandonment and deadlines (2026-10-01, owner)
 - **Deadline:** the creator picks 1, 3 or 7 days per move (default 3), fixed for the game.
@@ -168,6 +169,13 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Why these two:** they are the primitives under nostr-tools, so the platform already trusts them for NOSTR signatures. This adds no new supply-chain surface in practice.
 - **Scope:** `src/` of the deck stays pure: randomness is injected (`RandomBytes`), and nothing imports Node or platform crypto. game-kit is a devDependency only, for the seeded test PRNG.
 - **Identity point in hashes:** `hs` hashes the identity as 33 zero bytes so in-memory proof code never throws on a degenerate point. The wire decoder `decodePoint` still rejects the identity.
+
+## D024: Deck implementation rulings (2026-10-01, Phase 2b)
+- **Identity in hashes:** see D023. PROTOCOL §2 now states it.
+- **Identity checks in `verifyShuffle`:** it rejects the identity in `X`, in any output ciphertext and in any proof point. Only the input deck may hold it, because the initial deck's `a` components are the identity. The wire decoders reject the identity everywhere.
+- **Joint key:** `jointKey` may return the identity for adversarial keys, and `reEncrypt` under an identity `X` leaves `b` unchanged, so cards would stay readable. The protocol layer (2c) MUST reject a joint key equal to the identity before any shuffle. The deck package leaves that check to it; `proveShuffle` and `verifyShuffle` already refuse an identity `X`.
+- **Tamper-suite scope:** at N = 8 the suite tampers every field at every index; at N = 108 every field at the first, middle and last index. Iterating every index at N = 108 would take minutes, and the code path does not depend on the index.
+- **No `msm` fast path yet:** `msm` always uses noble's `pippenger`, which costs about 5–6 ms even for 2 or 3 terms, about 3× a plain sum of `multiplyUnsafe` products. `verifyShare` and the 108 three-term `t̂_i` checks in `verifyShuffle` pay this. A small-input fast path is a later, behavior-neutral optimization (PLAN).
 
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.

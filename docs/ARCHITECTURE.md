@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. The networked design below is specified precisely in `docs/PROTOCOL.md`, a NIP-style draft (protocol version 1). Where the two differ, PROTOCOL.md wins. In particular, shuffles carry zero-knowledge proofs (D019) rather than being checked only at the end-of-game audit.
+**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. Of Phase 2, the mental-poker deck (`packages/deck`, 2b) is built. The networked design below is specified precisely in `docs/PROTOCOL.md`, a NIP-style draft (protocol version 1). Where the two differ, PROTOCOL.md wins.
 
 ## What we are building
 
@@ -20,7 +20,7 @@ There are no AI players and no local pass-and-play. A random-move **fuzzer** exi
 apps/web (Phase 3)          platform shell + per-game UI modules
 packages/client (Phase 2)   game sessions: relay pool, ordering, validation, auto-shares, audit
 packages/protocol (Phase 2) NOSTR event schemas, encoding, validation
-packages/deck (Phase 2)     mental-poker deck: shuffle, decryption shares, proofs, audit
+packages/deck (Phase 2b)    mental-poker deck: ElGamal, shuffle proofs, decryption shares, wire codecs
 packages/games/*            pure rules modules (Chain Reaction today)
 packages/game-kit           GameModule contract, canonical JSON, hashing, PRNG, replay, fuzzer
 ```
@@ -64,7 +64,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - The joint key is `X = Σ X_k`.
 - Each card *m* has a fixed public point `M_m`, by hashing to the curve.
 - Starting from the trivial encryption of the ordered deck, each player in seat order re-randomizes every ciphertext and permutes the deck. For each card, `(R, C) → (R + r·G, C + r·X)`.
-- Each player publishes a hiding commitment to their secrets: their permutation and randomizers.
+- Each player publishes, with its shuffled deck, a zero-knowledge proof that the deck is a permutation and re-encryption of its input (Terelius–Wikström, D019). Every client verifies it before accepting the step.
 - Nobody knows the final order.
 
 **Dealing.** The engine assigns deck position *j* to player Q publicly and deterministically.
@@ -81,14 +81,13 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - Setup tiles get all N shares during the setup deal round.
 
 **Audit at game end.**
-- Every player reveals `x_k` and their shuffle secrets. Any client recomputes the whole deck and checks:
-  - every shuffle step
+- Every player reveals `x_k`; shuffle secrets are discarded after proving and never revealed. Any client decrypts the whole deck and checks:
   - every hand
   - every claim that depended on hidden information, such as Chain Reaction's "no playable tile" and "no other dead tile".
-- A failed check or a refusal to reveal marks that player as cheating, which counts as a forfeit (policy OPEN).
+- A failed check or a refusal to reveal marks that player as cheating, which counts as a forfeit (D020).
 
 **Known limitations.**
-- Shuffle correctness is checked at the audit, not proven live. A zero-knowledge shuffle proof (Bayer–Groth style) is a later hardening option.
+- Verifying a 108-card shuffle proof takes about 1 s on a desktop CPU, so each client spends several seconds at setup (D019).
 - A player making an out-of-turn decision, such as a Chain Reaction merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn. This is a minor information difference from tabletop play.
 
 **Alternatives rejected:**
@@ -106,7 +105,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.
-- **Timeouts.** NOSTR `created_at` is self-reported, so time limits are judged by each client. A player may publish a timeout claim once the stalled seat's limit (set in the game root) has clearly passed. Abandonment policy is OPEN.
+- **Timeouts.** NOSTR `created_at` is self-reported, so time limits are judged by each client. A player may publish a timeout claim once the stalled seat's limit (set in the game root) has clearly passed. The stalled seat forfeits (D020).
 
 ## Ratifying results
 
@@ -142,12 +141,12 @@ The reference game's name and its editions' chain names never appear in source; 
 | Risk | Mitigation / status |
 |---|---|
 | The contract was shaped by one game | A toy hidden-hand module tests the kit now. Phase 6 adds a second real game early. |
-| Shuffle cheating is detected only at the audit | Commitments make cheating provable. A ZK shuffle proof is possible later. |
-| Abandonment stalls a game, since the missing player's shares are needed | Timeout claims plus a forfeit policy (OPEN). |
+| A bug in the shuffle proof lets a cheater stack the deck | Proofs follow CHVote's algorithms, cross-checked (D019), with a tamper suite and test vectors. |
+| Abandonment stalls a game, since the missing player's shares are needed | Timeout claims; the stalled seat forfeits (D020). |
 | Fuzzy, clock-free timeouts | Generous per-move limits; client-side judgement. |
 | Engine changes break replays of old games | Version pinned in the game root; old engine versions stay importable; semantic changes require a version bump. |
 | Key loss | Encrypted self-backup of session and deck secrets. |
-| Relay availability and event size limits | Several relays. A shuffle step is 108 ciphertexts, roughly 7 KB. |
+| Relay availability and event size limits | Several relays. A shuffle step (108 ciphertexts plus its proof) is about 36 KB. |
 | Games needing instant randomness or simultaneous moves | Commit–reveal or a revealed deck card, accepting a one-round delay; decided per game. |
 | Sybils and collusion in ratings | Web-of-trust weighting; collusion is observable but not preventable. |
 | TypeScript 7 lacks a stable programmatic API that some UI tooling needs | apps/web may pin TypeScript 6 (see DECISIONS D005). |

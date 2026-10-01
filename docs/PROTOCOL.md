@@ -26,7 +26,12 @@ A game is a pure rules module implementing `GameModule` (`packages/game-kit`). C
 
 - **Curve.** The group is secp256k1 with base point `G` and order `q`. Scalar multiplication is written `k·P`; point addition `P + Q`.
 - **`H2C(msg)`** is RFC 9380 `secp256k1_XMD:SHA-256_SSWU_RO_` with DST `bored-games/v1`.
-- **`HS(parts…)`** hashes to a scalar: `SHA-256(encode(parts))` interpreted big-endian, reduced mod `q`. `encode` concatenates, for each part, a 4-byte big-endian length followed by its bytes. Points are compressed SEC1 (33 bytes), scalars 32 bytes big-endian, strings UTF-8.
+- **`HS(parts…)`** hashes to a scalar: `SHA-256(encode(parts))` interpreted big-endian, reduced mod `q`. `encode` concatenates, for each part, a 4-byte big-endian length followed by its bytes:
+  - points: compressed SEC1, 33 bytes. The identity, which never travels but is hashed in memory (the initial deck's `a`), is 33 zero bytes.
+  - scalars: 32 bytes big-endian
+  - strings: UTF-8
+  - integers (seat, position): their decimal string, UTF-8
+  - raw bytes: as they are.
 - **Binary values in event content** (points, scalars) are base64url without padding. Compressed points are 44 characters; scalars are 43.
 - **Rejections.** Implementations MUST reject:
   - the point at infinity
@@ -207,18 +212,17 @@ The Terelius–Wikström proof of a shuffle of ElGamal ciphertexts. Implementati
 | `x · y`, `x^k` | `P + Q`, `k·P` |
 | generators `g`, `h`, `h_1…h_N` | `G`, `H2C("gen:h")`, `H2C("gen:" + i)` |
 | public key `pk` | joint key `X` |
-| hash to `Z_q` | `HS` with the challenge context below |
+| hash to `Z_q` | `HS` with the transcripts below |
 
-**Challenge context.** Every Fiat–Shamir challenge MUST be bound to the context:
-- the string `"shuffle"`
-- the root id
-- the seat index `k`
-- the deck id
-- the full input deck `E_k` and the full output deck `E_{k+1}`.
+**Challenges.** Indices are 1-based; `(a_i, b_i)` is input card `i` (`E_k`) and `(a'_i, b'_i)` output card `i` (`E_{k+1}`). Every challenge goes through the context hash `d`, which binds the root id, the seat, the deck id, the joint key and both full decks, so a proof cannot be reused in another game, at another step or for another deck:
+```
+d   = HS("shuffle-ctx", rootId, k, deckId, X, a_1, b_1, …, a_N, b_N, a'_1, b'_1, …, a'_N, b'_N)
+u_i = HS("shuffle-u", d, c_1, …, c_N, i)                                   for i = 1..N
+ch  = HS("shuffle-c", d, X, c_1, …, c_N, ĉ_1, …, ĉ_N, t1, t2, t3, t4[0], t4[1], t̂_1, …, t̂_N)
+```
+`k` and `i` are integer parts (decimal strings, §2). `c` is indexed by input card; `ĉ_0 = H2C("gen:h")` is implicit and not hashed.
 
-That prevents a proof from being reused in another game or at another step.
-
-**Proof object.** It mirrors CHVote's proof tuple `π = (t, s, c, ĉ)`, for a deck of N cards:
+**Proof object.** For a deck of N cards:
 ```json
 {"c":[N points],"cHat":[N points],
  "s":{"s1":scalar,"s2":scalar,"s3":scalar,"s4":scalar,"sHat":[N scalars],"sPrime":[N scalars]},
@@ -229,12 +233,14 @@ That prevents a proof from being reused in another game or at another step.
 - `t4`: the ElGamal-pair commitment
 - `sPrime`: the responses for the permuted randomizers.
 
-The reference implementation in `packages/deck` ships test vectors (a fixed seed, decks and proofs), which conforming implementations MUST reproduce.
+**Verifying.** The proof transmits the commitments `t`. The verifier recomputes `d`, every `u_i` and `ch`, then checks each of CheckShuffleProof's equations for `t1`, `t2`, `t3`, `t4` and every `t̂_i` against `s`, `c` and `ĉ`. CHVote instead transmits `ch` and recomputes `t`; both are Fiat–Shamir forms of the same Σ-protocol, with equal soundness (D019). The transmitted form costs N + 5 more points.
+
+**Test vectors.** `packages/deck/test/vectors/v1.json` is a complete 3-seat, 8-card deal from a fixed seed: the generators and card points, keys with their proofs of knowledge, the joint key, every shuffle step's deck and proof, one share per seat and position, and the decrypted card at each position. Secrets are included. Conforming implementations MUST verify every proof in it and reproduce every hash and decryption.
 
 **Size.** For 108 cards:
 - deck: 216 points
 - proof: 3·108 + 5 = 329 points and 2·108 + 4 = 220 scalars
-- total: about 34 KB of content.
+- total: 36,051 bytes of canonical JSON (deck 10,369, proof 25,682), measured.
 
 ### 5.4 Decryption shares
 **Computing a share.** For a ciphertext `(a, b)`, seat `k`'s share is `D_k = x_k·a`, with a Chaum–Pedersen proof that `log_G X_k = log_a D_k`:

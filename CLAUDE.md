@@ -4,7 +4,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 
 ## Commands
 - `pnpm install`: install (Node ≥ 22.18, pnpm 10)
-- `pnpm test`: all Vitest projects (kit, chain-reaction, brand, fuzz smoke, repo guards)
+- `pnpm test`: all Vitest projects (kit, chain-reaction, deck, brand, fuzz smoke, repo guards)
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`
 - `pnpm check`: typecheck + lint + test. Run it before every commit.
 - `pnpm fuzz --games 10000 [--seed S] [--players 3-6] [--no-views]`: invariant fuzzing across workers
@@ -13,6 +13,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 
 ## Repo map
 - `packages/game-kit/`: the `GameModule` contract, canonical JSON, hash, PRNG, replay and generic fuzzer (pure)
+- `packages/deck/`: mental-poker deck crypto on secp256k1: ElGamal, shuffle proofs, DLEQ shares, wire codecs (pure `src/`, randomness injected; `scripts/` holds `vectors` and `bench`)
 - `packages/games/chain-reaction/`: the Chain Reaction rules engine (pure). `src/theme.ts` is the only file with user-facing game names.
 - `packages/brand/`: platform display name
 - `tools/fuzz/`: fuzz CLI, plus per-game policies and deck orders (test tooling only)
