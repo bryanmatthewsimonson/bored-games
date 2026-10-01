@@ -25,9 +25,15 @@ import {
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
-import { loadSecrets, readJson, saveRootId, storageKey, writeJson } from './storage.ts';
+import { loadSecrets, readJson, removeItem, saveRootId, storageKey, writeJson } from './storage.ts';
 
-export type GameStatus = 'syncing' | 'working' | 'waiting' | 'your-turn' | 'done' | 'cancelled';
+/**
+ * - `syncing`: loading from the relays
+ * - `working`: performing an automatic duty (shuffle, deal, secret, attest)
+ * - `stuck`: an automatic duty failed at this head and is not retried until the game moves on
+ * - `your-turn`: this seat's decision, with no move of its own already waiting at this head
+ */
+export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-turn' | 'done' | 'cancelled';
 
 /** How often `tick` runs while the controller is started, in ms. */
 export const TICK_MS = 30_000;
@@ -74,22 +80,19 @@ export function loadOutbox(
 const prevOf = (ev: NostrEvent): string | null =>
   ev.tags.find((t) => t[0] === 'e' && t[3] === 'prev')?.[1] ?? null;
 
-const isTemplateLike = (v: unknown): v is EventTemplate =>
-  typeof v === 'object' &&
-  v !== null &&
-  typeof (v as EventTemplate).kind === 'number' &&
-  typeof (v as EventTemplate).created_at === 'number' &&
-  Array.isArray((v as EventTemplate).tags) &&
-  typeof (v as EventTemplate).content === 'string';
-
 /**
- * The attestation builders, typed as optional: the session is gaining `attestTemplate(createdAt)` (the npub
- * signs attestations) in place of `buildAttest`. Calling through this shim compiles against either version.
+ * The session's attestation builder, typed as optional: `attestTemplate(createdAt)` (Phase 2d Task 4) returns
+ * the unsigned attestation, which the npub signer signs. Until the session has it, this seat does not attest.
  */
 interface AttestApi {
   attestTemplate?(createdAt: number): EventTemplate;
-  buildAttest?(rnd: ControllerDeps['rnd'], createdAt: number): unknown;
 }
+
+const canAttest = (s: GameSession): boolean =>
+  typeof (s as unknown as AttestApi).attestTemplate === 'function';
+
+/** The most game events kept while the session is still loading. */
+const MAX_BUFFER = 10_000;
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -215,6 +218,7 @@ export class GameController {
     this.busy.value = true;
     try {
       await this.#yield();
+      if (this.#disposed) throw new Error('The game screen was closed.');
       const head = session.view().head;
       const slot = `timeout:${seat}:${head.id}`;
       const ev = this.#outbox.get(slot)?.event ?? session.buildTimeout(seat, this.#d.rnd, this.#d.now());
@@ -240,7 +244,7 @@ export class GameController {
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
     if (entry !== undefined) this.#confirm(entry[0]);
     if (this.#session === null) {
-      this.#buffer.push(ev);
+      if (this.#buffer.length < MAX_BUFFER) this.#buffer.push(ev);
       return;
     }
     this.#session.receive(ev, this.#d.now());
@@ -276,19 +280,34 @@ export class GameController {
     );
   }
 
+  /**
+   * Take a Table or Join for this game's lobby. Relays are not trusted to filter: a Table counts only at the
+   * root's address (same creator and `d` tag), and a Join only if the root seats it and it names that address.
+   */
   #onLobby(ev: NostrEvent): void {
-    if (this.#disposed) return;
+    const root = this.#root;
+    if (this.#disposed || root === null) return;
     if (ev.kind === KIND.table) {
-      const held = this.#tableEv;
-      if (held === null || ev.created_at > held.created_at) {
-        try {
-          this.table.value = parseTable(ev);
-          this.#tableEv = ev;
-        } catch {
-          return;
-        }
+      let t: ParsedTable;
+      try {
+        t = parseTable(ev);
+      } catch {
+        return;
       }
-    } else if (ev.kind === KIND.join) this.#joins.set(ev.id, ev);
+      if (t.address !== root.tableAddress) return;
+      const held = this.#tableEv;
+      const newer =
+        held === null ||
+        ev.created_at > held.created_at ||
+        (ev.created_at === held.created_at && ev.id < held.id);
+      if (!newer) return;
+      this.table.value = t;
+      this.#tableEv = ev;
+    } else if (ev.kind === KIND.join) {
+      const a = ev.tags.find((tag) => tag[0] === 'a')?.[1];
+      if (a !== root.tableAddress || !root.joinIds.includes(ev.id)) return;
+      this.#joins.set(ev.id, ev);
+    } else return;
     this.#tryCreate();
   }
 
@@ -382,26 +401,52 @@ export class GameController {
     this.clock.value = now;
     if (session === null) return;
     const v = session.view();
+    const duties = session.duties();
     this.view.value = v;
-    this.legal.value = this.#synced ? session.legalActions() : [];
+    this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
-    this.status.value = this.#statusOf(v, session.duties());
+    this.status.value = this.#statusOf(v, duties);
+    this.#maybePrune(v, duties);
   }
 
   #statusOf(v: SessionView, duties: readonly Duty[]): GameStatus {
     if (!this.#synced) return 'syncing';
     if (v.phase === 'cancelled') return 'cancelled';
     if (this.#working || this.#nextAuto(duties, v) !== null) return 'working';
+    if (this.#stuck(duties, v)) return 'stuck';
     if (v.phase === 'done') return 'done';
-    if (duties.some((d) => d.kind === 'decide')) return 'your-turn';
+    if (duties.some((d) => d.kind === 'decide') && !this.#ownMovePending(v)) return 'your-turn';
     return 'waiting';
+  }
+
+  /** An automatic duty is due but failed at this head. */
+  #stuck(duties: readonly Duty[], v: SessionView): boolean {
+    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
+  }
+
+  /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
+  #ownMovePending(v: SessionView): boolean {
+    const e = this.#outbox.get(moveSlot(v.head.seq + 1, v.head.id));
+    return e !== undefined && !e.orphan;
+  }
+
+  /** Once the game is over and every saved event is delivered (or refused), the outbox is no longer needed. */
+  #maybePrune(v: SessionView, duties: readonly Duty[]): void {
+    if (this.#disposed || this.#outbox.size === 0) return;
+    if (v.phase !== 'done' && v.phase !== 'cancelled') return;
+    if (this.#working || this.#nextAuto(duties, v) !== null) return;
+    if (![...this.#outbox.values()].every((e) => e.confirmed || e.orphan)) return;
+    this.#outbox.clear();
+    removeItem(this.#d.storage, outboxKey(this.#d.profile, this.rootId));
   }
 
   /* -------------------------------------------------------------------------------------------- duties */
 
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
-    for (const kind of AUTO)
+    for (const kind of AUTO) {
+      if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
+    }
     return null;
   }
 
@@ -466,27 +511,14 @@ export class GameController {
     }
   }
 
-  /**
-   * The attestation, signed by the player's npub (PROTOCOL §4.8): the session's `attestTemplate(createdAt)`,
-   * signed by the identity signer. Until the session has that method, the older `buildAttest` is used; an
-   * event it returns already signed by the npub is kept, anything else is re-signed field for field.
-   */
+  /** The attestation: the session's `attestTemplate(createdAt)`, signed by the player's npub (§4.8). */
   async #attestEvent(session: GameSession): Promise<NostrEvent> {
     const api = session as unknown as AttestApi;
-    const built: unknown =
-      typeof api.attestTemplate === 'function'
-        ? api.attestTemplate(this.#d.now())
-        : typeof api.buildAttest === 'function'
-          ? api.buildAttest(this.#d.rnd, this.#d.now())
-          : null;
-    if (verifyEvent(built) && built.pubkey === this.#d.signer.pubkey) return built;
-    if (!isTemplateLike(built)) throw new ClientError('the session built no attestation');
-    return this.#d.signer.sign({
-      kind: built.kind,
-      created_at: built.created_at,
-      tags: built.tags.map((t) => [...t]),
-      content: built.content,
-    });
+    if (typeof api.attestTemplate !== 'function') throw new ClientError('this session cannot attest');
+    const ev = await this.#d.signer.sign(api.attestTemplate(this.#d.now()));
+    // The signer may have kept a prompt open while the screen closed.
+    if (this.#disposed) throw new Error('the game screen was closed');
+    return ev;
   }
 
   /**
@@ -502,9 +534,11 @@ export class GameController {
 
   /**
    * Save the event to the outbox, fold it in locally, then publish it. If the session rejects it, it is marked
-   * an orphan and not published, and this throws (the duty is then not retried at this head).
+   * an orphan and not published, and this throws (the duty is then not retried at this head). A move that
+   * cannot be saved is dropped unpublished: an unsaved move could be signed again after a reload.
    */
   #commit(slot: string, built: NostrEvent): void {
+    if (this.#disposed) throw new Error('the game screen was closed');
     const session = this.#session;
     if (session === null) throw new Error('the game is not loaded');
     // Another tab of this profile may have saved an event for the same slot meanwhile: use that one instead.
@@ -515,8 +549,14 @@ export class GameController {
         ? (this.#outbox.get(slot) as OutboxEntry)
         : { event: ev, confirmed: saved?.confirmed ?? false, orphan: saved?.orphan ?? false };
     this.#outbox.set(slot, entry);
-    if (!this.#persist(slot))
+    if (!this.#persist(slot)) {
+      if (slot.startsWith('move:')) {
+        this.#outbox.delete(slot);
+        this.notice.value = 'This browser could not save your move, so it was not sent. Free some storage.';
+        throw new Error('the move could not be saved in this browser');
+      }
       this.notice.value = 'This browser could not save your last event; keep this tab open until it is sent.';
+    }
     const r = session.receive(ev, this.#d.now());
     if (r.status === 'rejected') {
       entry.orphan = true;
@@ -554,7 +594,8 @@ export class GameController {
   async #publish(slot: string): Promise<void> {
     const entry = this.#outbox.get(slot);
     const root = this.#root;
-    if (entry === undefined || entry.orphan || root === null || this.#inFlight.has(slot)) return;
+    if (this.#disposed || entry === undefined || entry.orphan || root === null || this.#inFlight.has(slot))
+      return;
     this.#inFlight.add(slot);
     try {
       const results = await this.#d.pool.publish(entry.event, unionRelays(root.relays, this.#d.relays()));
@@ -566,8 +607,21 @@ export class GameController {
     }
   }
 
+  /**
+   * Republish what no relay has confirmed. Each event is first fed to the session again: one it has since
+   * refused (a pooled move whose parent lost, for example) becomes an orphan and is retried no more.
+   */
   #retryUndelivered(): void {
-    for (const [slot, entry] of this.#outbox) if (!entry.confirmed && !entry.orphan) void this.#publish(slot);
+    const session = this.#session;
+    for (const [slot, entry] of this.#outbox) {
+      if (entry.confirmed || entry.orphan) continue;
+      if (session !== null && session.receive(entry.event, this.#d.now()).status === 'rejected') {
+        entry.orphan = true;
+        this.#persist(slot);
+        continue;
+      }
+      void this.#publish(slot);
+    }
   }
 
   #yield(): Promise<void> {

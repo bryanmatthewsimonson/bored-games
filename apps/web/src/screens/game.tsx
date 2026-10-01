@@ -32,7 +32,9 @@ export function statusNotice(status: GameStatus, view: SessionView | null): stri
     case 'working':
       if (view?.phase === 'shuffle') return 'Shuffling the deck…';
       if (view?.phase === 'deal') return 'Dealing…';
-      return 'Working…';
+      return 'working…';
+    case 'stuck':
+      return 'Stuck: an automatic step failed. Reload the page to retry.';
     case 'cancelled':
       return 'This game was cancelled.';
     default:
@@ -53,6 +55,7 @@ export function equivocatorsOf(view: SessionView | null): readonly number[] {
 function lockedReason(status: GameStatus): string {
   if (status === 'syncing') return 'Still loading the game from the relays.';
   if (status === 'working') return 'Finishing an automatic step first.';
+  if (status === 'stuck') return 'An automatic step failed; reload the page to retry.';
   return 'It is not your decision right now.';
 }
 
@@ -69,6 +72,11 @@ function SetupProgress(props: { view: SessionView | null; status: GameStatus; er
       <h1 id="game-title">{CHAIN_REACTION_THEME.title}</h1>
       <p role="status">{step}</p>
       {props.status === 'working' && <p class="muted">Working… this can take a few seconds.</p>}
+      {props.status === 'stuck' && (
+        <p class="error" role="alert">
+          An automatic step failed. Reload the page to retry.
+        </p>
+      )}
       {props.status === 'waiting' && <p class="muted">Waiting for the other players' clients.</p>}
       {props.error !== null && (
         <p class="error" role="alert">
@@ -142,7 +150,7 @@ export function GameScreen(props: { rootId: string }) {
         legal={ctl.legal.value as readonly ChainReactionAction[]}
         canAct={status === 'your-turn' && !busy}
         lockedReason={lockedReason(status)}
-        busy={busy || status === 'working'}
+        busy={busy}
         onAct={(a) => ctl.act(a)}
         names={names}
         events={[]}

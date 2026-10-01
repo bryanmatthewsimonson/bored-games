@@ -70,6 +70,10 @@ export interface NewTable {
 
 /** How many recent tables the open list asks each relay for. */
 export const OPEN_TABLES_LIMIT = 200;
+/** The most tables held in memory; beyond it the oldest (not this player's) are dropped. */
+export const MAX_TABLES = 500;
+/** The most Joins and roots held per table; beyond it the oldest unseated Joins are dropped. */
+export const MAX_LOBBY_EVENTS = 200;
 
 /** `37450:<creator>:<tableId>` split, or null. */
 export function splitAddress(address: string): { creator: Hex; tableId: string } | null {
@@ -122,10 +126,15 @@ export class LobbyController {
   readonly loading: Signal<boolean> = signal(true);
 
   readonly #d: ControllerDeps;
-  /** The latest valid Table event per address. */
-  readonly #tables = new Map<string, NostrEvent>();
+  /** The latest valid Table event per address, parsed once. */
+  readonly #tables = new Map<string, TableEntry>();
   /** Joins and roots per table address, by id. */
   readonly #lobby = new Map<string, Map<string, NostrEvent>>();
+  /** `foldLobby` results per address, dropped when the table or its events change. */
+  readonly #folds = new Map<string, LobbyView | null>();
+  /** In-flight `start` and `join` calls per address: a second caller gets the first call's promise. */
+  readonly #starting = new Map<string, Promise<string>>();
+  readonly #joining = new Map<string, Promise<void>>();
   readonly #views = new Map<string, Signal<LobbyView | null>>();
   readonly #watches = new Map<string, () => void>();
   #openUnsub: (() => void) | null = null;
@@ -183,7 +192,7 @@ export class LobbyController {
 
   /** The latest known Table event at `address`. */
   tableEvent(address: string): NostrEvent | null {
-    return this.#tables.get(address) ?? null;
+    return this.#tables.get(address)?.event ?? null;
   }
 
   /**
@@ -221,9 +230,16 @@ export class LobbyController {
     return table.address;
   }
 
-  /** Join an open table: sign a Join, save the game secrets, publish. Does nothing if already seated. */
-  async join(address: string): Promise<void> {
-    const tableEv = this.#tables.get(address) ?? (await this.#fetchTable(address));
+  /**
+   * Join an open table: sign a Join, save the game secrets, publish. Does nothing if already seated. While a
+   * call for this address is in flight (a signer prompt may be open), further calls share it.
+   */
+  join(address: string): Promise<void> {
+    return this.#once(this.#joining, address, () => this.#join(address));
+  }
+
+  async #join(address: string): Promise<void> {
+    const tableEv = this.#tables.get(address)?.event ?? (await this.#fetchTable(address));
     if (tableEv === null) throw new Error('That table was not found on your relays.');
     const table = tryParseTable(tableEv);
     if (table === null) throw new Error('That table is not valid.');
@@ -237,11 +253,15 @@ export class LobbyController {
 
   /**
    * Start the game (the creator, once the table is full): sign the root, publish it, then republish the table
-   * with status `started`. A root already signed for this table is republished, never signed again. Returns
-   * the root id, the game's id.
+   * with status `started`. A root already signed for this table is republished, never signed again, and
+   * concurrent calls share one signing. Returns the root id, the game's id.
    */
-  async start(address: string): Promise<string> {
-    const tableEv = this.#tables.get(address) ?? (await this.#fetchTable(address));
+  start(address: string): Promise<string> {
+    return this.#once(this.#starting, address, () => this.#start(address));
+  }
+
+  async #start(address: string): Promise<string> {
+    const tableEv = this.#tables.get(address)?.event ?? (await this.#fetchTable(address));
     const table = tableEv === null ? null : tryParseTable(tableEv);
     if (tableEv === null || table === null) throw new Error('That table was not found on your relays.');
     if (table.creator !== this.#me) throw new Error('Only the table creator can start the game.');
@@ -267,7 +287,7 @@ export class LobbyController {
     saveRootId(this.#d.profile, this.#d.storage, address, rootEv.id);
 
     if (table.status !== 'started') {
-      const latest = this.#tables.get(address) ?? tableEv;
+      const latest = this.#tables.get(address)?.event ?? tableEv;
       const started = await this.#sign(
         tableTemplate(
           { ...specOf(table), status: 'started' },
@@ -281,6 +301,15 @@ export class LobbyController {
   }
 
   /* ----------------------------------------------------------------------------------------- internals */
+
+  /** Run `task` unless one is already in flight for `address`, in which case return that one. */
+  #once<T>(inFlight: Map<string, Promise<T>>, address: string, task: () => Promise<T>): Promise<T> {
+    const held = inFlight.get(address);
+    if (held !== undefined) return held;
+    const p = task().finally(() => inFlight.delete(address));
+    inFlight.set(address, p);
+    return p;
+  }
 
   async #sign(t: EventTemplate): Promise<NostrEvent> {
     return this.#d.signer.sign(t);
@@ -320,7 +349,7 @@ export class LobbyController {
         (ev) => this.#ingest(ev),
         () => {
           unsub();
-          resolve(this.#tables.get(address) ?? null);
+          resolve(this.#tables.get(address)?.event ?? null);
         },
       );
     });
@@ -336,13 +365,17 @@ export class LobbyController {
   }
 
   #fold(address: string): LobbyView | null {
+    if (this.#folds.has(address)) return this.#folds.get(address) ?? null;
     const t = this.#tables.get(address);
     if (t === undefined) return null;
+    let view: LobbyView | null;
     try {
-      return foldLobby(t, [...(this.#lobby.get(address)?.values() ?? [])], this.#d.modules);
+      view = foldLobby(t.event, [...(this.#lobby.get(address)?.values() ?? [])], this.#d.modules);
     } catch {
-      return null;
+      view = null;
     }
+    this.#folds.set(address, view);
+    return view;
   }
 
   /** Take in any lobby event, from a relay or signed here. */
@@ -350,12 +383,13 @@ export class LobbyController {
     if (this.#disposed) return;
     let address: string | null = null;
     if (ev.kind === KIND.table) {
-      const t = tryParseTable(ev);
-      if (t === null) return;
-      const held = this.#tables.get(t.address);
-      if (held !== undefined && (held.id === ev.id || !supersedes(ev, held))) return;
-      this.#tables.set(t.address, ev);
-      address = t.address;
+      const held = this.#tables.get(this.#addressGuess(ev) ?? '');
+      if (held !== undefined && (held.event.id === ev.id || !supersedes(ev, held.event))) return;
+      const table = tryParseTable(ev);
+      if (table === null) return;
+      this.#tables.set(table.address, { address: table.address, event: ev, table });
+      address = table.address;
+      this.#trimTables();
     } else if (ev.kind === KIND.join || ev.kind === KIND.root) {
       address = addressOf(ev);
       if (address === null || splitAddress(address) === null) return;
@@ -366,8 +400,43 @@ export class LobbyController {
       }
       if (m.has(ev.id)) return;
       m.set(ev.id, ev);
+      this.#folds.delete(address);
+      this.#trimLobby(address, m);
     } else return;
+    this.#folds.delete(address);
     this.#update(address);
+  }
+
+  /** The address a Table event claims, without a full parse (to skip stale versions cheaply). */
+  #addressGuess(ev: NostrEvent): string | null {
+    const d = ev.tags.find((t) => t[0] === 'd')?.[1];
+    return d === undefined ? null : `${KIND.table}:${ev.pubkey}:${d}`;
+  }
+
+  /** Keep at most `MAX_TABLES`, dropping the oldest that are not this player's or being watched. */
+  #trimTables(): void {
+    if (this.#tables.size <= MAX_TABLES) return;
+    const keep = new Set([...this.#myAddresses(), ...this.#watches.keys()]);
+    const victims = [...this.#tables.values()]
+      .filter((t) => !keep.has(t.address))
+      .sort((a, b) => a.event.created_at - b.event.created_at);
+    for (const t of victims.slice(0, this.#tables.size - MAX_TABLES)) {
+      this.#tables.delete(t.address);
+      this.#lobby.delete(t.address);
+      this.#folds.delete(t.address);
+    }
+  }
+
+  /** Keep at most `MAX_LOBBY_EVENTS` per table, dropping the oldest events that hold no seat and are no root. */
+  #trimLobby(address: string, m: Map<string, NostrEvent>): void {
+    if (m.size <= MAX_LOBBY_EVENTS) return;
+    const view = this.#fold(address);
+    const keep = new Set([...(view?.joins.map((j) => j.id) ?? []), ...(view?.root ? [view.root.id] : [])]);
+    const victims = [...m.values()]
+      .filter((ev) => !keep.has(ev.id))
+      .sort((a, b) => a.created_at - b.created_at);
+    for (const ev of victims.slice(0, m.size - MAX_LOBBY_EVENTS)) m.delete(ev.id);
+    this.#folds.delete(address);
   }
 
   #update(address: string): void {
@@ -382,19 +451,16 @@ export class LobbyController {
 
   #refreshOpen(): void {
     const out: TableEntry[] = [];
-    for (const [address, event] of this.#tables) {
-      const table = tryParseTable(event);
-      if (table === null || table.status !== 'open' || !this.#d.modules.has(table.game)) continue;
-      out.push({ address, event, table });
+    for (const entry of this.#tables.values()) {
+      if (entry.table.status !== 'open' || !this.#d.modules.has(entry.table.game)) continue;
+      out.push(entry);
     }
     out.sort((a, b) => b.event.created_at - a.event.created_at || (a.address < b.address ? -1 : 1));
     this.openTables.value = out;
   }
 
   #myAddresses(): string[] {
-    const mine = [...this.#tables.entries()]
-      .filter(([, ev]) => ev.pubkey === this.#me)
-      .map(([address]) => address);
+    const mine = [...this.#tables.values()].filter((t) => t.table.creator === this.#me).map((t) => t.address);
     return unionRelays(loadTableList(this.#d.profile, this.#d.storage), mine);
   }
 
@@ -402,9 +468,9 @@ export class LobbyController {
     const out: MyTable[] = [];
     const addresses = this.#myAddresses();
     for (const address of addresses) {
-      const event = this.#tables.get(address);
-      const table = event === undefined ? null : tryParseTable(event);
-      if (event === undefined || table === null) continue;
+      const entry = this.#tables.get(address);
+      if (entry === undefined) continue;
+      const { event, table } = entry;
       const lobby = this.#fold(address);
       out.push({
         address,

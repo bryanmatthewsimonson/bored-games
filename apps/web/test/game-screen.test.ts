@@ -11,7 +11,8 @@ describe('game screen helpers', () => {
 
   it('describes the automatic phases and leaves the turn states to the board', () => {
     expect(statusNotice('syncing', null)).toMatch(/Loading/);
-    expect(statusNotice('working', null)).toBe('Working…');
+    expect(statusNotice('working', null)).toBe('working…');
+    expect(statusNotice('stuck', null)).toMatch(/Stuck/);
     expect(statusNotice('your-turn', null)).toBeUndefined();
     expect(statusNotice('waiting', null)).toBeUndefined();
     expect(statusNotice('cancelled', null)).toMatch(/cancelled/);

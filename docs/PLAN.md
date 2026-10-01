@@ -18,7 +18,7 @@
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
 | 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal and game actions); 2e not started |
-| 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
+| 3. Web shell plus Chain Reaction UI | **In progress** (Preact + Signals, D031): relay pool and dev relay, identity and settings, Chain Reaction screen components, lobby and game controllers with the Game route (D034); Home and Table screens and the end-to-end test next |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |

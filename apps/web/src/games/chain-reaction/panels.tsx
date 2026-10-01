@@ -168,7 +168,7 @@ export function StatusBar(props: {
   return (
     <div class="cr-status" role="status">
       <span class="cr-status-line">{props.line}</span>
-      {props.busy && <span class="chip">working…</span>}
+      {props.busy && <span class="chip">Sending your move…</span>}
       {props.notice && <span class="chip">{props.notice}</span>}
       {props.deadline && <span class="chip">{props.deadline}</span>}
       {props.onClaimTimeout && (

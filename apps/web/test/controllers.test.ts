@@ -4,7 +4,8 @@
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
-import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/protocol';
+import { finalizeEvent, getPublicKey, KIND, type NostrEvent, tableTemplate } from '@bored-games/protocol';
+import type { Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
@@ -21,6 +22,37 @@ const now = (): number => Math.floor(Date.now() / 1000);
 function localSigner(): Signer {
   const sk = rnd(32);
   return { kind: 'local', pubkey: getPublicKey(sk), sign: async (t) => finalizeEvent(t, sk, rnd) };
+}
+
+/**
+ * A signer that records what it signs and can be held, like a NIP-07 prompt left open: while held, every
+ * signature waits until `open()`.
+ */
+function gatedSigner() {
+  const inner = localSigner();
+  const signed: NostrEvent[] = [];
+  let gate: Promise<void> | null = null;
+  let release = (): void => {};
+  const signer: Signer = {
+    ...inner,
+    sign: async (t) => {
+      if (gate !== null) await gate;
+      const ev = await inner.sign(t);
+      signed.push(ev);
+      return ev;
+    },
+  };
+  return {
+    signer,
+    signed,
+    hold: () => {
+      gate = new Promise((r) => (release = r));
+    },
+    open: () => {
+      gate = null;
+      release();
+    },
+  };
 }
 
 let relay: DevRelay;
@@ -84,7 +116,11 @@ async function waitFor<T>(what: string, get: () => T | null | undefined | false,
  * Create a 3-seat table with 2 open seats, join it from two more profiles, and start it. Returns the root id
  * and the profiles in seat order (the creator first, then the joiners in the lobby's order).
  */
-async function startGame(a: Profile, b: Profile, c: Profile): Promise<{ rootId: string; bySeat: Profile[] }> {
+async function startGame(
+  a: Profile,
+  b: Profile,
+  c: Profile,
+): Promise<{ rootId: string; address: string; bySeat: Profile[] }> {
   const la = lobby(a);
   const lb = lobby(b);
   const lc = lobby(c);
@@ -98,7 +134,38 @@ async function startGame(a: Profile, b: Profile, c: Profile): Promise<{ rootId: 
   for (const l of [lb, lc]) await waitFor('the root', () => l.table(address).value?.root?.id === rootId);
   const seats = la.table(address).value?.root?.seats.map((s) => s.npub) ?? [];
   const bySeat = seats.map((npub) => [a, b, c].find((p) => p.deps.signer.pubkey === npub) as Profile);
-  return { rootId, bySeat };
+  return { rootId, address, bySeat };
+}
+
+/** Every stored event matching `filters`, from a fresh pool. */
+function query(...filters: Filter[]): Promise<NostrEvent[]> {
+  const p = newPool();
+  return new Promise((resolve) => {
+    const got: NostrEvent[] = [];
+    let stop = (): void => {};
+    stop = p.subscribe(
+      filters,
+      (ev) => got.push(ev),
+      () => {
+        stop();
+        resolve(got);
+      },
+    );
+  });
+}
+
+/** A pool that delivers `extra` to every subscription asking for Tables, before the relay's own events. */
+function forgingPool(real: PoolLike, extra: () => NostrEvent[]): PoolLike {
+  return {
+    publish: (ev, urls) => real.publish(ev, urls),
+    subscribe: (filters, onEvent, onEose, opts) => {
+      if (filters.some((f) => f.kinds?.includes(KIND.table)))
+        queueMicrotask(() => {
+          for (const ev of extra()) onEvent(ev, 'ws://forged.test');
+        });
+      return real.subscribe(filters, onEvent, onEose, opts);
+    },
+  };
 }
 
 /** The saved move with this seq, whatever head it was built on. */
@@ -166,13 +233,84 @@ describe('LobbyController', () => {
     );
     expect(la.tableEvent(address)?.tags).toContainEqual(['status', 'started']);
   });
+
+  it('shares one in-flight join and one in-flight start between concurrent callers', async () => {
+    const ga = gatedSigner();
+    const gb = gatedSigner();
+    const [a, b, c] = [
+      profile('a', memoryStorage(), ga.signer),
+      profile('b', memoryStorage(), gb.signer),
+      profile('c'),
+    ];
+    const la = lobby(a);
+    const lb = lobby(b);
+    const lc = lobby(c);
+    const address = await la.createTable({ seats: 3, deadline: 259200, invited: [], relays: [relay.url] });
+
+    // A double click on Join while the signer prompt is open.
+    await waitFor('the open table', () => lb.openTables.value.some((t) => t.address === address));
+    gb.hold();
+    const j1 = lb.join(address);
+    const j2 = lb.join(address);
+    expect(j2).toBe(j1);
+    gb.open();
+    await Promise.all([j1, j2]);
+    expect(gb.signed.filter((e) => e.kind === KIND.join)).toHaveLength(1);
+
+    await waitFor('the open table', () => lc.openTables.value.some((t) => t.address === address));
+    await lc.join(address);
+    await waitFor('a full table', () => la.table(address).value?.full);
+
+    // A double click on Start while the signer prompt is open.
+    ga.hold();
+    const s1 = la.start(address);
+    const s2 = la.start(address);
+    expect(s2).toBe(s1);
+    ga.open();
+    const [r1, r2] = await Promise.all([s1, s2]);
+    expect(r2).toBe(r1);
+    expect(ga.signed.filter((e) => e.kind === KIND.root)).toHaveLength(1);
+    expect(await query({ kinds: [KIND.root], '#a': [address] })).toHaveLength(1);
+    expect(await query({ kinds: [KIND.join], '#a': [address] })).toHaveLength(3);
+  });
 });
 
 describe('GameController', () => {
   it('three players reach play with no input (automatic shuffle and deal); a spectator agrees', async () => {
-    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
     const players = bySeat.map((p) => game(rootId, p.deps));
-    const spectator = game(rootId, profile('watcher').deps);
+    // The spectator's relays also deliver forgeries: a Table at the same `d` tag from another author, dated far
+    // in the future, a Join naming another table, and a Join for this table that the root does not seat.
+    const tableId = address.split(':')[2] as string;
+    const forger = localSigner();
+    const forged = [
+      await forger.sign(
+        tableTemplate(
+          {
+            tableId,
+            game: 'chain-reaction',
+            version: '0.0.0',
+            seats: 2,
+            deadline: 86400,
+            invited: [],
+            open: 1,
+            relays: [relay.url],
+            status: 'open',
+            rules: {},
+          },
+          now() + 10_000_000,
+        ),
+      ),
+      await forger.sign({
+        kind: KIND.join,
+        created_at: now(),
+        tags: [['a', `37450:${forger.pubkey}:${tableId}`]],
+        content: '{}',
+      }),
+      await forger.sign({ kind: KIND.join, created_at: 1, tags: [['a', address]], content: '{}' }),
+    ];
+    const watcher = profile('watcher');
+    const spectator = game(rootId, { ...watcher.deps, pool: forgingPool(watcher.deps.pool, () => forged) });
 
     for (const g of [...players, spectator])
       await waitFor('the play phase', () => g.view.value?.phase === 'play', 120_000);
@@ -191,6 +329,8 @@ describe('GameController', () => {
       await waitFor('a settled status', () => ['waiting', 'your-turn'].includes(g.status.value));
     }
     expect(spectator.view.value?.mySeat).toBeNull();
+    expect(spectator.table.value?.creator).toBe(bySeat[0]?.deps.signer.pubkey);
+    expect(spectator.error.value).toBeNull();
     expect(spectator.status.value).toBe('waiting');
     expect(players.every((g) => g.error.value === null)).toBe(true);
     // Every event this seat built is confirmed by the relay.
@@ -288,6 +428,47 @@ describe('GameController', () => {
     await waitFor('the confirmed shuffle', () => savedMove(c, rootId, 3)?.confirmed);
     expect(savedMove(c, rootId, 3)?.event.id).toBe(saved.event.id);
   }, 240_000);
+
+  it('sends exactly one move for a double submission, and a rebuilt tab signs nothing new', async () => {
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const mover = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const seat = players.indexOf(mover);
+    const p = bySeat[seat] as Profile;
+    expect(mover.view.value?.head.seq).toBe(3);
+    const action = mover.legal.value[0];
+
+    // Two submissions at once: the second is refused while the first is in flight.
+    const results = await Promise.allSettled([mover.act(action), mover.act(action)]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    for (const g of players) await waitFor('the move everywhere', () => g.view.value?.head.seq === 4);
+    const head = mover.view.value?.head;
+    for (const g of players) expect(g.view.value?.head).toEqual(head);
+
+    const moves = () => query({ kinds: [KIND.move], '#e': [rootId] });
+    await waitFor('the confirmed move', () => savedMove(p, rootId, 4)?.confirmed);
+    expect(await moves()).toHaveLength(4);
+    const slots = [...loadOutbox(p.deps.storage, p.name, rootId).keys()];
+    expect(slots.filter((k) => k.startsWith('move:4:'))).toHaveLength(1);
+
+    // The tab reopens from the same storage: same head, nothing new signed.
+    mover.dispose();
+    const reopened = game(rootId, { ...p.deps, pool: newPool() });
+    await waitFor(
+      'the reopened tab',
+      () => reopened.view.value?.head.seq === 4 && reopened.status.value !== 'syncing',
+    );
+    expect(reopened.view.value?.head).toEqual(head);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(await moves()).toHaveLength(4);
+    expect(
+      [...loadOutbox(p.deps.storage, p.name, rootId).keys()].filter((k) => k.startsWith('move:')),
+    ).toHaveLength(2);
+  }, 180_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {
     const p = profile('solo');
