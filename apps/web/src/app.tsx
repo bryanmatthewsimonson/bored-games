@@ -3,6 +3,7 @@ import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
 import { route } from './router.ts';
 import { Screen } from './screens.tsx';
+import { IGNORED_RELAYS_NOTICE } from './settings.ts';
 import { SettingsDialog } from './settings-dialog.tsx';
 
 export function App(props: { ctx: AppContext }) {
@@ -22,10 +23,10 @@ export function App(props: { ctx: AppContext }) {
   );
 }
 
-/** Page-wide warnings: a key that will not survive a reload, and an ignored `?profile=` value. */
+/** Page-wide warnings: a key that will not survive a reload, and an ignored `?profile=` or `?relays=` value. */
 function Banners() {
-  const { persistent, signer, invalidProfile, profile } = useApp();
-  if (persistent && invalidProfile === null) return null;
+  const { persistent, signer, invalidProfile, profile, ignoredRelays } = useApp();
+  if (persistent && invalidProfile === null && !ignoredRelays) return null;
   return (
     <div class="banners">
       {!persistent && signer.kind === 'local' && (
@@ -38,6 +39,11 @@ function Banners() {
         <p class="warning" role="status">
           "{invalidProfile}" is not a valid profile name (use 1 to 32 letters, digits, dots, dashes or
           underscores), so the {profile} profile is in use.
+        </p>
+      )}
+      {ignoredRelays && (
+        <p class="warning" role="status">
+          {IGNORED_RELAYS_NOTICE}
         </p>
       )}
     </div>

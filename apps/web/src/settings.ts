@@ -29,19 +29,34 @@ function clean(list: readonly unknown[]): string[] {
   return out;
 }
 
+/** A relay on this machine: `ws://localhost[:port]` or `ws://127.0.0.1[:port]`, with no path. */
+export function isLocalRelayUrl(url: string): boolean {
+  return /^ws:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?\/?$/.test(url) && isRelayUrl(url);
+}
+
+/** The one-line notice shown when `?relays=` named a relay that is not local. */
+export const IGNORED_RELAYS_NOTICE = 'Ignored relays from the link; change relays in Settings.';
+
 /**
- * Relays from the page URL: `?relays=ws://localhost:7777,wss://relay.example` (comma separated, or the parameter
- * repeated). Invalid and duplicate entries are dropped; null when the parameter is absent or nothing valid is
- * left. The app saves such a list as this profile's relays on load, so a test or a local setup can point a
- * production build at its own relay without opening Settings.
+ * The `?relays=` parameter (comma separated, or repeated):
+ * - `absent`: no parameter, or only empty entries
+ * - `local`: every entry is a local relay (`isLocalRelayUrl`); the list, without duplicates
+ * - `ignored`: some entry is anything else. A link must not be able to move a player onto a stranger's relays,
+ *   so only local relays (for `pnpm dev`, the e2e test and local setups) are honoured.
+ *
+ * The app saves a `local` list as this profile's relays on load, as if edited in Settings.
  */
-export function relaysFromLocation(loc: { search: string }): string[] | null {
+export type RelaysParam = { kind: 'absent' } | { kind: 'local'; relays: string[] } | { kind: 'ignored' };
+
+export function relaysFromLocation(loc: { search: string }): RelaysParam {
   const raw = new URLSearchParams(loc.search)
     .getAll('relays')
     .flatMap((v) => v.split(','))
-    .map((v) => v.trim());
-  const list = clean(raw);
-  return list.length > 0 ? list : null;
+    .map((v) => v.trim())
+    .filter((v) => v !== '');
+  if (raw.length === 0) return { kind: 'absent' };
+  if (!raw.every(isLocalRelayUrl)) return { kind: 'ignored' };
+  return { kind: 'local', relays: clean(raw) };
 }
 
 export interface Settings {

@@ -4,6 +4,8 @@ import {
   DEFAULT_RELAYS,
   DEV_RELAY,
   defaultRelays,
+  IGNORED_RELAYS_NOTICE,
+  isLocalRelayUrl,
   parseRelayInput,
   relaysFromLocation,
 } from '../src/settings.ts';
@@ -95,20 +97,66 @@ describe('settings when storage fails', () => {
   });
 });
 
-describe('relaysFromLocation', () => {
-  it('reads a comma-separated or repeated ?relays= list, cleaned', () => {
-    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,wss://a.example' })).toEqual([
-      'ws://localhost:9',
-      'wss://a.example',
-    ]);
-    expect(
-      relaysFromLocation({ search: '?profile=b&relays=ws://localhost:9&relays=bad&relays=ws://localhost:9' }),
-    ).toEqual(['ws://localhost:9']);
+describe('isLocalRelayUrl', () => {
+  it('accepts ws://localhost and ws://127.0.0.1, with or without a port', () => {
+    for (const ok of ['ws://localhost', 'ws://localhost:7777', 'ws://127.0.0.1', 'ws://127.0.0.1:4000/']) {
+      expect(isLocalRelayUrl(ok), ok).toBe(true);
+    }
   });
 
-  it('is null without the parameter or without a valid relay', () => {
-    expect(relaysFromLocation({ search: '' })).toBeNull();
-    expect(relaysFromLocation({ search: '?profile=a' })).toBeNull();
-    expect(relaysFromLocation({ search: '?relays=https://x.example' })).toBeNull();
+  it('refuses every other relay, including look-alikes', () => {
+    for (const bad of [
+      'wss://localhost:7777',
+      'ws://localhost.evil.example',
+      'ws://localhost:7777@evil.example',
+      'ws://user@localhost:7777',
+      'ws://localhost:7777/path',
+      'ws://127.0.0.2:7777',
+      'ws://[::1]:7777',
+      'wss://relay.example',
+      'ws://LOCALHOST:7777 ',
+      'ws://localhost:123456',
+      'ws://localhost:99999',
+    ]) {
+      expect(isLocalRelayUrl(bad), bad).toBe(false);
+    }
+  });
+});
+
+describe('relaysFromLocation', () => {
+  it('honours a comma-separated or repeated list of local relays, without duplicates', () => {
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,ws://127.0.0.1:8' })).toEqual({
+      kind: 'local',
+      relays: ['ws://localhost:9', 'ws://127.0.0.1:8'],
+    });
+    expect(
+      relaysFromLocation({ search: '?profile=b&relays=ws://localhost:9&relays=ws://localhost:9' }),
+    ).toEqual({ kind: 'local', relays: ['ws://localhost:9'] });
+    expect(relaysFromLocation({ search: `?relays=${encodeURIComponent('ws://localhost:7777')}` })).toEqual({
+      kind: 'local',
+      relays: ['ws://localhost:7777'],
+    });
+  });
+
+  it('ignores the whole list when any entry is not a local relay', () => {
+    expect(relaysFromLocation({ search: '?relays=wss://evil.example' })).toEqual({ kind: 'ignored' });
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9,wss://evil.example' })).toEqual({
+      kind: 'ignored',
+    });
+    expect(relaysFromLocation({ search: '?relays=ws://localhost:9&relays=bad' })).toEqual({
+      kind: 'ignored',
+    });
+    expect(relaysFromLocation({ search: '?relays=https://x.example' })).toEqual({ kind: 'ignored' });
+  });
+
+  it('is absent without the parameter or with only empty entries', () => {
+    expect(relaysFromLocation({ search: '' })).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?profile=a' })).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?relays=' })).toEqual({ kind: 'absent' });
+    expect(relaysFromLocation({ search: '?relays=,' })).toEqual({ kind: 'absent' });
+  });
+
+  it('has a one-line notice for an ignored list', () => {
+    expect(IGNORED_RELAYS_NOTICE).toBe('Ignored relays from the link; change relays in Settings.');
   });
 });

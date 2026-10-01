@@ -11,6 +11,8 @@ export interface AppContext {
   profile: string;
   /** The `?profile=` value when it was not a valid name and the default profile is used instead. */
   invalidProfile: string | null;
+  /** True when `?relays=` named a relay that is not local, so it was ignored (`relaysFromLocation`). */
+  ignoredRelays: boolean;
   store: KeyValueStore;
   /** Set when `window.nostr` is present: the Settings dialog then offers the extension. */
   nostr: Nip07 | undefined;

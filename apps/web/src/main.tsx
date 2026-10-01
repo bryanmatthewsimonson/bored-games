@@ -44,9 +44,10 @@ async function main(): Promise<void> {
   }
 
   const settings = createSettings(profile, store, import.meta.env.DEV);
-  // `?relays=` replaces this profile's relay list (saved, as if edited in Settings).
+  // `?relays=` with only local relays replaces this profile's relay list (saved, as if edited in Settings).
+  // Any other relay in it is refused, with a notice: a shared link must not choose a player's relays.
   const urlRelays = relaysFromLocation(window.location);
-  if (urlRelays !== null) settings.setRelays(urlRelays);
+  if (urlRelays.kind === 'local') settings.setRelays(urlRelays.relays);
   const pool = appPool(settings);
   startRouter(window);
   render(
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
       ctx={{
         profile,
         invalidProfile: invalidProfileName(window.location),
+        ignoredRelays: urlRelays.kind === 'ignored',
         store,
         nostr,
         signer,
