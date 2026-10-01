@@ -1,3 +1,4 @@
+export { cardOf, cardPoint, cardTable } from './cards.ts';
 export {
   b64u,
   decodePoint,
@@ -8,4 +9,5 @@ export {
   type Part,
   type Point,
 } from './encoding.ts';
+export { G, generators, h2c, msm, q } from './group.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
