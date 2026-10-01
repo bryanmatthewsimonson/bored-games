@@ -1,0 +1,177 @@
+/* The rules page (#/rules): prose at a readable measure, the price card at full width. */
+
+.rules-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.rules-page > * {
+  min-width: 0;
+}
+
+.rules-head,
+.rules-toc,
+.rules-section {
+  padding: var(--gutter);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.rules-head h1 {
+  margin-bottom: 4px;
+}
+
+.rules-head .lede {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--muted);
+}
+
+.rules-page p,
+.rules-page ul,
+.rules-page ol,
+.rules-page dl,
+.rules-page h3 {
+  max-width: 70ch;
+}
+
+.rules-page p {
+  margin: 0 0 0.75em;
+}
+
+.rules-page p:last-child {
+  margin-bottom: 0;
+}
+
+.rules-page ul,
+.rules-page ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.4em;
+}
+
+.rules-page ul:last-child,
+.rules-page ol:last-child {
+  margin-bottom: 0;
+}
+
+.rules-page li + li {
+  margin-top: 6px;
+}
+
+.rules-page li > ul,
+.rules-page li > ol {
+  margin: 6px 0 0;
+}
+
+.rules-section h2 {
+  scroll-margin-top: 8px;
+}
+
+.rules-toc h2 {
+  font-size: 1.05rem;
+}
+
+.rules-page .rules-toc ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11em, 1fr));
+  gap: 4px 16px;
+  max-width: none;
+  margin: 0;
+}
+
+.rules-page .rules-toc li + li {
+  margin-top: 0;
+}
+
+.rules-toc a {
+  display: inline-block;
+  padding: 4px 0;
+}
+
+.rules-tiers {
+  list-style: none;
+  padding-left: 0;
+}
+
+.rules-tiers .cr-chain-name {
+  margin-right: 6px;
+}
+
+.rules-terms {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0 0 0.75em;
+}
+
+.rules-terms dt {
+  font-weight: 700;
+}
+
+.rules-terms dd {
+  margin: 0;
+}
+
+.rules-section .cr-pc {
+  margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .rules-terms {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .rules-terms dd {
+    margin-bottom: 8px;
+  }
+}
+
+@media print {
+  .skip-link,
+  .app-header,
+  .app-footer,
+  .banners,
+  .rules-toc {
+    display: none;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  main {
+    max-width: none;
+    padding: 0;
+  }
+
+  .rules-head,
+  .rules-section {
+    padding: 0;
+    border: 0;
+  }
+
+  .rules-section {
+    break-inside: auto;
+  }
+
+  .rules-section h2,
+  .rules-page h3 {
+    break-after: avoid;
+  }
+
+  .cr-pc-table {
+    break-inside: avoid;
+  }
+
+  .cr-pc-scroll {
+    overflow: visible;
+  }
+
+  .cr-swatch,
+  .cr-pc-table tbody tr > * {
+    print-color-adjust: exact;
+  }
+}

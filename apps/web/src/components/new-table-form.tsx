@@ -4,7 +4,7 @@ import { gameTitle } from '../game-names.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
-import { tableHref } from '../router.ts';
+import { rulesHref, tableHref } from '../router.ts';
 
 /** The New table form: seats, deadline, invited players and the computed open seats. */
 export function NewTableForm() {
@@ -44,7 +44,10 @@ export function NewTableForm() {
 
   return (
     <form class="panel stack" onSubmit={submit} aria-labelledby="new-table-h" noValidate>
-      <h2 id="new-table-h">New table</h2>
+      <div class="panel-head">
+        <h2 id="new-table-h">New table</h2>
+        <a href={rulesHref()}>How to play</a>
+      </div>
       <p class="muted">A table for {gameTitle(game)}. Nothing is shared until you create it.</p>
 
       <div class="field">

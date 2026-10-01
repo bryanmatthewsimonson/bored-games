@@ -4,7 +4,7 @@ import { npubEncode, shortNpub } from './bech32.ts';
 import { copyText } from './clipboard.ts';
 import { useApp } from './context.ts';
 import { DEFAULT_PROFILE } from './identity.ts';
-import { homeHref } from './router.ts';
+import { homeHref, route, rulesHref } from './router.ts';
 
 export function CopyButton(props: { text: string; label: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -55,6 +55,15 @@ export function Header() {
         {BRAND.name}
       </a>
       <div class="header-end">
+        <a
+          class="header-link"
+          href={rulesHref()}
+          aria-current={route.value.name === 'rules' ? 'page' : undefined}
+          // In a game, a new tab keeps the running game open instead of rebuilding it on return.
+          {...(route.value.name === 'game' ? { target: '_blank', rel: 'noopener' } : {})}
+        >
+          Rules
+        </a>
         {profile !== DEFAULT_PROFILE && <span class="chip">profile: {profile}</span>}
         <IdentityBadge />
         <button type="button" class="btn" onClick={() => (settingsOpen.value = true)}>

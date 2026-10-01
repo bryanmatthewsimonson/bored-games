@@ -1,57 +1,17 @@
 /*
- * Rendered output of the Chain Reaction players panel, from real engine states. The repo has no DOM library,
- * so `renderTree` expands the panel's vnodes the way Preact would (function components called with their
- * props, Fragments flattened) into a plain element tree. The panel and its parts use no hooks.
+ * Rendered output of the Chain Reaction players panel, from real engine states, expanded without a DOM by
+ * `renderTree`. The panel and its parts use no hooks.
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
-import { type ComponentChildren, h, type VNode } from 'preact';
+import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { playUntil, randomLegal } from '../src/games/chain-reaction/fixture.ts';
 import { formatMoney, playerRows } from '../src/games/chain-reaction/model.ts';
 import { PlayersPanel } from '../src/games/chain-reaction/panels.tsx';
+import { classOf, type El, findAll, isEl, renderTree, textOf } from './render-tree.ts';
 
 const NAMES = ['Ann', 'Bo', 'Cy', 'Di'];
-
-interface El {
-  readonly tag: string;
-  readonly attrs: Readonly<Record<string, unknown>>;
-  readonly children: readonly Node[];
-}
-type Node = El | string;
-
-function renderTree(node: ComponentChildren): Node[] {
-  if (node === null || node === undefined || typeof node === 'boolean') return [];
-  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'bigint') return [String(node)];
-  if (Array.isArray(node)) return node.flatMap((n) => renderTree(n as ComponentChildren));
-  const v = node as VNode<Record<string, unknown>>;
-  if (typeof v.type === 'function') {
-    const component = v.type as (props: unknown) => ComponentChildren;
-    return renderTree(component(v.props));
-  }
-  const { children, ...attrs } = v.props;
-  return [{ tag: String(v.type), attrs, children: renderTree(children as ComponentChildren) }];
-}
-
-const isEl = (n: Node): n is El => typeof n !== 'string';
-const classOf = (el: El): string[] => String(el.attrs.class ?? '').split(/\s+/);
-
-function findAll(nodes: readonly Node[], pred: (el: El) => boolean): El[] {
-  return nodes.filter(isEl).flatMap((el) => [...(pred(el) ? [el] : []), ...findAll(el.children, pred)]);
-}
-
-/** Everything a reader or screen reader gets: text (sr-only included), aria-labels and titles. */
-function textOf(nodes: readonly Node[]): string {
-  return nodes
-    .map((n) =>
-      isEl(n)
-        ? [n.attrs['aria-label'], n.attrs.title, textOf(n.children)]
-            .filter((x) => typeof x === 'string')
-            .join(' ')
-        : n,
-    )
-    .join(' ');
-}
 
 /** A mid-game state where seats 0 and 2 hold shares, with seat 3's cash spent so "no cash" shows. */
 function midGame(): ChainReactionState {

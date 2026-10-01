@@ -16,7 +16,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 
    Each profile has its own key and storage, so these are three separate players. The header shows `profile: a`, and so on.
    - **Why windows:** browsers throttle timers in hidden tabs, which slows the automatic shuffle and deal to a crawl. If a window seems stuck, click into it to focus it.
-   - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the public relays (`wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the full list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
+   - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the default public relay (`wss://relay.primal.net`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the default list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
 4. **Create** (window a): under **New table**, choose **3 players** (the default) and a **Time allowed per move**, then click **Create table** (the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
 5. **Join** (windows b and c): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
    - To join with the link instead, click **Copy share link** in window a. The link carries no profile, so add one before pasting it into window b: `http://localhost:5173/?profile=b#/t/…`. Then click **Join this table**.
@@ -28,6 +28,8 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    - **Merger disposal ("Your … shares"):** sell, trade 2 for 1 or keep, then click **Confirm**.
    - **End the game:** once an end condition holds, **Buy shares and end your turn** shows a **Declare the end of the game** checkbox. The results then show "Audit: checking the hidden moves…" and then "Audit passed".
    - The **Log** panel lists what happened, newest last (the last 100 lines).
+   - **Price card** (above the Chains panel) opens the share prices and the majority and minority bonuses for every size, with each chain on the board marked in the row of its current size. **Rules** opens the player rules in a new tab.
+   - **Rules** in the header (and **How to play** next to **New table** on Home) opens the player rules at `#/rules`, including the price card.
 
 ### What to expect
 - **Setup takes some seconds.** After the start, each client shuffles the deck and proves the shuffle, then deals. The screen shows "Shuffling the deck: 1 of 3 players done.", "Dealing the tiles…" and "Working… this can take a few seconds." With three players on a laptop this takes about 15–30 s. Every player's window must be open on the game for its share of the work to happen.
@@ -45,13 +47,14 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 ### Deploy to GitHub Pages
 1. In the GitHub repository, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**. You only do this once. A private repository needs a plan that includes Pages.
 2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs `pnpm check`; once it passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
+   - **Default branch.** A `workflow_run` workflow runs from the repository's default branch, and the `github-pages` environment allows deployments from it. Keep `main` the default branch (**Settings → General → Default branch**).
 3. Share the URL the workflow prints, usually `https://<owner>.github.io/<repo>/`. Each person plays in their own browser, so no `?profile=` is needed.
 
 **Before sharing widely, use a dedicated origin.** A project site at `https://<owner>.github.io/<repo>/` shares its origin, and so its `localStorage`, with every other GitHub Pages project site of the same owner. Each player's identity key and game secrets live in that storage, so any script on any of those sites can read them. For anything beyond a test among friends, serve the app from a custom domain or subdomain, or from a Pages user or organization site (`<name>.github.io`) used only for this app (D036).
 
 ### Relays
-- The deployed app uses the public relays `wss://relay.damus.io`, `wss://nos.lol` and `wss://relay.nostr.band`.
-- **Public relays may reject the shuffle.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. If a game stays on "Shuffling the deck" while every window is open, the relays are refusing it. Use a relay that accepts large events, such as your own nostr-rs-relay (PLAN open question 7).
+- The deployed app uses one default relay for everybody, `wss://relay.primal.net` (D038). Players can add more in Settings.
+- **Large events.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. `wss://relay.primal.net` accepted and served back signed 8, 36 and 60 KB events in a probe on 2026-10-01. If you add other relays and a game stays on "Shuffling the deck" while every window is open, a relay is refusing it (PLAN open question 7).
 - **Changing relays:** click **Settings** (top right). Under **Relays**, type a `wss://…` URL, click **Add**, then **Save relays**. Use **Remove** to drop a relay and **Reset to defaults** to restore the list. The list is saved per profile. A link cannot set your relays on the published site: `?relays=` works only with `pnpm dev` or a build made with `VITE_ALLOW_LINK_RELAYS=1`, and even then accepts only local `ws://localhost` and `ws://127.0.0.1` relays.
 - A table records the creator's relays when it is created, and its game events go to those relays. A joiner must use at least one of them to find the table. Otherwise the Table page says "This table has not turned up on your relays yet." So agree on relays before creating the table.
 

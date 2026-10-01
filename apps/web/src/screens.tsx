@@ -1,6 +1,7 @@
 /* Screens by route. Each real screen lives in screens/. */
 import type { ComponentType } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { RulesPage } from './games/chain-reaction/rules-page.tsx';
 import { homeHref, type Route } from './router.ts';
 import { GameScreen } from './screens/game.tsx';
 import { HomeScreen } from './screens/home.tsx';
@@ -37,6 +38,8 @@ export function Screen(props: { route: Route }) {
       return <TableScreen creator={r.creator} tableId={r.tableId} />;
     case 'game':
       return <GameScreen rootId={r.rootId} />;
+    case 'rules':
+      return <RulesPage section={r.section} />;
     case 'dev':
       return import.meta.env.DEV ? <DevScreen page={r.page} scene={r.scene} /> : <NotFoundScreen />;
     case 'not-found':

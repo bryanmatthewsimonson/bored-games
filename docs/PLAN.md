@@ -8,7 +8,7 @@
 4. **Chain Reaction 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
 5. **Second game** (Phase 6). Which game should validate the contract?
 6. **Final names.** The first game is now named **Chain Reaction** (owner, 2026-10-01). The platform name ("Bored Games") and the chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are still placeholders. Other games already use the name "Chain Reaction"; a trademark check belongs to Phase 7.
-7. **Relay URL** for your nostr-rs-relay. Still open; needed for the Phase 2e smoke test and as the app's default relay.
+7. **Relay URL.** Answered: the default relay is `wss://relay.primal.net` for everybody (D038), which accepted 36 and 60 KB events in a probe. An owner-run nostr-rs-relay stays optional.
 8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
 9. **Protocol review.** `docs/PROTOCOL.md`, now with the session rulings (D030), awaits your review before anything is published under version 1. Its open points:
    - What counts as timeout progress was ruled overnight (D030, Ruling 11): only events that change who is stalled.
@@ -116,7 +116,8 @@
 - **Acceptance (Phase 3 plan Task 6):** `pnpm e2e` plays a three-player game through the UI against the dev relay. `.github/workflows/pages.yml` deploys `apps/web/dist` to GitHub Pages once CI passes on `main`, and `.github/workflows/ci.yml` runs `pnpm check` on pushes to `main` and on pull requests.
   - **Status (2026-10-01):** met.
   - **Hidden holdings (D037, 2026-10-01):** done. The UI shows other players' holdings as chains only and their cash as "has cash" / "no cash", and the log keeps their numbers for the last two turns; engine and protocol unchanged.
-  - **Owner to-do:** enable Pages with the source "GitHub Actions", then follow `docs/TESTING.md`.
+  - **Player rules and price card (2026-10-01):** done. `#/rules` explains the game to players (numbers from `DEFAULT_RULES`, names from the theme), and a Price card dialog in the game marks each chain's current price row. The default relay is relay.primal.net (D038).
+  - **Owner to-do:** Pages is enabled with the source "GitHub Actions"; keep `main` the default branch, then follow `docs/TESTING.md` §2.
 
 ### Phase 4: Records
 Verified history, games played, wins and scores per game, and deterministic ratings, all client-side. An optional untrusted cache for leaderboards.

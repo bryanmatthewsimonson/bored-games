@@ -12,8 +12,8 @@ import {
 import { memoryStorage } from '../src/storage.ts';
 
 describe('defaultRelays', () => {
-  it('lists the public relays in production', () => {
-    expect(defaultRelays(false)).toEqual(['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.nostr.band']);
+  it('lists the default public relay in production', () => {
+    expect(defaultRelays(false)).toEqual(['wss://relay.primal.net']);
     expect(DEFAULT_RELAYS).toEqual(defaultRelays(false));
   });
 

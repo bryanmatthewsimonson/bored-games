@@ -2,11 +2,8 @@ import { isRelayUrl } from '@bored-games/protocol';
 import { type Signal, signal } from '@preact/signals';
 import { type KeyValueStore, readItem, removeItem, storageKey, writeItem } from './storage.ts';
 
-export const DEFAULT_RELAYS: readonly string[] = [
-  'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.nostr.band',
-];
+/** The owner's choice of default relay for everybody (D038). Players can add more in Settings. */
+export const DEFAULT_RELAYS: readonly string[] = ['wss://relay.primal.net'];
 
 /** The relay that `pnpm dev` starts locally. */
 export const DEV_RELAY = 'ws://localhost:7777';
