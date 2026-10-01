@@ -11,4 +11,5 @@ export {
   type Point,
 } from './encoding.ts';
 export { G, generators, h2c, msm, q } from './group.ts';
+export { type PokProof, provePok, verifyPok } from './pok.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
