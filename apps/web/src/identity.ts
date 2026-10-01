@@ -148,6 +148,26 @@ export async function loadIdentity(
   return { ...localSigner(sk, rnd), persistent };
 }
 
+/** The notice shown when the extension was chosen in Settings but is not there at load. */
+export const EXTENSION_MISSING_NOTICE = "Browser extension not found; using this profile's local key.";
+
+/**
+ * The NIP-07 provider, waiting up to `ms` for an extension that injects `window.nostr` late (some do so after the
+ * page's scripts start). `get` reads it, `sleep` waits; undefined when it never appears.
+ */
+export async function waitForNostr(
+  get: () => Nip07 | undefined,
+  ms: number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<Nip07 | undefined> {
+  const step = 100;
+  for (let waited = 0; ; waited += step) {
+    const nostr = get();
+    if (nostr !== undefined || waited >= ms) return nostr;
+    await sleep(step);
+  }
+}
+
 /** The local secret key as `nsec1…`, or null when this profile has no valid local key stored. */
 export function exportNsec(profile: string, store: KeyValueStore): string | null {
   const hex = readItem(store, storageKey(profile, 'sk'));

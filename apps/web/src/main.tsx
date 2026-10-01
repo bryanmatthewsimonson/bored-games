@@ -8,6 +8,8 @@ import {
   invalidProfileName,
   loadIdentity,
   profileFromLocation,
+  readSignerChoice,
+  waitForNostr,
   writeSignerChoice,
 } from './identity.ts';
 import { appPool, MODULES } from './net.ts';
@@ -25,7 +27,14 @@ async function main(): Promise<void> {
   document.title = profile === DEFAULT_PROFILE ? BRAND.name : `${BRAND.name} (${profile})`;
 
   const store = browserStorage();
-  const nostr = window.nostr;
+  // An extension chosen in Settings may inject `window.nostr` late: give it a second before falling back.
+  const wantsExtension = readSignerChoice(profile, store) === 'nip07';
+  const nostr = await waitForNostr(
+    () => window.nostr,
+    wantsExtension ? 1000 : 0,
+    (ms) => new Promise((r) => setTimeout(r, ms)),
+  );
+  const extensionMissing = wantsExtension && nostr === undefined;
   let signer: Awaited<ReturnType<typeof loadIdentity>>;
   try {
     signer = await loadIdentity(profile, store, randomBytes, nostr);
@@ -58,6 +67,7 @@ async function main(): Promise<void> {
         profile,
         invalidProfile: invalidProfileName(window.location),
         ignoredRelays: urlRelays.kind === 'ignored',
+        extensionMissing,
         store,
         nostr,
         signer,

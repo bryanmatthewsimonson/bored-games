@@ -9,6 +9,7 @@ import {
   type Nip07,
   profileFromLocation,
   readSignerChoice,
+  waitForNostr,
   writeSignerChoice,
 } from '../src/identity.ts';
 import type { RandomBytes } from '../src/random.ts';
@@ -186,6 +187,32 @@ describe('NIP-07 identity', () => {
     writeSignerChoice('alice', store, 'nip07');
     const bad: Nip07 = { getPublicKey: async () => 'xyz', signEvent: ext.signEvent };
     await expect(loadIdentity('alice', store, seeded(), bad)).rejects.toThrow();
+  });
+});
+
+describe('waitForNostr', () => {
+  const sleeps: number[] = [];
+  const sleep = async (ms: number): Promise<void> => {
+    sleeps.push(ms);
+  };
+
+  it('returns at once when the extension is there, or when it is not waited for', async () => {
+    const nostr = { getPublicKey: async () => '', signEvent: async () => ({}) } as unknown as Nip07;
+    sleeps.length = 0;
+    expect(await waitForNostr(() => nostr, 1000, sleep)).toBe(nostr);
+    expect(await waitForNostr(() => undefined, 0, sleep)).toBeUndefined();
+    expect(sleeps).toEqual([]);
+  });
+
+  it('waits for a late extension, and gives up after the limit', async () => {
+    const nostr = { getPublicKey: async () => '', signEvent: async () => ({}) } as unknown as Nip07;
+    let calls = 0;
+    sleeps.length = 0;
+    expect(await waitForNostr(() => (++calls >= 4 ? nostr : undefined), 1000, sleep)).toBe(nostr);
+    expect(sleeps).toEqual([100, 100, 100]);
+    sleeps.length = 0;
+    expect(await waitForNostr(() => undefined, 1000, sleep)).toBeUndefined();
+    expect(sleeps).toHaveLength(10);
   });
 });
 

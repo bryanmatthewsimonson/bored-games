@@ -1,6 +1,7 @@
 import { BRAND } from '@bored-games/brand';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
+import { EXTENSION_MISSING_NOTICE } from './identity.ts';
 import { route } from './router.ts';
 import { Screen } from './screens.tsx';
 import { IGNORED_RELAYS_NOTICE } from './settings.ts';
@@ -23,10 +24,13 @@ export function App(props: { ctx: AppContext }) {
   );
 }
 
-/** Page-wide warnings: a key that will not survive a reload, and an ignored `?profile=` or `?relays=` value. */
+/**
+ * Page-wide warnings: a key that will not survive a reload, a missing extension, and an ignored `?profile=` or
+ * `?relays=` value.
+ */
 function Banners() {
-  const { persistent, signer, invalidProfile, profile, ignoredRelays } = useApp();
-  if (persistent && invalidProfile === null && !ignoredRelays) return null;
+  const { persistent, signer, invalidProfile, profile, ignoredRelays, extensionMissing } = useApp();
+  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing) return null;
   return (
     <div class="banners">
       {!persistent && signer.kind === 'local' && (
@@ -39,6 +43,11 @@ function Banners() {
         <p class="warning" role="status">
           "{invalidProfile}" is not a valid profile name (use 1 to 32 letters, digits, dots, dashes or
           underscores), so the {profile} profile is in use.
+        </p>
+      )}
+      {extensionMissing && (
+        <p class="warning" role="alert">
+          {EXTENSION_MISSING_NOTICE}
         </p>
       )}
       {ignoredRelays && (
