@@ -28,7 +28,10 @@ import {
   findEndTurn,
   formatMoney,
   handTiles,
+  LOG_LINES,
   lastPlacedTile,
+  lastTileOf,
+  logLines,
   newlyPlacedTile,
   playerRows,
   resultRows,
@@ -377,6 +380,47 @@ describe('describeEvent', () => {
       types.add(e.type);
     }
     expect(types.size).toBeGreaterThan(10);
+  });
+});
+
+describe('logLines', () => {
+  const game = () => {
+    const g = playUntil('loglines', 3, firstLegal, (g) => g.state.seq > 30);
+    if (!g) throw new Error('no game');
+    return g;
+  };
+
+  it('describes the session events in order, newest last', () => {
+    const g = game();
+    const events: readonly unknown[] = g.events;
+    expect(logLines(events, NAMES)).toEqual(g.events.slice(-LOG_LINES).map((e) => describeEvent(e, NAMES)));
+    expect(logLines([], NAMES)).toEqual([]);
+  });
+
+  it('keeps only the newest lines', () => {
+    const g = game();
+    expect(g.events.length).toBeGreaterThan(5);
+    const lines = logLines(g.events, NAMES, 5);
+    expect(lines).toEqual(g.events.slice(-5).map((e) => describeEvent(e, NAMES)));
+    const many = Array.from({ length: 250 }, (_, i) => ({ type: 'turnStarted', seat: 0, turn: i + 1 }));
+    const capped = logLines(many, NAMES);
+    expect(capped).toHaveLength(LOG_LINES);
+    expect(capped.at(-1)).toBe('Turn 250: Ann.');
+    expect(capped[0]).toBe('Turn 151: Ann.');
+  });
+
+  it('skips anything that is not an engine event', () => {
+    const lines = logLines(
+      [null, 7, { no: 'type' }, { type: 'mystery' }, { type: 'firstPlayer', seat: 1 }],
+      NAMES,
+    );
+    expect(lines).toEqual(['Bo goes first.']);
+  });
+
+  it('finds the last placed tile in the session events', () => {
+    const g = game();
+    expect(lastTileOf(g.events)).toBe(g.lastTile);
+    expect(lastTileOf([null, { type: 'firstPlayer', seat: 0 }])).toBeNull();
   });
 });
 

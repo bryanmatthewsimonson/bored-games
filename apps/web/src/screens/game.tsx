@@ -6,12 +6,14 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { SessionView } from '@bored-games/client';
-import { useEffect, useMemo, useRef } from 'preact/hooks';
+import { useEffect, useMemo } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
-import { type Audit, ChainReactionGame, newlyPlacedTile } from '../games/chain-reaction/index.ts';
+import { type Audit, ChainReactionGame, lastTileOf, logLines } from '../games/chain-reaction/index.ts';
 import { homeHref } from '../router.ts';
+
+const NO_EVENTS: readonly unknown[] = Object.freeze([]);
 
 /** "2d 4h left", "3h 10m left", "overdue", from seconds remaining. */
 export function formatDeadline(secondsLeft: number): string {
@@ -105,14 +107,11 @@ export function GameScreen(props: { rootId: string }) {
   const target = ctl.timeoutTarget.value;
   const state = (view?.state ?? null) as ChainReactionState | null;
 
-  // The last placed tile, from consecutive states (the session exposes states, not the engine's events).
-  const prev = useRef<{ state: ChainReactionState | null; last: number | null }>({ state: null, last: null });
-  if (state !== null && state !== prev.current.state) {
-    const placed = newlyPlacedTile(prev.current.state, state);
-    prev.current = { state, last: placed ?? prev.current.last };
-  }
-
   const names = useMemo(() => seats.map((npub) => shortNpub(npubEncode(npub))), [seats]);
+  // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
+  const events = view?.events ?? NO_EVENTS;
+  const log = useMemo(() => logLines(events, names), [events, names]);
+  const lastTile = useMemo(() => lastTileOf(events), [events]);
 
   if (status === 'cancelled') {
     return (
@@ -153,8 +152,8 @@ export function GameScreen(props: { rootId: string }) {
         busy={busy}
         onAct={(a) => ctl.act(a)}
         names={names}
-        events={[]}
-        lastTile={prev.current.last}
+        events={log}
+        lastTile={lastTile}
         audit={audit}
         notice={notice ?? statusNotice(status, view)}
         deadline={view.phase === 'play' ? formatDeadline(deadlineLeft) : undefined}

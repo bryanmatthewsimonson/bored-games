@@ -613,3 +613,31 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
     }
   }
 }
+
+/** The most log lines the Game screen shows. */
+export const LOG_LINES = 100;
+
+/** An engine event as the session reports it (`view().events` is typed `unknown[]`). */
+function isEvent(e: unknown): e is ChainReactionEvent {
+  return typeof e === 'object' && e !== null && typeof (e as { type?: unknown }).type === 'string';
+}
+
+/**
+ * The game log from the session's module events (oldest first): one line per event, newest last, at most `max`
+ * (the newest ones). Anything that is not an engine event is skipped.
+ */
+export function logLines(events: readonly unknown[], names: readonly string[], max = LOG_LINES): string[] {
+  const out: string[] = [];
+  for (let i = events.length - 1; i >= 0 && out.length < max; i--) {
+    const e = events[i];
+    if (!isEvent(e)) continue;
+    const line: string | undefined = describeEvent(e, names);
+    if (typeof line === 'string') out.push(line);
+  }
+  return out.reverse();
+}
+
+/** `lastPlacedTile` over the session's module events. */
+export function lastTileOf(events: readonly unknown[]): number | null {
+  return lastPlacedTile(events.filter(isEvent));
+}
