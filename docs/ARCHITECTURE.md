@@ -1,6 +1,6 @@
 # Architecture
 
-**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. Everything networked described here is the agreed design for Phase 2 onward. `docs/PROTOCOL.md` will make it precise as a NIP-style draft before any of it is implemented.
+**Status:** Phases 0–1 are built: the game kit and the Chain Reaction engine. The networked design below is specified precisely in `docs/PROTOCOL.md`, a NIP-style draft (protocol version 1). Where the two differ, PROTOCOL.md wins. In particular, shuffles carry zero-knowledge proofs (D019) rather than being checked only at the end-of-game audit.
 
 ## What we are building
 

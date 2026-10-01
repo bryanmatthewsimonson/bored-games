@@ -3,8 +3,8 @@
 ## Open questions for the owner
 
 1. **UI framework for apps/web**, needed before Phase 3. Proposal D014 in `docs/DECISIONS.md` offers two options: Svelte 5 or Preact + Signals.
-2. **Abandonment and timeouts.** When a player stops taking turns, the game cannot continue, because their decryption shares are needed. What per-move time limit should apply, what does a timeout claim do (forfeit? game void?), and how should it count in ratings?
-3. **Shuffle proofs.** Shuffle cheating is detected at the end-of-game audit, not prevented live. Is post-game detection plus forfeit acceptable at launch, or should zero-knowledge shuffle proofs come first?
+2. ~~**Abandonment and timeouts.**~~ Decided (D020): the creator picks a 1-, 3- or 7-day deadline, and the abandoner forfeits.
+3. ~~**Shuffle proofs.**~~ Decided (D019): zero-knowledge Wikström shuffle proofs from day one.
 4. **Chain Reaction 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
 5. **Second game** (Phase 6). Which game should validate the contract?
 6. **Final names.** The first game is now named **Chain Reaction** (owner, 2026-10-01). The platform name ("Bored Games") and the chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are still placeholders. Other games already use the name "Chain Reaction"; a trademark check belongs to Phase 7.
@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | Not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; 2b–2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -90,5 +90,5 @@ Final names and theme, accessibility pass, Capacitor packaging.
 ## Risks
 See the risks table in `docs/ARCHITECTURE.md`. The top three are:
 1. Abandonment policy (open question 2).
-2. Audit-only shuffle integrity (open question 3).
+2. Correctness of the zero-knowledge shuffle proof implementation (D019): follow CHVote's algorithms exactly, plus tamper tests and test vectors.
 3. Contract fit for the second game (Phase 6).

@@ -118,6 +118,47 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 - **Renamed everywhere,** not just the display name: nothing had been published on NOSTR yet, so the internal id could still change for free. That covers the package `@bored-games/chain-reaction`, the module id `chain-reaction`, the folders, the docs path `docs/games/chain-reaction/` and the code names (`ChainReactionState`, …).
 - **Unchanged:** the chain ids (`b1`…`p2`) and the engine version (0.2.0).
 
+## D018: Protocol version 1 and event kinds (2026-10-01, owner-approved design)
+- **Spec:** `docs/PROTOCOL.md`.
+- **Event kinds** (unused in the NIPs registry; the owner's 30050–30055 and 30100–30105 are avoided):
+  - 37450 Table
+  - 7450 Game root
+  - 7451 Join
+  - 7452 Move
+  - 7453 Shares
+  - 7454 Timeout claim
+  - 7455 Secret reveal
+  - 7456 Result attestation
+  - 30078 (NIP-78) key backups
+- **Keys:** the npub signs only the join, the game root and the attestation. A per-game session key signs moves, and a separate per-game deck key is published with a proof of knowledge.
+- **Auditing:** the end-of-game audit replays the whole log in full mode with every deck secret revealed.
+
+## D019: Zero-knowledge shuffle proofs from day one (2026-10-01, owner)
+- **Choice:** Terelius–Wikström shuffle proof, following the CHVote specification's GenShuffleProof / CheckShuffleProof algorithms, translated to secp256k1. It is used in real elections and specified step by step.
+- **Size:** about 34 KB per shuffle step for 108 cards.
+- **Rejected:**
+  - Bayer–Groth: smaller proofs, but much harder to implement correctly.
+  - Cut-and-choose: megabyte-sized proofs.
+  - Audit-only: catches tampering only after the game.
+
+## D020: Abandonment and deadlines (2026-10-01, owner)
+- **Deadline:** the creator picks 1, 3 or 7 days per move (default 3), fixed for the game.
+- **Timeout claims:** after the deadline, any seat may post a timeout claim.
+- **Forfeit:**
+  - The abandoner ranks last.
+  - The others are ranked by `standings(state)`, the score as if the game ended now.
+  - The game counts for stats.
+  - Equivocation, a failed audit or a withheld deck secret are forfeits too.
+- **Cancellation:** a stall before the first game action cancels the game with no result.
+
+## D021: Seating (2026-10-01, owner)
+The table lists invited npubs and/or open seats; anyone can claim an open seat until the table fills, and the creator then publishes the game root, which fixes the seat order. This covers friends now and public matchmaking later with no protocol change.
+
+## D022: Initial hands are dealt at setup, in seat order (2026-10-01, protocol-driven)
+- **Why:** the deal round needs every hand position assigned before any card is revealed (PROTOCOL §6.1).
+- **Change:** Chain Reaction will assign hands at setup in seat order, instead of after the setup reveals starting from the first player. Fairness is unchanged, since positions are uniformly shuffled.
+- **When:** this ships with Phase 2b/2c and bumps the engine version.
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 
