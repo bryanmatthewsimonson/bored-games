@@ -7,13 +7,13 @@ import {
   cardOf,
   cardPoint,
   cardTable,
-  combine,
   decodeDeck,
   decodePoint,
   decodePok,
   decodeScalar,
   decodeShare,
   decodeShuffleProof,
+  decryptPosition,
   decryptWithSecrets,
   encodePoint,
   G,
@@ -21,6 +21,7 @@ import {
   initialDeck,
   jointKey,
   type Point,
+  type Share,
   verifyPok,
   verifyShare,
   verifyShuffle,
@@ -90,15 +91,19 @@ describe('test vectors v1', () => {
 
     // One share per (seat, position); together they decrypt every position to the listed card.
     expect(v.shares).toHaveLength(n * size);
-    const Ds: Point[][] = Array.from({ length: size }, () => []);
+    const bySeat = Array.from({ length: size }, () => new Map<number, Share>());
     for (const entry of v.shares) {
       const { pos, share } = decodeShare(entry.share);
       const ctx = { rootId, deckId, pos };
       expect(verifyShare(keys[entry.seat] as Point, deck[pos] as Ciphertext, share, ctx)).toBe(true);
-      Ds[pos]?.push(share.D);
+      const at = bySeat[pos] as Map<number, Share>;
+      expect(at.has(entry.seat), `one share per seat at ${pos}`).toBe(false);
+      at.set(entry.seat, share);
     }
     const table = cardTable(deckId, size);
-    const viaShares = deck.map((ct, pos) => cardOf(table, combine(ct, Ds[pos] as Point[])));
+    const viaShares = deck.map((ct, pos) =>
+      decryptPosition(ct, { rootId, deckId, pos }, keys, bySeat[pos] as Map<number, Share>, table),
+    );
     const viaSecrets = deck.map((ct) => cardOf(table, decryptWithSecrets(ct, secrets)));
     expect(viaShares).toEqual(v.cards);
     expect(viaSecrets).toEqual(v.cards);

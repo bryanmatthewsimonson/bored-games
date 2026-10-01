@@ -11,6 +11,7 @@ import {
   decodeScalar,
   decodeShare,
   decodeShuffleProof,
+  decryptPosition,
   decryptWithSecrets,
   encodeDeck,
   encodePoint,
@@ -22,10 +23,12 @@ import {
   initialDeck,
   jointKey,
   makeShare,
+  ownShare,
   type Point,
   provePok,
   proveShuffle,
   randomScalar,
+  type Share,
   type ShuffleCtx,
   shuffleDeck,
   verifyPok,
@@ -109,8 +112,10 @@ function runFlow(seats: number, seed: string): void {
   expect(ownerOf(dealt - 1, seats)).toBe(seats - 1);
 
   // 5. Deal: every seat shares every position not its own (setup positions included). Every share is sent,
-  //    decoded and verified against the sharer's key.
-  const shares: Point[][] = Array.from({ length: dealt }, () => []);
+  //    decoded and verified against the sharer's key, then kept by (position, seat).
+  const shares: (Share | null)[][] = Array.from({ length: dealt }, () =>
+    new Array<Share | null>(seats).fill(null),
+  );
   for (let k = 0; k < seats; k++) {
     for (let pos = 0; pos < dealt; pos++) {
       if (ownerOf(pos, seats) === k) continue;
@@ -122,30 +127,35 @@ function runFlow(seats: number, seed: string): void {
       expect(verifyShare(keys[k] as Point, ct, back.share, ctx), `share ${k}@${pos}`).toBe(true);
       // Bound to the position: the same share claimed for the next position fails.
       if (pos === 0) expect(verifyShare(keys[k] as Point, ct, back.share, { ...ctx, pos: 1 })).toBe(false);
-      shares[pos]?.push(back.share.D);
+      (shares[pos] as (Share | null)[])[k] = back.share;
     }
   }
 
-  // 6. Each owner combines the others' shares with its own D into its private cards. Without its own D the
-  //    others' shares reveal nothing that maps to a card.
+  // 6. Each owner decrypts its private cards from the others' shares plus its own layer (`ownShare`: no proof,
+  //    no randomness). Without its own layer the others' shares reveal nothing that maps to a card.
   const learned = new Map<number, number>();
   for (let pos = seats; pos < dealt; pos++) {
     const k = ownerOf(pos, seats) as number;
     const ct = deck[pos] as Ciphertext;
-    const others = shares[pos] as Point[];
-    expect(others).toHaveLength(seats - 1);
+    const ctx = { rootId: ROOT, deckId: DECK_ID, pos };
+    const bySeat = shares[pos] as (Share | null)[];
+    expect(bySeat.filter((s) => s !== null)).toHaveLength(seats - 1);
+    expect(bySeat[k]).toBe(null);
+    const others = bySeat.filter((s): s is Share => s !== null).map((s) => s.D);
     expect(cardOf(table, combine(ct, others)), `pos ${pos} without its owner`).toBe(null);
-    const own = makeShare(secrets[k] as bigint, ct, { rootId: ROOT, deckId: DECK_ID, pos }, rnd).D;
-    const card = cardOf(table, combine(ct, [...others, own]));
+    expect(decryptPosition(ct, ctx, keys, bySeat, table), `pos ${pos} needs its owner`).toBe(null);
+    const own = { seat: k, D: ownShare(secrets[k] as bigint, ct) };
+    const card = decryptPosition(ct, ctx, keys, bySeat, table, own);
     expect(card, `private card at ${pos}`).not.toBe(null);
     learned.set(pos, card as number);
   }
 
-  // 7. Public setup positions combine all S shares.
+  // 7. Public setup positions take all S shares.
   for (let pos = 0; pos < seats; pos++) {
-    const all = shares[pos] as Point[];
-    expect(all).toHaveLength(seats);
-    const card = cardOf(table, combine(deck[pos] as Ciphertext, all));
+    const bySeat = shares[pos] as (Share | null)[];
+    expect(bySeat.every((s) => s !== null)).toBe(true);
+    const ctx = { rootId: ROOT, deckId: DECK_ID, pos };
+    const card = decryptPosition(deck[pos] as Ciphertext, ctx, keys, bySeat, table);
     expect(card, `setup card at ${pos}`).not.toBe(null);
     learned.set(pos, card as number);
   }

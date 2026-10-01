@@ -10,10 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '@bored-games/game-kit';
 import {
   type Ciphertext,
-  cardOf,
   cardPoint,
   cardTable,
-  combine,
+  decryptPosition,
   encodeDeck,
   encodePoint,
   encodePok,
@@ -25,10 +24,10 @@ import {
   initialDeck,
   jointKey,
   makeShare,
-  type Point,
   provePok,
   proveShuffle,
   randomScalar,
+  type Share,
   shuffleDeck,
 } from '../src/index.ts';
 import { seededRandom } from '../test/util.ts';
@@ -75,7 +74,7 @@ export function generateVectors(): unknown {
   }
 
   const shares = [];
-  const Ds: Point[][] = Array.from({ length: SIZE }, () => []);
+  const bySeat: Share[][] = Array.from({ length: SIZE }, () => []);
   for (let k = 0; k < SEATS; k++) {
     for (let pos = 0; pos < SIZE; pos++) {
       const share = makeShare(
@@ -85,13 +84,15 @@ export function generateVectors(): unknown {
         rnd,
       );
       shares.push({ seat: k, share: encodeShare({ pos, share }) });
-      Ds[pos]?.push(share.D);
+      (bySeat[pos] as Share[])[k] = share;
     }
   }
 
   const table = cardTable(DECK_ID, SIZE);
+  const keys = secrets.map((x) => G.multiply(x));
   const cards = deck.map((ct, pos) => {
-    const m = cardOf(table, combine(ct, Ds[pos] ?? []));
+    const ctx = { rootId: ROOT_ID, deckId: DECK_ID, pos };
+    const m = decryptPosition(ct, ctx, keys, bySeat[pos] as Share[], table);
     if (m === null) throw new Error(`vectors: position ${pos} does not decrypt to a card`);
     return m;
   });
