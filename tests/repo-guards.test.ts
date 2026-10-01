@@ -33,6 +33,7 @@ describe('engine purity', () => {
   // Pure packages: no clock, randomness, I/O, platform globals or locale-dependent behavior.
   const pure = [
     join(root, 'packages/game-kit/src'),
+    join(root, 'packages/deck/src'),
     ...readdirSync(join(root, 'packages/games')).map((g) => join(root, 'packages/games', g, 'src')),
   ];
   const banned: [string, RegExp][] = [

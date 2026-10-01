@@ -159,6 +159,15 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Change:** Chain Reaction will assign hands at setup in seat order, instead of after the setup reveals starting from the first player. Fairness is unchanged, since positions are uniformly shuffled.
 - **When:** this ships with Phase 2b/2c and bumps the engine version.
 
+## D023: Crypto dependencies: @noble/curves and @noble/hashes (2026-10-01, Phase 2b)
+- **Why:** the mental-poker deck (`packages/deck`) needs secp256k1 point arithmetic, hash-to-curve, multi-scalar multiplication and SHA-256. Hand-rolling elliptic-curve code is the wrong place to economize.
+- **Choice:** exactly two runtime dependencies, both pinned to `2.4.0` with no caret:
+  - `@noble/curves`: audited, zero-dependency and constant-time-minded. The v2 API gives `secp256k1.Point`, `secp256k1_hasher.hashToCurve` and `pippenger`.
+  - `@noble/hashes`: audited and zero-dependency. It supplies `sha256` and byte helpers.
+- **Why these two:** they are the primitives under nostr-tools, so the platform already trusts them for NOSTR signatures. This adds no new supply-chain surface in practice.
+- **Scope:** `src/` of the deck stays pure: randomness is injected (`RandomBytes`), and nothing imports Node or platform crypto. game-kit is a devDependency only, for the seeded test PRNG.
+- **Identity point in hashes:** `hs` hashes the identity as 33 zero bytes so in-memory proof code never throws on a degenerate point. The wire decoder `decodePoint` still rejects the identity.
+
 ## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
 Two options, to be chosen before Phase 3 starts.
 
