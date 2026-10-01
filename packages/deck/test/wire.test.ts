@@ -220,7 +220,7 @@ describe('deck codec', () => {
 
 describe('shuffle proof codec', () => {
   it('has the PROTOCOL shape', () => {
-    const w = wireProof as Record<string, Record<string, unknown> | unknown[]>;
+    const w = wireProof as unknown as Record<string, Record<string, unknown> | unknown[]>;
     expect(Object.keys(w).sort()).toEqual(['c', 'cHat', 's', 't']);
     expect(Object.keys(w.s as object).sort()).toEqual(['s1', 's2', 's3', 's4', 'sHat', 'sPrime']);
     expect(Object.keys(w.t as object).sort()).toEqual(['t1', 't2', 't3', 't4', 'tHat']);
@@ -291,7 +291,7 @@ describe('shuffle proof codec', () => {
     for (const path of [['x'], ['s', 'x'], ['t', 'x']]) {
       expect(() => decodeShuffleProof(withAt(wireProof, path, good), N)).toThrow(DeckWireError);
     }
-    const sym = clone(wireProof) as Record<symbol, unknown>;
+    const sym = clone(wireProof) as unknown as Record<symbol, unknown>;
     sym[Symbol('x')] = 1;
     expect(() => decodeShuffleProof(sym, N)).toThrow(DeckWireError);
   });
@@ -311,7 +311,7 @@ describe('shuffle proof codec', () => {
       ...['t1', 't2', 't3', 't4', 'tHat'].map((k) => ['t', k]),
     ];
     for (const path of paths) {
-      const w = clone(wireProof) as Record<string, Record<string, unknown>>;
+      const w = clone(wireProof) as unknown as Record<string, Record<string, unknown>>;
       if (path.length === 1) delete w[path[0] as string];
       else delete (w[path[0] as string] as Record<string, unknown>)[path[1] as string];
       expect(() => decodeShuffleProof(w, N), path.join('.')).toThrow(DeckWireError);
@@ -548,12 +548,107 @@ describe('pok codec', () => {
   });
 });
 
+describe('hostile objects', () => {
+  const pok = encodePok(provePok(5n, ['t', 'n', 's'], seededRandom('wire-hostile')));
+  const share = encodeShare({
+    pos: 3,
+    share: makeShare(5n, fx.out[0] as { a: Point; b: Point }, { rootId: 'r', deckId: DECK, pos: 3 }, fx.rnd),
+  });
+
+  it('rejects an accessor property on an object', () => {
+    const o: Record<string, unknown> = { s: pok.s };
+    Object.defineProperty(o, 'c', { get: () => pok.c, enumerable: true });
+    expect(() => decodePok(o)).toThrow(/^pok\.c: expected a data property/);
+    const t = clone(wireProof).t as Record<string, unknown>;
+    Object.defineProperty(t, 't1', { get: () => wireProof.t.t1, enumerable: true });
+    expect(() => decodeShuffleProof({ ...clone(wireProof), t }, N)).toThrow(DeckWireError);
+  });
+
+  it('rejects a non-enumerable expected key', () => {
+    const o: Record<string, unknown> = { c: pok.c };
+    Object.defineProperty(o, 's', { value: pok.s, enumerable: false });
+    expect(() => decodePok(o)).toThrow(/^pok\.s: expected a data property/);
+    const proof: Record<string, unknown> = { c: share.proof.c };
+    Object.defineProperty(proof, 's', { value: share.proof.s, enumerable: false });
+    expect(() => decodeShare({ ...share, proof })).toThrow(/^share\.proof\.s: /);
+  });
+
+  it('rejects an accessor array entry', () => {
+    const deck = clone(wireDeck);
+    Object.defineProperty(deck, 1, { get: () => wireDeck[1], enumerable: true });
+    expect(() => decodeDeck(deck)).toThrow(/^deck\[1\]: missing entry/);
+    const c = clone(wireProof.c);
+    Object.defineProperty(c, 0, { get: () => wireProof.c[0], enumerable: true });
+    expect(() => decodeShuffleProof({ ...clone(wireProof), c }, N)).toThrow(/^proof\.c\[0\]: /);
+  });
+
+  it('rejects an array with an extra non-index property', () => {
+    const deck = clone(wireDeck);
+    Object.defineProperty(deck, 'extra', { value: 1, enumerable: false });
+    expect(() => decodeDeck(deck)).toThrow(/^deck: sparse array or extra properties/);
+    const sHat = clone(wireProof.s.sHat) as string[] & { extra?: number };
+    sHat.extra = 1;
+    expect(() => decodeShuffleProof(withAt(wireProof, ['s', 'sHat'], sHat), N)).toThrow(/^proof\.s\.sHat: /);
+  });
+
+  it('turns a throwing Proxy trap into a DeckWireError at the root', () => {
+    const boom = (): never => {
+      throw new Error('trap');
+    };
+    const obj = new Proxy({ ...pok }, { ownKeys: boom });
+    expect(() => decodePok(obj)).toThrow(DeckWireError);
+    expect(() => decodePok(obj)).toThrow(/^pok: trap$/);
+    const proto = new Proxy({ ...share }, { getPrototypeOf: boom });
+    expect(() => decodeShare(proto)).toThrow(/^share: trap$/);
+    const arr = new Proxy(clone(wireDeck), { getOwnPropertyDescriptor: boom });
+    expect(() => decodeDeck(arr)).toThrow(/^deck: trap$/);
+    const t = new Proxy({ ...clone(wireProof).t }, { ownKeys: boom });
+    expect(() => decodeShuffleProof({ ...clone(wireProof), t }, N)).toThrow(/^proof: trap$/);
+  });
+
+  it('turns a revoked Proxy into a DeckWireError', () => {
+    const { proxy, revoke } = Proxy.revocable(clone(wireDeck), {});
+    revoke();
+    expect(() => decodeDeck(proxy)).toThrow(DeckWireError);
+    const r = Proxy.revocable({ ...pok }, {});
+    r.revoke();
+    expect(() => decodePok(r.proxy)).toThrow(DeckWireError);
+  });
+
+  it('a hostile thrown value still becomes a DeckWireError', () => {
+    const evil = new Proxy(
+      {},
+      {
+        getPrototypeOf: () => {
+          throw new Error('nested');
+        },
+      },
+    );
+    const obj = new Proxy(
+      { ...pok },
+      {
+        ownKeys: () => {
+          throw evil;
+        },
+      },
+    );
+    expect(() => decodePok(obj)).toThrow(/^pok: invalid value$/);
+  });
+
+  it('a bad n is still a RangeError, outside the wrapper', () => {
+    expect(() => decodeDeck(wireDeck, 0)).toThrow(RangeError);
+    expect(() => decodeDeck(wireDeck, 0)).not.toThrow(DeckWireError);
+    expect(() => decodeShuffleProof(wireProof, -1)).toThrow(RangeError);
+    expect(() => decodeShuffleProof(wireProof, -1)).not.toThrow(DeckWireError);
+  });
+});
+
 describe('size', () => {
   it('a 108-card shuffle step is under 40000 bytes of canonical JSON', { timeout: 60_000 }, () => {
     const big = setup(108, 'wire-108');
     const bytes =
       canonicalJson(encodeShuffleProof(big.proof)).length + canonicalJson(encodeDeck(big.out)).length;
-    console.log(`N=108 shuffle step content: ${bytes} bytes`);
+    console.info(`N=108 shuffle step content: ${bytes} bytes`);
     expect(bytes).toBeLessThan(40000);
     // Parsing back what honest peers send still verifies at full size.
     const back = decodeShuffleProof(JSON.parse(canonicalJson(encodeShuffleProof(big.proof))), 108);

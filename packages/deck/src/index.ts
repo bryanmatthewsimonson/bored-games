@@ -16,6 +16,7 @@ export { type PokProof, provePok, verifyPok } from './pok.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
 export { proveShuffle, type ShuffleCtx, type ShuffleProof, shuffleDeck, verifyShuffle } from './shuffle.ts';
 export {
+  type DeckWire,
   DeckWireError,
   decodeDeck,
   decodePok,
@@ -25,4 +26,7 @@ export {
   encodePok,
   encodeShare,
   encodeShuffleProof,
+  type PokWire,
+  type ShareWire,
+  type ShuffleProofWire,
 } from './wire.ts';

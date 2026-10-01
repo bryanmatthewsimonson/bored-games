@@ -56,13 +56,36 @@ function list(v: unknown, path: string, len?: number): unknown[] {
   return out;
 }
 
+/**
+ * Run `f`, turning anything it throws other than a `DeckWireError` into one at `path`. Every decoder body runs
+ * inside this, so hostile input that throws while being inspected (a Proxy trap, a revoked Proxy) is still a
+ * `DeckWireError`.
+ */
 function withPath<T>(path: string, f: () => T): T {
   try {
     return f();
   } catch (e) {
-    if (e instanceof DeckWireError) throw e;
-    return fail(path, e instanceof Error ? e.message : 'invalid value');
+    if (isWireError(e)) throw e;
+    return fail(path, reason(e));
   }
+}
+
+/** `instanceof` itself can throw on a hostile thrown value (a Proxy with a throwing trap). */
+function isWireError(e: unknown): boolean {
+  try {
+    return e instanceof DeckWireError;
+  } catch {
+    return false;
+  }
+}
+
+function reason(e: unknown): string {
+  try {
+    if (e instanceof Error && typeof e.message === 'string') return e.message;
+  } catch {
+    // fall through
+  }
+  return 'invalid value';
 }
 
 const point = (v: unknown, path: string): Point =>
@@ -87,27 +110,56 @@ function size(n: number, who: string): void {
   if (!Number.isSafeInteger(n) || n < 1) throw new RangeError(`${who}: n must be a positive safe integer`);
 }
 
+/* ------------------------------------------------------------------------------------------- wire types */
+
+/** A deck on the wire: one `[a, b]` pair of base64url points per card. */
+export type DeckWire = [string, string][];
+
+/** A shuffle proof on the wire (PROTOCOL §5.3): points and scalars as base64url. */
+export interface ShuffleProofWire {
+  c: string[];
+  cHat: string[];
+  s: { s1: string; s2: string; s3: string; s4: string; sHat: string[]; sPrime: string[] };
+  t: { t1: string; t2: string; t3: string; t4: string[]; tHat: string[] };
+}
+
+/** A decryption share on the wire (PROTOCOL §4.4). */
+export interface ShareWire {
+  d: string;
+  pos: number;
+  proof: { c: string; s: string };
+}
+
+/** A proof of knowledge on the wire (PROTOCOL §3). */
+export interface PokWire {
+  c: string;
+  s: string;
+}
+
 /* ------------------------------------------------------------------------------------------------ deck */
 
 /** `[[a, b], …]` with every point as base64url. Throws on an identity component (honest decks have none). */
-export function encodeDeck(deck: readonly Ciphertext[]): [string, string][] {
+export function encodeDeck(deck: readonly Ciphertext[]): DeckWire {
   return deck.map((e) => [encodePoint(e.a), encodePoint(e.b)]);
 }
 
 /** Strict inverse of `encodeDeck`. Never empty; if `n` is given the length must equal it. */
 export function decodeDeck(v: unknown, n?: number): Ciphertext[] {
   if (n !== undefined) size(n, 'decodeDeck');
-  const rows = list(v, 'deck', n);
-  if (rows.length === 0) return fail('deck', 'expected at least one ciphertext');
-  return rows.map((row, i) => {
-    const pair = list(row, `deck[${i}]`, 2);
-    return { a: point(pair[0], `deck[${i}][0]`), b: point(pair[1], `deck[${i}][1]`) };
+  return withPath('deck', () => {
+    const rows = list(v, 'deck', n);
+    if (rows.length === 0) return fail('deck', 'expected at least one ciphertext');
+    return rows.map((row, i) => {
+      const pair = list(row, `deck[${i}]`, 2);
+      return { a: point(pair[0], `deck[${i}][0]`), b: point(pair[1], `deck[${i}][1]`) };
+    });
   });
 }
 
 /* ------------------------------------------------------------------------------------------ shuffle proof */
 
-export function encodeShuffleProof(p: ShuffleProof): object {
+/** The wire form of a shuffle proof. Throws on an identity point or a scalar outside [0, q). */
+export function encodeShuffleProof(p: ShuffleProof): ShuffleProofWire {
   const pts = (xs: readonly Point[]): string[] => xs.map(encodePoint);
   const scs = (xs: readonly bigint[]): string[] => xs.map(encodeScalar);
   return {
@@ -134,6 +186,10 @@ export function encodeShuffleProof(p: ShuffleProof): object {
 /** Strict inverse of `encodeShuffleProof` for a deck of `n ≥ 1` cards. Parses only; does not verify. */
 export function decodeShuffleProof(v: unknown, n: number): ShuffleProof {
   size(n, 'decodeShuffleProof');
+  return withPath('proof', () => decodeShuffleProofBody(v, n));
+}
+
+function decodeShuffleProofBody(v: unknown, n: number): ShuffleProof {
   const root = record(v, 'proof', ['c', 'cHat', 's', 't']);
   const s = record(root.s, 'proof.s', ['s1', 's2', 's3', 's4', 'sHat', 'sPrime']);
   const t = record(root.t, 'proof.t', ['t1', 't2', 't3', 't4', 'tHat']);
@@ -166,11 +222,7 @@ function validPos(pos: unknown): pos is number {
 }
 
 /** `{d, pos, proof: {c, s}}` (PROTOCOL §4.4). Throws on an identity `D`, a bad `pos` or a scalar outside [0, q). */
-export function encodeShare(x: { pos: number; share: Share }): {
-  d: string;
-  pos: number;
-  proof: { c: string; s: string };
-} {
+export function encodeShare(x: { pos: number; share: Share }): ShareWire {
   if (!validPos(x.pos)) throw new RangeError('encodeShare: pos must be a non-negative safe integer');
   return {
     d: encodePoint(x.share.D),
@@ -181,28 +233,32 @@ export function encodeShare(x: { pos: number; share: Share }): {
 
 /** Strict inverse of `encodeShare`. Parses only; does not verify the proof. */
 export function decodeShare(v: unknown): { pos: number; share: Share } {
-  const root = record(v, 'share', ['d', 'pos', 'proof']);
-  const proof = record(root.proof, 'share.proof', ['c', 's']);
-  if (!validPos(root.pos)) return fail('share.pos', 'expected a non-negative safe integer');
-  return {
-    pos: root.pos,
-    share: {
-      D: point(root.d, 'share.d'),
-      c: scalar(proof.c, 'share.proof.c'),
-      s: scalar(proof.s, 'share.proof.s'),
-    },
-  };
+  return withPath('share', () => {
+    const root = record(v, 'share', ['d', 'pos', 'proof']);
+    const proof = record(root.proof, 'share.proof', ['c', 's']);
+    if (!validPos(root.pos)) return fail('share.pos', 'expected a non-negative safe integer');
+    return {
+      pos: root.pos,
+      share: {
+        D: point(root.d, 'share.d'),
+        c: scalar(proof.c, 'share.proof.c'),
+        s: scalar(proof.s, 'share.proof.s'),
+      },
+    };
+  });
 }
 
 /* --------------------------------------------------------------------------------------------------- pok */
 
 /** `{c, s}` (PROTOCOL §3). */
-export function encodePok(proof: PokProof): { c: string; s: string } {
+export function encodePok(proof: PokProof): PokWire {
   return { c: encodeScalar(proof.c), s: encodeScalar(proof.s) };
 }
 
 /** Strict inverse of `encodePok`. Parses only; does not verify. */
 export function decodePok(v: unknown): { c: bigint; s: bigint } {
-  const root = record(v, 'pok', ['c', 's']);
-  return { c: scalar(root.c, 'pok.c'), s: scalar(root.s, 'pok.s') };
+  return withPath('pok', () => {
+    const root = record(v, 'pok', ['c', 's']);
+    return { c: scalar(root.c, 'pok.c'), s: scalar(root.s, 'pok.s') };
+  });
 }
