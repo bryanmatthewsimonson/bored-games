@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal and game actions); 2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal, game actions, end of game and timeouts); 2e not started |
 | 3. Web shell plus Chain Reaction UI | **In progress** (Preact + Signals, D031): relay pool and dev relay, identity and settings, Chain Reaction screen components, lobby and game controllers with the Game route (D034); Home and Table screens and the end-to-end test next |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -91,7 +91,9 @@
     - The `decide` duty (Ruling 4) is due when the pending decision is mine and the module lists legal actions; modules list none while legality depends on cards the seat has not learned (`GameModule.legalActions` contract). Out-of-turn merger disposals no longer wait for the whole hand.
     - End of game: when the module is over the phase is `end` and every seat owes its Secret reveal (`x·G = X_k`). With all secrets in, the R6 audit (`src/audit.ts`) replays the interleaved action log in full mode, and the phase is `done`. A failed audit or an equivocation moves those seats to the last places (`rankWithForfeits`). `attestTemplate(createdAt)` gives the unsigned Result attestation for the npub to sign; matching attestations are listed in `view().attested`.
     - Lobby: `foldLobby` seats Joins by priority slot with collision checks and recovery, and `buildRootTemplate` accepts an explicit seat list (D021). Joins prove possession of their session key (D033).
-    - Next: timeouts and timeout forfeits (Task 5), then simulations and the D030 write-up (Task 7).
+    - Timeouts (Task 5, R3–R5): `timeoutTarget(now)` names the lowest other seat stalled at the head once the deadline has passed, and `buildTimeout` signs the claim. A claim counts when it names the current head and a stalled seat, is dated at least `deadline` after the last progress dated by the claim (the far-future clamp), and the local clock has reached its date; early claims are stored and re-checked on `tick(now)`. The lowest-id valid claim decides and the fold stops: `cancelled` before the first game action, an immediate forfeit ranked by `standings` during play (audit skipped), or the withheld secrets failed at the end.
+    - `view().events`: the module events of the canonical chain (the last 300), for the game log.
+    - Next: simulations and the D030 write-up (Task 7).
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.

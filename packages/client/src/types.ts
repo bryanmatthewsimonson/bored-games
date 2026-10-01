@@ -19,6 +19,7 @@ export interface SessionInput {
   me: Identity | null;
 }
 
+/** `cancelled`: a timeout claim was accepted before the first game action (D030 R5); there is no result. */
 export type Phase = 'shuffle' | 'deal' | 'play' | 'end' | 'done' | 'cancelled';
 
 /**
@@ -62,26 +63,42 @@ export interface SessionView {
   /** The module state as `mySeat` (or a spectator) sees it; null until the shuffle is complete. */
   state: unknown;
   pending: Pending;
-  /** The largest `created_at` among accepted events: the game's last progress (D030 R3). */
+  /**
+   * The largest `created_at` among accepted events: the game's last progress (D030 R3), for display. A timeout
+   * claim is judged against the same maximum taken only over events dated at or before the claim.
+   */
   pendingSince: number;
   /**
-   * The result: null until the game is done. The declared outcome once the audit passes and nobody equivocated;
-   * otherwise ranked with the forfeiting seats last and the others in their declared order (D030 R5), with reason
-   * `forfeit`.
+   * The result: null until the game is done, and for a cancelled game. The declared outcome once the audit passes
+   * and nobody equivocated; otherwise ranked with the forfeiting seats last and the others in their declared order
+   * (D030 R5), with reason `forfeit`. A timeout during play ends the game at once: the timed-out seat is last and
+   * the others are ranked by the module's `standings`.
    */
   outcome: Outcome | null;
-  /** Seats that forfeit (PROTOCOL §8.2): the equivocators and, once the game is done, the seats the audit failed. */
+  /**
+   * Seats that forfeit (PROTOCOL §8.2): the equivocators, a seat an accepted timeout claim names (or, at the end,
+   * every seat that withheld its secret), and, once the game is done, the seats the audit failed.
+   */
   forfeits: number[];
   /**
    * Seats flagged for equivocation (D030 R2, Ruling 5): two distinct moves on one prev of the chain, both valid as
    * of that prev. The game goes on; at the end they move to the last places.
    */
   equivocators: number[];
-  /** The R6 audit; `pending` until every secret is in. */
+  /**
+   * The R6 audit; `pending` until every secret is in. It stays `pending` when a timeout ends the game during play
+   * (the deck cannot be decrypted without every secret), and is `{fail: [withholders], reason: 'withheld secret'}`
+   * when one ends it at the end of the game.
+   */
   audit: SessionAudit;
   logHash: Hex;
   /** The game's move deadline in seconds, from the root. */
   deadline: number;
   /** The seats whose Result attestation matches this session's audit, logHash and outcome, ascending. */
   attested: number[];
+  /**
+   * The module's events from every `apply` and `learn` on the canonical chain, in fold order: the last 300, for a
+   * game log. Rebuilt when the chain switches branch.
+   */
+  events: readonly unknown[];
 }

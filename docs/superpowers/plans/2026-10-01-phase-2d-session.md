@@ -120,6 +120,7 @@ interface SessionView {
   audit: 'pending' | 'pass' | { fail: number[]; reason: string };
   logHash: Hex; deadline: number;
   attested: number[];                        // seats whose attestation matches this session's result
+  events: readonly unknown[];                // module events of the canonical chain, the last 300 (Task 5)
 }
 class GameSession {
   static create(input: SessionInput): GameSession; // throws ClientError if root invalid (validateRoot)

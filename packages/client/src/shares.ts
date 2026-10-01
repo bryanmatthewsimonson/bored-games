@@ -21,8 +21,13 @@ export class ShareStore {
     this.seats = seats;
   }
 
-  has(seat: number, pos: number): boolean {
-    return (this.byPos.get(pos)?.[seat] ?? null) !== null;
+  /**
+   * Whether `seat`'s share of `pos` is kept; with `limit`, only if a verified copy of it is dated at or before
+   * `limit` (D030 R3: a timeout claim ignores events dated after it).
+   */
+  has(seat: number, pos: number, limit: number | null = null): boolean {
+    if ((this.byPos.get(pos)?.[seat] ?? null) === null) return false;
+    return limit === null || (this.atByPos.get(pos)?.[seat] as number) <= limit;
   }
 
   /**
@@ -50,13 +55,18 @@ export class ShareStore {
     return 'none';
   }
 
-  /** The largest, over kept shares, of each one's earliest `created_at`; null when no share is kept. */
-  latest(): number | null {
+  /**
+   * The largest, over kept shares, of each one's earliest `created_at`; null when no share is kept. With `limit`,
+   * shares whose earliest copy is dated after `limit` are ignored.
+   */
+  latest(limit: number | null = null): number | null {
     let out: number | null = null;
     for (const [pos, slots] of this.byPos) {
       const ats = this.atByPos.get(pos) as number[];
       for (let k = 0; k < this.seats; k++) {
-        if (slots[k] !== null && (out === null || (ats[k] as number) > out)) out = ats[k] as number;
+        const at = ats[k] as number;
+        if (slots[k] === null || (limit !== null && at > limit)) continue;
+        if (out === null || at > out) out = at;
       }
     }
     return out;
@@ -69,15 +79,15 @@ export class ShareStore {
     return slots;
   }
 
-  /** Whether every seat except `except` (or every seat, for null) has a share of `pos`. */
-  covered(pos: number, except: number | null = null): boolean {
-    for (let k = 0; k < this.seats; k++) if (k !== except && !this.has(k, pos)) return false;
+  /** Whether every seat except `except` (or every seat, for null) has a share of `pos` (dated by `limit`). */
+  covered(pos: number, except: number | null = null, limit: number | null = null): boolean {
+    for (let k = 0; k < this.seats; k++) if (k !== except && !this.has(k, pos, limit)) return false;
     return true;
   }
 
-  /** The positions `seat` owes and has not yet shared, ascending (PROTOCOL §6.2). */
-  missing(seat: number, dealt: readonly DealtPosition[]): number[] {
-    return owedPositions(dealt, seat).filter((pos) => !this.has(seat, pos));
+  /** The positions `seat` owes and has not yet shared (by `limit`), ascending (PROTOCOL §6.2). */
+  missing(seat: number, dealt: readonly DealtPosition[], limit: number | null = null): number[] {
+    return owedPositions(dealt, seat).filter((pos) => !this.has(seat, pos, limit));
   }
 }
 
