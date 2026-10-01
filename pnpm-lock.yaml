@@ -54,6 +54,22 @@ importers:
 
   packages/brand: {}
 
+  packages/client:
+    dependencies:
+      '@bored-games/deck':
+        specifier: workspace:*
+        version: link:../deck
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../game-kit
+      '@bored-games/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@bored-games/chain-reaction':
+        specifier: workspace:*
+        version: link:../games/chain-reaction
+
   packages/deck:
     dependencies:
       '@noble/curves':

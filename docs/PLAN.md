@@ -17,7 +17,7 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); 2d–2e not started |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation and the shuffle phase); 2e not started |
 | 3. Web shell plus Chain Reaction UI | Not started (needs open question 1) |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -78,6 +78,10 @@
     - The purity guard covers `packages/protocol/src`.
     - Not in 2c: the session engine (folding the log, owed shares, deadlines, equivocation, the audit), relay transport and the NIP-78 key backup. These are 2d and 2e.
 - **`packages/client`:** a session engine over a pluggable relay transport.
+  - **2d progress (plan `docs/superpowers/plans/2026-10-01-phase-2d-session.md`, rulings D030).** Pure package `@bored-games/client`, covered by the purity guard.
+    - `GameSession.create` checks the root with `validateRoot`, and that `me` holds its seat's session key and deck secret.
+    - `receive` parses every event strictly and folds it to a fixpoint: moves wait in a pool keyed by `prev` until they link.
+    - Shuffle phase: steps in seat order, each proof verified once per session against the previous deck.
 - **Acceptance:**
   - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.

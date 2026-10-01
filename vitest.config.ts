@@ -23,6 +23,14 @@ export default defineConfig({
           testTimeout: 60_000,
         },
       },
+      {
+        test: {
+          name: 'client',
+          root: 'packages/client',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
       { test: { name: 'relay', root: 'packages/relay', include: ['test/**/*.test.ts'] } },
       {
         test: {

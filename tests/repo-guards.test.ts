@@ -35,6 +35,7 @@ describe('engine purity', () => {
     join(root, 'packages/game-kit/src'),
     join(root, 'packages/deck/src'),
     join(root, 'packages/protocol/src'),
+    join(root, 'packages/client/src'),
     ...readdirSync(join(root, 'packages/games')).map((g) => join(root, 'packages/games', g, 'src')),
   ];
   const banned: [string, RegExp][] = [
