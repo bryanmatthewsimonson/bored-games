@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gameHref, parseRoute, route, startRouter, tableHref } from '../src/router.ts';
+import { gameHref, parseRoute, route, rulesHref, startRouter, tableHref } from '../src/router.ts';
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
@@ -23,6 +23,14 @@ describe('parseRoute', () => {
 
   it('ignores a trailing slash', () => {
     expect(parseRoute(`#/g/${B}/`)).toEqual({ name: 'game', rootId: B });
+  });
+
+  it('parses the rules page, with or without a section', () => {
+    expect(parseRoute('#/rules')).toEqual({ name: 'rules', section: null });
+    expect(parseRoute('#/rules/')).toEqual({ name: 'rules', section: null });
+    expect(parseRoute('#/rules/price-card')).toEqual({ name: 'rules', section: 'price-card' });
+    for (const h of ['#/rules/Mergers', '#/rules/a/b', '#/rulesx', `#/rules/${'x'.repeat(33)}`])
+      expect(parseRoute(h), h).toEqual({ name: 'not-found', hash: h });
   });
 
   it('parses a dev preview page, with or without a scene', () => {
@@ -50,6 +58,8 @@ describe('parseRoute', () => {
   it('builds hrefs that parse back', () => {
     expect(parseRoute(tableHref(A, 't-1'))).toEqual({ name: 'table', creator: A, tableId: 't-1' });
     expect(parseRoute(gameHref(B))).toEqual({ name: 'game', rootId: B });
+    expect(parseRoute(rulesHref())).toEqual({ name: 'rules', section: null });
+    expect(parseRoute(rulesHref('mergers'))).toEqual({ name: 'rules', section: 'mergers' });
   });
 });
 

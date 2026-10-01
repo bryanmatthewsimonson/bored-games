@@ -132,6 +132,19 @@ code {
   gap: 8px;
 }
 
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.header-link[aria-current="page"] {
+  color: var(--text);
+  text-decoration: none;
+}
+
 .identity {
   display: flex;
   align-items: center;
@@ -436,6 +449,18 @@ a.btn {
 
 .plain li + li {
   margin-top: 4px;
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.panel-head h2 {
+  margin: 0;
 }
 
 .facts .plain {
