@@ -89,7 +89,7 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
 
 ## D012: Results are ratified by replay and attestation
 - Outcomes are recomputed by every client from the verified log.
-- After the audit, each player's client publishes a signed attestation. A result is valid when its log verifies, and finalized when everyone attests and the audit passes.
+- After the audit, each player's client publishes an attestation signed by its npub. A result is valid when its log verifies, and finalized when everyone attests and the audit passes. Forfeit endings are attested too (D030).
 - Stats and ratings are computed client-side, deterministically, from valid and audited games.
 
 ## D013: Hashing
@@ -153,6 +153,7 @@ This is the scheme detailed in `docs/ARCHITECTURE.md`.
   - The game counts for stats.
   - Equivocation, a failed audit or a withheld deck secret are forfeits too.
 - **Cancellation:** a stall before the first game action cancels the game with no result.
+- **Amended by D030:** deadlines are measured on each client's clock from the first-seen time of the last progress; an accepted claim forfeits every seat stalled at the head; forfeit endings are attested with the forfeits as the audit verdict.
 
 ## D021: Seating (2026-10-01, owner)
 The table lists invited npubs and/or open seats; anyone can claim an open seat until the table fills, and the creator then publishes the game root, which fixes the seat order. This covers friends now and public matchmaking later with no protocol change.
@@ -242,7 +243,7 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **Action.** `action` must be a JSON object. The module validates it later.
 - **Attestation.** `audit` is `"pass"` or `{fail, reason}`, where `fail` is a non-empty, strictly ascending list of seats and `reason` has 1–500 code points. `outcome.places` are integers of at least 1, `outcome.scores` are safe integers, and the two lists have equal length. `logHash` is 64 hex characters.
 - **`logHash`.** The SHA-256 hex of the UTF-8 of the move ids joined with `\n`. An empty log hashes the empty string.
-- **Shape only.** Parsers do not verify proofs, owed shares or `x·G = X_k`. The session engine does (2d).
+- **Shape only.** Parsers do not verify proofs, owed shares or `x·G = X_k`. The session engine does (2d, D030).
 
 ## D031: Phase 3 frontend dependencies (2026-10-01, Phase 3 Task 2)
 - **Frontend (apps/web).** Preact + Signals + Vite (D014 option B), chosen by the controller during the owner-authorized overnight run because it keeps the TypeScript 7 toolchain; the owner may revisit. All three are pinned exactly:
@@ -252,10 +253,10 @@ The table lists invited npubs and/or open seats; anyone can claim an open seat u
 - **No other dependency.** Bech32 (BIP-173, for `npub` and `nsec`) is about 100 lines in `apps/web/src/bech32.ts`, tested against the NIP-19 vector. The `pnpm dev` launcher is a plain Node script (`scripts/dev.ts`) that spawns the relay and Vite.
 - **Impure code.** `apps/web` is not a pure package, but the clock, randomness and storage enter only through `src/clock.ts`, `src/random.ts` and `src/storage.ts`. A repo guard enforces it. Everything else takes them as arguments, so the tests run in Node with fakes.
 - **Identity.** A profile (`?profile=<name>`, default `default`) namespaces every key as `bg:<profile>:<name>`. The local secret key is stored as hex. NIP-07 is used only when the user chose it, and every event the extension returns is checked with `verifyEvent`, against the extension's own public key, and against the template that was sent.
-- **Note.** Another branch also adds a D029, for `ws`; the two entries are to be merged under one number.
+- **Numbering.** D029 covers `ws` and Playwright; this entry covers the frontend.
 
-## D014: Proposed, awaiting the owner: UI framework for apps/web (Phase 3)
-Two options, to be chosen before Phase 3 starts.
+## D014: UI framework for apps/web (Phase 3)
+**Answered by D031:** option B, by controller ruling during the owner-authorized overnight run. The owner may revisit. The original proposal offered two options:
 
 | | **A. Svelte 5 + Vite** | **B. Preact + Signals + Vite** |
 |---|---|---|
@@ -268,11 +269,11 @@ Two options, to be chosen before Phase 3 starts.
 
 Either keeps the client a static SPA with relative asset paths, ready for Capacitor.
 
-## D029: Phase 3 dependencies: `ws` for the dev relay, and the frontend toolchain (2026-10-01, Phase 3)
+## D029: Phase 3 dev dependencies: `ws` for the dev relay, and Playwright (2026-10-01, Phase 3)
 - **`ws` 8.22.0 (exact), with `@types/ws` 8.18.2 (dev).** Used only by `tools/dev-relay`, an in-memory NIP-01 relay for local development and tests (`pnpm relay`, port 7777). `ws` is the de-facto Node WebSocket server and has zero runtime dependencies. Node has a global WebSocket client but no server, so a hand-written one would be more code than the dependency. It is a dev tool: nothing shipped to browsers imports it.
 - **`packages/relay` has no third-party dependency.** It takes the `WebSocket` constructor as an option (the browser's, Node's global, or a fake in tests) and verifies events with `@bored-games/protocol`. It is not a pure package (sockets, timers), so the purity guard does not cover it.
 - **Dev relay semantics.** It verifies with protocol's `verifyEvent` and rejects events over `MAX_EVENT_BYTES`. Kinds 30000–39999 are addressable: the latest `created_at` per `(pubkey, kind, d)` wins and, on a tie, the lowest id (NIP-01). A stale version is answered `OK false "replaced: …"`. Other replaceable and ephemeral kinds are not implemented, because the protocol uses none.
-- **Frontend dependencies.** This entry also covers the frontend dependencies added in later Phase 3 tasks (the UI framework chosen under D014 and its Vite plugins). Each is listed here with its justification when it is added.
+- **Frontend dependencies** (the UI framework chosen under D014 and its Vite plugin) are recorded in D031.
 - **Addendum (Phase 3 Task 6): `@playwright/test` 1.56.1 (exact, dev, `apps/web` only).** It drives the end-to-end browser test (`apps/web/e2e/play.spec.ts`, run by `pnpm e2e`). Real browsers are the only way to check the whole stack together (Preact screens, `localStorage` profiles, WebSockets to a relay, the shuffle proofs in the page), and Playwright's role and text locators and auto-waiting keep a multi-minute, three-player test free of sleeps. Version 1.56.1 is the one whose Chromium build (revision 1194) the dev container already has under `/opt/pw-browsers`, so no browser download is needed there; elsewhere `pnpm --filter @bored-games/web exec playwright install chromium` fetches it, and `E2E_CHROMIUM` can point at another binary. It brings only `playwright` and `playwright-core`, is never imported by `src`, and is not part of `pnpm check`.
   - **Test plumbing that came with it.** `pnpm e2e` (`apps/web/e2e/run.ts`) starts the dev relay in-process on a free port, builds the app, serves it with `vite preview` on another free port, runs Playwright, and stops both servers. A production build has no dev relay in its defaults, so the app accepts `?relays=<url>[,<url>…]`, which replaces the profile's saved relay list on load (as if edited in Settings; local relays only since D035); share links drop it so a recipient's list is never overwritten. The game root carries `data-seq`, `data-turn` and `data-phase` for tests.
 
@@ -306,42 +307,108 @@ Either keeps the client a static SPA with relative asset paths, ready for Capaci
 - **Pool changes.** `onEose` is delivered in a microtask (never inside `subscribe`), a consumer's exception is swallowed, and each subscription has an EOSE deadline (default 8 s) after which `onEose` fires anyway. `addRelays(urls)` connects a game's relays to the shared pool, and `publish(ev, urls)` sends to a chosen subset (the root's relays plus the player's own).
 - **Workspace dependencies of `apps/web`:** `@bored-games/client`, `@bored-games/relay` and `@bored-games/deck` (first-party), and `@bored-games/dev-relay` for tests. No third-party dependency is added.
 
-## D030: Game-session rulings (2026-10-01, Phase 2d; in progress, written up in full in Task 7)
-Notes so far, to be merged into the full entry (R1–R6 and the review rulings):
-- **Decide gate (Ruling 4).** `decide` is due when the pending decision is mine and `module.legalActions(state, me)` is non-empty, and `legalActions()` returns that list. `GameModule.legalActions` must return [] whenever the legality of any action it would list depends on hidden cards the seat has not learned, so a non-empty list is exact. Requiring the whole hand deadlocked honest games: a merger disposal is an out-of-turn decision, and it can come before the other seats have shared the seat's last-drawn tile.
-- **Equivocation (R2 as refined by Rulings 3 and 5).** Two distinct moves with the same (prev, seq, signer), both valid as of prev on everything except R1, flag the signer (`view().equivocators`). An invalid move never counts. Equivocation never stops, rewinds or cancels the game: one `receive` must not let a seat void a game by re-signing an old move. At the end the flagged seats forfeit with R5's end adjustment, and the audit still runs.
-- **Fork choice (Ruling 5).** From the root, the canonical chain follows, at each prev, the successor heading the longest valid branch, counted in accepted moves; ties go to the lowest event id. A side branch is re-examined only when its pooled depth, an upper bound on its valid length, can beat the chain past that prev. Builders must never be called twice for one decision: fresh randomness makes a rival move.
-- **Fork choice prefers finished branches (Ruling 9).** At each prev, branches rank by `(reaches over desc, length desc, lowest id)`. A branch whose end state is the module's `over` beats any branch that does not reach it, whatever its length. Without this, the last mover could reopen a done game: a rival to its final move without `declareEnd` and with a lower id, or a longer replacement for its last turn, put the game back in play with every secret already public.
-  - **Two endings.** When two branches both reach `over`, length and then id decide, and the equivocator is flagged and ranked last either way. The last mover can therefore still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. This is accepted as weak, because it costs the seat its own place.
-- **Bounded fork trials (Task 4 review).**
-  - **Stuck moves.** A pooled move found unable to link at its prev (it waits on R1, or on a missing share for its reveal) is marked stuck for the current share set. It counts as depth 1 at most, and nothing below it counts.
-  - **Depth bound.** `poolDepth` is iterative and capped at 64. When the chain is over, a side branch whose bound cannot reach the chain's length past the prev is skipped without a trial.
-  - **Memoized verdicts.** Each fork prev's best side branch is kept, keyed by a pool version counter and a share-set counter. The pool counter is bumped on every insert or removal below the prev, passed up through pooled ancestors (at most 64 steps) and stopped by a stuck move. A fork is re-tried only when one of the two counters changes, so junk under a stuck rival never triggers a trial, and neither does an honest event elsewhere.
-  - **Trial folds** skip the audit and private learns: they need only validity, length and whether the branch reaches over. The chain is then relinked as it was. The audit runs only on the canonical chain and is cached by log hash.
-  - **Residual risk.** Junk under a rival that *can* link still costs one trial per junk event, paid by the attacker's own events. The first trial drops the junk as invalid.
-- **Attestations.** A seat's attestations that do not match the session's current result are kept so they can count if the result changes, but only the latest one per seat (by `created_at`, then the lowest id).
-- **End of game (Task 4).** Secrets are accepted only when `x·G = X_k` for the signer's seat; one that arrives before the end is kept. The audit fails the actor of the first action the full engine rejects; a rejected derived reveal, an undecryptable position or a different outcome fails every seat. The outcome with forfeits keeps the module's scores and has reason `forfeit`. A Result attestation counts when it is signed by a seated npub and its `{audit, logHash, outcome}` equals the session's own; a mismatching one is kept, since the result may change as events arrive. The session returns it unsigned (`attestTemplate(createdAt)`), because it does not hold the npub key.
-- **Timeouts (Task 5, R3–R5).** A Timeout claim is valid when all of these hold:
-  - its head is the current canonical head;
-  - the named seat is stalled there (R4), and is not the claimant;
-  - `claim.created_at ≥ P + deadline`, where P is the largest `created_at` over accepted progress (the root, chain moves, kept shares by their earliest copy, and secrets once the game is over) **dated at or before the claim** (the far-future clamp, a ruling: without it a seat could put off every timeout by dating a share years ahead);
-  - the client's own clock has reached `claim.created_at`. A claim it has not reached is stored and re-checked on `tick(now)`.
+## D030: Game-session rulings (2026-10-01, Phase 2d)
+The rules the session engine (`GameSession` in `packages/client`) implements. They were set as R1–R6 in the Phase 2d plan, then amended by the review rulings (numbered 1–10 in the order they were made; Ruling 1 was process, and Ruling 2 is D033). They change PROTOCOL v1, which is not yet published, so there is no version bump. PROTOCOL §6–§8, §10 and §11 state them normatively; this entry records the reasons.
 
-  **Ruling 6: the head move always counts.** The head move's `created_at` counts toward P even when it is dated after the claim. Without this, a seat could date its own move far ahead and then claim against the next seat one second after its own deadline, because P would fall back to the progress before that move. A seat that dates its move ahead only delays the next seat's deadline, which gives that seat more time, so this is benign. `timeoutTarget` and `buildTimeout` use the same P.
+**Owed shares (R1, PROTOCOL §6.2).**
+- A game-action move by seat k on parent state S is acceptable only if, counting k's verified shares already held plus those in the move, k has a share for every position that `dealt(S)` assigns to another seat or to `null`.
+- **Stated monotonically.** The rule counts only what is held, never what is absent. A move that fails only this rule is **buffered**, not rejected, because the missing shares may still arrive in an earlier Shares event. So clients converge whatever order events arrive in.
 
-  The clamp applies to the stall too (kept by ruling): a share or secret dated after the claim does not count as published. So a claim's validity depends only on the events dated by it, the head and the clock, whatever order they arrived in. Every claim is kept and judged again whenever the fold or the clock changes; one rejected now may count later. `view().pendingSince` stays unclamped, for display. `timeoutTarget(now)` and `buildTimeout(…, createdAt)` judge with the same clamp at `now` or `createdAt`.
-- **Who is stalled (R4).** Shuffle: the next shuffler. Deal: every seat whose owed deal positions are not all covered. Play: the pending seat, unless one of the positions dealt to it lacks another seat's share and the module lists no action for it on the public state (`legalActions(view(state, null), seat)`, so every view agrees); then the seats missing those shares. A pending public reveal: the seats missing a share of it. End: every seat without a secret.
-- **Claim limit (Ruling 8).** A session keeps at most 4 claims per signer per head. Further ones are ignored and reported `rejected` with reason `claim limit`.
-- **Deciding (R5).** The lowest-id valid claim on the head decides; a lower-id valid claim on the same head that arrives later takes over, so the choice does not depend on arrival order. Once a claim decides, the fold stops: later moves, Shares events and secrets are stored and change nothing, so a timed-out seat cannot revive the game.
-  - Before the first game action (shuffle, deal, or play with no action yet): phase `cancelled`, no outcome; `forfeits` holds the named seat (and any equivocator).
-  - During play: phase `done` at once. The outcome is `rankWithForfeits(standings(state), forfeits, null)` with reason `forfeit`, the forfeits being the named seat and any equivocator. The R6 audit cannot run, since the deck cannot be decrypted without every secret. Under **Ruling 7** it records the forfeits instead: `audit: {fail: [forfeiting seats ascending], reason: 'timeout'}`. The result can therefore be attested with the existing protocol shape, and `attest` duties apply as for a normal end.
-  - At the end: phase `done`. Every seat whose secret is not in by the claim's date forfeits, and the declared order is adjusted with the withholders and any equivocator last. The audit is `{fail: [forfeiting seats ascending], reason: 'withheld secret'}`, and the result can be attested.
-  - Ruling 7 also lists the reason `equivocation`. Under Ruling 5, equivocation never ends a game, so the session has no path that produces it today. Equivocators are listed in `fail` together with the seat whose timeout ended the game.
-  - A cancelled game has no outcome and nothing to attest.
-- **The claim/move race.** A claim and the stalled seat's late move (or a late share or secret) on the same head can reach clients in either order. A client that sees the claim first stops; one that links the move first rejects the claim for naming an old head. `created_at` cannot break the tie, since any date can be claimed, so this is left to arrival.
-- **R4 play attribution relies on the module.** It calls `legalActions` on `module.view(state, null)` and treats an empty list as meaning the decision needs hidden cards. Chain Reaction behaves this way, but the `GameModule` contract does not yet say so. Task 7 adds it to the contract.
-- **PROTOCOL.** §8.1 does not yet describe the far-future clamp, Ruling 6, the R4 play attribution, Ruling 7's attestable forfeits or the claim limit. Task 7 carries them into the protocol text.
-- **Module event log.** `view().events` is the module's events from every `apply` and `learn` on the canonical chain, in fold order, the last 300; a branch switch restores it from the snapshot. Private learns start with the play phase, after the setup reveals, so the log does not depend on the order the deal's Shares events arrived in (Chain Reaction's `learn` emits no events today).
+**The fold (PROTOCOL §6.3–§6.5).**
+- Every received event first goes through the size cap, `verifyEvent` and the strict parser, and its signer must be a seated key (session key for in-game kinds, npub for attestations). `receive` never throws on peer input.
+- Moves are pooled by `prev` until they link. A game action waits while the deal is incomplete, while a public reveal is pending, while another seat's share of a revealed position is missing, and while R1 fails. Any other failure makes it invalid. A pooled move is judged when its prev links, and an invalid one is dropped for good, since a prev fixes its whole ancestry.
+- `revealsOf` is syntactic, so its claims are trusted only for an action `apply` accepts: `apply` runs on the state first, then the reveals are checked.
+- **Derived reveals** are applied once the deal is complete, while the module pends a reveal whose positions all have N shares, in ascending position order. They go into the **interleaved action log** with the game actions, in fold order, for the audit.
+- **Private learns** start with the play phase, after the setup reveals, so the module's state and event log do not depend on the order in which the deal's Shares events arrived.
+- Shares: at most one verified share per (seat, position), the first valid one kept (D025).
+
+**The decide gate (Ruling 4).**
+- `decide` is due when the pending decision is mine and `module.legalActions(state, me)` is non-empty, and `legalActions()` returns that list.
+- **Why.** The first gate also required the seat's whole hand to be decrypted, and it deadlocked honest games: a merger disposal is an out-of-turn decision, and it can come before the other seats have shared the seat's last-drawn tile. All three end-to-end games in that review stalled at a disposal.
+- **Contract.** It relies on `GameModule.legalActions` being exact or empty (below).
+
+**Equivocation (R2, refined by Rulings 3 and 5).**
+- **What counts (Ruling 3).** Two distinct moves with the same (prev, seq, signer), both valid as of prev on everything except R1. For a shuffle step, the proof verifies against prev's deck. For a game action, the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `module.apply` accepts. An invalid move is ignored and never counts. The original R2 counted any two parseable moves, which would have let a seat's own malformed retry or a module-rejected action trip it.
+- **What it does (Ruling 5).** The seat is flagged (`view().equivocators`). The game is never stopped, rewound or cancelled. At the end the flagged seats forfeit with R5's end adjustment, and the audit still runs.
+- **Why (Ruling 5 replaced rollback and "equivocation before the first action cancels").** With rollback, one `receive` of a late re-signed old move let a seat rewind or cancel any game, even a finished one.
+- **Builders.** Each builder draws fresh randomness, so building twice for one decision is equivocation. Clients build once, persist and rebroadcast (the web controller's outbox, D034).
+
+**Fork choice (Rulings 5 and 9).**
+- From the root, at each prev on the chain, the next move is the successor heading the best valid branch, ranked by **(reaches the module's `over` desc, length in accepted moves desc, lowest id)**.
+- **Why `over` first (Ruling 9).** With length alone, the last mover could reopen a done game, with every secret already public: either a rival to its final move without `declareEnd` and with a lower id, or a longer replacement for its last turn.
+- **Two endings.** When two branches both reach `over`, length and then id decide, and the equivocator is flagged and ranked last either way. The last mover can therefore still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. This is accepted as weak, because it costs the seat its own place.
+
+**Timeouts (Ruling 10, which replaces R3's date rules, the far-future clamp and Ruling 6).**
+- **Local time.** `receive(ev, now)` takes `now` as the time this client first saw `ev`. Clients persist first-seen times by event id (the web controller does), so a reload keeps them.
+- **Progress time P** is the largest first-seen time over the root and the accepted progress events: chain moves, Shares events that added a share, and secrets once the game is over.
+- **Acceptance.** A claim is accepted iff its head is the current head, some seat is stalled there (R4), and the client's `now ≥ P + deadline`. The claim's own `created_at` and the seat it names are ignored. A claim that is not yet acceptable is kept, judged again on later events and on `tick(now)`, and rejected once its head is no longer current.
+- **On acceptance, every seat stalled at the head forfeits** (R4), whichever claim was accepted and whom it named. Flagged equivocators forfeit with them.
+- **Targets.** `timeoutTarget(now)` is the lowest stalled seat other than mine once `now ≥ P + deadline`; `buildTimeout` names that seat and dates the claim `now`.
+- **Why local time.** Every date-based rule failed review, because `created_at` is whatever the signer writes:
+  - R3 judged claims by their own `created_at`, so a seat could postpone every timeout by dating a share years ahead. The far-future clamp that fixed this (ignore progress dated after the claim) let a seat date its turn-passing move ahead and claim against the next seat one second after its own deadline. Ruling 6 (the head move always counts) closed that hole.
+  - Even so, a head move dated far ahead still put off every claim against the next seat indefinitely. A seat could also backdate its turn-passing move, so that the next seat's deadline had all but passed when the move arrived.
+  - Backdated shares split clients' stall attribution.
+  - With the forfeits taken from the deciding claim's named seat, the result depended on which claim decided, which let a claimant shift the blame.
+
+  With first-seen times nobody can move anybody's deadline but the client's own clock, and the forfeits depend only on the head and the held events, not on the claim.
+- **Cost.** Clients judge on their own clocks, so they no longer accept a claim at the same moment. That gives the race below.
+
+**Who is stalled (R4).**
+- Shuffle: the next shuffler.
+- Deal: every seat whose owed deal positions (dealt to another seat or public) are not all covered.
+- Play, a player decision: the pending seat. Exception: one of the positions dealt to it lacks another seat's share, and the module lists no action for it on the public state (`legalActions(view(state, null), seat)`, so every view agrees). Then the decision needs that card, and the stalled seats are those missing a share of such a position.
+- Play, a pending public reveal: the seats missing a share of it.
+- End: every seat without a verified secret.
+
+**Forfeit outcomes (R5, with Ruling 7).**
+- **Before the first game action** (no game action on the chain): phase `cancelled`, no outcome and nothing to attest. `forfeits` lists the stalled seats and any equivocator.
+- **During play:** phase `done` at once. The outcome is `rankWithForfeits(standings(state), forfeits, null)`: forfeiting seats share the last places, the others are ranked by standings, descending, with ties sharing a place. The reason is `forfeit`.
+- **At the end** (secrets missing): phase `done`. The withholders and any equivocator forfeit, and the others keep their declared order.
+- **At a normal end** (a failed audit or an equivocation): the declared order is kept among the others, the forfeiters move to shared last places, and the declared scores are kept.
+- **Ruling 7: forfeit endings are attestable.** After a timeout the R6 audit cannot run, because the deck cannot be decrypted without every secret. The audit field records the forfeits instead: `{fail: [forfeiting seats ascending], reason: 'timeout'}` during play, and `reason: 'withheld secret'` at the end. The result is attested with the existing protocol shape, so forfeits count for stats (D020). Ruling 7 also lists the reason `equivocation`, but under Ruling 5 equivocation never ends a game, so no path produces it.
+
+**Finality and the race.**
+- **Finality.** Once a client accepts a claim at head H, its result is final. Later moves, Shares events and secrets are stored and change nothing, fork choice stops, and a late move on H is ignored. Attestations are still accepted.
+- **The race (documented, accepted).** A client that linked the stalled seat's late move first rejects the claim, because it names an old head. A late share or secret can likewise shrink the stalled set, or restart the deadline, on clients that fold it before accepting. So a stalled seat that acts inside the window between different clients' acceptance can split them. The window opens only after a full deadline of the seat's silence. `created_at` cannot break the tie, since any date can be claimed.
+- **Postponement by fresh shares (OPEN).** Because every Shares event that adds a share is progress, any seat, the stalled one included, can restart the deadline by publishing one new share at a time, for example of a bag position. This is bounded by one share per position per seat (108 deadlines in Chain Reaction) but not prevented. PROTOCOL §11 records it.
+
+**Audit (R6, PROTOCOL §7).**
+- Once every seat's secret is known (verified by `x·G = X_k`), decrypt each final-deck position with `decryptWithSecrets` and `cardOf`, set up the module in full mode with that order, and replay the interleaved action log.
+- The first rejected game action fails its actor: `audit: {fail: [actor], reason}`.
+- A rejected derived reveal, an undecryptable position or a refused full-mode setup fails every seat, since no single seat is to blame. So does a replay whose `outcome` differs from the view's ("outcome mismatch").
+- Otherwise `audit: 'pass'`. The audit runs only on the canonical chain and is cached by log hash.
+
+**Attestations.**
+- Result attestations are signed by the seat's **npub**, which the session does not hold, so it returns the unsigned template (`attestTemplate(createdAt)`).
+- One counts when it is signed by a seated npub and its `{audit, logHash, outcome}` equals the session's own.
+- A mismatching one is kept, since the result may change as events arrive, but only the latest per seat, by (`created_at`, then the lowest id).
+
+**DoS bounds.**
+- **Claims (Ruling 8, made order-independent).** A session keeps the 4 lowest-id claims per signer per head, evicting the highest, and at most 8 claims per signer naming heads it has not linked.
+- **Rival shuffle steps.** At most 3 shuffle-proof verifications per (prev, signer) for rival candidates.
+- **Duplicates.** A held event id is answered `duplicate` before parsing, so a re-sent shuffle step is not verified again (a sim finding).
+- **Fork trials (Task 4 review, with Ruling 9):**
+  - A pooled move found unable to link at its prev (waiting on R1 or a missing reveal share) is marked stuck for the current share set. It counts as depth 1 at most, and nothing below it counts.
+  - `poolDepth` is iterative and capped at 64. When the chain is over, a side branch whose bound cannot reach the chain's length past the prev is skipped without a trial.
+  - Each fork prev's best side branch is memoized, keyed by a pool version counter and a share-set counter. The pool counter is bumped on every insert or removal below the prev and passed up through pooled ancestors (at most 64 steps), stopping at a stuck move. The share-set counter is bumped only when a Shares event adds a new share, never when it merely repeats one.
+  - Trial folds skip the audit and private learns. They need only validity, length and whether the branch reaches over.
+  - **Residual.** Junk under a rival that can link still costs one trial per junk event, paid for by the attacker's own events. The first trial drops the junk as invalid.
+
+**Contract notes for modules (`GameModule`, PROTOCOL §10).**
+- **`legalActions` is exact or empty.** It must return [] whenever the legality of any action it would list depends on hidden cards the seat has not learned, so a non-empty list is exact. The decide gate relies on this, and so does R4's play attribution, which calls it on `view(state, null)`. Chain Reaction complies.
+- **`learn` and arrival order.** A learn's place among other seats' actions depends on when shares arrive. Learns must commute with actions, since a branch switch restores a snapshot and redoes them. A module's `learn` should emit no events, since their place in `view().events` would depend on arrival order. Chain Reaction's emits none.
+- `dealt` is append-only and identical across views, and `standings` uses public data only (D020).
+
+**Session API notes.**
+- `view().events` holds the module's events from every `apply` and `learn` on the canonical chain, in fold order, the last 300. A branch switch restores it from the snapshot.
+- The session supports exactly one deck, and it throws `ClientError` at creation otherwise.
+
+**Deferred.**
+- The claim race and postponement by fresh shares (above) are documented, not solved.
+- A derived reveal that fails to decrypt or apply stops silently. It cannot happen with verified proofs.
+- The pool of moves under unlinked prevs is bounded only by the event-size cap and the seated-key check.
+- The validity of a seat's own moves is view-dependent: a cheater's own client judges its forged move with its real hand. Other seats' moves are judged the same by every view.
+- The NIP-78 key backup and the live relay smoke test (Phase 2e), and hardening open seats for public matchmaking (D021).
 
 ## D035: Final Phase 3 polish (2026-10-01, Phase 3)
 - **`?relays=` accepts local relays only.** A link could otherwise move a player onto relays an attacker runs (to censor, delay or watch their games), and the list is saved for later visits. The parameter is honoured only when every entry is `ws://localhost[:port]` or `ws://127.0.0.1[:port]` (`isLocalRelayUrl` in `apps/web/src/settings.ts`), which is all `pnpm dev`, `pnpm e2e` and local setups need. Otherwise the whole list is ignored and the page shows "Ignored relays from the link; change relays in Settings."

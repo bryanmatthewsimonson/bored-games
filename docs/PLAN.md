@@ -2,14 +2,18 @@
 
 ## Open questions for the owner
 
-1. **UI framework for apps/web**, needed before Phase 3. Proposal D014 in `docs/DECISIONS.md` offers two options: Svelte 5 or Preact + Signals.
-2. ~~**Abandonment and timeouts.**~~ Decided (D020): the creator picks a 1-, 3- or 7-day deadline, and the abandoner forfeits.
+1. ~~**UI framework for apps/web.**~~ Answered by controller ruling D031 during the owner-authorized overnight run: Preact + Signals + Vite (D014 option B). The owner may revisit.
+2. ~~**Abandonment and timeouts.**~~ Decided (D020): the creator picks a 1-, 3- or 7-day deadline, and the abandoner forfeits. D030 measures deadlines on each client's clock.
 3. ~~**Shuffle proofs.**~~ Decided (D019): zero-knowledge Wikström shuffle proofs from day one.
 4. **Chain Reaction 2-player rules** remain OPEN, so 3–6 players only for now. Should 2-player be supported, and with which variant?
 5. **Second game** (Phase 6). Which game should validate the contract?
 6. **Final names.** The first game is now named **Chain Reaction** (owner, 2026-10-01). The platform name ("Bored Games") and the chain names (Jade, Lapis, Onyx, Quartz, Ruby, Sapphire, Topaz) are still placeholders. Other games already use the name "Chain Reaction"; a trademark check belongs to Phase 7.
-7. **Relay URL** for your nostr-rs-relay, needed in Phase 2.
+7. **Relay URL** for your nostr-rs-relay. Still open; needed for the Phase 2e smoke test and as the app's default relay.
 8. **Ratings scope.** Are global leaderboards wanted? Global boards mean someone runs an untrusted cache. The alternative is that each client computes ratings over the games it can see, optionally web-of-trust weighted.
+9. **Protocol review.** `docs/PROTOCOL.md`, now with the session rulings (D030), awaits your review before anything is published under version 1. Its open points:
+   - Any seat can restart a timeout deadline by publishing one new share at a time, up to one per deck position (PROTOCOL §11). Accept it, or rule on what counts as progress?
+   - The claim race (§11) is accepted as a residual risk.
+   - Clients ignore the table's `status` when validating a root (§4.3).
 
 ## Status
 
@@ -17,12 +21,14 @@
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`), awaiting owner review; **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d in progress** (`packages/client`: session creation, shuffle, deal, game actions, the end of game and timeouts done; the simulations and the D030 write-up remaining); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`); the NIP-78 secret backup and the smoke test against the owner's relay are still open |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`, with the session rulings), awaiting owner review (open question 9); **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d done** (`packages/client`: the session engine, the lobby fold, the memory relay and async simulations; rulings D030); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`); the NIP-78 secret backup and the smoke test against the owner's relay are still open |
 | 3. Web shell plus Chain Reaction UI | **Playable end to end** (Preact + Signals, D031): identity and settings, Home, Table and Game screens, lobby and game controllers (D034), the end-to-end browser test (`pnpm e2e`), CI, and GitHub Pages deployment. Final polish (D035): the game log, confirmed timeout claims, profile names, and `?relays=` limited to local relays. The owner's guide is `docs/TESTING.md`. Remaining: NIP-46 login, a live "your turn" inbox, and the offline PWA shell |
 | 4. Records | Not started |
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
+
+**Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. The 11 sim scenarios, adversaries included, pass under `pnpm test:sim`.
 
 **Last verified (2026-10-01, Phase 3 Task 6):** `pnpm check` passes (typecheck, Biome, 968 tests in 50 files, about 4 minutes). `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
 
@@ -80,30 +86,23 @@
     - The purity guard covers `packages/protocol/src`.
     - Not in 2c: the session engine (folding the log, owed shares, deadlines, equivocation, the audit), relay transport and the NIP-78 key backup. These are 2d and 2e.
 - **`packages/client`:** a session engine over a pluggable relay transport.
-  - **2d progress (plan `docs/superpowers/plans/2026-10-01-phase-2d-session.md`, rulings D030).** Pure package `@bored-games/client`, covered by the purity guard.
-    - `GameSession.create` checks the root with `validateRoot`, and that `me` holds its seat's session key and deck secret.
-    - `receive` parses every event strictly and folds it to a fixpoint: moves wait in a pool keyed by `prev` until they link.
-    - Shuffle phase: steps in seat order, each proof verified once per session against the previous deck.
-    - Deal phase: one Shares event per seat covering every position dealt to another seat or public. Shares are verified against the final deck and kept once per (seat, position) in a `ShareStore`. The deal ends when every seat's owed positions are covered.
-    - Derived reveals (PROTOCOL §6.3) go into an interleaved action log for the audit, and private learns (§6.4) decrypt with `decryptPosition` and `ownShare`.
-    - Game actions (§6.5): the signer must be the pending seat, every share and reveal must verify, the module must accept the action, and each reveal must decrypt to the card `revealsOf` claims. A move missing only shares that another event may still bring (its owed shares, R1, or another seat's share of a revealed card) is buffered, then accepted when they arrive. `buildAction` attaches the owed shares and the reveal shares.
-    - `pendingSince` is computed from the held events: the root, the accepted moves and, per kept share, its earliest verified copy. Arrival order does not change it.
-    - Fork choice (D030 Ruling 5): the chain follows, at each prev, the successor heading the longest valid branch (ties to the lowest id), so a late rival on an old prev never displaces the main chain. Moves on a losing branch stay pooled; branches are compared by trial folds from the per-move snapshots.
-    - Equivocation (R2, Rulings 3 and 5): two distinct moves on one (prev, seq) by one seat, both valid as of that prev on everything but R1, flag the seat in `view().equivocators`. An invalid move never counts. Play goes on; at the end the flagged seats move to the last places.
-    - The `decide` duty (Ruling 4) is due when the pending decision is mine and the module lists legal actions; modules list none while legality depends on cards the seat has not learned (`GameModule.legalActions` contract). Out-of-turn merger disposals no longer wait for the whole hand.
-    - End of game: when the module is over the phase is `end` and every seat owes its Secret reveal (`x·G = X_k`). With all secrets in, the R6 audit (`src/audit.ts`) replays the interleaved action log in full mode, and the phase is `done`. A failed audit or an equivocation moves those seats to the last places (`rankWithForfeits`). `attestTemplate(createdAt)` gives the unsigned Result attestation for the npub to sign; matching attestations are listed in `view().attested`.
-    - Lobby: `foldLobby` seats Joins by priority slot with collision checks and recovery, and `buildRootTemplate` accepts an explicit seat list (D021). Joins prove possession of their session key (D033).
-    - Timeouts (Task 5, R3–R5): `timeoutTarget(now)` names the lowest other seat stalled at the head once the deadline has passed, and `buildTimeout` signs the claim. A claim counts when it names the current head and a stalled seat, is dated at least `deadline` after the last progress dated by the claim (the far-future clamp), and the local clock has reached its date; early claims are stored and re-checked on `tick(now)`. The lowest-id valid claim decides and the fold stops: `cancelled` before the first game action, an immediate forfeit ranked by `standings` during play, or the withheld secrets failed at the end. Either forfeit is recorded as an attestable audit failure (`timeout` or `withheld secret`). The head move always counts toward the deadline, and a signer may keep at most 4 claims per head.
-    - `view().events`: the module events of the canonical chain (the last 300), for the game log.
-    - Fork choice prefers a branch that reaches the module's `over` (Ruling 9), so a finished game cannot be reopened. Fork trials are bounded: moves stuck on R1 count as depth 1, `poolDepth` is iterative and capped, verdicts are memoized per fork until the pool below it or the shares change, and trials skip the audit (cached by log hash) and private learns.
-    - Next: simulations and the D030 write-up (Task 7).
+  - **2d result (done, 2026-10-01; plan `docs/superpowers/plans/2026-10-01-phase-2d-session.md`, rulings D030).** Pure package `@bored-games/client`, covered by the purity guard.
+    - **Session.** `GameSession.create` checks the root with `validateRoot`, and that `me` holds its seat's session key and deck secret. `receive(ev, now)` parses every event strictly and folds it to a fixpoint; it never throws on peer input. Moves wait in a pool keyed by `prev` until they link, so every client that holds the same events reaches the same state, whatever their order.
+    - **Shuffle and deal.** Shuffle steps in seat order, each proof verified once per session. One Shares event per seat for every position dealt to another seat or public, kept once per (seat, position).
+    - **Play (PROTOCOL §6).** Owed shares are monotone, and a move missing only shares is buffered (R1). Derived reveals and game actions go into the interleaved action log; private learns start with the play phase. `buildAction` attaches the owed shares and the reveal shares.
+    - **Decide gate (Ruling 4).** `decide` is due when the decision is mine and the module lists legal actions, which modules keep exact or empty.
+    - **Equivocation and fork choice (Rulings 3, 5 and 9).** Two valid-looking moves on one (prev, seq) flag the seat, who ranks last at the end; nothing is rewound. The chain follows the best branch by (reaches over, length, lowest id), so a finished game cannot be reopened. Fork trials are bounded.
+    - **End of game.** Secrets (`x·G = X_k`), the R6 audit over the interleaved log, R5 forfeits, and `attestTemplate` for the npub to sign; matching attestations are listed in `view().attested`.
+    - **Timeouts (Ruling 10).** Deadlines run on each client's first-seen times, which the web controller persists. An accepted claim forfeits every stalled seat (R4), and acceptance is final for that client. Forfeit endings are attestable (Ruling 7), and claims are capped per signer.
+    - **Lobby.** `foldLobby` seats Joins by priority slot with collision checks and recovery, and `buildRootTemplate` accepts an explicit seat list (D021). Joins prove possession of their session key (D033).
+    - **Simulation.** `MemoryRelay` and `simulateGame`: independent clients and a spectator sync at random moments of a simulated clock, receive events shuffled and duplicated, and must agree on everything. Adversaries (test tooling only): `badShare`, `badShuffle`, `forgedSkip`, `equivocate` and `vanish`. `pnpm sim` runs whole games across workers; `pnpm test:sim` runs the scenarios.
 - **Acceptance:**
-  - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns.
-  - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle.
-  - A smoke test runs against the owner's relay plus a public relay.
+  - N simulated clients complete fuzzed async games over an in-memory relay, where each client is only "online" on its own turns. **Met** (2d).
+  - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle. **Met** (2d: the sims plus `play`, `end` and `shuffle-phase` tests).
+  - A smoke test runs against the owner's relay plus a public relay. **Open** (2e; needs open question 7).
 
 ### Phase 3: Web shell plus Chain Reaction UI
-- The framework is the owner's choice from D014.
+- The framework is Preact + Signals (D031, the controller's ruling on D014).
 - **Shell:** NIP-07 and NIP-46 login, profiles, lobby, games list, and an async "your turn" inbox.
 - **Chain Reaction board:**
   - a hand that previews where each tile lands and marks dead and blocked tiles
