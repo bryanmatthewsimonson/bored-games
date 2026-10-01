@@ -162,10 +162,12 @@ describe('fork choice: a finished game stays finished, and junk does not slow it
     expect(moves.length - 2 - k).toBeGreaterThan(10);
     const prefix = [...setup, ...moves.slice(0, moves.length - 2)];
     const next = moves[moves.length - 2] as NostrEvent;
-    const time = (s: GameSession): number => {
+    const trials = (s: GameSession): number => (s as unknown as { trials: number }).trials;
+    const time = (s: GameSession): { ms: number; trials: number } => {
+      const before = trials(s);
       const start = performance.now();
       expect(s.receive(next, LATE)).toEqual({ status: 'accepted' });
-      return performance.now() - start;
+      return { ms: performance.now() - start, trials: trials(s) - before };
     };
     const baseline = time(catchUp(game, null, prefix));
 
@@ -173,6 +175,7 @@ describe('fork choice: a finished game stays finished, and junk does not slow it
     const rival = resign(moves[k] as NostrEvent, (c) => ({ ...c, shares: [] }));
     expect(attacked.receive(rival, LATE)).toEqual({ status: 'accepted' });
     const signer = actorOf(rival);
+    const atRival = trials(attacked);
     let prev = rival;
     for (let i = 0; i < 300; i++) {
       const m = parseMove(prev, DECK);
@@ -188,8 +191,12 @@ describe('fork choice: a finished game stays finished, and junk does not slow it
       prev = finalizeEvent(t, game.ids[signer]?.sessionSk as Uint8Array, game.rnd);
       expect(attacked.receive(prev, LATE)).toEqual({ status: 'stored' });
     }
+    // The junk under the stuck rival triggers no fork trial, nor does the honest event after it.
+    expect(trials(attacked)).toBe(atRival);
     const slow = time(attacked);
-    expect(slow).toBeLessThan(Math.max(2 * baseline, 100));
+    expect(slow.trials).toBe(baseline.trials);
+    // A loose sanity bound only: wall-clock samples are noisy under parallel test runs.
+    expect(slow.ms).toBeLessThan(Math.max(10 * baseline.ms, 1000));
     expect(attacked.view().head.id).toBe(next.id);
     expect(attacked.view().equivocators).toEqual([signer]);
   });
