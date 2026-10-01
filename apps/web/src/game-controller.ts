@@ -25,6 +25,7 @@ import {
   parseTable,
   verifyEvent,
 } from '@bored-games/protocol';
+import type { Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
@@ -52,6 +53,15 @@ export const TICK_MS = 30_000;
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
 export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest];
+
+/** The game event kinds signed by a seat's session key; attestations (`KIND.attest`) are signed by its npub. */
+const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal];
+
+/**
+ * Stored game events asked for per page. A page that brings any event not seen before is followed by an older
+ * page (`until` its oldest date), so a relay that caps its answers below this still yields every event.
+ */
+export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
 const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'secret', 'attest'];
@@ -128,8 +138,8 @@ const canAttest = (s: GameSession): boolean =>
 /** While nothing changes, the Home status entry is rewritten this often (s), so it stays fresh while the game is open. */
 export const STATUS_REFRESH_S = 300;
 
-/** The most game events kept while the session is still loading. */
-const MAX_BUFFER = 10_000;
+/** The most seated game events kept while the session is still loading; past it, loading stops with an error. */
+const MAX_BUFFER = 100_000;
 
 /** The most characters of a profile name shown. */
 export const MAX_PROFILE_NAME = 32;
@@ -197,6 +207,11 @@ export class GameController {
   readonly #profiles = new Map<string, NostrEvent>();
   /** Game events that arrived before the session existed and the relays sent all they hold. */
   #buffer: NostrEvent[] = [];
+  /** The seats' session keys and npubs, once the root is known: only their game events are taken. */
+  #sessionKeys = new Set<string>();
+  #npubs = new Set<string>();
+  /** Ids of the game events received, for paging. */
+  readonly #got = new Set<string>();
   /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
   #seen = new Map<string, number>();
   /** First-seen times not saved yet. */
@@ -218,10 +233,14 @@ export class GameController {
   #started = false;
   #disposed = false;
 
-  constructor(rootId: string, deps: ControllerDeps) {
+  /** Stored game events asked for per page (`GAME_PAGE`; tests make it small to exercise paging). */
+  readonly #page: number;
+
+  constructor(rootId: string, deps: ControllerDeps, opts: { gamePage?: number } = {}) {
     this.rootId = rootId;
     this.#d = deps;
     this.clock = signal(deps.now());
+    this.#page = opts.gamePage ?? GAME_PAGE;
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -230,17 +249,8 @@ export class GameController {
     this.#started = true;
     this.#outbox = loadOutbox(this.#d.storage, this.#d.profile, this.rootId);
     this.#seen = loadSeen(this.#d.storage, this.#d.profile, this.rootId);
-    this.#stops.push(
-      this.#d.pool.subscribe(
-        [{ ids: [this.rootId] }, { kinds: GAME_KINDS, '#e': [this.rootId] }],
-        (ev) => this.#onEvent(ev),
-        () => {
-          this.#gameEose = true;
-          if (this.#session !== null) this.#feedHeld();
-          this.#maybeSynced();
-        },
-      ),
-    );
+    // The root first; the game's events are asked for once the root names the seats (`#subscribeGame`).
+    this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev) => this.#onEvent(ev)));
     this.#stops.push(this.#d.timers.every(TICK_MS, () => this.tick()));
   }
 
@@ -319,11 +329,15 @@ export class GameController {
       this.#onRoot(ev);
       return;
     }
+    // Relays are not trusted to filter: only seated keys' game events are taken (PROTOCOL §11).
+    if (!this.#seated(ev)) return;
+    this.#got.add(ev.id);
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
     if (entry !== undefined) this.#confirm(entry[0]);
     // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
     if (this.#session === null || !this.#gameEose) {
       if (this.#buffer.length < MAX_BUFFER) this.#buffer.push(ev);
+      else this.error.value = 'This game has too many events to load.';
       return;
     }
     this.#receive(this.#session, ev);
@@ -389,6 +403,55 @@ export class GameController {
     }
   }
 
+  /** Whether `ev` is a game event of this game signed by the key its kind needs: a seat's session key or npub. */
+  #seated(ev: NostrEvent): boolean {
+    if (!ev.tags.some((t) => t[0] === 'e' && t[1] === this.rootId)) return false;
+    if (SESSION_KINDS.includes(ev.kind)) return this.#sessionKeys.has(ev.pubkey);
+    return ev.kind === KIND.attest && this.#npubs.has(ev.pubkey);
+  }
+
+  /**
+   * Follow the game's events from the seated keys only, so strangers' events cannot crowd a relay's answer. The
+   * first page stays open for new events; while a page brings events not seen before, an older page follows,
+   * up to its oldest date. Loading is complete when a page brings nothing new.
+   */
+  #subscribeGame(root: ParsedRoot): void {
+    this.#sessionKeys = new Set(root.seats.map((s) => s.session));
+    this.#npubs = new Set(root.seats.map((s) => s.npub));
+    const filters = (until: number | null): Filter[] => {
+      const page = { '#e': [this.rootId], limit: this.#page, ...(until === null ? {} : { until }) };
+      return [
+        { kinds: [...SESSION_KINDS], authors: [...this.#sessionKeys], ...page },
+        { kinds: [KIND.attest], authors: [...this.#npubs], ...page },
+      ];
+    };
+    const page = (until: number | null): void => {
+      let fresh = 0;
+      let oldest = Number.POSITIVE_INFINITY;
+      let stop = (): void => {};
+      const onEvent = (ev: NostrEvent): void => {
+        if (this.#disposed) return;
+        if (this.#seated(ev) && !this.#got.has(ev.id)) fresh++;
+        if (ev.created_at < oldest) oldest = ev.created_at;
+        this.#onEvent(ev);
+      };
+      const onEose = (): void => {
+        if (this.#disposed) return;
+        if (until !== null) stop();
+        if (fresh > 0 && Number.isFinite(oldest)) {
+          page(oldest);
+          return;
+        }
+        this.#gameEose = true;
+        if (this.#session !== null) this.#feedHeld();
+        this.#maybeSynced();
+      };
+      stop = this.#d.pool.subscribe(filters(until), onEvent, onEose);
+      this.#stops.push(stop);
+    };
+    page(null);
+  }
+
   #onRoot(ev: NostrEvent): void {
     if (this.#rootEv !== null) return;
     let root: ParsedRoot;
@@ -401,6 +464,7 @@ export class GameController {
     this.#rootEv = ev;
     this.#root = root;
     this.#noteSeen(ev.id, this.#d.now());
+    this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
     this.#stops.push(

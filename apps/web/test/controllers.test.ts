@@ -110,8 +110,8 @@ function lobby(p: Profile): LobbyController {
   return c;
 }
 
-function game(rootId: string, deps: ControllerDeps): GameController {
-  const c = new GameController(rootId, deps);
+function game(rootId: string, deps: ControllerDeps, opts: { gamePage?: number } = {}): GameController {
+  const c = new GameController(rootId, deps, opts);
   disposers.push(() => c.dispose());
   c.start();
   return c;
@@ -411,6 +411,23 @@ describe('GameController', () => {
       }),
       await forger.sign({ kind: KIND.join, created_at: 1, tags: [['a', address]], content: '{}' }),
     ];
+    // A stranger floods the root's tag with game events: the controller asks only for the seats' events, and
+    // drops any other a relay sends anyway.
+    const stranger = localSigner();
+    for (let i = 0; i < 20; i++) {
+      await newPool().publish(
+        await stranger.sign({
+          kind: KIND.move,
+          created_at: now() + i,
+          tags: [
+            ['e', rootId, '', 'root'],
+            ['e', rootId, '', 'prev'],
+            ['seq', '1'],
+          ],
+          content: '{}',
+        }),
+      );
+    }
     const watcher = profile('watcher');
     const spectator = game(rootId, { ...watcher.deps, pool: forgingPool(watcher.deps.pool, () => forged) });
 
@@ -520,8 +537,8 @@ describe('GameController', () => {
     expect(ga.view.value?.head.seq).toBe(2);
     gc1.dispose();
 
-    // The tab reopens: same storage, a fresh pool and controller.
-    const gc2 = game(rootId, { ...c.deps, pool: newPool() });
+    // The tab reopens: same storage, a fresh pool and controller, which loads the game 2 events per page.
+    const gc2 = game(rootId, { ...c.deps, pool: newPool() }, { gamePage: 2 });
     for (const g of [ga, gb, gc2])
       await waitFor('the play phase', () => g.view.value?.phase === 'play', 120_000);
 
