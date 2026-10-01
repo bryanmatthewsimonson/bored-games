@@ -554,13 +554,14 @@ export class GameSession {
       if (typeof v === 'object' || v === 'ignored') {
         const r = this.rejectEvent(m.id, v === 'ignored' ? 'too many rival shuffle steps' : v.reject);
         // A lower-id rival shuffle step may push a kept one out: judge the side moves and flags again.
-        if (m.content.type === 'shuffle') this.settle();
+        if (m.content.type === 'shuffle') this.settleAndDecide();
         return r;
       }
     }
     const flagged = this.flagged.join();
     this.pool(m);
-    this.settle();
+    // A move's first-seen time is recorded before it links, and P reads the chain: no progress to note.
+    this.settleAndDecide();
     if (this.linked.has(m.id)) return { status: 'accepted' };
     const why = this.rejected.get(m.id);
     if (why !== undefined) return { status: 'rejected', reason: why };
@@ -647,7 +648,9 @@ export class GameSession {
     }
     if (r === 'nothing-new') return { status: 'duplicate' };
     this.settle();
+    // Progress first, then the claims: a claim must be judged against the P this event set (Ruling 11).
     this.noteProgress(before, s.id);
+    this.decideTimeouts();
     return { status: 'accepted' };
   }
 
@@ -677,7 +680,9 @@ export class GameSession {
     const before = this.stallMark();
     this.secrets.set(seat, s.deckSecret);
     this.settle();
+    // Progress first, then the claims: a claim must be judged against the P this event set (Ruling 11).
     this.noteProgress(before, s.id);
+    this.decideTimeouts();
     return this.phase === 'end' || this.phase === 'done' ? { status: 'accepted' } : { status: 'stored' };
   }
 
@@ -1051,8 +1056,8 @@ export class GameSession {
   /**
    * Bring the fold up to date: extend the chain with pooled moves at the head, fold waiting Shares events, take
    * the phase steps the events allow, then re-examine forks, until nothing changes. Then judge side moves at old
-   * prevs, flag equivocators and judge the stored timeout claims. Once a timeout has ended the game, nothing
-   * changes any more.
+   * prevs and flag equivocators. Once a timeout has ended the game, nothing changes any more. The stored claims
+   * are not judged here: the caller first records any progress the event made, then calls `decideTimeouts`.
    */
   private settle(): void {
     if (this.timedOut !== null) return;
@@ -1062,6 +1067,11 @@ export class GameSession {
     }
     this.judgeSides();
     this.flagged = this.equivocators();
+  }
+
+  /** `settle`, then judge the stored claims, for an event whose progress (if any) P already reflects. */
+  private settleAndDecide(): void {
+    this.settle();
     this.decideTimeouts();
   }
 

@@ -253,6 +253,36 @@ describe('timeouts during the shuffle and the deal', () => {
     expect(other.view().forfeits).toEqual([1]);
   });
 
+  it('judges a stored claim after the progress an event makes: the same result in either order', () => {
+    // Seats 1 and 2 are stalled. Seat 2 claims, then deals: its deal is progress, so seat 1 gets a fresh deadline.
+    const events = [...steps, deals[0] as NostrEvent];
+    const c = claim(game, 2, 1, (steps[SEATS - 1] as NostrEvent).id, T1);
+    const views = [
+      [
+        [c, T1 + D],
+        [deals[2] as NostrEvent, T1 + D + 1],
+      ],
+      [
+        [deals[2] as NostrEvent, T1 + D],
+        [c, T1 + D + 1],
+      ],
+    ].map((timed) => {
+      const watcher = catchUp(game, null, events, undefined, T1);
+      for (const [ev, at] of timed as [NostrEvent, number][]) watcher.receive(ev, at);
+      expect(watcher.view().phase).toBe('deal');
+      expect(watcher.view().forfeits).toEqual([]);
+      const p = watcher.view().pendingSince;
+      watcher.tick(p + D - 1);
+      expect(watcher.view().phase).toBe('deal');
+      watcher.tick(p + D);
+      expect(watcher.view().phase).toBe('cancelled');
+      expect(watcher.view().forfeits).toEqual([1]);
+      return p;
+    });
+    // P is when the deal was first seen, in each order.
+    expect(views).toEqual([T1 + D + 1, T1 + D]);
+  });
+
   it('keeps the 4 lowest-id claims per signer per head, whatever the arrival order', () => {
     const root = game.rootId;
     const six = [0, 1, 2, 3, 4, 5]
@@ -470,6 +500,40 @@ describe('timeouts during play and at the end', () => {
       expect(b.view().pendingSince).toBe(last);
       for (const now of [last + D - 1, last + D]) expect(b.timeoutTarget(now)).toBe(a.timeoutTarget(now));
     }
+  });
+
+  it('judges a stored claim at the end after the progress a secret makes, in either order', () => {
+    const secret = (k: number): NostrEvent => {
+      const id = game.ids[k] as Identity;
+      return finalizeEvent(
+        secretTemplate({ rootId: game.rootId, deckSecret: id.deckSecret }, T0),
+        id.sessionSk,
+        game.rnd,
+      );
+    };
+    const head = (moves[moves.length - 1] as NostrEvent).id;
+    // Seat 0's secret is in; seats 1 and 2 withhold theirs. Seat 1 claims, then reveals its own.
+    const c = claim(game, 1, 2, head, T0);
+    const results = [
+      [c, secret(1)],
+      [secret(1), c],
+    ].map((pair) => {
+      const watcher = catchUp(game, null, [...setup, ...moves], undefined, T1);
+      expect(watcher.view().phase).toBe('end');
+      expect(watcher.receive(secret(0), T1)).toEqual({ status: 'accepted' });
+      watcher.receive(pair[0], T1 + D);
+      watcher.receive(pair[1], T1 + D + 1);
+      // Seat 2 has a fresh deadline from the later secret, whichever came first.
+      expect(watcher.view().phase).toBe('end');
+      const p = watcher.view().pendingSince;
+      watcher.tick(p + D);
+      const v = watcher.view();
+      expect(v.phase).toBe('done');
+      expect(v.audit).toEqual({ fail: [2], reason: 'withheld secret' });
+      return [p, canonicalJson({ ...v, pendingSince: 0 })];
+    });
+    expect(results.map(([p]) => p)).toEqual([T1 + D + 1, T1 + D]);
+    expect(results[0]?.[1]).toBe(results[1]?.[1]);
   });
 
   it('keeps the module events of the canonical chain, frozen, from the setup reveals to the end', () => {
