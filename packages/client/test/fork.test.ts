@@ -256,6 +256,92 @@ describe('fork choice: a finished game stays finished, and junk does not slow it
     expect(canonicalJson(early.view())).toBe(canonicalJson(late.view()));
   });
 
+  it(
+    'Ruling 12: a late flood of shuffle rivals changes only the flags, in any order, at bounded cost',
+    () => {
+      const [s0, s1, s2] = setup as [NostrEvent, NostrEvent, NostrEvent];
+      type ShuffleContent = Extract<MoveContent, { type: 'shuffle' }>;
+      const shuffleOf = (ev: NostrEvent): ShuffleContent => parseMove(ev, DECK).content as ShuffleContent;
+      const sk = (seat: number): Uint8Array => game.ids[seat]?.sessionSk as Uint8Array;
+      const byId = (evs: NostrEvent[]): NostrEvent[] => [...evs].sort((a, b) => (a.id < b.id ? -1 : 1));
+      const descending = (evs: NostrEvent[]): NostrEvent[] => byId(evs).reverse();
+      /** A junk step `seq` on `prev` by `seat`: one step's deck with another's proof, so it never verifies. */
+      const junk = (
+        prev: NostrEvent,
+        seq: number,
+        deck: NostrEvent,
+        proof: NostrEvent,
+        i: number,
+      ): NostrEvent =>
+        finalizeEvent(
+          moveTemplate(
+            {
+              rootId: game.rootId,
+              prevId: prev.id,
+              seq,
+              content: { type: 'shuffle', deck: shuffleOf(deck).deck, proof: shuffleOf(proof).proof },
+            },
+            LATE + i,
+          ),
+          sk(seq - 1),
+          game.rnd,
+        );
+      // Seat 1: a valid rival to its own step 2, and 4 junk steps.
+      const seat1 = newSession(game, 1);
+      trust([seat1], [s0]);
+      expect(statuses(deliver([seat1], [s0], undefined, LATE))).toEqual(['accepted']);
+      const valid = seat1.buildShuffle(game.rnd, LATE);
+      const flood1 = [0, 1, 2, 3].map((i) => junk(s0, 2, s2, s1, i));
+      // Seat 2, the last shuffler: 4 junk steps 3, the lowest-id one under a 40-move tail of its own game actions,
+      // as if it could fake depth (acknowledgement) on its own.
+      const flood2 = [0, 1, 2, 3].map((i) => junk(s1, 3, s1, s2, i));
+      const tail: NostrEvent[] = [];
+      let prev = byId(flood2)[0] as NostrEvent;
+      for (let i = 0; i < 40; i++) {
+        const t = moveTemplate(
+          {
+            rootId: game.rootId,
+            prevId: prev.id,
+            seq: SEATS + 1 + i,
+            content: { type: 'action', action: { type: 'junk', i }, reveals: [], shares: [] },
+          },
+          LATE + i,
+        );
+        prev = finalizeEvent(t, sk(2), game.rnd);
+        tail.push(prev);
+      }
+      const orders = [
+        [...descending([...flood1, valid]), ...descending(flood2), ...tail],
+        [...tail, ...descending([...flood1, valid]), ...descending(flood2)],
+        [...[...tail].reverse(), ...byId(flood2), ...byId([...flood1, valid])],
+      ];
+      const checkedOf = (s: GameSession): Map<Hex, boolean> =>
+        (s as unknown as { shuffleChecked: Map<Hex, boolean> }).shuffleChecked;
+      const verifications = (s: GameSession): number =>
+        (s as unknown as { shuffleVerifications: number }).shuffleVerifications;
+      const views = orders.map((order) => {
+        const s = catchUp(game, null, log);
+        // The valid rival is trusted: the counter counts only real verifications, the junk's.
+        trust([s], [valid]);
+        const before = verifications(s);
+        deliver([s], order, undefined, LATE);
+        const v = s.view();
+        expect(v.phase).toBe('done');
+        expect(v.head).toEqual(done.head);
+        expect(v.logHash).toBe(done.logHash);
+        expect(v.equivocators).toEqual([1, 2]);
+        expect(v.forfeits).toEqual([1, 2]);
+        const checked = checkedOf(s);
+        expect(flood1.filter((ev) => checked.has(ev.id)).length).toBeLessThanOrEqual(3);
+        expect(flood2.filter((ev) => checked.has(ev.id)).length).toBeLessThanOrEqual(3);
+        expect(verifications(s) - before).toBeLessThanOrEqual(6);
+        return canonicalJson(v);
+      });
+      expect(new Set(views).size).toBe(1);
+    },
+    LONG,
+  );
+
   it('does not overflow the stack with 20,000 pooled junk moves', () => {
     const watcher = catchUp(game, null, log);
     const rival = rivalToFinal();

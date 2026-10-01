@@ -1,7 +1,8 @@
 import { initialDeck, jointKey, proveShuffle, shuffleDeck } from '@bored-games/deck';
-import { canonicalJson } from '@bored-games/game-kit';
+import { canonicalJson, createRng, shuffle } from '@bored-games/game-kit';
 import {
   finalizeEvent,
+  type Hex,
   type MoveContent,
   moveTemplate,
   type NostrEvent,
@@ -12,7 +13,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
 import type { Identity } from '../src/types.ts';
-import { deliver, makeGame, NOW, newSession, statuses, T0, trust } from './helpers.ts';
+import { deliver, LATE, makeGame, NOW, newSession, statuses, T0, trust } from './helpers.ts';
 
 const DECK = 108;
 const game = makeGame(3, 'client-shuffle');
@@ -103,15 +104,16 @@ describe('shuffle phase', () => {
     const bad = move(1, 2, steps[0]?.id as string, { type: 'shuffle', deck: out, proof });
     const r = fresh.receive(bad, NOW);
     expect(r).toEqual({ status: 'rejected', reason: 'the shuffle proof does not verify' });
-    // Seat 1's honest step on the same prev is not equivocation: the bad step is invalid as of that prev, so it
-    // never counts (D030 R2, Ruling 3). The honest step links and the shuffle goes on.
+    // The honest step links and the shuffle goes on. Seat 1 signed two distinct well-formed steps on the chain's
+    // prev, so it is flagged whether or not their proofs verify: only its key could sign both (D030 Ruling 12).
     expect(statuses(deliver([fresh], [steps[1], steps[2]]))).toEqual(['accepted', 'accepted']);
-    expect(fresh.view().forfeits).toEqual([]);
+    expect(fresh.view().equivocators).toEqual([1]);
+    expect(fresh.view().forfeits).toEqual([1]);
     expect(fresh.view().phase).toBe('deal');
     expect(fresh.view().head).toEqual(spectator.view().head);
     // The bad step again, now that its prev has a successor, changes nothing.
     expect(fresh.receive(bad, NOW).status).toBe('rejected');
-    expect(fresh.view().forfeits).toEqual([]);
+    expect(fresh.view().forfeits).toEqual([1]);
   });
 
   it('flags a seat that publishes two valid shuffle steps on one prev; the shuffle goes on, in either order', () => {
@@ -179,22 +181,36 @@ describe('shuffle phase', () => {
   };
   const byId = (evs: NostrEvent[]): NostrEvent[] => [...evs].sort((a, b) => (a.id < b.id ? -1 : 1));
 
-  it('verifies only the 3 lowest-id rival shuffle steps per prev and signer; the others are ignored', () => {
-    const fresh = newSession(game, null);
-    trust([fresh], steps);
-    expect(statuses(deliver([fresh], steps))).toEqual(['accepted', 'accepted', 'accepted']);
+  /** The session's count of shuffle proofs actually verified (cache misses; `trust` pre-fills the cache). */
+  const verifications = (s: GameSession): number =>
+    (s as unknown as { shuffleVerifications: number }).shuffleVerifications;
+  /** The session's acknowledged shuffle steps, sorted. */
+  const ackedOf = (s: GameSession): Hex[] => [...(s as unknown as { acked: Set<Hex> }).acked].sort();
+  const bad = 'the shuffle proof does not verify';
+  const outcomes = (results: ReturnType<typeof deliver>): (string | undefined)[] =>
+    results.map(([r]) => (r?.status === 'rejected' ? r.reason : r?.status));
+
+  it('verifies a rival shuffle step only while its group holds 3 steps or fewer, in either order (Ruling 12)', () => {
     const five = byId([0, 1, 2, 3, 4].map(junk));
-    const checked = (fresh as unknown as { shuffleChecked: Map<string, boolean> }).shuffleChecked;
-    const results = deliver([fresh], five).map(([r]) => (r?.status === 'rejected' ? r.reason : r?.status));
-    const bad = 'the shuffle proof does not verify';
-    const ignored = 'too many rival shuffle steps';
-    expect(results).toEqual([bad, bad, bad, ignored, ignored]);
-    expect(five.filter((ev) => checked.has(ev.id))).toHaveLength(3);
-    expect(fresh.view().equivocators).toEqual([]);
-    expect(fresh.view().head).toEqual(spectator.view().head);
+    const views = [five, [...five].reverse()].map((order) => {
+      const fresh = newSession(game, null);
+      trust([fresh], steps);
+      expect(statuses(deliver([fresh], steps))).toEqual(['accepted', 'accepted', 'accepted']);
+      const checked = (fresh as unknown as { shuffleChecked: Map<string, boolean> }).shuffleChecked;
+      // With seat 1's own step the group holds 2, then 3 steps: those rivals are candidates, verified and rejected.
+      // From the 4th step on, only acknowledged steps are candidates (seat 2 built on seat 1's own step), so the
+      // later junk stays pooled and unverified. Two steps by seat 1 on the chain's prev flag it, proofs or not.
+      expect(outcomes(deliver([fresh], order))).toEqual([bad, bad, 'stored', 'stored', 'stored']);
+      expect(order.filter((ev) => checked.has(ev.id))).toEqual(order.slice(0, 2));
+      expect(verifications(fresh)).toBe(2);
+      expect(fresh.view().equivocators).toEqual([1]);
+      expect(fresh.view().head).toEqual(spectator.view().head);
+      return canonicalJson(fresh.view());
+    });
+    expect(views[0]).toBe(views[1]);
   });
 
-  it('keeps the same rival shuffle steps whatever the arrival order: 3 lower-id junk rivals hide a valid one', () => {
+  it('gives the same view whatever the arrival order when 3 lower-id junk rivals and a valid one are held (Ruling 12)', () => {
     const seat1 = newSession(game, 1);
     trust([seat1], [steps[0] as NostrEvent]);
     expect(statuses(deliver([seat1], [steps[0]]))).toEqual(['accepted']);
@@ -211,14 +227,166 @@ describe('shuffle phase', () => {
       [valid, ...low],
     ].map((rivals) => {
       const s = newSession(game, null);
-      trust([s], steps);
+      trust([s], [...steps, valid]);
       deliver([s], [...steps, ...rivals]);
       return s.view();
     });
-    // The valid rival is the 4th lowest: no client counts it, so none flags seat 1 (an equivocator that grinds
-    // low ids hides its own rival, on every client alike).
-    expect(views[0]?.equivocators).toEqual([]);
+    // The group holds 5 steps, and only seat 1's own step, which seat 2 built on, is a candidate. Seat 1 signed
+    // distinct steps on the chain's prev, so every client flags it, whatever their proofs.
+    expect(views[0]?.equivocators).toEqual([1]);
+    expect(views[0]?.head).toEqual(spectator.view().head);
     expect(views[1]).toEqual(views[0]);
+  });
+
+  it('Ruling 12: two valid steps and low-id junk by one seat give one view in any arrival order', () => {
+    // The reproduced split: seat 1 signs valid steps a and b, and 3 junk steps with lower ids; seat 2 builds c on a.
+    const [s0, a, c] = steps as [NostrEvent, NostrEvent, NostrEvent];
+    const seat1 = newSession(game, 1);
+    trust([seat1], [s0]);
+    expect(statuses(deliver([seat1], [s0]))).toEqual(['accepted']);
+    const b = seat1.buildShuffle(game.rnd, T0 + 800);
+    const floor = a.id < b.id ? a.id : b.id;
+    const low: NostrEvent[] = [];
+    for (let i = 0; low.length < 3 && i < 5000; i++) {
+      const j = junk(6000 + i);
+      if (j.id < floor) low.push(j);
+    }
+    expect(low).toHaveLength(3);
+    const rng = createRng('ruling-12-split');
+    const base = [s0, ...low, b, a, c];
+    const orders = [
+      base,
+      [s0, ...low, a, b, c],
+      // Children first: c before a, a before s0.
+      [c, a, b, ...low, s0],
+      [c, b, a, ...[...low].reverse(), s0],
+      ...[0, 1, 2].map(() => shuffle(base, rng)),
+    ];
+    const seen = orders.map((order) => {
+      const s = newSession(game, null);
+      // The valid steps are trusted, so the counter counts only real verifications: the junk's.
+      trust([s], [s0, a, b, c]);
+      deliver([s], order);
+      const v = s.view();
+      expect(v.head).toEqual({ id: c.id, seq: 3 });
+      expect(v.phase).toBe('deal');
+      expect(v.equivocators).toEqual([1]);
+      expect(v.forfeits).toEqual([1]);
+      expect(verifications(s)).toBeLessThanOrEqual(3);
+      return { view: canonicalJson(v), acked: ackedOf(s) };
+    });
+    expect(new Set(seen.map((x) => x.view)).size).toBe(1);
+    // Acknowledgements do not depend on whether a step's descendants arrived before or after it.
+    expect(new Set(seen.map((x) => canonicalJson(x.acked))).size).toBe(1);
+    expect(seen[0]?.acked).toContain(a.id);
+    expect(seen[0]?.acked).not.toContain(b.id);
+  });
+
+  it('Ruling 12: five junk steps cost at most 3 verifications in either order; the seat is flagged and stalls', () => {
+    const five = byId([0, 1, 2, 3, 4].map((i) => junk(7000 + i)));
+    const sessions = [five, [...five].reverse()].map((order) => {
+      const s = newSession(game, 0);
+      trust([s], steps);
+      // The first 3 arrivals form a group of 3 or fewer: candidates, verified and rejected. The rest are pooled.
+      expect(outcomes(deliver([s], [steps[0], ...order]))).toEqual([
+        'accepted',
+        bad,
+        bad,
+        bad,
+        'stored',
+        'stored',
+      ]);
+      expect(verifications(s)).toBe(3);
+      expect(s.view().equivocators).toEqual([1]);
+      return s;
+    });
+    const [one, two] = sessions as [GameSession, GameSession];
+    expect(canonicalJson(two.view())).toBe(canonicalJson(one.view()));
+    // Seat 1's valid step, now a 6th unacknowledged step on the prev, is not a candidate: it does not link.
+    for (const s of sessions) {
+      expect(s.receive(steps[1], NOW)).toEqual({ status: 'stored' });
+      expect(s.view().head).toEqual({ id: steps[0]?.id, seq: 1 });
+    }
+    // Seat 1 has stalled its own position: a timeout claim cancels the game, and seat 1 forfeits.
+    const claim = one.buildTimeout(1, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([1]);
+    }
+    expect(canonicalJson(two.view())).toBe(canonicalJson(one.view()));
+  });
+
+  it('Ruling 12: at 3 steps on a prev every step is a candidate; 2 junk and a valid step link the valid one', () => {
+    const two = byId([0, 1].map((i) => junk(8000 + i)));
+    const [s0, s1, s2] = steps as [NostrEvent, NostrEvent, NostrEvent];
+    const views = [
+      [s0, ...two, s1, s2],
+      [s1, ...two, s0, s2],
+      [s2, s1, ...[...two].reverse(), s0],
+    ].map((order) => {
+      const s = newSession(game, null);
+      trust([s], steps);
+      deliver([s], order);
+      const v = s.view();
+      // The shuffle goes on: seat 2's step links on the valid one.
+      expect(v.head).toEqual({ id: s2.id, seq: 3 });
+      expect(v.phase).toBe('deal');
+      expect(v.equivocators).toEqual([1]);
+      expect(verifications(s)).toBe(2);
+      return canonicalJson(v);
+    });
+    expect(new Set(views).size).toBe(1);
+  });
+
+  it('Ruling 12: another seat acknowledges a step from 1 to 32 moves below it, whichever arrives first', () => {
+    // Seat 2's junk steps on seat 1's step, each under a tail of seat-2 actions ending in one seat-0 action: at
+    // depth 32 it acknowledges the junk, at depth 33 it does not. Seat 2's own moves never do.
+    const sk = (seat: number): Uint8Array => game.ids[seat]?.sessionSk as Uint8Array;
+    const step = (i: number): NostrEvent =>
+      finalizeEvent(
+        moveTemplate(
+          {
+            rootId: game.rootId,
+            prevId: steps[1]?.id as string,
+            seq: 3,
+            content: contentOf(steps[1] as NostrEvent),
+          },
+          T0 + 9000 + i,
+        ),
+        sk(2),
+        game.rnd,
+      );
+    const tail = (top: NostrEvent, depth: number): NostrEvent[] => {
+      const out: NostrEvent[] = [];
+      let prev = top;
+      for (let d = 1; d <= depth; d++) {
+        const t = moveTemplate(
+          {
+            rootId: game.rootId,
+            prevId: prev.id,
+            seq: 3 + d,
+            content: { type: 'action', action: { type: 'junk', d }, reveals: [], shares: [] },
+          },
+          T0 + 9000 + d,
+        );
+        prev = finalizeEvent(t, sk(d === depth ? 0 : 2), game.rnd);
+        out.push(prev);
+      }
+      return out;
+    };
+    const near = step(0);
+    const far = step(1);
+    const events = [near, ...tail(near, 32), far, ...tail(far, 33)];
+    const acked = [events, [...events].reverse()].map((order) => {
+      const s = newSession(game, null);
+      deliver([s], order);
+      const out = ackedOf(s);
+      expect(out).toContain(near.id);
+      expect(out).not.toContain(far.id);
+      return canonicalJson(out);
+    });
+    expect(acked[0]).toBe(acked[1]);
   });
 
   it('rejects an event for another root', () => {

@@ -270,7 +270,7 @@ describe('play: game-action moves', () => {
     expect(new Set(views).size).toBe(1);
   });
 
-  it('does not count two shuffle steps signed by one wrong seat as equivocation: invalid moves never count', () => {
+  it('misshapen steps are not candidates: two shuffle steps signed by one wrong seat are not equivocation', () => {
     const step = log[0] as NostrEvent;
     const a = resign<Extract<MoveContent, { type: 'shuffle' }>>(step, 1);
     const b = resign<Extract<MoveContent, { type: 'shuffle' }>>(step, 1, (c) => c, T0 + 101);
