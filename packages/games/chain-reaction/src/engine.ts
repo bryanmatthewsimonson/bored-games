@@ -7,6 +7,7 @@ import {
   type Cell,
   type ChainReactionEvent,
   type ChainReactionState,
+  type DealtSlot,
   type HandSlot,
   LOOSE,
   type MergerState,
@@ -30,14 +31,15 @@ const err = (code: string, message: string): EngineError => ({ code, message });
 
 /**
  * Copies every part a handler may mutate. `rules` and `deck.order` are never
- * mutated, so they are shared with the input. Key order is preserved so that
- * equal states serialize identically.
+ * mutated, and `deck.dealt` is only ever replaced (see `drawTo`), so they are
+ * shared with the input. Key order is preserved so that equal states serialize
+ * identically.
  */
 function clone(s: ChainReactionState): Draft {
   const phase = s.phase;
   return {
     ...s,
-    deck: { order: s.deck.order, next: s.deck.next },
+    deck: { order: s.deck.order, next: s.deck.next, dealt: s.deck.dealt },
     setupTiles: s.setupTiles.slice(),
     board: s.board.slice(),
     players: s.players.map((p) => ({
@@ -95,12 +97,16 @@ export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainRe
   // D022: positions 0..seats-1 are the setup tiles; each seat's hand then takes the next
   // `handSize` positions in seat order, so every hand is assigned before any card is revealed.
   // In view mode the slots are `null` until `learn`.
+  // The setup positions are public from the start, so `dealt` is the same in full mode and every view.
+  const dealt: DealtSlot[] = [];
+  for (let pos = 0; pos < input.seats; pos++) dealt.push({ pos, to: null });
   const players: PlayerState[] = [];
   for (let s = 0; s < input.seats; s++) {
     const hand: HandSlot[] = [];
     for (let i = 0; i < rules.handSize; i++) {
       const pos = input.seats + s * rules.handSize + i;
       hand.push({ pos, tile: order ? (order[pos] as number) : null });
+      dealt.push({ pos, to: s });
     }
     players.push({ cash: rules.startingCash, shares: rules.chains.map(() => 0), hand });
   }
@@ -113,7 +119,7 @@ export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainRe
       mode: input.mode,
       viewer: input.mode === 'full' ? null : input.viewer,
       // Positions 0..seats-1 are the setup tiles, revealed publicly in seat order.
-      deck: { order, next: input.seats * (1 + rules.handSize) },
+      deck: { order, next: input.seats * (1 + rules.handSize), dealt },
       setupTiles: players.map(() => null),
       board: new Array<Cell>(TILE_COUNT).fill(null),
       players,
@@ -130,7 +136,16 @@ export function setupGame(input: SetupInput<ChainReactionRules>): Result<ChainRe
 
 // ---------------------------------------------------------------- helpers
 
-function sizesOf(d: Draft | ChainReactionState): number[] {
+/** The parts of a state that scoring reads (board, rules, seats) and mutates (cash, shares, bank). */
+interface Ledger {
+  readonly rules: ChainReactionRules;
+  readonly seats: number;
+  readonly board: readonly Cell[];
+  readonly players: { cash: number; shares: number[] }[];
+  readonly bank: number[];
+}
+
+function sizesOf(d: Pick<ChainReactionState, 'board' | 'rules'>): number[] {
   return chainSizes(d.board, d.rules.chains.length);
 }
 
@@ -157,6 +172,8 @@ function drawTo(d: Draft, seat: Seat, count: number): number[] {
     player.hand.push({ pos, tile: d.deck.order ? (d.deck.order[pos] as number) : null });
     positions.push(pos);
   }
+  // Replaced, not pushed: the array is shared with the input state (see `clone`).
+  if (positions.length > 0) d.deck.dealt = [...d.deck.dealt, ...positions.map((pos) => ({ pos, to: seat }))];
   return positions;
 }
 
@@ -181,12 +198,12 @@ function holdersFrom(d: Draft, start: Seat, chain: number): Seat[] {
   return out;
 }
 
-function payBonuses(d: Draft, chain: number, price: number, final: boolean, events: Events): void {
+function payBonuses(d: Ledger, chain: number, price: number, final: boolean, events: Events): void {
   const holdings = d.players.map((p) => p.shares[chain] ?? 0);
   const payouts = bonusPayouts(d.rules, holdings, price);
   if (payouts.length === 0) events.push({ type: 'noBonus', chain: chainId(d.rules, chain), final });
   for (const p of payouts) {
-    (d.players[p.seat] as DeepMutable<PlayerState>).cash += p.amount;
+    (d.players[p.seat] as Ledger['players'][number]).cash += p.amount;
     events.push({
       type: 'bonusPaid',
       chain: chainId(d.rules, chain),
@@ -198,13 +215,16 @@ function payBonuses(d: Draft, chain: number, price: number, final: boolean, even
   }
 }
 
-function finalScore(d: Draft, events: Events): void {
-  const reason = 'declared';
+/**
+ * Final scoring: pays every active chain's final bonuses and sells every share
+ * of it to the bank. Reads only public data. Mutates `d`; returns cash per seat.
+ */
+function settle(d: Ledger, events: Events): number[] {
   const sizes = sizesOf(d);
   const active = activeChains(sizes);
   for (const c of active) payBonuses(d, c, sharePrice(d.rules, c, sizes[c] ?? 0), true, events);
   for (let seat = 0; seat < d.seats; seat++) {
-    const player = d.players[seat] as DeepMutable<PlayerState>;
+    const player = d.players[seat] as Ledger['players'][number];
     for (const c of active) {
       const count = player.shares[c] ?? 0;
       if (count === 0) continue;
@@ -215,11 +235,35 @@ function finalScore(d: Draft, events: Events): void {
       events.push({ type: 'finalSale', seat, chain: chainId(d.rules, c), count, amount });
     }
   }
-  const cash = d.players.map((p) => p.cash);
+  return d.players.map((p) => p.cash);
+}
+
+function finalScore(d: Draft, events: Events): void {
+  const reason = 'declared';
+  const cash = settle(d, events);
   const places = cash.map((v) => 1 + cash.filter((o) => o > v).length);
   d.result = { reason, cash, places };
   d.phase = { kind: 'over' };
   events.push({ type: 'gameEnded', reason, cash, places });
+}
+
+/**
+ * Each seat's cash as if the game were declared over now: final scoring on a
+ * copy (PROTOCOL §8.2). Public data only, so every view agrees. Once the game is
+ * over every share has been sold, so this is the final cash. Only the parts
+ * `settle` mutates are copied; this runs for every view on every fuzz step.
+ */
+export function standingsOf(s: ChainReactionState): number[] {
+  return settle(
+    {
+      rules: s.rules,
+      seats: s.seats,
+      board: s.board,
+      players: s.players.map((p) => ({ cash: p.cash, shares: p.shares.slice() })),
+      bank: s.bank.slice(),
+    },
+    [],
+  );
 }
 
 // ---------------------------------------------------------------- automatic steps

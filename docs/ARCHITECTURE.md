@@ -47,9 +47,12 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 | `learn(state, {deck, pos, card})` | Records a card this viewer privately decrypted. |
 | `knownTo(state, seat)`, `view(state, viewer)` | What a seat knows, and the redaction of a full state to one viewer. |
 | `outcome(state)` | Places, scores and reason. Feeds stats. |
+| `standings(state)` | Per-seat scores as if the game ended now, from public data only, so every view agrees. Equals `outcome.scores` at the end. Ranks the remaining seats after a forfeit (PROTOCOL §8.2). Chain Reaction: final scoring on a copy. |
+| `dealt(state)` | Every deck position assigned so far, `{deck, pos, to}` in assignment order, with `to` a seat or `null` for a public position. Entries never change or disappear. Identical in full mode and every view; the protocol derives owed shares from it (PROTOCOL §6.1, §6.2). |
+| `revealsOf(state, action)` | The hidden cards an action shows from its actor's hand, as `{deck, pos, card}` claims, which the protocol checks against reveal shares. `[]` for anything else, including unparseable input. Never throws. Chain Reaction: a placed tile, or each discarded tile. |
 | `invariants(state)`, `coverage(state, events)` | Used by the fuzzer and tests. |
 
-**Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action.
+**Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action. After every action it also checks `standings`, `dealt` and `revealsOf` against the deck order and every view.
 
 **Hidden cards are deck positions.** When a player draws, the engine deterministically assigns the next deck position to them. The identity is never in the public log until the card is played, discarded or revealed. Public reveals, such as Chain Reaction's setup tiles, are `reveal` actions from the pseudo-actor `deck`, which `pending()` requests.
 

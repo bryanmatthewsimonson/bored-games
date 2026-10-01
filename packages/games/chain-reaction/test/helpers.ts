@@ -107,6 +107,15 @@ export function scenario(spec: ScenarioSpec): ChainReactionState {
   );
   const next = order.length;
   order.push(...bagFront, ...bagRest);
+  // Setup tiles are public; earlier tiles (now on the board or discarded) are spread over the seats.
+  const owner = new Map<number, number>();
+  handSlots.forEach((h, s) => {
+    for (const slot of h) owner.set(slot.pos, s);
+  });
+  const dealt = Array.from({ length: next }, (_, pos) => ({
+    pos,
+    to: pos < seats ? null : (owner.get(pos) ?? pos % seats),
+  }));
 
   const shares = Array.from({ length: seats }, () => new Array<number>(chainCount).fill(0));
   for (const [id, holdings] of Object.entries(spec.shares ?? {})) {
@@ -133,7 +142,7 @@ export function scenario(spec: ScenarioSpec): ChainReactionState {
     seats,
     mode: 'full',
     viewer: null,
-    deck: { order, next },
+    deck: { order, next, dealt },
     setupTiles,
     board,
     players: Array.from({ length: seats }, (_, s) => ({

@@ -106,6 +106,23 @@ export function checkInvariants(s: ChainReactionState): string[] {
   }
   if (s.deck.next < s.seats || s.deck.next > TILE_COUNT) out.push(`deck.next ${s.deck.next} out of range`);
 
+  // Assigned positions: exactly 0..next-1 in order, the setup tiles public, every other position a seat's.
+  if (s.deck.dealt.length !== s.deck.next)
+    out.push(`${s.deck.dealt.length} positions dealt, next is ${s.deck.next}`);
+  s.deck.dealt.forEach((d, i) => {
+    if (d.pos !== i) out.push(`dealt entry ${i} is position ${d.pos}`);
+    const ok =
+      d.pos < s.seats
+        ? d.to === null
+        : d.to !== null && Number.isInteger(d.to) && d.to >= 0 && d.to < s.seats;
+    if (!ok) out.push(`position ${d.pos} dealt to ${d.to}`);
+  });
+  s.players.forEach((p, seat) => {
+    for (const h of p.hand) {
+      if (s.deck.dealt[h.pos]?.to !== seat) out.push(`seat ${seat} holds position ${h.pos} not dealt to it`);
+    }
+  });
+
   // A chain on the board always has a shareholder: its founder took a share,
   // or the bank had none because players already held them all.
   // (Final scoring sells every share back to the bank, so this holds until the game is over.)

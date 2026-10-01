@@ -100,6 +100,35 @@ describe('fuzzer and replay on the toy module', () => {
     expect(rep.ok && stateHash(rep.state)).toBe(game.finalHash);
   });
 
+  it('implements standings, dealt and revealsOf', () => {
+    const toy = createToy();
+    const rules = toy.defaultRules();
+    const init = toy.setup({ rules, seats: 2, mode: 'full', deckOrders: { cards: range(12) } });
+    if (!init.ok) throw new Error(init.error.message);
+    const s = init.value;
+    expect(toy.dealt(s)).toEqual([
+      { deck: 'cards', pos: 0, to: null },
+      { deck: 'cards', pos: 1, to: 0 },
+      { deck: 'cards', pos: 2, to: 0 },
+      { deck: 'cards', pos: 3, to: 1 },
+      { deck: 'cards', pos: 4, to: 1 },
+    ]);
+    expect(toy.dealt(toy.view(s, 1))).toEqual(toy.dealt(s));
+    expect(toy.standings(s)).toEqual([0, 0]);
+
+    const revealed = toy.apply(s, { type: 'reveal', actor: 'deck', deck: 'cards', pos: 0, card: 0 });
+    if (!revealed.ok) throw new Error(revealed.error.message);
+    const play = { type: 'play', actor: 0, pos: 2, card: 2 };
+    expect(toy.revealsOf(revealed.state, play)).toEqual([{ deck: 'cards', pos: 2, card: 2 }]);
+    const played = toy.apply(revealed.state, play);
+    if (!played.ok) throw new Error(played.error.message);
+    expect(toy.dealt(played.state).at(-1)).toEqual({ deck: 'cards', pos: 5, to: 0 });
+    expect(toy.standings(played.state)).toEqual([7, 0]);
+    for (const junk of [null, 7, 'play', [], {}, { type: 'nonsense' }, { type: 'play', pos: '2' }]) {
+      expect(toy.revealsOf(s, junk)).toEqual([]);
+    }
+  });
+
   it('reports a game whose outcome the caller forbids', () => {
     const toy = createToy();
     const report = fuzzGame(toy, {
@@ -117,6 +146,7 @@ describe('fuzzer and replay on the toy module', () => {
     ['nondeterministic', /view mismatch|replay produced a different final state/],
     ['acceptsImpostor', /seat that is not pending/],
     ['neverEnds', /no termination/],
+    ['badRevealsOf', /revealsOf claims cards:\d+=\d+, but the deck holds \d+/],
   ] as const)('reports a %s bug with a reproducible seed', (bug, message) => {
     const toy = createToy({ bug });
     const report = fuzzBatch(toy, {

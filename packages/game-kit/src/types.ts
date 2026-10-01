@@ -43,6 +43,17 @@ export interface Learn {
  * production a reveal is backed by every player's decryption share; in tests
  * and audits it comes from the known deck order.
  */
+/**
+ * A deck position assigned so far. `to` is the seat that owns the card (it
+ * learns it privately), or null for a public position, whose card is revealed
+ * to everyone (a requested or completed reveal).
+ */
+export interface DealtPosition {
+  readonly deck: string;
+  readonly pos: number;
+  readonly to: Seat | null;
+}
+
 export interface RevealAction {
   readonly type: 'reveal';
   readonly actor: 'deck';
@@ -106,6 +117,25 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   /** Redacts a full state to what `viewer` may know (null = spectator). */
   view(state: S, viewer: Seat | null): S;
   outcome(state: S): Outcome | null;
+  /**
+   * Per-seat scores as if the game ended now, computed from public data only,
+   * so every seat's view gives the same result. Equals `outcome(state).scores`
+   * once the game is over. Ranks the remaining seats after a forfeit
+   * (PROTOCOL §8.2).
+   */
+  standings(state: S): readonly number[];
+  /**
+   * Every deck position assigned so far, in assignment order. An entry never
+   * changes or disappears, even after its card is played. Identical in full
+   * mode and in every view of the same log (PROTOCOL §6.1, §6.2).
+   */
+  dealt(state: S): readonly DealtPosition[];
+  /**
+   * The hidden cards `action` would make public from its actor's hand, as the
+   * action claims them. Empty for actions that reveal nothing and for
+   * unparseable input; `apply` still decides legality. Never throws.
+   */
+  revealsOf(state: S, action: unknown): readonly Learn[];
   /** Human-readable invariant violations; empty when the state is sound. */
   invariants(state: S): readonly string[];
   /** Optional rare-event tags used by the fuzzer's coverage report. */
