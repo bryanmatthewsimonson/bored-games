@@ -412,7 +412,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
    The failed seats forfeit, with the end adjustment (§8.2).
 4. **Attestation.** Each player SHOULD publish a Result attestation (7456), signed by its **npub**, holding `{audit, logHash, outcome}` as its client computed them.
    - An attestation counts for a client when its signer is a seated npub and its content equals the client's own result.
-   - One that does not match is kept, since the result may still change as events arrive, but only the latest per seat (by `created_at`, then the lowest id).
+   - A client keeps one attestation per seat: its latest by (`created_at`, id), the higher id winning a tie, whatever the arrival order. The seat counts as attested when that one matches; an older one never counts. A mismatching latest one is kept, since the result may still change as events arrive.
    - **Forfeit endings are attested too.** When a timeout ends the game the audit cannot run, so the `audit` field records the forfeits: `{fail: [forfeiting seats ascending], reason: "timeout"}` during play, or `reason: "withheld secret"` at the end (§8.2). A cancelled game has no result and is not attested.
    - A result is **valid** once the log, the reveals and the audit verify. It is **finalized** once every seat has attested.
    - Stats and ratings count valid results, and anyone can recompute one.
@@ -427,14 +427,15 @@ A move that waits stays pooled and is judged again as events arrive. A move that
   - Shares events and Secret reveals that **removed a seat from the set of stalled seats** at the head (D030, Ruling 11). A Shares event that adds shares but leaves the stalled set unchanged is not progress.
 
   Any progress restarts the deadline for every seat still stalled.
-- **Claiming.** Once `now ≥ P + deadline` and a seat other than its own is stalled at the head, a seat MAY publish a Timeout claim (7454) naming the head and the lowest such seat.
+- **Claiming.** Once `now ≥ P + deadline`, a seat that is not itself stalled at the head, while another seat is, MAY publish a Timeout claim (7454) naming the head and the lowest such seat.
 - **Accepting.** A client accepts a claim if and only if:
   - it is signed by a seated session key
   - its `head` is the client's current head
   - some seat is stalled at that head (below)
+  - its signer's seat is **not** stalled at that head: a stalled seat cannot claim
   - the client's own clock shows `now ≥ P + deadline`.
 
-  The claim's `created_at` and the seat it names are **ignored**. A claim whose head the client has not linked, or whose deadline the client's clock has not reached, is kept and judged again as events arrive and the clock advances. A claim naming an older head is rejected.
+  The claim's `created_at` is **ignored**, and the seat it names is a shape check only (a seat of the game other than the claimant's): it need not be stalled, and it does not change the effect. A client judges its stored claims only after recording the progress of the event it is folding, so an event that makes progress restarts the deadline before any claim is judged again, whatever the arrival order. A claim whose head the client has not linked, or whose deadline the client's clock has not reached, is kept and judged again as events arrive and the clock advances. A claim naming an older head is rejected.
 - **Who is stalled at the head:**
   - Shuffle: the seat whose step is next.
   - Deal: every seat that has not shared every position the deal assigns to another seat or to `null`.
@@ -460,9 +461,9 @@ A seat forfeits by any of: being stalled when a client accepts a timeout claim, 
 **Finality.** Accepting a claim is final for the client. From then on, every later move, Shares event and Secret reveal of the game is stored but changes nothing, fork choice stops, and the client's result no longer changes. Attestations are still accepted. Clients can still disagree if a stalled seat acts while some have accepted and others have not (§11).
 
 ## 9. Relays
-- **Publishing.** Clients publish to every relay in the root's `relay` tags plus their own NIP-65 write relays, and deduplicate by event id.
+- **Publishing.** Clients publish to every relay in the root's `relay` tags plus their own configured relays, and deduplicate by event id. Clients SHOULD also publish to their NIP-65 write relays (kind 10002); this client does not implement that yet.
 - **Retries.** On failure, clients rebroadcast the same signed event; they never re-sign.
-- **Subscribing.** Clients subscribe with `{"kinds":[7452,7453,7454,7455,7456],"#e":[rootId]}`.
+- **Subscribing.** Clients subscribe with `{"kinds":[7452,7453,7454,7455],"authors":[the seats' session keys],"#e":[rootId]}` and `{"kinds":[7456],"authors":[the seats' npubs],"#e":[rootId]}`, so strangers' events cannot crowd a relay's capped answer, and they still drop any event from another key. Stored events are paged: while a page brings an event not seen before, clients ask again with `until` set to that page's oldest `created_at`.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
@@ -495,8 +496,8 @@ It MUST also meet these contract rules, which the session relies on:
 - **Denial of service.** Clients MUST cap accepted event size (256 KB) and MUST ignore events from keys that are not seated. They also bound the work a seat can cause:
   - An event whose id is already held is a duplicate, found before it is parsed or verified.
   - Timeout claims: the limits of §8.1.
-  - Rival shuffle steps: at most 3 proof verifications per (`prev`, signer).
-  - Mismatching attestations: one per seat (§7).
+  - Rival shuffle steps: per (`prev`, signer), only the 3 lowest-id steps other than the chain's own are verified, so the kept set does not depend on arrival order. Higher ids are ignored: they neither count as equivocation nor link. A seat that grinds low ids can hide its own valid rival, but on every client alike.
+  - Attestations: one per seat (§7).
   - Fork choice runs trial folds, and they are bounded. A pooled move that cannot link yet counts as depth 1 at most, with nothing below it. A branch's pooled depth is computed iteratively and capped at 64. Each fork's verdict is kept until the pool below it or the share set changes. Trials skip the audit and private learns, and the audit is cached by log hash.
   - **Residual:** junk moves under a rival that can link still cost one trial each, paid for with the attacker's own signed events. The first trial drops them as invalid.
 - **Relay limits.** A public relay with an event-size cap below about 50 KB may refuse shuffle events. Mitigation: prefer relays that accept them (the owner's relay does). If needed, a later protocol version splits the proof into its own event.

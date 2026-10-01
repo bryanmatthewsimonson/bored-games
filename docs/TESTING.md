@@ -17,7 +17,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    Each profile has its own key and storage, so these are three separate players. The header shows `profile: a`, and so on.
    - **Why windows:** browsers throttle timers in hidden tabs, which slows the automatic shuffle and deal to a crawl. If a window seems stuck, click into it to focus it.
    - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the public relays (`wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the full list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
-4. **Create** (window a): under **New table**, choose **3 players** (the default) and a **Time allowed per move**, then click **Create table**. The Table page opens and says "2 open seats left."
+4. **Create** (window a): under **New table**, choose **3 players** (the default) and a **Time allowed per move**, then click **Create table** (the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
 5. **Join** (windows b and c): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
    - To join with the link instead, click **Copy share link** in window a. The link carries no profile, so add one before pasting it into window b: `http://localhost:5173/?profile=b#/t/…`. Then click **Join this table**.
 6. **Start** (window a): once the page says "Every seat is taken.", click **Start game**, then **Yes, start the game**. All three windows move to the game.
@@ -46,6 +46,8 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs `pnpm check`; once it passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
 3. Share the URL the workflow prints, usually `https://<owner>.github.io/<repo>/`. Each person plays in their own browser, so no `?profile=` is needed.
 
+**Before sharing widely, use a dedicated origin.** A project site at `https://<owner>.github.io/<repo>/` shares its origin, and so its `localStorage`, with every other GitHub Pages project site of the same owner. Each player's identity key and game secrets live in that storage, so any script on any of those sites can read them. For anything beyond a test among friends, serve the app from a custom domain or subdomain, or from a Pages user or organization site (`<name>.github.io`) used only for this app (D036).
+
 ### Relays
 - The deployed app uses the public relays `wss://relay.damus.io`, `wss://nos.lol` and `wss://relay.nostr.band`.
 - **Public relays may reject the shuffle.** Each player's shuffle step is one event of about 36 KB, and many public relays cap event size or rate-limit. If a game stays on "Shuffling the deck" while every window is open, the relays are refusing it. Use a relay that accepts large events, such as your own nostr-rs-relay (PLAN open question 7).
@@ -55,7 +57,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 ### Optional: log in with a browser extension (NIP-07)
 Install a NIP-07 extension (for example Alby or nos2x) and reload the app. In **Settings → Identity**, tick **Use browser extension (NIP-07)**. The page reloads and you play as the extension's key. That is a different player from the profile's local key. The extension asks you to sign the table, the join, the game start and the end-of-game attestation. In-game moves are signed with a per-game session key, so they need no prompt.
 
-Without an extension, the app creates a local key per profile. **Settings → Identity → Show secret key (nsec)** shows it so you can export it.
+If you chose the extension but it is not there when the page loads (disabled, or injected too late), the app uses the profile's local key and says "Browser extension not found; using this profile's local key." Without an extension, the app creates a local key per profile. **Settings → Identity → Show secret key (nsec)** shows it so you can export it.
 
 ## 3. Known limitations
 - **No cross-device backup of game secrets yet.** Each game's secrets live only in this browser, under this profile. Keep using the same browser and profile for a game. Clearing site data loses your seat in running games.
