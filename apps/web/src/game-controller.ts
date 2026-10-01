@@ -787,14 +787,20 @@ export class GameController {
       const slot = moveSlot(head.seq + 1, head.id);
       return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildShuffle(rnd, now()));
     }
-    if (kind === 'deal')
-      return this.#commit('deal', this.#outbox.get('deal')?.event ?? session.buildDeal(rnd, now()));
+    // A deal, secret or attestation the session refused (an orphan: after a shuffle fork, or a changed result) is
+    // built anew. None of them is a chain move, so a second one is never equivocation: a seat's later shares of a
+    // position are ignored, its secret is one value, and its latest attestation is the one that counts.
+    if (kind === 'deal') return this.#commit('deal', this.#live('deal') ?? session.buildDeal(rnd, now()));
     if (kind === 'secret')
-      return this.#commit('secret', this.#outbox.get('secret')?.event ?? session.buildSecret(rnd, now()));
-    if (kind === 'attest') {
-      const held = this.#outbox.get('attest')?.event;
-      return this.#commit('attest', held ?? (await this.#attestEvent(session)));
-    }
+      return this.#commit('secret', this.#live('secret') ?? session.buildSecret(rnd, now()));
+    if (kind === 'attest')
+      return this.#commit('attest', this.#live('attest') ?? (await this.#attestEvent(session)));
+  }
+
+  /** The event saved for a single-slot duty (`deal`, `secret`, `attest`), unless the session refused it. */
+  #live(slot: string): NostrEvent | null {
+    const entry = this.#outbox.get(slot);
+    return entry !== undefined && !entry.orphan ? entry.event : null;
   }
 
   /** The attestation: the session's `attestTemplate(createdAt)`, signed by the player's npub (§4.8). */
@@ -828,11 +834,14 @@ export class GameController {
     const session = this.#session;
     if (session === null) throw new Error('the game is not loaded');
     // Another tab of this profile may have saved an event for the same slot meanwhile: use that one instead.
-    const saved = loadOutbox(this.#d.storage, this.#d.profile, this.rootId).get(slot);
+    // A refused event saved for a single-slot duty is replaced; a move slot always keeps what it holds.
+    let saved = loadOutbox(this.#d.storage, this.#d.profile, this.rootId).get(slot);
+    if (saved?.orphan === true && !slot.startsWith('move:')) saved = undefined;
     const ev = saved?.event ?? built;
+    const held = this.#outbox.get(slot);
     const entry: OutboxEntry =
-      this.#outbox.get(slot)?.event.id === ev.id
-        ? (this.#outbox.get(slot) as OutboxEntry)
+      held?.event.id === ev.id && !(held.orphan && saved === undefined)
+        ? held
         : { event: ev, confirmed: saved?.confirmed ?? false, orphan: saved?.orphan ?? false };
     this.#outbox.set(slot, entry);
     if (!this.#persist(slot)) {

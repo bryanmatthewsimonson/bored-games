@@ -380,6 +380,18 @@ describe('LobbyController.lobbyOf', () => {
 describe('GameController', () => {
   it('three players reach play with no input (automatic shuffle and deal); a spectator agrees', async () => {
     const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    // Seat 1's storage holds a deal the session refuses (signed by a key with no seat): it becomes an orphan and
+    // the deal is built anew, instead of the stale one being resent forever.
+    const strayDeal = finalizeEvent(
+      { kind: KIND.shares, created_at: now(), tags: [['e', rootId, '', 'root']], content: '{}' },
+      rnd(32),
+      rnd,
+    );
+    const seat1 = bySeat[1] as Profile;
+    seat1.deps.storage.setItem(
+      `bg:${seat1.name}:outbox:${rootId}`,
+      JSON.stringify({ deal: { event: strayDeal, confirmed: false, orphan: false } }),
+    );
     const players = bySeat.map((p) => game(rootId, p.deps));
     // The spectator's relays also deliver forgeries: a Table at the same `d` tag from another author, dated far
     // in the future, a Join naming another table, and a Join for this table that the root does not seat.
@@ -464,6 +476,8 @@ describe('GameController', () => {
       const outbox = loadOutbox(p.deps.storage, p.name, rootId);
       expect(outbox.size).toBe(2);
       expect(outbox.get('deal')?.confirmed).toBe(true);
+      expect(outbox.get('deal')?.orphan).toBe(false);
+      expect(outbox.get('deal')?.event.id).not.toBe(strayDeal.id);
       // The shuffle is kept under the head it was built on.
       const prev = i === 0 ? rootId : null;
       const [slot, entry] = [...outbox.entries()].find(([k]) => k.startsWith(`move:${i + 1}:`)) ?? [];
