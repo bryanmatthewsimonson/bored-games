@@ -85,8 +85,8 @@ import type {
  *
  * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
  * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
- * part in fork choice. The others stay pooled and unverified. Both conditions grow with the event set alone, so
- * every client holding the same events has the same candidates.
+ * part in fork choice. The others stay pooled and unverified. Both conditions are functions of the event set alone,
+ * so every client holding the same events has the same candidates.
  *
  * Timeouts (D030 R4–R5 and Rulings 10–11, PROTOCOL §8) are judged by local receipt time. `receive(ev, now)`
  * records `now` as the time this client first saw `ev`, and the game's progress time P is the latest first-seen
@@ -303,8 +303,8 @@ export class GameSession {
    */
   private readonly acked = new Set<Hex>();
   /**
-   * Bumped whenever a shuffle step's eligibility may change: a group passes `MAX_SHUFFLE_CANDIDATES`, or a step in
-   * such a group is acknowledged. Fork verdicts are kept while it holds.
+   * Bumped whenever a shuffle step's eligibility may change: a group passes `MAX_SHUFFLE_CANDIDATES`, or any shuffle
+   * step is acknowledged (a superset, which only costs fork-memo misses). Fork verdicts are kept while it holds.
    */
   private shuffleVersion = 0;
   /**
