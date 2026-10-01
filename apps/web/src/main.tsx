@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   const nostr = await waitForNostr(
     () => window.nostr,
     wantsExtension ? 1000 : 0,
-    (ms) => new Promise((r) => setTimeout(r, ms)),
+    (ms) => new Promise((r) => platformTimers.later(ms, r)),
   );
   const extensionMissing = wantsExtension && nostr === undefined;
   let signer: Awaited<ReturnType<typeof loadIdentity>>;
