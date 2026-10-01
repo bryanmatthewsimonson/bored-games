@@ -13,6 +13,7 @@ export default defineConfig({
         },
       },
       { test: { name: 'brand', root: 'packages/brand', include: ['test/**/*.test.ts'] } },
+      { test: { name: 'repo', root: '.', include: ['tests/**/*.test.ts'] } },
       {
         test: { name: 'fuzz', root: 'tools/fuzz', include: ['test/**/*.test.ts'], testTimeout: 300_000 },
       },

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
+    "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck && tsc -p tests/tsconfig.json",
     "lint": "biome check .",
     "format": "biome format --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
