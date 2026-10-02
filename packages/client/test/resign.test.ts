@@ -218,31 +218,60 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     expect(summary(b)).toEqual(summary(a));
   });
 
-  it('a resign received after the chain is over changes nothing; a mate received after a resign links, but the resign stands', () => {
+  it('a mate raced against a resign is the rules result on every client, rated, whichever came first', () => {
     const t = chessTable('resign-mate');
     const pre = [play(t, 0, 'f2f3'), play(t, 1, 'e7e5'), play(t, 0, 'g2g4')];
-    // White resigns while Black mates.
+    // White resigns while Black mates: Black's honest raced turn is scored, and it ends the game by the rules.
     const r = resignEvent(t.game, 0, (pre[2] as NostrEvent).id);
     const mate = (t.players[1] as GameSession).buildAction(move(1, 'd8h4'), t.game.rnd, NOW);
     const a = newSession(t.game, null);
     const b = newSession(t.game, null);
     deliver([a], [...pre, mate]);
     expect(a.receive(r, NOW)).toEqual({ status: 'rejected', reason: 'the game is already over' });
-    expect(summary(a)).toMatchObject({
+    deliver([b], [...pre, r]);
+    expect(b.view()).toMatchObject({ phase: 'done', resigned: [0] });
+    expect(b.receive(mate, NOW)).toEqual({ status: 'accepted' });
+    const want = {
       phase: 'done',
+      head: { seq: 4 },
       resigned: [],
       audit: 'pass',
       outcome: { places: [2, 1], reason: 'checkmate', scores: [0, 2] },
+    };
+    expect(summary(a)).toMatchObject(want);
+    expect(summary(b)).toEqual(summary(a));
+    expect(b.view().resignOverridden).toEqual([0]);
+    expect(a.view().resignOverridden).toEqual([]);
+  });
+
+  it('a seat that resigns and then plays mate: the rules result stands, places and scores agreeing (D052)', () => {
+    const t = chessTable('resign-then-mate');
+    const pre = [play(t, 0, 'f2f3'), play(t, 1, 'e7e5'), play(t, 0, 'g2g4')];
+    const black = t.players[1] as GameSession;
+    // Black, to move, resigns, then (its client patched, or a race) signs the mate anyway.
+    const mate = black.buildAction(move(1, 'd8h4'), t.game.rnd, NOW);
+    const r = resignEvent(t.game, 1, (pre[2] as NostrEvent).id);
+    const orders = [
+      [...pre, r, mate],
+      [...pre, mate, r],
+      [r, mate, ...pre],
+      [mate, ...pre, r],
+    ];
+    const results = orders.map((order) => {
+      const s = newSession(t.game, 0);
+      deliver([s], order);
+      return s;
     });
-    deliver([b], [...pre, r]);
-    expect(b.receive(mate, NOW)).toEqual({ status: 'accepted' });
-    // The raced game-ending move: the game ended by the resign there, scored at the mate (PROTOCOL §8.3, races).
-    expect(summary(b)).toMatchObject({
-      phase: 'done',
-      head: { seq: 4 },
-      resigned: [0],
-      outcome: { places: [2, 1], reason: 'resign' },
-    });
+    for (const s of results) {
+      expect(summary(s)).toMatchObject({
+        phase: 'done',
+        resigned: [],
+        audit: 'pass',
+        outcome: { places: [2, 1], reason: 'checkmate', scores: [0, 2] },
+      });
+      expect(summary(s)).toEqual(summary(results[0] as GameSession));
+      expect(s.attestTemplate(NOW).content).toBe((results[0] as GameSession).attestTemplate(NOW).content);
+    }
   });
 
   it('a resign before the first move cancels the game', () => {

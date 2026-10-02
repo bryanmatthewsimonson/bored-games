@@ -99,6 +99,13 @@ export interface SessionView {
    */
   resigned: number[];
   /**
+   * Seats whose counted Resign was outranked by the game's own end, reached at the resign's scoring position (a
+   * mate or a declared end there, PROTOCOL §8.3, D052): the rules result stands, rated as usual. Empty otherwise.
+   */
+  resignOverridden: number[];
+  /** The id of the Resign that counted on this client (ended, cancelled or outranked the game), or null. */
+  resignId: Hex | null;
+  /**
    * Seats flagged for equivocation (D030 R2, Ruling 5): two distinct moves on one prev of the chain, both valid as
    * of that prev. The game goes on; at the end they move to the last places.
    */

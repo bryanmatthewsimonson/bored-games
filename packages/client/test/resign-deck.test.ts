@@ -742,6 +742,110 @@ describe('a resign whose head an equivocation moved off the chain (review F8)', 
   );
 });
 
+/** The seat that signed `fx.moves[i]` (the seat pending before it). */
+const signer = (i: number): number => pendingSeat(i);
+
+/**
+ * Where a resign by `r` naming the head after `h` game actions is scored, with the first `k` actions held: past
+ * `r`'s last action, then through the run of the seat pending there (PROTOCOL §8.3, D052 fix round 2).
+ */
+function scoredAt(k: number, r: number, h: number): number {
+  let s = h;
+  for (let i = h; i < k; i++) if (signer(i) === r) s = i + 1;
+  if (s < k && signer(s) !== r) {
+    const q = signer(s);
+    while (s < k && signer(s) === q) s++;
+  }
+  return s;
+}
+
+/** The head id after `h` game actions. */
+const headAfter = (h: number): Hex => (fx.moves[h - 1] as NostrEvent).id;
+
+describe('where a resign is scored (D052, fix round 2)', () => {
+  it(
+    'the resigner’s own moves after its resign and the next seat’s raced turn count; a coalition move after does not',
+    () => {
+      // Seat p is pending at k; the next seat q plays a run, then a third signer c moves.
+      const k = findMove((_p, i) => {
+        if (i < 6) return false;
+        const p = signer(i);
+        let m = i;
+        while (m < fx.moves.length && signer(m) === p) m++;
+        let n = m;
+        while (n < fx.moves.length && signer(n) === signer(m)) n++;
+        return n < fx.moves.length - 1 && signer(n) !== p && m > i;
+      });
+      const p = signer(k);
+      let m = k;
+      while (signer(m) === p) m++;
+      const q = signer(m);
+      let n = m;
+      while (signer(n) === q) n++;
+      const c = signer(n);
+      expect(new Set([p, q, c]).size).toBe(3);
+      // p resigns naming the head where it was pending, then signs its own remaining moves; q's raced turn and
+      // c's move follow.
+      const resign = resignEvent(p, headAfter(k));
+      const held = prefix(n + 1);
+      expect(scoredAt(n + 1, p, k)).toBe(n);
+      const orders = [
+        [...prefix(k), resign, ...fx.moves.slice(k, n + 1)],
+        [resign, ...held],
+        [...held, resign],
+        shuffled([...held, resign], 'scored-any'),
+        [...shuffled(held, 'scored-fresh'), resign],
+      ];
+      const secrets = others([p]).map((seat) => secretOf(seat));
+      const clients = orders.flatMap((o) => [fed(q, [...o, ...secrets]), fed(c, [...o, ...secrets])]);
+      const standings = chainReaction.standings(at(n, null).view().state as ChainReactionState);
+      const want = summary(clients[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({
+        phase: 'done',
+        head: { seq: SEATS + n + 1 },
+        resigned: [p],
+        outcome: { reason: 'resign', scores: standings, unrated: true, endedBy: { type: 'resign', seat: p } },
+      });
+      for (const s of clients) expect(summary(s)).toBe(want);
+      // The attested log stops at the scoring position: c's unscored move is not in it.
+      const contents = clients.map((s) => s.attestTemplate(LATE).content);
+      expect(new Set(contents).size).toBe(1);
+      expect(JSON.parse(contents[0] as string).logHash).toBe(at(n, null).view().logHash);
+    },
+    LONG,
+  );
+
+  it(
+    'a stale resign naming an old head does not roll back the resigner’s own later moves',
+    () => {
+      const k = 30;
+      const r = signer(20);
+      const h = 2;
+      const s0 = scoredAt(k, r, h);
+      expect(s0).toBeGreaterThan(20);
+      const resign = resignEvent(r, headAfter(h));
+      const standings = chainReaction.standings(at(s0, null).view().state as ChainReactionState);
+      const secrets = others([r]).map((seat) => secretOf(seat));
+      const orders = [
+        [...prefix(k), resign],
+        [...shuffled(prefix(k), 'stale-old-a'), resign],
+        shuffled([...prefix(k), resign], 'stale-old-b'),
+      ];
+      const clients = orders.map((o) => fed((r + 1) % SEATS, [...o, ...secrets]));
+      // A client that counted the resign before holding its later moves: the scoring position moves forward as
+      // they arrive, never back (orders a and c), so the result converges.
+      const want = summary(clients[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({
+        phase: 'done',
+        outcome: { scores: standings },
+        resigned: [r],
+      });
+      for (const s of clients) expect(summary(s)).toBe(want);
+    },
+    LONG,
+  );
+});
+
 describe('where Resign is not allowed (D052)', () => {
   it('a 2-seat game with a deck rejects every Resign: the secret would open the whole deck', () => {
     const twoSeats = { ...chainReaction, seatRange: () => ({ min: 2, max: 6 }) };

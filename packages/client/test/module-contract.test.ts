@@ -13,6 +13,8 @@ import { MODULES } from './helpers.ts';
 
 const GAMES = 12;
 const MAX_STEPS = 2000;
+/** Player actions before a game may be declared over. */
+const MIN_STEPS = 150;
 
 describe('modules with a deck pend public reveals only before the first player action', () => {
   for (const module of MODULES.values()) {
@@ -30,6 +32,7 @@ describe('modules with a deck pend public reveals only before the first player a
         if (!init.ok) throw new Error(init.error.message);
         let state = init.value;
         let acted = false;
+        let actions = 0;
         for (let step = 0; step < MAX_STEPS; step++) {
           const p = module.pending(state);
           if (p.type === 'over') break;
@@ -41,15 +44,19 @@ describe('modules with a deck pend public reveals only before the first player a
             const pos = [...p.positions].sort((a, b) => a - b)[0] as number;
             action = { type: 'reveal', actor: 'deck', deck: deck.id, pos, card: order[pos] };
           } else {
+            // Play well into the game before ending it when allowed (review M-c), so mid-game states are covered.
             const legal = module.legalActions(state, p.seat) as readonly { declareEnd?: boolean }[];
-            action = legal.find((a) => a.declareEnd === true) ?? rng.pick(legal);
+            const playOn = legal.filter((a) => a.declareEnd !== true);
+            const end = step >= MIN_STEPS ? legal.find((a) => a.declareEnd === true) : undefined;
+            action = end ?? rng.pick(playOn.length > 0 ? playOn : legal);
+            actions++;
             acted = true;
           }
           const r = module.apply(state, action);
           if (!r.ok) throw new Error(`${r.error.code}: ${r.error.message}`);
           state = r.state;
         }
-        expect(acted).toBe(true);
+        expect(actions).toBeGreaterThan(Math.min(MIN_STEPS, 60));
       }
     });
   }
