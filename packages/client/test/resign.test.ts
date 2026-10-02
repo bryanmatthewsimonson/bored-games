@@ -129,15 +129,70 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     for (const s of t.all) expect(s.view()).toMatchObject({ resigned: [1], outcome: { places: [1, 2] } });
   });
 
-  it('counts on receipt whatever head it names: an unknown head, an older head or the root', () => {
-    for (const head of ['unknown', 'older', 'root'] as const) {
+  it('counts once the head it names is on the chain: an older head or the root counts at once, a later one waits', () => {
+    for (const head of ['older', 'root'] as const) {
       const t = chessTable(`resign-head-${head}`);
       const m1 = play(t, 0, 'd2d4');
       play(t, 1, 'd7d5');
-      const named = head === 'unknown' ? junkId('nowhere') : head === 'older' ? m1.id : t.game.rootId;
+      const named = head === 'older' ? m1.id : t.game.rootId;
       expect(t.spectator.receive(resignEvent(t.game, 0, named), NOW)).toEqual({ status: 'accepted' });
+      // Named the root, but moves were played: a loss, not a cancel.
       expect(t.spectator.view()).toMatchObject({ phase: 'done', head: { seq: 2 }, resigned: [0] });
       expect(t.spectator.view().outcome?.places).toEqual([2, 1]);
+    }
+    const t = chessTable('resign-head-unknown');
+    play(t, 0, 'd2d4');
+    const r = resignEvent(t.game, 0, junkId('nowhere'));
+    expect(t.spectator.receive(r, NOW)).toEqual({ status: 'stored' });
+    expect(t.spectator.receive(r, NOW)).toEqual({ status: 'duplicate' });
+    expect(t.spectator.view()).toMatchObject({ phase: 'play', resigned: [] });
+    expect(t.players[1]?.duties()).toEqual([{ kind: 'decide' }]);
+  });
+
+  it("an honest split cannot happen: a resign delivered before the resigner's last move waits for it", () => {
+    const t = chessTable('resign-split');
+    play(t, 0, 'e2e4');
+    // Black plays and resigns seconds later, on White's turn; White's client gets the resign first.
+    const m2 = (t.players[1] as GameSession).buildAction(move(1, 'e7e5'), t.game.rnd, NOW);
+    deliver([t.players[1] as GameSession], [m2]);
+    const r = (t.players[1] as GameSession).buildResign(t.game.rnd, T0 + 600);
+    deliver([t.players[1] as GameSession], [r]);
+    const white = t.players[0] as GameSession;
+    expect(white.receive(r, NOW)).toEqual({ status: 'stored' });
+    expect(white.view().phase).toBe('play');
+    expect(white.receive(m2, NOW)).toEqual({ status: 'accepted' });
+    deliver([t.spectator], [m2, r]);
+    const want = summary(t.players[1] as GameSession);
+    expect(want).toMatchObject({
+      phase: 'done',
+      head: { seq: 2 },
+      resigned: [1],
+      outcome: { places: [1, 2] },
+    });
+    for (const s of t.all) expect(summary(s)).toEqual(want);
+    // Both attestations match on every client: "Result confirmed".
+    for (const [seat, s] of t.players.entries()) {
+      deliver(t.all, [finalizeEvent(s.attestTemplate(NOW), t.game.npubSks[seat] as Uint8Array, t.game.rnd)]);
+    }
+    for (const s of t.all) expect(s.view().attested).toEqual([0, 1]);
+  });
+
+  it('a lagging client that gets the resign before every move shows the loss at the same head, never a cancel', () => {
+    const t = chessTable('resign-lagging');
+    const m1 = play(t, 0, 'c2c4');
+    const m2 = play(t, 1, 'c7c5');
+    const r = (t.players[1] as GameSession).buildResign(t.game.rnd, T0 + 600);
+    deliver(t.all, [r]);
+    for (const order of [
+      [r, m2, m1],
+      [r, m1, m2],
+      [m2, r, m1],
+    ]) {
+      const late = newSession(t.game, null);
+      // Whatever arrives first waits: the resign for move 2, move 2 for move 1.
+      expect(deliver([late], order).flat()[0]).toEqual({ status: 'stored' });
+      expect(summary(late)).toEqual(summary(t.spectator));
+      expect(late.view()).toMatchObject({ phase: 'done', head: { seq: 2 }, resigned: [1] });
     }
   });
 
@@ -235,7 +290,7 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
 
   it('cannot be retracted: a flood of lower-id resigns and a timeout claim after it change nothing', () => {
     const t = chessTable('resign-flood');
-    play(t, 0, 'e2e4');
+    const moves = { e4: play(t, 0, 'e2e4') };
     const white = t.players[0] as GameSession;
     // White resigns on Black's turn; Black attests and leaves.
     const r = white.buildResign(t.game.rnd, T0 + 500);
@@ -252,13 +307,25 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     deliver(t.all, [...flood, claim], undefined, LATE);
     expect(t.all.map(summary)).toEqual(before);
     for (const s of t.all) expect(s.receive(claim, LATE + 1).status).toBe('rejected');
-    // A client that gets the flood before the real resign counts the flood's first resign at once: same winner.
+    // A fresh client that folds the move first (as the web controller does on load) counts the real resign at
+    // once, whatever the flood: the flood's resigns wait for junk heads and never count.
     const late = newSession(t.game, null);
-    deliver([late], [...flood, r, claim], undefined, LATE);
-    expect(late.view()).toMatchObject({ resigned: [0], forfeits: [0] });
+    const e4 = moves.e4 as NostrEvent;
+    deliver([late], [e4, ...flood, r, claim], undefined, LATE);
+    expect(summary(late)).toEqual(before[2]);
     // The kept resign of the seat is its lowest id.
     const kept = (late as unknown as { resigns: Map<number, { id: Hex }> }).resigns.get(0)?.id;
     expect(kept).toBe([...flood, r].map((e) => e.id).sort()[0]);
+    // Residual (PROTOCOL §8.3): a client that gets all 9 junk resigns and the real one before the move keeps only
+    // the 8 lowest waiting ids, so the seat's own flood hides its resign there. Nothing counted is ever undone.
+    const blind = newSession(t.game, null);
+    expect(
+      deliver([blind], [...flood, r])
+        .flat()
+        .at(-1),
+    ).toEqual({ status: 'rejected', reason: 'resign limit' });
+    deliver([blind], [e4]);
+    expect(blind.view()).toMatchObject({ phase: 'play', resigned: [] });
   });
 
   it('a resign and an equivocation: both seats forfeit and share the last place', () => {

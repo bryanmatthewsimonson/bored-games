@@ -170,7 +170,7 @@ export function badShuffle(seat: number): Adversary {
 /**
  * `resign`: the seat plays honestly until the chain reaches `atSeq` moves, then resigns on its own decision
  * (PROTOCOL §4.9, D045; 2-seat games without a deck only) and only attests from then on. On its own turn no move
- * can race the resign, so every client must agree. Not a cheat: the resign is labelled so the report shows how
+ * can race the resign, and every client counts it at the head it names, so every client must agree. Not a cheat: the resign is labelled so the report shows how
  * every client received it.
  */
 export function resignAt(seat: number, atSeq: number): Adversary {

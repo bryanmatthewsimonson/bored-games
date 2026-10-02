@@ -415,8 +415,9 @@ export class GameController {
     for (const [slot, entry] of this.#outbox) if (!entry.orphan) held.push({ ev: entry.event, slot });
     for (const ev of this.#buffer.splice(0)) held.push({ ev, slot: null });
     const at = (ev: NostrEvent): number => this.#seen.get(ev.id) ?? Number.POSITIVE_INFINITY;
-    // A resign is final on receipt (PROTOCOL §8.3): among events seen at the same time (or never), it goes last, so
-    // a fresh load folds the moves before it.
+    // Among events seen at the same time (or never, on a fresh load) a resign goes last. The session would wait for
+    // its head anyway (PROTOCOL §8.3), but a resign whose head is already on the chain counts at once, outside the
+    // per-seat cap on waiting resigns, so junk resigns the same seat flooded cannot crowd it out on a fresh device.
     const rank = (ev: NostrEvent): number => (ev.kind === KIND.resign ? 1 : 0);
     held.sort((a, b) => at(a.ev) - at(b.ev) || rank(a.ev) - rank(b.ev));
     for (const { ev, slot } of held) {

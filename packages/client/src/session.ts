@@ -102,11 +102,12 @@ import type {
  * withheld secrets failed).
  *
  * Resigns (PROTOCOL §4.9, §8.3, D045) are allowed only in 2-seat games without a deck; elsewhere they are rejected.
- * A Resign from a seat counts as soon as this client receives it, whatever head it names (the head is
- * informational), and like an accepted timeout it is final for this client: the fold stops, so later moves, claims
- * and resigns change nothing (cancelled before the first game action, otherwise done with the resigning seat last).
- * A Resign received after this client's result is final (an accepted timeout, or the chain over) changes nothing.
- * Clients that see a resign and a raced event in different orders can disagree, as in the claim race (§11).
+ * A Resign counts once the head it names is on this client's chain (the root, or a linked move); until then it is
+ * kept, at most `MAX_PENDING_RESIGNS` per seat (the lowest ids). Once one counts it is final for this client, like
+ * an accepted timeout: the fold stops, and later moves, claims and resigns change nothing. A resign naming the root
+ * before any game action cancels the game; any other ends it with the resigning seat last. A resign received after
+ * this client's result is final (an accepted timeout, or the chain over) changes nothing. Clients that see a resign
+ * and a raced event in different orders can disagree, as in the claim race (§11).
  */
 
 type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
@@ -175,11 +176,25 @@ interface Claim {
   claimant: number;
 }
 
-/** The resign that ended the game for this client: the seat, and the head the fold stopped at. */
+/** The resign that ended the game for this client: its id and seat, and whether it cancels the game. */
 interface Resigned {
+  id: Hex;
   seat: number;
-  head: Hex;
+  /** It named the root while the chain held no game action. */
+  cancels: boolean;
 }
+
+/** A Resign kept until the head it names is on the chain. */
+interface PendingResign {
+  r: ParsedResign;
+  seat: number;
+}
+
+/**
+ * Resigns kept per seat while the head they name is not on the chain, the lowest ids; more are rejected. They do
+ * not count yet, so a cap here never retracts anything (D045).
+ */
+const MAX_PENDING_RESIGNS = 8;
 
 /** A well-formed move from a seated session key, kept as a possible equivocation rival. */
 interface Candidate {
@@ -411,6 +426,8 @@ export class GameSession {
   private readonly resigns = new Map<number, ParsedResign>();
   /** The seat of every well-formed Resign received, by id, so a copy is answered without parsing it. */
   private readonly resignIds = new Map<Hex, number>();
+  /** Resigns waiting for the head they name, by id. */
+  private readonly pendingResigns = new Map<Hex, PendingResign>();
   /** The resign that ended the game for this client, or null. Once set it is final: the fold stops. */
   private resignedBy: Resigned | null = null;
   /** The accepted timeout, or null. Once set it is final: the fold stops. */
@@ -518,7 +535,10 @@ export class GameSession {
       } catch {
         // A module that throws leaves the claims as they were; the event is still folded.
       }
-      return this.intake(ev, this.clockOf(now));
+      const r = this.intake(ev, this.clockOf(now));
+      // A move that just linked may be the head a waiting resign names.
+      this.countPendingResigns();
+      return r;
     } catch (e) {
       return { status: 'rejected', reason: `internal error: ${message(e)}` };
     }
@@ -595,7 +615,7 @@ export class GameSession {
     if (claim !== undefined) return this.claimStatus(claim, false);
     if (this.attestIds.has(id)) return this.attestStatus(id, false);
     const resignSeat = this.resignIds.get(id);
-    if (resignSeat !== undefined) return this.resignStatus(resignSeat, false);
+    if (resignSeat !== undefined) return this.resignStatus(id, resignSeat, false);
     return this.seenAt.has(id) ? { status: 'duplicate' } : null;
   }
 
@@ -966,9 +986,10 @@ export class GameSession {
 
   /**
    * Fold a Resign (PROTOCOL §4.9, §8.3, D045): signed by a seated session key, in a 2-seat game without a deck
-   * (rejected otherwise). It counts at once, whatever head it names: `accepted` when it ends the game for this
-   * client, a `duplicate` for the seat whose resign already did, and `rejected` (but kept for the record) when the
-   * result was already final. Per seat the lowest id is kept.
+   * (rejected otherwise). It is `accepted` when it ends the game for this client, `stored` while the head it names
+   * is not on the chain, a `duplicate` for the seat whose resign already ended the game, and `rejected` (but kept
+   * for the record) when the result was already final. A resign whose head is on the chain counts at once; the
+   * others wait, at most `MAX_PENDING_RESIGNS` per seat, the lowest ids. Per seat the lowest id is kept on record.
    */
   private intakeResign(ev: unknown, now: number): ReceiveResult {
     let r: ParsedResign;
@@ -982,18 +1003,57 @@ export class GameSession {
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
     if (!this.resignAllowed())
       return this.rejectEvent(r.id, 'resigning is allowed only in 2-seat games without a deck');
+    if (!this.final() && !this.linked.has(r.headId)) {
+      // It waits for its head: keep the lowest ids per seat. A waiting resign does not count yet.
+      const mine = [...this.pendingResigns.values()]
+        .filter((x) => x.seat === seat)
+        .map((x) => x.r.id)
+        .sort();
+      if (mine.length >= MAX_PENDING_RESIGNS) {
+        const highest = mine[mine.length - 1] as Hex;
+        if (r.id > highest) return this.rejectEvent(r.id, 'resign limit');
+        this.pendingResigns.delete(highest);
+        this.resignIds.delete(highest);
+        this.rejected.set(highest, 'resign limit');
+      }
+      this.pendingResigns.set(r.id, { r, seat });
+    }
     this.see(r.id, now);
     this.resignIds.set(r.id, seat);
     const held = this.resigns.get(seat);
     if (held === undefined || r.id < held.id) this.resigns.set(seat, r);
-    if (this.final()) return this.resignStatus(seat, true);
-    this.resignedBy = { seat, head: this.headId() };
-    return { status: 'accepted' };
+    if (this.final()) return this.resignStatus(r.id, seat, true);
+    if (this.linked.has(r.headId)) {
+      this.countResign(r, seat);
+      return { status: 'accepted' };
+    }
+    return { status: 'stored' };
   }
 
-  /** How a resign by `seat` stands now: `fresh` on its first receipt. */
-  private resignStatus(seat: number, fresh: boolean): ReceiveResult {
+  /** End the game for this client with `r`: final from now on (PROTOCOL §8.3). */
+  private countResign(r: ParsedResign, seat: number): void {
+    const cancels = r.headId === this.root.id && this.chain.length <= this.shuffleSteps;
+    this.resignedBy = { id: r.id, seat, cancels };
+    this.pendingResigns.clear();
+  }
+
+  /**
+   * Count the lowest-id waiting resign whose head is now on the chain, if the result is not final yet. Run after
+   * every event, since a move that links may be the head a resign waits for.
+   */
+  private countPendingResigns(): void {
+    if (this.pendingResigns.size === 0 || this.final()) return;
+    const ready = byId([...this.pendingResigns.values()].map((x) => x.r)).find((r) =>
+      this.linked.has(r.headId),
+    );
+    if (ready === undefined) return;
+    this.countResign(ready, (this.pendingResigns.get(ready.id) as PendingResign).seat);
+  }
+
+  /** How resign `id` by `seat` stands now: `fresh` on its first receipt. */
+  private resignStatus(id: Hex, seat: number, fresh: boolean): ReceiveResult {
     if (this.resignedBy?.seat === seat) return { status: 'duplicate' };
+    if (this.pendingResigns.has(id) && !this.final()) return { status: fresh ? 'stored' : 'duplicate' };
     return fresh || this.final()
       ? { status: 'rejected', reason: 'the game is already over' }
       : { status: 'duplicate' };
@@ -1872,7 +1932,7 @@ export class GameSession {
    * equivocating seats move to shared last places and the others keep their declared order.
    */
   private status(): Status {
-    if (this.resignedBy !== null) return this.resignedStatus(this.resignedBy.seat);
+    if (this.resignedBy !== null) return this.resignedStatus(this.resignedBy);
     if (this.timedOut !== null) return this.timeoutStatus(this.timedOut.seats);
     if (this.phase !== 'done') {
       return {
@@ -1898,18 +1958,15 @@ export class GameSession {
   /**
    * The result once a resign has ended the game (PROTOCOL §8.3, D045), from the fold as it stood then; the resigning
    * seat (and any equivocator) forfeits:
-   * - before the first game action: `cancelled`, no outcome;
-   * - otherwise `done`: the forfeiting seats last, the others ranked by the module's `standings` at the head, and
-   *   the reason `resign`. As after a timeout, the audit does not run: it records the forfeits,
-   *   `{fail: forfeits, reason: 'resign'}`, and the result can be attested.
+   * - a resign naming the root while the chain held no game action: `cancelled`, no outcome;
+   * - any other: `done`, the forfeiting seats last and the other ranked by the module's `standings` at the head,
+   *   reason `resign`, even if this client's chain holds no game action yet. The audit does not run: it records the
+   *   forfeits, `{fail: forfeits, reason: 'resign'}`, and the result can be attested.
    */
-  private resignedStatus(seat: number): Status {
-    const resigned = [seat];
+  private resignedStatus(by: Resigned): Status {
+    const resigned = [by.seat];
     const forfeits = ascending([...resigned, ...this.flagged]);
-    const actions = this.chain.length > this.shuffleSteps;
-    if (this.phase === 'shuffle' || this.phase === 'deal' || !actions) {
-      return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits, resigned };
-    }
+    if (by.cancels) return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits, resigned };
     const ranked = rankWithForfeits(this.module.standings(this.state), forfeits, null);
     const outcome = { ...ranked, reason: 'resign' };
     return { phase: 'done', outcome, audit: { fail: [...forfeits], reason: 'resign' }, forfeits, resigned };

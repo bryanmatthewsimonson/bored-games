@@ -372,13 +372,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     if (!full && seen.length > 0) {
       for (let i = 0; i < replays; i++) stream.splice(c.rng.int(stream.length + 1), 0, c.rng.pick(seen));
     }
-    // A resign is final on receipt (PROTOCOL §8.3), so a client folds a sync's other events before its resigns,
-    // as the web controller does when it loads a game.
-    const ordered = [
-      ...stream.filter((ev) => ev.kind !== KIND.resign),
-      ...stream.filter((ev) => ev.kind === KIND.resign),
-    ];
-    for (const ev of ordered) deliver(c, ev);
+    for (const ev of stream) deliver(c, ev);
     c.session.tick(clock);
   };
 
