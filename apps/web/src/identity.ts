@@ -11,13 +11,17 @@ import { decodeNostrKey, nsecEncode } from './bech32.ts';
 import { bytesToHex, hexToBytes } from './hex.ts';
 import type { RandomBytes } from './random.ts';
 import {
+  claimUnowned,
   isPersistentStore,
   type KeyValueStore,
   loadGameStatus,
   loadSecrets,
   loadTableList,
   readItem,
+  removeItem,
   storageKey,
+  tableIsMine,
+  tableOwner,
   writeItem,
 } from './storage.ts';
 
@@ -193,7 +197,9 @@ export const KEY_ERRORS = {
   malformed: 'That is not a secret key. Paste a key that starts with nsec1, or 64 hexadecimal characters.',
   invalid: 'That secret key is not valid.',
   same: 'This profile already uses that key.',
-  notSaved: 'This browser would not save the key, so it was not imported.',
+  notSaved: 'This browser would not save the key, so nothing was changed.',
+  notPersistent:
+    'This browser is not saving site data (a private window, or site data blocked), so an imported key would be lost when the page reloads, and so would your current key. Use a normal window to import a key.',
 } as const;
 
 /** A pasted secret key: `nsec1…` or 64 hex characters. An npub is refused with its own message. */
@@ -210,53 +216,163 @@ export function parseSecretKeyInput(text: string): KeyInput {
 
 export type ImportResult = { ok: true; pubkey: Hex } | { ok: false; error: string };
 
+/** A player key this profile used before, kept so the player can switch back to it (D041). */
+export interface KeptKey {
+  pubkey: Hex;
+  /** The secret key, hex. */
+  sk: string;
+  /** When it was replaced (Unix seconds). */
+  at: number;
+}
+
+/** Past this many kept keys, the oldest that are backed up and have no game in progress may be dropped. */
+export const KEPT_KEYS_SOFT_CAP = 10;
+
+const historyKey = (profile: string): string => storageKey(profile, 'sk-history');
+/** Where an older version kept a single replaced key; read once and folded into the history. */
+const legacyPreviousKey = (profile: string): string => storageKey(profile, 'sk-previous');
+
+/** The keys this profile replaced, newest first. Malformed entries are skipped. */
+export function keptKeys(profile: string, store: KeyValueStore): KeptKey[] {
+  const out: KeptKey[] = [];
+  const raw = readItem(store, historyKey(profile));
+  let list: unknown = null;
+  try {
+    list = raw === null ? null : JSON.parse(raw);
+  } catch {
+    list = null;
+  }
+  const add = (sk: unknown, at: unknown) => {
+    if (typeof sk !== 'string') return;
+    const bytes = validSecretKey(sk);
+    if (bytes === null) return;
+    const pubkey = getPublicKey(bytes);
+    if (out.some((k) => k.pubkey === pubkey)) return;
+    out.push({ pubkey, sk, at: typeof at === 'number' && Number.isFinite(at) ? at : 0 });
+  };
+  if (Array.isArray(list)) for (const e of list) if (typeof e === 'object' && e !== null) add(e.sk, e.at);
+  add(readItem(store, legacyPreviousKey(profile)), 0);
+  const current = readItem(store, storageKey(profile, 'sk'));
+  return out.filter((k) => k.sk !== current).sort((a, b) => b.at - a.at);
+}
+
 /**
- * Make a pasted secret key this profile's key. The current local key is kept as `bg:<profile>:sk-previous` so
- * the player can switch back, and the profile signs with the local key from now on (not the extension). The
- * page must reload afterwards.
+ * Keep the list of replaced keys within `KEPT_KEYS_SOFT_CAP` by dropping the oldest ones that are backed up
+ * and have no game in progress. A key that is not backed up, or still has a game, is never dropped, even past
+ * the cap.
  */
-export function importSecretKey(profile: string, store: KeyValueStore, text: string): ImportResult {
+export function pruneKeptKeys(list: readonly KeptKey[], droppable: (k: KeptKey) => boolean): KeptKey[] {
+  const out = [...list].sort((a, b) => b.at - a.at);
+  for (let i = out.length - 1; i >= 0 && out.length > KEPT_KEYS_SOFT_CAP; i--)
+    if (droppable(out[i] as KeptKey)) out.splice(i, 1);
+  return out;
+}
+
+function saveKeptKeys(profile: string, store: KeyValueStore, list: readonly KeptKey[]): boolean {
+  const key = historyKey(profile);
+  const pruned = pruneKeptKeys(
+    list,
+    (k) => isBackedUp(profile, store, k.pubkey) && gamesInProgress(profile, store, k.pubkey, false) === 0,
+  );
+  const json = JSON.stringify(pruned.map((k) => ({ pubkey: k.pubkey, sk: k.sk, at: k.at })));
+  return writeItem(store, key, json) && readItem(store, key) === json;
+}
+
+/** Who the player is now and when, for a key change: the active signer's pubkey and Unix seconds. */
+export interface KeyChangeContext {
+  /** The pubkey the profile plays as right now (the extension's, when it is in use). */
+  current: Hex;
+  now: number;
+}
+
+/**
+ * Replace the profile's local key with `nextSk` (hex, valid), keeping the old one in the history first, and
+ * switch the signer to the local key. Every write is checked; on a failure nothing the player had is lost:
+ * the old key is in the history before `sk` is overwritten.
+ */
+function replaceKey(
+  profile: string,
+  store: KeyValueStore,
+  nextSk: string,
+  ctx: KeyChangeContext,
+): string | null {
+  if (!isPersistentStore(store)) return KEY_ERRORS.notPersistent;
+  // Tables and secrets listed so far belong to the key in use: record that before it changes.
+  const known = new Set([ctx.current, ...keptKeys(profile, store).map((k) => k.pubkey)]);
+  const creatorOf = (address: string): string | null => {
+    const creator = address.split(':')[1] ?? '';
+    return known.has(creator) ? creator : null;
+  };
+  if (!claimUnowned(profile, store, ctx.current, creatorOf)) return KEY_ERRORS.notSaved;
+  const skKey = storageKey(profile, 'sk');
+  const current = readItem(store, skKey);
+  const history = keptKeys(profile, store).filter((k) => k.sk !== nextSk);
+  const currentBytes = validSecretKey(current);
+  if (current !== null && currentBytes !== null && current !== nextSk)
+    history.unshift({ pubkey: getPublicKey(currentBytes), sk: current, at: ctx.now });
+  if (!saveKeptKeys(profile, store, history)) return KEY_ERRORS.notSaved;
+  removeItem(store, legacyPreviousKey(profile));
+  if (!writeItem(store, skKey, nextSk) || readItem(store, skKey) !== nextSk) return KEY_ERRORS.notSaved;
+  if (!writeSignerChoice(profile, store, 'local') || readSignerChoice(profile, store) !== 'local')
+    return KEY_ERRORS.notSaved;
+  return null;
+}
+
+/**
+ * Make a pasted secret key this profile's key. The current local key joins the kept keys, never overwritten,
+ * so the player can switch back to it; the profile signs with the local key from now on (not the extension).
+ * Refused when this browser is not saving site data. The imported key counts as backed up (it exists
+ * elsewhere). The page must reload afterwards.
+ */
+export function importSecretKey(
+  profile: string,
+  store: KeyValueStore,
+  text: string,
+  ctx: KeyChangeContext,
+): ImportResult {
+  if (!isPersistentStore(store)) return { ok: false, error: KEY_ERRORS.notPersistent };
   const input = parseSecretKeyInput(text);
   if (!input.ok) return input;
-  const skKey = storageKey(profile, 'sk');
-  const current = readItem(store, skKey);
+  const current = readItem(store, storageKey(profile, 'sk'));
   if (current === input.hex && readSignerChoice(profile, store) === 'local')
     return { ok: false, error: KEY_ERRORS.same };
-  if (current !== input.hex && validSecretKey(current) !== null && current !== null)
-    if (!writeItem(store, storageKey(profile, 'sk-previous'), current))
-      return { ok: false, error: KEY_ERRORS.notSaved };
-  if (!writeItem(store, skKey, input.hex) || readItem(store, skKey) !== input.hex)
-    return { ok: false, error: KEY_ERRORS.notSaved };
-  writeSignerChoice(profile, store, 'local');
-  return { ok: true, pubkey: getPublicKey(hexToBytes(input.hex)) };
+  const error = replaceKey(profile, store, input.hex, ctx);
+  if (error !== null) return { ok: false, error };
+  const pubkey = getPublicKey(hexToBytes(input.hex));
+  markBackedUp(profile, store, pubkey);
+  return { ok: true, pubkey };
 }
 
-/** The public key of the key kept by the last import, or null. */
-export function previousKey(profile: string, store: KeyValueStore): Hex | null {
-  const sk = validSecretKey(readItem(store, storageKey(profile, 'sk-previous')));
-  return sk === null ? null : getPublicKey(sk);
-}
-
-/** Swap back to the key kept by the last import (the imported key becomes the previous one). */
-export function restorePreviousKey(profile: string, store: KeyValueStore): boolean {
-  const prevKey = storageKey(profile, 'sk-previous');
-  const skKey = storageKey(profile, 'sk');
-  const prev = readItem(store, prevKey);
-  const current = readItem(store, skKey);
-  if (prev === null || validSecretKey(prev) === null) return false;
-  if (!writeItem(store, skKey, prev)) return false;
-  if (current !== null && validSecretKey(current) !== null) writeItem(store, prevKey, current);
-  writeSignerChoice(profile, store, 'local');
-  return readItem(store, skKey) === prev;
+/** Switch to one of the kept keys; the current key joins the kept keys. The page must reload afterwards. */
+export function switchToKeptKey(
+  profile: string,
+  store: KeyValueStore,
+  pubkey: Hex,
+  ctx: KeyChangeContext,
+): ImportResult {
+  const target = keptKeys(profile, store).find((k) => k.pubkey === pubkey);
+  if (target === undefined) return { ok: false, error: 'That key is no longer kept in this browser.' };
+  const error = replaceKey(profile, store, target.sk, ctx);
+  return error === null ? { ok: true, pubkey } : { ok: false, error };
 }
 
 /**
- * How many of this profile's tables are still going (not done or cancelled, as far as the saved statuses
- * say): their seats belong to the current key and stay with it when another key is imported.
+ * Before switching between the local key and the extension: record the tables listed so far as the current
+ * key's, so the other key never reuses their game keys.
  */
-export function gamesInProgress(profile: string, store: KeyValueStore): number {
+export function claimTablesFor(profile: string, store: KeyValueStore, current: Hex): boolean {
+  return claimUnowned(profile, store, current);
+}
+
+/**
+ * How many of this profile's tables that belong to `pubkey` are still going (not done or cancelled, as far as
+ * the saved statuses say). Tables with no recorded owner count for the key in use (`current`).
+ */
+export function gamesInProgress(profile: string, store: KeyValueStore, pubkey: Hex, current = true): number {
   let n = 0;
   for (const address of loadTableList(profile, store)) {
+    const owner = tableOwner(profile, store, address);
+    if (owner === null ? !current : owner !== pubkey) continue;
     const rootId = loadSecrets(profile, store, address)?.rootId;
     const status = rootId === undefined ? null : loadGameStatus(profile, store, rootId)?.status;
     if (status !== 'done' && status !== 'cancelled') n++;
@@ -266,16 +382,30 @@ export function gamesInProgress(profile: string, store: KeyValueStore): number {
 
 const backupKey = (profile: string): string => storageKey(profile, 'backup');
 
-/** Record that the player saved the secret key of `pubkey` (copied it, or said so). */
+function backedUpKeys(profile: string, store: KeyValueStore): Hex[] {
+  const raw = readItem(store, backupKey(profile));
+  if (raw === null) return [];
+  if (isHex64(raw)) return [raw]; // an older version kept one pubkey
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter(isHex64) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Record that the player saved the secret key of `pubkey` (copied it, said so, or imported it). */
 export function markBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
-  return writeItem(store, backupKey(profile), pubkey);
+  const list = backedUpKeys(profile, store);
+  if (list.includes(pubkey)) return true;
+  return writeItem(store, backupKey(profile), JSON.stringify([...list, pubkey]));
 }
 
 export function isBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
-  return readItem(store, backupKey(profile)) === pubkey;
+  return backedUpKeys(profile, store).includes(pubkey);
 }
 
-/** The Home backup reminder: a local key with at least one table, until the key is backed up. */
+/** The Home backup reminder: a local key with at least one table of its own, until the key is backed up. */
 export function backupReminderVisible(
   profile: string,
   store: KeyValueStore,
@@ -283,7 +413,7 @@ export function backupReminderVisible(
 ): boolean {
   return (
     signer.kind === 'local' &&
-    loadTableList(profile, store).length > 0 &&
+    loadTableList(profile, store).some((a) => tableIsMine(profile, store, a, signer.pubkey)) &&
     !isBackedUp(profile, store, signer.pubkey)
   );
 }

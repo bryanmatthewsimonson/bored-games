@@ -18,6 +18,9 @@ import { useProfile } from '../profiles.ts';
 import { gameHref, tableHref } from '../router.ts';
 import { readItem, requestPersistenceOnce, storageKey, storageManager, writeItem } from '../storage.ts';
 
+/** A listed table of another player key this profile used (D041). */
+export const OTHER_KEY_DETAIL = 'Under another key: switch to it in Settings to play';
+
 /** Storage name of the dismissed profile nudge. */
 export const NUDGE_DISMISSED = 'nudge-profile';
 
@@ -101,38 +104,40 @@ function MyTables(props: { tables: readonly MyTable[] }) {
     );
   return (
     <ul class="cards">
-      {props.tables.map((t) => {
-        // A started game's status comes from what its game screen saved; Home never runs a game session.
-        const started = t.rootId !== null || t.table.status === 'started';
-        const known =
-          started && t.table.status !== 'cancelled'
-            ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
-            : { status: null, check: false };
-        const chip = tableChip(t.table, t.lobby, known.status);
-        const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
-        return (
-          <TableCard
-            key={t.address}
-            href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
-            game={t.table.game}
-            seats={t.table.seats}
-            deadline={t.table.deadline}
-            creator={t.table.creator}
-            isCreator={t.role === 'creator'}
-            chip={chip}
-            badge={attentionBadge(t.role, chip, known.status)}
-            detail={known.check ? 'Open to check' : seated}
-            action={
-              <a
-                class="btn btn-small"
-                href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
-              >
-                {t.rootId !== null ? 'Open game' : 'Open table'}
-              </a>
-            }
-          />
-        );
-      })}
+      {[...props.tables]
+        .sort((a, b) => Number(a.otherKey) - Number(b.otherKey))
+        .map((t) => {
+          // A started game's status comes from what its game screen saved; Home never runs a game session.
+          const started = t.rootId !== null || t.table.status === 'started';
+          const known =
+            started && t.table.status !== 'cancelled'
+              ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
+              : { status: null, check: false };
+          const chip = tableChip(t.table, t.lobby, known.status);
+          const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
+          return (
+            <TableCard
+              key={t.address}
+              href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+              game={t.table.game}
+              seats={t.table.seats}
+              deadline={t.table.deadline}
+              creator={t.table.creator}
+              isCreator={t.role === 'creator'}
+              chip={chip}
+              badge={t.otherKey ? null : attentionBadge(t.role, chip, known.status)}
+              detail={t.otherKey ? OTHER_KEY_DETAIL : known.check ? 'Open to check' : seated}
+              action={
+                <a
+                  class="btn btn-small"
+                  href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+                >
+                  {t.rootId !== null ? 'Open game' : 'Open table'}
+                </a>
+              }
+            />
+          );
+        })}
     </ul>
   );
 }

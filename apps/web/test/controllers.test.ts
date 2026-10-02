@@ -20,7 +20,7 @@ import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import type { Signer } from '../src/identity.ts';
-import { LobbyController } from '../src/lobby-controller.ts';
+import { LobbyController, OTHER_KEY_TABLE } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
 import { timedOutSeats, timeoutExplanation } from '../src/screens/game.tsx';
 import {
@@ -28,6 +28,7 @@ import {
   loadGameStatus,
   loadSecrets,
   loadTableList,
+  loadTableOwners,
   memoryStorage,
 } from '../src/storage.ts';
 
@@ -337,6 +338,30 @@ describe('LobbyController', () => {
     expect(root.id).toBe(rootId);
     expect(root.seats.map((s) => s.npub)).toEqual([a, ...picked].map((p) => p.deps.signer.pubkey));
   }, 30_000);
+});
+
+describe('LobbyController and a changed player key (D041)', () => {
+  it("never joins with another key's game keys: the join is refused and nothing is published", async () => {
+    const store = memoryStorage();
+    const a = profile('p', store);
+    const la = lobby(a);
+    const address = await la.createTable({ seats: 3, deadline: 259200, invited: [], relays: [relay.url] });
+    const saved = loadSecrets('p', store, address);
+    expect(saved?.owner).toBe(a.deps.signer.pubkey);
+    expect(loadTableOwners('p', store).get(address)).toBe(a.deps.signer.pubkey);
+
+    // The same profile, now with another key (as after an import).
+    const b = profile('p', store);
+    const lb = lobby(b);
+    await waitFor('the table', () => lb.myTables.value.find((t) => t.address === address));
+    expect(lb.myTables.value.find((t) => t.address === address)?.otherKey).toBe(true);
+    expect(la.myTables.value.find((t) => t.address === address)?.otherKey).toBe(false);
+    await expect(lb.join(address)).rejects.toThrow(OTHER_KEY_TABLE);
+    // The other key's secrets are untouched, and only a's Join exists.
+    expect(loadSecrets('p', store, address)).toEqual(saved);
+    const joins = await query({ kinds: [KIND.join], '#a': [address] });
+    expect(joins.map((j) => j.pubkey)).toEqual([a.deps.signer.pubkey]);
+  });
 });
 
 describe('LobbyController.lobbyOf', () => {

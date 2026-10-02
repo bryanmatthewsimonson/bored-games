@@ -10,6 +10,7 @@ import { StatusChip } from '../components/chips.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
+import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
   attentionBadge,
@@ -27,7 +28,7 @@ import {
   tableChip,
 } from '../lobby-model.ts';
 import { gameHref, homeHref } from '../router.ts';
-import { requestPersistenceOnce, storageManager } from '../storage.ts';
+import { requestPersistenceOnce, storageManager, tableIsMine } from '../storage.ts';
 
 const KIND_LABEL = { creator: 'Creator', invited: 'Invited', open: 'Open seat' } as const;
 
@@ -144,6 +145,8 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const check = joinCheck(view, me);
   const seated = view.joins.some((j) => j.npub === me);
   const pending = joinRequestPending(view, me);
+  // Listed here under another player key (D041): joining with this key would need that key's game keys.
+  const otherKey = !tableIsMine(profile, store, address, me);
   const missing = t.seats - view.seatsFilled;
   const picker = needsPicker(view);
   const chosen = picks ?? defaultPicks(view);
@@ -205,7 +208,8 @@ export function TableScreen(props: { creator: string; tableId: string }) {
 
         {t.status === 'open' && view.root === null && (
           <div class="stack">
-            {check.eligible && (
+            {otherKey && <p class="warning">{OTHER_KEY_TABLE}</p>}
+            {check.eligible && !otherKey && (
               <div class="row">
                 <button type="button" class="btn btn-primary" disabled={busy} onClick={() => void join()}>
                   {busy ? 'Joining…' : check.reason === 'invited' ? 'Accept invitation' : 'Join this table'}

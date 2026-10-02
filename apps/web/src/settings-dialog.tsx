@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { npubEncode } from './bech32.ts';
 import { useApp } from './context.ts';
 import { CopyButton } from './header.tsx';
-import { exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
+import { claimTablesFor, exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
 import { parseRelayInput } from './settings.ts';
 import { KeyImport, StorageStatus } from './settings-key.tsx';
 import { ProfileSection } from './settings-profile.tsx';
@@ -115,6 +115,8 @@ function IdentitySection() {
   const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 
   const useExtension = (on: boolean) => {
+    // The tables listed so far belong to the key in use: record that before the key changes (D041).
+    claimTablesFor(profile, store, signer.pubkey);
     writeSignerChoice(profile, store, on ? 'nip07' : 'local');
     // A different signer is a different player: start clean rather than patch live state.
     window.location.reload();

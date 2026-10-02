@@ -79,6 +79,11 @@ export interface GameSecrets {
   deckSecret: Uint8Array;
   /** The game root's id, once the game has started. */
   rootId?: string;
+  /**
+   * The pubkey (hex) of the player key these secrets were made for (D041). Absent on secrets saved before keys
+   * could be imported; `claimUnowned` stamps those with the key in use before the key first changes.
+   */
+  owner?: string;
 }
 
 const secretsKey = (profile: string, tableAddress: string): string =>
@@ -94,6 +99,7 @@ export function saveSecrets(
     sessionSk: bytesToHex(secrets.sessionSk),
     deckSecret: bytesToHex(secrets.deckSecret),
     ...(secrets.rootId === undefined ? {} : { rootId: secrets.rootId }),
+    ...(secrets.owner === undefined ? {} : { owner: secrets.owner }),
   });
   return writeItem(store, secretsKey(profile, tableAddress), json);
 }
@@ -105,10 +111,11 @@ export function loadSecrets(profile: string, store: KeyValueStore, tableAddress:
   try {
     const v: unknown = JSON.parse(raw);
     if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-    const { sessionSk, deckSecret, rootId } = v as Record<string, unknown>;
+    const { sessionSk, deckSecret, rootId, owner } = v as Record<string, unknown>;
     if (!isHex(sessionSk) || !isHex(deckSecret)) return null;
     const out: GameSecrets = { sessionSk: hexToBytes(sessionSk), deckSecret: hexToBytes(deckSecret) };
     if (isHex(rootId) && rootId.length === 64) out.rootId = rootId;
+    if (isHex(owner) && owner.length === 64) out.owner = owner;
     return out;
   } catch {
     return null;
@@ -152,10 +159,92 @@ export function loadTableList(profile: string, store: KeyValueStore): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
-export function addToTableList(profile: string, store: KeyValueStore, tableAddress: string): boolean {
+const ownersKey = (profile: string): string => storageKey(profile, 'table-owners');
+
+/**
+ * Which player key (pubkey hex) each listed table belongs to (D041). A table missing here was listed before
+ * keys could be imported; it belongs to the key in use until `claimUnowned` stamps it.
+ */
+export function loadTableOwners(profile: string, store: KeyValueStore): Map<string, string> {
+  const v = readJson(store, ownersKey(profile));
+  const out = new Map<string, string>();
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
+  for (const [address, owner] of Object.entries(v as Record<string, unknown>))
+    if (isHex(owner) && owner.length === 64) out.set(address, owner);
+  return out;
+}
+
+function saveTableOwners(profile: string, store: KeyValueStore, owners: Map<string, string>): boolean {
+  return writeJson(store, ownersKey(profile), Object.fromEntries(owners));
+}
+
+/** List a table this profile created or joined, as belonging to the key `owner` (pubkey hex). */
+export function addToTableList(
+  profile: string,
+  store: KeyValueStore,
+  tableAddress: string,
+  owner?: string,
+): boolean {
   const list = loadTableList(profile, store);
+  if (owner !== undefined) {
+    const owners = loadTableOwners(profile, store);
+    if (!owners.has(tableAddress)) {
+      owners.set(tableAddress, owner);
+      if (!saveTableOwners(profile, store, owners)) return false;
+    }
+  }
   if (list.includes(tableAddress)) return true;
   return writeJson(store, tablesKey(profile), [...list, tableAddress]);
+}
+
+/**
+ * The key a listed table belongs to: its recorded owner, else its secrets' owner, else null (listed before
+ * keys could be imported, so it belongs to the key in use).
+ */
+export function tableOwner(profile: string, store: KeyValueStore, tableAddress: string): string | null {
+  return (
+    loadTableOwners(profile, store).get(tableAddress) ??
+    loadSecrets(profile, store, tableAddress)?.owner ??
+    null
+  );
+}
+
+/** True when the table, as listed here, belongs to `me` (or to nobody recorded, which means the key in use). */
+export function tableIsMine(
+  profile: string,
+  store: KeyValueStore,
+  tableAddress: string,
+  me: string,
+): boolean {
+  const owner = tableOwner(profile, store, tableAddress);
+  return owner === null || owner === me;
+}
+
+/**
+ * Before the player key changes, record every listed table and saved secrets without an owner as belonging
+ * to `owner`, the key in use until now (`creatorOf` may name a better owner for a table, from its address).
+ * Afterwards nothing is unowned, so a table can never pass for the new key's. False when a write failed.
+ */
+export function claimUnowned(
+  profile: string,
+  store: KeyValueStore,
+  owner: string,
+  creatorOf: (tableAddress: string) => string | null = () => null,
+): boolean {
+  const owners = loadTableOwners(profile, store);
+  let ok = true;
+  let changed = false;
+  for (const address of loadTableList(profile, store)) {
+    const secrets = loadSecrets(profile, store, address);
+    const who = owners.get(address) ?? secrets?.owner ?? creatorOf(address) ?? owner;
+    if (!owners.has(address)) {
+      owners.set(address, who);
+      changed = true;
+    }
+    if (secrets !== null && secrets.owner === undefined)
+      ok = saveSecrets(profile, store, address, { ...secrets, owner: who }) && ok;
+  }
+  return (changed ? saveTableOwners(profile, store, owners) : true) && ok;
 }
 
 /** The statuses a game controller reports, as stored. `syncing` is never saved. */

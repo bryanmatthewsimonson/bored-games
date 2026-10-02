@@ -1005,6 +1005,20 @@ textarea.prose {
   white-space: nowrap;
 }
 
+.key-import h4 {
+  margin: 0;
+}
+
+.kept-keys {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kept-keys .row {
+  margin: 4px 0;
+}
+
 .key-import summary {
   cursor: pointer;
   font-weight: 600;
@@ -1014,7 +1028,7 @@ textarea.prose {
   margin-top: 8px;
 }
 
-.key-import .field > span {
+.key-label {
   font-weight: 600;
 }
 
@@ -1028,4 +1042,11 @@ textarea.prose {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+@media (max-width: 480px) {
+  /* Keep the phone header to two rows: the avatar and npub identify the player; the name is in Settings. */
+  .identity .player-name {
+    display: none;
+  }
 }
