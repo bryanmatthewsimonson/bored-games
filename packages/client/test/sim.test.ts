@@ -251,6 +251,47 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
     LONG,
   );
 
+  // Resign in a game with a deck (D052): the Resign carries the seat's secret, the others publish theirs, the
+  // partial audit runs, and the result is unrated. At its first decision, a few turns in, and later.
+  it.each([SEATS, SEATS + 4, SEATS + 14])(
+    'a seat that resigns once the chain holds %i moves ends the game for everyone, unrated, and all agree',
+    (atSeq) => {
+      const r = sim(`sim-resign-${atSeq}`, 'resign', atSeq);
+      expect(r.failures).toEqual([]);
+      expect(unexpected(r, CHEAT)).toEqual([]);
+      expect(r.claims).toBe(0);
+      if (r.actions > 0) {
+        expect(r.outcome).toMatchObject({
+          reason: 'resign',
+          unrated: true,
+          endedBy: { type: 'resign', seat: CHEAT },
+        });
+        expect(r.attested).toEqual([0, 1, 2]);
+      }
+    },
+    LONG,
+  );
+
+  it(
+    'a resign in a 4-seat game with full syncs: every client agrees and every attestation is accepted',
+    () => {
+      const r = simulateGame({
+        seats: 4,
+        seed: 'sim-resign-4-full',
+        modules: MODULES,
+        game: chainReaction.id,
+        policy: quickPolicy,
+        adversary: adversary('resign', 2, 4, 4 + 8),
+        fullSync: true,
+      });
+      expect(r.failures).toEqual([]);
+      expect(unexpected(r, 2)).toEqual([]);
+      expect(r).toMatchObject({ phase: 'done', forfeits: [2], audit: { fail: [2], reason: 'resign' } });
+      expect(r.attested).toEqual([0, 1, 2, 3]);
+    },
+    LONG,
+  );
+
   it(
     'a seat that vanishes after the first game action forfeits: the game ends done with the seat last',
     () => {
