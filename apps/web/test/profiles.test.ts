@@ -4,7 +4,7 @@
  */
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/protocol';
-import { type Filter, type PublishResult, RelayPool } from '@bored-games/relay';
+import { type EoseInfo, type Filter, type PublishResult, RelayPool } from '@bored-games/relay';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Timers } from '../src/clock.ts';
 import { platformTimers } from '../src/clock.ts';
@@ -58,7 +58,7 @@ function manualTimers() {
 interface Sub {
   filters: Filter[];
   onEvent: (ev: NostrEvent, url: string) => void;
-  onEose?: () => void;
+  onEose?: (info: EoseInfo) => void;
   open: boolean;
 }
 
@@ -82,6 +82,10 @@ function fakePool(accept = true) {
 }
 
 const NOW = 1_800_000_000;
+/** Every relay answered. */
+const ANSWERED: EoseInfo = { eose: 1, relays: 1, timedOut: false };
+/** Every relay failed to connect. */
+const NO_ANSWER: EoseInfo = { eose: 0, relays: 1, timedOut: false };
 
 function store(
   opts: { pool?: PoolLike; storage?: ReturnType<typeof memoryStorage>; now?: () => number } = {},
@@ -133,7 +137,7 @@ describe('ProfileStore with a fake pool', () => {
     sub.onEvent({ ...kind0(x, { name: 'Note' }, 30), kind: 1 }, 'r');
     sub.onEvent(kind0(signer(), { name: 'Stranger' }, 40), 'r');
     expect(s.get(x.pubkey).value.info?.name).toBe('New');
-    sub.onEose?.();
+    sub.onEose?.(ANSWERED);
     expect(s.get(y.pubkey).value).toEqual({ loaded: true, info: null });
     expect(s.get(x.pubkey).value.loaded).toBe(true);
   });
@@ -166,7 +170,7 @@ describe('ProfileStore with a fake pool', () => {
       kind0(me, { name: 'ann', nip05: 'ann@e.com', lud16: 'ann@ln' }, NOW + 50, [['i', 'x:y', 'p']]),
       'r',
     );
-    fetch.onEose?.();
+    fetch.onEose?.(ANSWERED);
     const r = await saving;
     expect(r.status).toBe('saved');
     expect(fp.published).toHaveLength(1);
@@ -184,33 +188,71 @@ describe('ProfileStore with a fake pool', () => {
     t.tick();
   });
 
-  it('asks before overwriting when an extension user’s profile could not be fetched', async () => {
-    const { s, t, fp } = store();
-    const me = signer('nip07');
-    const saving = s.save(me, ['wss://r.example'], { name: 'Ann', about: '', picture: null });
-    t.tick(); // the fetch times out
-    expect(await saving).toEqual({ status: 'unconfirmed' });
-    expect(fp.published).toHaveLength(0);
-    const forced = s.save(
-      me,
-      ['wss://r.example'],
-      { name: 'Ann', about: '', picture: null },
-      { overwrite: true },
-    );
-    t.tick();
+  it('asks before overwriting when no relay answered, for any key (I2)', async () => {
+    for (const kind of ['local', 'nip07'] as const) {
+      const { s, t, fp } = store();
+      const me = signer(kind);
+      // The wait runs out.
+      const saving = s.save(me, ['wss://r.example'], { name: 'Ann' });
+      t.tick();
+      expect(await saving).toEqual({ status: 'unconfirmed', reason: 'no-answer' });
+      // Every relay failed to connect: that is no answer either, not an empty one.
+      const failed = s.save(me, ['wss://r.example'], { name: 'Ann' });
+      fp.live().at(-1)?.onEose?.(NO_ANSWER);
+      expect(await failed).toEqual({ status: 'unconfirmed', reason: 'no-answer' });
+      expect(fp.published).toHaveLength(0);
+      const forced = s.save(me, ['wss://r.example'], { name: 'Ann' }, { overwrite: true });
+      t.tick();
+      expect((await forced).status).toBe('saved');
+    }
+  });
+
+  it('asks when this browser knows a newer profile than the relays returned, and never goes back in time (I2)', async () => {
+    const storage = memoryStorage();
+    const me = signer();
+    // Last visit saw (and cached) E2.
+    const first = store({ storage });
+    first.s.want([me.pubkey]);
+    first.t.tick();
+    const e2 = kind0(me, { display_name: 'Ann', nip05: 'ann@e.com' }, NOW + 100, [['t', 'x']]);
+    first.fp.live()[0]?.onEvent(e2, 'r');
+    first.t.tick();
+
+    // Today the relays only have the older E1.
+    const { s, t, fp } = store({ storage });
+    expect(s.get(me.pubkey).value.info?.name).toBe('Ann');
+    const e1 = kind0(me, { display_name: 'Old', lud16: 'ann@ln' }, NOW + 10);
+    const saving = s.save(me, ['wss://r.example'], { about: 'Hi' });
+    fp.live()[0]?.onEvent(e1, 'r');
+    fp.live()[0]?.onEose?.(ANSWERED);
+    expect(await saving).toEqual({ status: 'unconfirmed', reason: 'newer-known' });
+    // The cached profile still shows; the older event is only kept for merging.
+    expect(s.get(me.pubkey).value.info?.name).toBe('Ann');
+    expect(s.latestEvent(me.pubkey)?.id).toBe(e1.id);
+
+    const forced = s.save(me, ['wss://r.example'], { about: 'Hi' }, { overwrite: true });
+    fp.live().at(-1)?.onEose?.(ANSWERED);
     expect((await forced).status).toBe('saved');
-    // A local key goes ahead after a timeout.
-    const local = signer();
-    const go = s.save(local, ['wss://r.example'], { name: 'Bo', about: '', picture: null });
+    const ev = fp.published[0] as NostrEvent;
+    expect(ev.created_at).toBe(NOW + 101);
+    expect(JSON.parse(ev.content)).toEqual({ display_name: 'Old', lud16: 'ann@ln', about: 'Hi' });
     t.tick();
-    expect((await go).status).toBe('saved');
+  });
+
+  it('marks pubkeys loaded only when a relay actually answered', () => {
+    const { s, t, fp } = store();
+    const x = signer();
+    s.want([x.pubkey]);
+    t.tick();
+    fp.live()[0]?.onEose?.(NO_ANSWER);
+    expect(s.get(x.pubkey).value).toEqual({ loaded: false, info: null });
   });
 
   it('throws when no relay accepts the profile', async () => {
     const fp = fakePool(false);
-    const { s, t } = store({ pool: fp.pool });
-    const saving = s.save(signer(), ['wss://r.example'], { name: 'Ann', about: '', picture: null });
-    t.tick();
+    const { s } = store({ pool: fp.pool });
+    const saving = s.save(signer(), ['wss://r.example'], { name: 'Ann' });
+    fp.live()[0]?.onEose?.(ANSWERED);
     await expect(saving).rejects.toThrow(NO_RELAY_ACCEPTED_PROFILE);
   });
 });

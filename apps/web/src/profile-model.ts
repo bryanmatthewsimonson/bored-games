@@ -236,6 +236,15 @@ export interface ProfileForm {
   picture: string;
 }
 
+export type ProfileField = keyof ProfileForm;
+
+/** The form's values for the fields the player edited, and only those. */
+export function editedFields(form: ProfileForm, edited: ReadonlySet<ProfileField>): Partial<ProfileForm> {
+  const out: Partial<ProfileForm> = {};
+  for (const f of edited) out[f] = form[f];
+  return out;
+}
+
 export type ProfileFormCheck =
   | { ok: true; changes: ProfileChanges }
   | { ok: false; errors: { name?: string; about?: string; picture?: string } };

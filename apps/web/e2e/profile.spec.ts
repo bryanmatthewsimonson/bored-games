@@ -218,7 +218,7 @@ test('players set a name and picture, and see each other’s on the table seats'
   const b = await open('b');
   const bDialog = await openSettings(b);
   await bDialog.getByLabel('Name', { exact: true }).fill('Bo Tester');
-  await bDialog.getByRole('button', { name: 'Gallery' }).click();
+  await bDialog.getByRole('radio', { name: 'Gallery' }).check();
   await bDialog.getByRole('button', { name: 'Owl' }).click();
   await expect(bDialog.getByText('Picture ready. Save to show it to other players.')).toBeVisible();
   expect(blossom.uploads).toHaveLength(2);

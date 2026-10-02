@@ -4,6 +4,7 @@ import { profileName as controllerProfileName } from '../src/game-controller.ts'
 import {
   type CachedProfile,
   cleanText,
+  editedFields,
   loadProfileCache,
   MAX_ABOUT,
   mergeProfileContent,
@@ -185,6 +186,16 @@ describe('saving only edited fields (I1)', () => {
     const check = validateProfileForm({});
     expect(check).toEqual({ ok: true, changes: {} });
     if (check.ok) expect(mergeProfileContent(published, check.changes)).toBe(published);
+  });
+
+  it('passes on only the edited fields of the form', () => {
+    const form = { name: 'Shown name', about: 'Shown about', picture: '' };
+    expect(editedFields(form, new Set())).toEqual({});
+    expect(editedFields(form, new Set(['picture']))).toEqual({ picture: '' });
+    expect(editedFields(form, new Set(['name', 'about']))).toEqual({
+      name: 'Shown name',
+      about: 'Shown about',
+    });
   });
 
   it('changes only the edited field: a new picture keeps the long name, the long about and nip05', () => {

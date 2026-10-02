@@ -2,7 +2,7 @@
  * Settings → "Name and picture" (D040): the player's kind 0 name, about line and picture. A picture comes from
  * an uploaded photo, the preset gallery (both stored on the Blossom picture server) or a pasted link.
  */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { EncodedAvatar } from './avatar-image.ts';
 import { photoToAvatar, presetToAvatar } from './avatar-image.ts';
 import { PRESETS, type Preset, presetDataUrl } from './avatar-model.ts';
@@ -12,12 +12,15 @@ import { useApp } from './context.ts';
 import {
   charCount,
   cleanText,
+  editedFields,
   MAX_ABOUT,
   MAX_PROFILE_NAME,
+  otherAppHandle,
+  type ProfileField,
   safeImageUrl,
   validateProfileForm,
 } from './profile-model.ts';
-import { useProfile, useProfiles } from './profiles.ts';
+import { type UnconfirmedReason, useProfile, useProfiles } from './profiles.ts';
 
 export type PictureMode = 'upload' | 'gallery' | 'link';
 
@@ -28,6 +31,16 @@ const MODES: { id: PictureMode; label: string }[] = [
 ];
 
 type Note = { kind: 'none' } | { kind: 'status'; text: string } | { kind: 'error'; text: string };
+
+/** What the "Replace your profile?" step says, by why the save stopped. */
+export const OVERWRITE_TEXT: Record<UnconfirmedReason, string> = {
+  'no-answer':
+    'None of your relays answered, so your current profile could not be loaded. Saving now may replace a profile you set up in another app, with its about text and other details.',
+  timeout:
+    'Not every relay answered in time, so your newest profile may not have loaded. Saving now may replace details set in another app.',
+  'newer-known':
+    'This browser has seen a newer version of your profile than your relays returned, perhaps on a relay you no longer use. Saving now replaces it, and details only it holds are lost.',
+};
 
 const browserFetch: FetchLike = (url, init) => fetch(url, { ...init, body: init.body as BodyInit });
 
@@ -46,12 +59,15 @@ export function ProfileSection() {
   const [name, setName] = useState('');
   const [about, setAbout] = useState('');
   const [picture, setPicture] = useState('');
-  const [touched, setTouched] = useState(false);
+  const [dirty, setDirty] = useState<ReadonlySet<ProfileField>>(new Set());
   const [mode, setMode] = useState<PictureMode>('upload');
   const [link, setLink] = useState('');
   const [busy, setBusy] = useState<'none' | 'picture' | 'save'>('none');
   const [note, setNote] = useState<Note>({ kind: 'none' });
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<UnconfirmedReason | null>(null);
+  const [preset, setPreset] = useState<string | null>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const touched = dirty.size > 0;
   const [server, setServer] = useState(settings.blossom.value);
 
   // Fill the form from the published profile once it arrives, unless the player has started editing.
@@ -63,13 +79,20 @@ export function ProfileSection() {
     setPicture(info.picture ?? '');
   }, [info, touched]);
 
-  const edit = (f: (v: string) => void) => (v: string) => {
-    setTouched(true);
-    setConfirming(false);
+  // Move focus into the confirm step when it appears, so keyboard and screen-reader users meet it.
+  useEffect(() => {
+    if (confirming !== null) confirmRef.current?.focus();
+  }, [confirming]);
+
+  /** A setter that also marks `field` as edited: only edited fields are saved. */
+  const edit = (field: ProfileField, f: (v: string) => void) => (v: string) => {
+    setDirty((d) => new Set([...d, field]));
+    setConfirming(null);
+    if (field === 'picture') setPreset(null);
     f(v);
   };
 
-  const upload = async (make: () => Promise<EncodedAvatar>, what: string) => {
+  const upload = async (make: () => Promise<EncodedAvatar>, what: string, presetId: string | null = null) => {
     if (busy !== 'none') return;
     setBusy('picture');
     setNote({ kind: 'status', text: `Preparing ${what}…` });
@@ -84,7 +107,8 @@ export function ProfileSection() {
         now: deps.now(),
         fetch: browserFetch,
       });
-      edit(setPicture)(d.url);
+      edit('picture', setPicture)(d.url);
+      setPreset(presetId);
       setNote({ kind: 'status', text: 'Picture ready. Save to show it to other players.' });
     } catch (e) {
       setNote({ kind: 'error', text: e instanceof Error ? e.message : 'Could not upload the picture.' });
@@ -99,27 +123,31 @@ export function ProfileSection() {
       setNote({ kind: 'error', text: 'Use an image link starting with https:// on a public website.' });
       return;
     }
-    edit(setPicture)(url);
+    edit('picture', setPicture)(url);
     setNote({ kind: 'status', text: 'Picture ready. Save to show it to other players.' });
   };
 
   const save = async (overwrite: boolean) => {
     if (busy !== 'none') return;
-    const check = validateProfileForm({ name, about, picture });
+    if (!touched) {
+      setNote({ kind: 'status', text: 'Nothing to save: change your name, about or picture first.' });
+      return;
+    }
+    const check = validateProfileForm(editedFields({ name, about, picture }, dirty));
     if (!check.ok) {
       setNote({ kind: 'error', text: Object.values(check.errors).join(' ') });
       return;
     }
     setBusy('save');
-    setConfirming(false);
+    setConfirming(null);
     setNote({ kind: 'status', text: 'Saving…' });
     try {
       const r = await store.save(signer, settings.relays.value, check.changes, { overwrite });
       if (r.status === 'unconfirmed') {
-        setConfirming(true);
+        setConfirming(r.reason);
         setNote({ kind: 'none' });
       } else {
-        setTouched(false);
+        setDirty(new Set());
         setNote({ kind: 'status', text: 'Saved. Other players see it on their next visit.' });
       }
     } catch (e) {
@@ -132,6 +160,11 @@ export function ProfileSection() {
   const nameLen = charCount(cleanText(name));
   const aboutLen = charCount(cleanText(about));
   const preview = safeImageUrl(picture);
+  // Clearing the name keeps a different handle another app set, and that handle is then shown.
+  const keptHandle =
+    dirty.has('name') && cleanText(name) === ''
+      ? otherAppHandle(store.latestEvent(signer.pubkey)?.content ?? null)
+      : null;
 
   return (
     <section aria-labelledby="profile-h" class="profile-section">
@@ -151,11 +184,16 @@ export function ProfileSection() {
           value={name}
           aria-invalid={nameLen > MAX_PROFILE_NAME}
           aria-describedby="profile-name-count"
-          onInput={(e) => edit(setName)(e.currentTarget.value)}
+          onInput={(e) => edit('name', setName)(e.currentTarget.value)}
         />
         <p id="profile-name-count" class={nameLen > MAX_PROFILE_NAME ? 'hint error' : 'hint'}>
           {nameLen} of {MAX_PROFILE_NAME} characters
         </p>
+        {keptHandle !== null && (
+          <p class="hint">
+            "{keptHandle}", the name another app set, stays in your profile and will be shown instead.
+          </p>
+        )}
       </div>
 
       <div class="field">
@@ -167,7 +205,7 @@ export function ProfileSection() {
           value={about}
           aria-invalid={aboutLen > MAX_ABOUT}
           aria-describedby="profile-about-count"
-          onInput={(e) => edit(setAbout)(e.currentTarget.value)}
+          onInput={(e) => edit('about', setAbout)(e.currentTarget.value)}
         />
         <p id="profile-about-count" class={aboutLen > MAX_ABOUT ? 'hint error' : 'hint'}>
           {aboutLen} of {MAX_ABOUT} characters
@@ -182,15 +220,16 @@ export function ProfileSection() {
             <fieldset class="segmented">
               <legend class="sr-only">Picture source</legend>
               {MODES.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  class="btn btn-small"
-                  aria-pressed={mode === m.id}
-                  onClick={() => setMode(m.id)}
-                >
-                  {m.label}
-                </button>
+                <label key={m.id} class="seg">
+                  <input
+                    type="radio"
+                    name="picture-source"
+                    class="sr-only"
+                    checked={mode === m.id}
+                    onChange={() => setMode(m.id)}
+                  />
+                  <span>{m.label}</span>
+                </label>
               ))}
             </fieldset>
             {preview !== null ? (
@@ -199,7 +238,7 @@ export function ProfileSection() {
                 class="btn btn-small"
                 disabled={busy !== 'none'}
                 onClick={() => {
-                  edit(setPicture)('');
+                  edit('picture', setPicture)('');
                   setNote({ kind: 'status', text: 'Picture removed. Save to update your profile.' });
                 }}
               >
@@ -243,7 +282,8 @@ export function ProfileSection() {
                     type="button"
                     class="gallery-item"
                     disabled={busy !== 'none'}
-                    onClick={() => void upload(() => presetToAvatar(p), `the ${p.label.toLowerCase()}`)}
+                    aria-pressed={preset === p.id}
+                    onClick={() => void upload(() => presetToAvatar(p), `the ${p.label.toLowerCase()}`, p.id)}
                   >
                     <img src={presetDataUrl(p)} alt="" width={48} height={48} />
                     <span>{p.label}</span>
@@ -311,18 +351,15 @@ export function ProfileSection() {
         </details>
       </fieldset>
 
-      {confirming && (
-        <div class="confirm" role="alertdialog" aria-labelledby="overwrite-h">
+      {confirming !== null && (
+        <div class="confirm" role="alertdialog" aria-labelledby="overwrite-h" aria-describedby="overwrite-p">
           <h4 id="overwrite-h">Replace your profile?</h4>
-          <p>
-            Your current profile did not load from your relays. Saving now may replace a profile you set up in
-            another app, such as its about text.
-          </p>
+          <p id="overwrite-p">{OVERWRITE_TEXT[confirming]}</p>
           <div class="row">
-            <button type="button" class="btn btn-primary" onClick={() => void save(true)}>
+            <button ref={confirmRef} type="button" class="btn btn-primary" onClick={() => void save(true)}>
               Save anyway
             </button>
-            <button type="button" class="btn" onClick={() => setConfirming(false)}>
+            <button type="button" class="btn" onClick={() => setConfirming(null)}>
               Cancel
             </button>
           </div>

@@ -6,7 +6,13 @@
 import { chainReaction } from '@bored-games/chain-reaction';
 import type { GameModule } from '@bored-games/game-kit';
 import type { NostrEvent } from '@bored-games/protocol';
-import { type Filter, type PublishResult, RelayPool, type SubscribeOptions } from '@bored-games/relay';
+import {
+  type EoseInfo,
+  type Filter,
+  type PublishResult,
+  RelayPool,
+  type SubscribeOptions,
+} from '@bored-games/relay';
 import { effect } from '@preact/signals';
 import type { Timers } from './clock.ts';
 import type { Signer } from './identity.ts';
@@ -26,7 +32,7 @@ export interface PoolLike {
   subscribe(
     filters: Filter[],
     onEvent: (ev: NostrEvent, url: string) => void,
-    onEose?: () => void,
+    onEose?: (info: EoseInfo) => void,
     opts?: SubscribeOptions,
   ): () => void;
   addRelays?(urls: readonly string[]): void;

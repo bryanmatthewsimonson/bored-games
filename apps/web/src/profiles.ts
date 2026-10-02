@@ -34,7 +34,20 @@ export const FETCH_LATEST_MS = 5000;
 /** Authors per filter in the batched subscription. */
 const AUTHORS_PER_FILTER = 100;
 
-export type SaveResult = { status: 'saved'; event: NostrEvent } | { status: 'unconfirmed' };
+/** Why a save stopped to ask before overwriting. */
+export type UnconfirmedReason = 'no-answer' | 'timeout' | 'newer-known';
+
+export type SaveResult =
+  | { status: 'saved'; event: NostrEvent }
+  | { status: 'unconfirmed'; reason: UnconfirmedReason };
+
+export interface LatestProfile {
+  event: NostrEvent | null;
+  answered: number;
+  complete: boolean;
+  newestKnown: number | null;
+  knownNewer: boolean;
+}
 
 export const NO_RELAY_ACCEPTED_PROFILE = 'No relay accepted your profile. Check your relays and try again.';
 
@@ -92,51 +105,74 @@ export class ProfileStore {
     };
   }
 
-  /** Take a kind 0 event (from a relay or just published). True when it is the newest for its author. */
+  /**
+   * Take a kind 0 event (from a relay or just published). The newest raw event per author is always kept, for
+   * merging on save; the shown profile and the cache change only when it is newer than what the cache knows.
+   * True when it became the shown profile.
+   */
   offer(ev: NostrEvent): boolean {
     if (this.#disposed) return false;
     const parsed = parseProfile(ev);
     if (parsed === null) return false;
     const prev = this.#events.get(ev.pubkey) ?? null;
+    if (newerEvent(prev, ev) !== ev) return false;
+    this.#events.set(ev.pubkey, ev);
     const cached = this.#cache.get(ev.pubkey);
-    const newest = newerEvent(prev, ev) === ev && (cached === undefined || isNewer(parsed, cached));
     const now = this.#d.now();
-    if (newest) {
-      this.#events.set(ev.pubkey, ev);
+    if (cached === undefined || isNewer(parsed, cached)) {
       this.#cache.set(ev.pubkey, { ...parsed, seenAt: now });
       const s = this.get(ev.pubkey) as Signal<ProfileEntry>;
       s.value = { loaded: true, info: parsed };
-    } else if (cached !== undefined && cached.id === parsed.id) {
-      this.#events.set(ev.pubkey, ev);
+      this.#scheduleCacheSave();
+      return true;
+    }
+    if (cached.id === parsed.id) {
       this.#cache.set(ev.pubkey, { ...cached, seenAt: now });
-    } else return false;
-    this.#scheduleCacheSave();
-    return newest;
+      this.#scheduleCacheSave();
+    }
+    return false;
+  }
+
+  /** The newest raw kind 0 event seen this page for `pubkey`, or null. */
+  latestEvent(pubkey: Hex): NostrEvent | null {
+    return this.#events.get(pubkey) ?? null;
   }
 
   /**
-   * The newest kind 0 of `pubkey` on the relays (or already seen), waiting at most `ms`. `complete` is false
-   * when the relays had not all answered in time.
+   * The newest kind 0 of `pubkey` on the relays, merged with what is already known, waiting at most `ms`.
+   * - `event`: the newest raw event known (from the relays or this page).
+   * - `answered`: how many relays sent EOSE (a relay that failed to connect does not count).
+   * - `complete`: false when the wait ran out first.
+   * - `newestKnown`: the newest `created_at` known from any source, the storage cache included.
+   * - `knownNewer`: the cache knows a newer version than `event`, whose content it cannot merge.
    */
-  fetchLatest(pubkey: Hex, ms = FETCH_LATEST_MS): Promise<{ event: NostrEvent | null; complete: boolean }> {
+  fetchLatest(pubkey: Hex, ms = FETCH_LATEST_MS): Promise<LatestProfile> {
     return new Promise((resolve) => {
       let done = false;
       let unsub = (): void => {};
       let cancel = (): void => {};
-      const finish = (complete: boolean) => {
+      const finish = (complete: boolean, answered: number) => {
         if (done) return;
         done = true;
         cancel();
         unsub();
-        resolve({ event: this.#events.get(pubkey) ?? null, complete });
+        const event = this.#events.get(pubkey) ?? null;
+        const cached = this.#cache.get(pubkey) ?? null;
+        const knownNewer =
+          cached !== null &&
+          (event === null ||
+            cached.createdAt > event.created_at ||
+            (cached.createdAt === event.created_at && cached.id < event.id));
+        const newestKnown = Math.max(event?.created_at ?? -1, cached?.createdAt ?? -1);
+        resolve({ event, answered, complete, knownNewer, newestKnown: newestKnown < 0 ? null : newestKnown });
       };
-      cancel = this.#d.timers.later(ms, () => finish(false));
+      cancel = this.#d.timers.later(ms, () => finish(false, 0));
       unsub = this.#d.pool.subscribe(
         [{ kinds: [0], authors: [pubkey] }],
         (ev) => {
           if (ev.kind === 0 && ev.pubkey === pubkey) this.offer(ev);
         },
-        () => finish(true),
+        (info) => finish(!info.timedOut, info.eose),
         { eoseTimeoutMs: ms + 2000 },
       );
       if (done) unsub();
@@ -144,9 +180,11 @@ export class ProfileStore {
   }
 
   /**
-   * Publish the player's edited profile: fetch the newest version, merge the edits into it (unknown fields and
-   * tags kept), sign, and publish to `relays`; at least one relay must accept it. For an extension key, whose
-   * profile was probably made in another app, a fetch that timed out returns `unconfirmed` unless `overwrite`.
+   * Publish the player's edited profile: fetch the newest version, merge the edits into it (untouched and
+   * unknown fields and tags kept), sign, and publish to `relays`; at least one relay must accept it. Unless
+   * `overwrite`, it returns `unconfirmed` instead when the merge could lose data: no relay answered, the wait
+   * ran out, or this browser knows a newer version than the relays returned. `created_at` is always above the
+   * newest version known.
    */
   async save(
     signer: Signer,
@@ -155,9 +193,18 @@ export class ProfileStore {
     opts: { overwrite?: boolean } = {},
   ): Promise<SaveResult> {
     const latest = await this.fetchLatest(signer.pubkey);
-    if (!latest.complete && signer.kind === 'nip07' && opts.overwrite !== true)
-      return { status: 'unconfirmed' };
-    const ev = await signer.sign(profileTemplate(latest.event, changes, this.#d.now()));
+    if (opts.overwrite !== true) {
+      const reason: UnconfirmedReason | null =
+        latest.answered === 0
+          ? 'no-answer'
+          : latest.knownNewer
+            ? 'newer-known'
+            : !latest.complete
+              ? 'timeout'
+              : null;
+      if (reason !== null) return { status: 'unconfirmed', reason };
+    }
+    const ev = await signer.sign(profileTemplate(latest.event, changes, this.#d.now(), latest.newestKnown));
     const results = await this.#d.pool.publish(ev, relays);
     if (!results.some((r) => r.ok)) throw new Error(NO_RELAY_ACCEPTED_PROFILE);
     this.offer(ev);
@@ -197,7 +244,9 @@ export class ProfileStore {
       (ev) => {
         if (ev.kind === 0 && wanted.has(ev.pubkey)) this.offer(ev);
       },
-      () => {
+      (info) => {
+        // Only an actual answer means "no profile": when every relay failed, stay unknown.
+        if (info.eose === 0) return;
         for (const pk of authors) {
           const s = this.get(pk) as Signal<ProfileEntry>;
           if (!s.value.loaded) s.value = { loaded: true, info: s.value.info };
