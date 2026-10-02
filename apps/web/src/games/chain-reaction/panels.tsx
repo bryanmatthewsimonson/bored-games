@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { Swatch } from './board.tsx';
@@ -46,8 +47,12 @@ export function ChainsPanel(props: { rows: readonly ChainRow[]; spectator: boole
 /**
  * One row per player. My own row is exact; for anyone else the row says only which chains they hold and
  * whether they have cash (RULES "Assets"), until the game is over. The rows carry no hidden numbers.
+ * `avatars` (per seat, optional) are drawn beside the names; they are decorative, since the name is shown.
  */
-export function PlayersPanel(props: { rows: readonly PlayerRow[] }) {
+export function PlayersPanel(props: {
+  rows: readonly PlayerRow[];
+  avatars?: readonly ComponentChildren[] | undefined;
+}) {
   return (
     <section class="cr-panel" aria-labelledby="cr-players-h">
       <h2 id="cr-players-h">Players</h2>
@@ -56,13 +61,14 @@ export function PlayersPanel(props: { rows: readonly PlayerRow[] }) {
           <li key={p.seat} class={`cr-player${p.acting ? ' cr-player-acting' : ''}`}>
             <div class="cr-player-head">
               <span class="cr-player-name">
+                {props.avatars?.[p.seat]}
                 {p.turn && (
                   <span class="cr-turn-mark" title="Their turn">
                     <span aria-hidden="true">▶</span>
                     <span class="sr-only">Current turn: </span>
                   </span>
                 )}
-                {p.name}
+                <span class="cr-player-label">{p.name}</span>
                 {p.me && <span class="chip">you</span>}
                 {p.acting && !p.turn && <span class="chip">deciding</span>}
               </span>
@@ -145,6 +151,8 @@ export function ResultsView(props: {
   rows: readonly ResultRow[];
   audit: Audit | undefined;
   names: readonly string[];
+  /** Per seat, drawn beside the names. */
+  avatars?: readonly ComponentChildren[] | undefined;
 }) {
   return (
     <section class="cr-panel cr-results" aria-labelledby="cr-results-h">
@@ -161,7 +169,12 @@ export function ResultsView(props: {
           {props.rows.map((r) => (
             <tr key={r.seat} class={r.place === 1 ? 'cr-winner' : undefined}>
               <td>{r.place}</td>
-              <th scope="row">{r.name}</th>
+              <th scope="row">
+                <span class="cr-result-player">
+                  {props.avatars?.[r.seat]}
+                  <span class="cr-player-label">{r.name}</span>
+                </span>
+              </th>
               <td>{formatMoney(r.cash)}</td>
             </tr>
           ))}

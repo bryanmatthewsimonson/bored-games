@@ -5,10 +5,16 @@
  */
 import { type ChainReactionAction, chainReaction, viewFor } from '@bored-games/chain-reaction';
 import { useMemo, useState } from 'preact/hooks';
+import { Avatar } from '../components/avatar.tsx';
 import { firstLegal, playUntil, randomLegal, type ScriptedGame } from '../games/chain-reaction/fixture.ts';
 import { ChainReactionGame, logLines } from '../games/chain-reaction/index.ts';
+import { playerNames } from '../screens/game.tsx';
 
-const NAMES = ['Ann', 'Bo', 'Cy', 'Di'];
+/** Fixed seat keys, so the pattern avatars and short npubs are the same on every load. */
+const KEYS = ['3b', '9e', 'c4', '71'].map((b) => b.repeat(32));
+/** As the game screen shows them: a chosen name with the short npub, a long one, and one without a name. */
+const NAMES = playerNames(KEYS, ['Ann', 'Bo', null, 'Dimitra Alexandropoulou-Smith']);
+const AVATARS = KEYS.map((pk) => <Avatar key={pk} pubkey={pk} picture={null} />);
 
 const pendingDecision = (g: ScriptedGame): string | null => {
   const p = chainReaction.pending(g.state);
@@ -72,6 +78,7 @@ export function BoardPreview(props: { scene: string }) {
         busy={false}
         onAct={setSent}
         names={NAMES}
+        avatars={AVATARS}
         events={logLines(game.events, { mySeat: seat, over: game.state.phase.kind === 'over', names: NAMES })}
         lastTile={game.lastTile}
         audit={scene === 'over' ? 'pass' : undefined}

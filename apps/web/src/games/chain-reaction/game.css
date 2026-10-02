@@ -512,11 +512,37 @@ main:has(.cr-game) {
   gap: 4px 8px;
 }
 
-.cr-player-name {
+.cr-player-name,
+.cr-result-player {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.cr-player-name {
   font-weight: 600;
+}
+
+/* The name wraps beside its avatar; the cash keeps its place at the right of the row. */
+.cr-player-head {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.cr-player-head .cr-player-name {
+  flex: 1 1 auto;
+}
+
+.cr-player-head .cr-cash {
+  flex: none;
+  line-height: 24px;
+}
+
+/* A long name with its npub wraps beside the avatar instead of widening the panel. */
+.cr-player-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cr-turn-mark {
@@ -576,8 +602,15 @@ main:has(.cr-game) {
   border-bottom: 0;
 }
 
-.cr-results tbody th {
+.cr-results tbody th,
+.cr-results thead th:nth-child(2) {
   text-align: left;
+}
+
+/* The player cell wraps a long name beside its avatar, so the results never widen a phone screen. */
+.cr-results tbody th {
+  width: 100%;
+  white-space: normal;
 }
 
 .cr-results .cr-winner {

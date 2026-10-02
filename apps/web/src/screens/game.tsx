@@ -8,6 +8,7 @@ import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { SessionView } from '@bored-games/client';
 import { useEffect, useMemo } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
+import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
@@ -164,6 +165,10 @@ export function GameScreen(props: { rootId: string }) {
   // Seat profiles come from the page's ProfileStore (D040), which keeps one kind 0 subscription for every screen.
   const profiles = usePlayerProfiles(seats);
   const names = useMemo(() => playerNames(seats, namesOf(profiles)), [seats, profiles]);
+  const avatars = useMemo(
+    () => seats.map((pk, i) => <Avatar key={pk} pubkey={pk} picture={profiles[i]?.picture ?? null} />),
+    [seats, profiles],
+  );
   // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
   const events = view?.events ?? NO_EVENTS;
   const mySeat = view?.mySeat ?? null;
@@ -224,6 +229,7 @@ export function GameScreen(props: { rootId: string }) {
         busy={busy}
         onAct={(a) => ctl.act(a)}
         names={names}
+        avatars={avatars}
         events={log}
         lastTile={lastTile}
         audit={audit}
