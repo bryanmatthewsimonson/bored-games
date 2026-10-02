@@ -1,4 +1,5 @@
 import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
+import { chess } from '@bored-games/chess';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
 import { createRng, type GameModule } from '@bored-games/game-kit';
 import {
@@ -43,8 +44,12 @@ export const LATE = T0 + 10_000_000;
 export const ROOT_SEEN = T0 + 10;
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
-export const MODULES: ReadonlyMap<string, GameModule<any, any, any>> = new Map([
+type AnyModule = GameModule<any, any, any>;
+
+/** Every game the tests play: Chain Reaction (one deck) and Chess (deckless, D045). */
+export const MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
+  [chess.id, chess],
 ]);
 
 export interface TestGame {
@@ -71,6 +76,16 @@ export function makeGame(
   seed: string,
   rules: ChainReactionRules = chainReaction.defaultRules(),
 ): TestGame {
+  return makeModuleGame(chainReaction, seats, seed, rules);
+}
+
+/** A game of `module` (Chess, for a deckless game) built like `makeGame`; the module's default rules. */
+export function makeModuleGame(
+  module: AnyModule,
+  seats: number,
+  seed: string,
+  rules: unknown = module.defaultRules(),
+): TestGame {
   const rnd = seededRandom(seed);
   const npubSks = Array.from({ length: seats }, () => secretKey(rnd));
   const ids: Identity[] = Array.from({ length: seats }, (_, seat) => ({
@@ -83,8 +98,8 @@ export function makeGame(
     tableTemplate(
       {
         tableId: 'test-table',
-        game: chainReaction.id,
-        version: chainReaction.version,
+        game: module.id,
+        version: module.version,
         seats,
         deadline: 259200,
         invited: npubs.slice(1),
@@ -112,7 +127,7 @@ export function makeGame(
         session,
         sessionSig: signSession(id.sessionSk, parsedTable.address, npub, rnd),
         rulesHash: rulesHash(rules),
-        version: chainReaction.version,
+        version: module.version,
       },
       T0 + 1 + seat,
     );

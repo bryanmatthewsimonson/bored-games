@@ -1,23 +1,35 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
+import { GAME_IDS } from '../games/ids.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
 import { rulesHref, tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
 
-/** The New table form: seats, deadline, invited players and the computed open seats. */
-export function NewTableForm() {
+/** The games the picker offers: the registered ids this client has a rules module for, in picker order. */
+export function pickableGames(modules: ReadonlyMap<string, unknown>): string[] {
+  return GAME_IDS.filter((id) => modules.has(id));
+}
+
+/**
+ * The New table form: the game (until the catalog of Phase E, a simple select), seats, deadline, invited players
+ * and the computed open seats. `game` is chosen by the parent (Home), which may show it elsewhere too.
+ */
+export function NewTableForm(props: { game: string; onGame: (game: string) => void }) {
   const { deps, signer, profile, store } = useApp();
   const lobby = useLobby();
-  const game = [...deps.modules.keys()][0] ?? '';
+  const games = pickableGames(deps.modules);
+  const game = props.game;
   const module = deps.modules.get(game);
   const range = useMemo(
-    () => (module === undefined ? { min: 3, max: 6 } : module.seatRange(module.defaultRules())),
+    () => (module === undefined ? { min: 2, max: 6 } : module.seatRange(module.defaultRules())),
     [module],
   );
-  const [seats, setSeats] = useState(Math.min(Math.max(range.min, 3), range.max));
+  // The default seat count is the game's smallest table; a new game resets it.
+  const [seats, setSeats] = useState(range.min);
+  useEffect(() => setSeats(range.min), [range]);
   const [deadline, setDeadline] = useState(259200);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -48,9 +60,27 @@ export function NewTableForm() {
     <form class="panel stack" onSubmit={submit} aria-labelledby="new-table-h" noValidate>
       <div class="panel-head">
         <h2 id="new-table-h">New table</h2>
-        <a href={rulesHref()}>How to play</a>
+        <a href={rulesHref(game)}>How to play</a>
       </div>
       <p class="muted">A table for {gameTitle(game)}. Nothing is shared until you create it.</p>
+
+      {games.length > 1 && (
+        <div class="field">
+          <label for="game">Game</label>
+          <select
+            id="game"
+            value={game}
+            onChange={(e) => props.onGame(e.currentTarget.value)}
+            disabled={busy}
+          >
+            {games.map((id) => (
+              <option key={id} value={id}>
+                {gameTitle(id)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div class="field">
         <label for="seats">Players</label>

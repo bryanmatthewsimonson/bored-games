@@ -25,12 +25,38 @@ describe('parseRoute', () => {
     expect(parseRoute(`#/g/${B}/`)).toEqual({ name: 'game', rootId: B });
   });
 
-  it('parses the rules page, with or without a section', () => {
-    expect(parseRoute('#/rules')).toEqual({ name: 'rules', section: null });
-    expect(parseRoute('#/rules/')).toEqual({ name: 'rules', section: null });
-    expect(parseRoute('#/rules/price-card')).toEqual({ name: 'rules', section: 'price-card' });
-    for (const h of ['#/rules/Mergers', '#/rules/a/b', '#/rulesx', `#/rules/${'x'.repeat(33)}`])
+  it("parses a game's rules page, with or without a section", () => {
+    expect(parseRoute('#/rules/chain-reaction')).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: null,
+    });
+    expect(parseRoute('#/rules/chain-reaction/')).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: null,
+    });
+    expect(parseRoute('#/rules/chess')).toEqual({ name: 'rules', game: 'chess', section: null });
+    expect(parseRoute('#/rules/chess/special')).toEqual({ name: 'rules', game: 'chess', section: 'special' });
+    expect(parseRoute('#/rules/chain-reaction/mergers')).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: 'mergers',
+    });
+    // An unknown game with a section parses; the screen shows Page not found.
+    expect(parseRoute('#/rules/go/ko')).toEqual({ name: 'rules', game: 'go', section: 'ko' });
+    for (const h of ['#/rules/Mergers', '#/rules/a/b/c', '#/rulesx', `#/rules/${'x'.repeat(33)}`])
       expect(parseRoute(h), h).toEqual({ name: 'not-found', hash: h });
+  });
+
+  it('maps the old #/rules[/<section>] links to Chain Reaction', () => {
+    expect(parseRoute('#/rules')).toEqual({ name: 'rules', game: 'chain-reaction', section: null });
+    expect(parseRoute('#/rules/')).toEqual({ name: 'rules', game: 'chain-reaction', section: null });
+    expect(parseRoute('#/rules/price-card')).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: 'price-card',
+    });
   });
 
   it('parses a dev preview page, with or without a scene', () => {
@@ -58,8 +84,16 @@ describe('parseRoute', () => {
   it('builds hrefs that parse back', () => {
     expect(parseRoute(tableHref(A, 't-1'))).toEqual({ name: 'table', creator: A, tableId: 't-1' });
     expect(parseRoute(gameHref(B))).toEqual({ name: 'game', rootId: B });
-    expect(parseRoute(rulesHref())).toEqual({ name: 'rules', section: null });
-    expect(parseRoute(rulesHref('mergers'))).toEqual({ name: 'rules', section: 'mergers' });
+    expect(parseRoute(rulesHref('chain-reaction'))).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: null,
+    });
+    expect(parseRoute(rulesHref('chain-reaction', 'mergers'))).toEqual({
+      name: 'rules',
+      game: 'chain-reaction',
+      section: 'mergers',
+    });
   });
 });
 

@@ -1050,3 +1050,21 @@ textarea.prose {
     display: none;
   }
 }
+
+/* The chrome every game shares, under the play area: the attestation line and Resign (D045). */
+.game-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+
+.game-chrome .game-attested {
+  margin: 0;
+}
+
+.game-chrome .claim-confirm {
+  flex: 1 1 320px;
+}

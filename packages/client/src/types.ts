@@ -62,6 +62,11 @@ export interface SessionView {
   phase: Phase;
   rootId: Hex;
   seats: number;
+  /**
+   * The shuffle steps that open the chain (PROTOCOL §6.1): the seat count in a game with a deck, 0 in a deckless
+   * game (D045). The first game action is move `shuffleSteps + 1`.
+   */
+  shuffleSteps: number;
   mySeat: number | null;
   /** The last accepted move, or the root (seq 0) before the first. */
   head: { id: Hex; seq: number };
@@ -83,10 +88,16 @@ export interface SessionView {
   outcome: Outcome | null;
   /**
    * Seats that forfeit (PROTOCOL §8.2): the equivocators, every seat stalled at the head when a timeout claim was
-   * accepted (whichever seat it named; at the end, the seats that withheld their secret), and, once the game is
-   * done, the seats the audit failed.
+   * accepted (whichever seat it named; at the end, the seats that withheld their secret), the seats whose resign
+   * ended the game, and, once the game is done, the seats the audit failed.
    */
   forfeits: number[];
+  /**
+   * Seats whose Resign (PROTOCOL §4.9, D045) ended the game: they forfeit, last, and the outcome's reason is
+   * `resign` (the game is cancelled before the first game action). Empty when no resign counts, including when the
+   * chain reached the module's `over` regardless (a finished game stands).
+   */
+  resigned: number[];
   /**
    * Seats flagged for equivocation (D030 R2, Ruling 5): two distinct moves on one prev of the chain, both valid as
    * of that prev. The game goes on; at the end they move to the last places.
@@ -95,7 +106,8 @@ export interface SessionView {
   /**
    * The R6 audit; `pending` until every secret is in. When a timeout ends the game (D030 Ruling 7) the audit cannot
    * run, and it records the forfeiting seats instead: `{fail: forfeits, reason: 'timeout'}` during play, or
-   * `{fail: forfeits, reason: 'withheld secret'}` at the end. A cancelled game stays `pending`.
+   * `{fail: forfeits, reason: 'withheld secret'}` at the end. A resign ends the game the same way, with
+   * `{fail: forfeits, reason: 'resign'}` (D045). A cancelled game stays `pending`.
    */
   audit: SessionAudit;
   logHash: Hex;

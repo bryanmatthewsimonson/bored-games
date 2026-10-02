@@ -36,7 +36,7 @@ describe('RulesContent', () => {
     ]);
     const links = findAll(tree, (el) => el.tag === 'a').map((a) => a.attrs.href);
     for (const s of RULES_SECTIONS) {
-      expect(links).toContain(`#/rules/${s.id}`);
+      expect(links).toContain(`#/rules/chain-reaction/${s.id}`);
       expect(h2.some((el) => el.attrs.id === `rules-${s.id}`)).toBe(true);
     }
   });

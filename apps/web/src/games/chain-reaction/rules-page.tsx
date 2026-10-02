@@ -19,6 +19,7 @@ import { useEffect } from 'preact/hooks';
 import { DEADLINE_CHOICES } from '../../lobby-model.ts';
 import { rulesHref } from '../../router.ts';
 import { Swatch } from './board.tsx';
+import { CHAIN_REACTION_META } from './meta.ts';
 import { formatMoney, priceCard } from './model.ts';
 import { PriceCard } from './price-card.tsx';
 import './rules.css';
@@ -101,7 +102,7 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
         <ol>
           {RULES_SECTIONS.map((s) => (
             <li key={s.id}>
-              <a href={rulesHref(s.id)}>{s.title}</a>
+              <a href={rulesHref(CHAIN_REACTION_META.id, s.id)}>{s.title}</a>
             </li>
           ))}
         </ol>
@@ -174,7 +175,7 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
           </li>
           <li>
             <strong>Buy</strong> up to {r.maxBuyPerTurn} shares, in any mix of chains on the board (see{' '}
-            <a href={rulesHref('buying')}>Buying shares</a>). Buying is optional.
+            <a href={rulesHref(CHAIN_REACTION_META.id, 'buying')}>Buying shares</a>). Buying is optional.
           </li>
           <li>
             <strong>End your turn.</strong> Dead tiles you held during the turn are discarded and replaced,
@@ -205,7 +206,8 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
           </dd>
           <dt>Merge</dt>
           <dd>
-            It touches two or more chains: see <a href={rulesHref('mergers')}>Mergers</a>.
+            It touches two or more chains: see{' '}
+            <a href={rulesHref(CHAIN_REACTION_META.id, 'mergers')}>Mergers</a>.
           </dd>
         </dl>
         <h3>Safe, dead and blocked tiles</h3>
@@ -319,7 +321,7 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
           </li>
           <li>
             Each share costs its chain's current price (see the{' '}
-            <a href={rulesHref('price-card')}>price card</a>
+            <a href={rulesHref(CHAIN_REACTION_META.id, 'price-card')}>price card</a>
             ). You are limited by the bank's supply and by your cash.
           </li>
           <li>A chain founded this turn can be bought this turn.</li>

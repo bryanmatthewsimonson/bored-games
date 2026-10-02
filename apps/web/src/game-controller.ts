@@ -52,10 +52,10 @@ export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-tur
 export const TICK_MS = 30_000;
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
-export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest];
+export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
 
 /** The game event kinds signed by a seat's session key; attestations (`KIND.attest`) are signed by its npub. */
-const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal];
+const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.resign];
 
 /**
  * Stored game events asked for per page. A page that brings any event not seen before is followed by an older
@@ -122,7 +122,7 @@ export function loadSeen(
 }
 
 /**
- * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest` and
+ * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest`, `resign` and
  * `timeout:<seat>:<head>`.
  */
 export function loadOutbox(
@@ -181,6 +181,10 @@ export class GameController {
   readonly legal: Signal<readonly unknown[]> = signal([]);
   /** A seat this player may claim a timeout against now, or null. */
   readonly timeoutTarget: Signal<number | null> = signal(null);
+  /** Whether this player may resign now (PROTOCOL §4.9): seated, synced, and the game is live. */
+  readonly canResign: Signal<boolean> = signal(false);
+  /** The game's module id, from the root, once it is known. */
+  readonly game: Signal<string | null> = signal(null);
   /** The seats' identity pubkeys, in seat order. */
   readonly seats: Signal<readonly Hex[]> = signal([]);
   readonly table: Signal<ParsedTable | null> = signal(null);
@@ -315,6 +319,30 @@ export class GameController {
     }
   }
 
+  /**
+   * Resign (PROTOCOL §4.9, D045): build the Resign once (the `resign` slot keeps it, so a reload re-sends the same
+   * event), fold it in and publish it. The game ends with this seat last.
+   */
+  async resign(): Promise<void> {
+    const session = this.#session;
+    if (session === null || this.busy.value || !this.#synced) return;
+    this.busy.value = true;
+    try {
+      await this.#yield();
+      if (this.#disposed) throw new Error('The game screen was closed.');
+      const saved = this.#live('resign');
+      if (saved === null && !session.canResign()) throw new Error('the game is no longer live');
+      this.#commit('resign', saved ?? session.buildResign(this.#d.rnd, this.#d.now()));
+      this.error.value = null;
+    } catch (e) {
+      this.error.value = `Your resignation was not sent: ${errorText(e)}`;
+    } finally {
+      this.busy.value = false;
+      this.#refresh();
+      this.#queueDuties();
+    }
+  }
+
   /* --------------------------------------------------------------------------------------------- loading */
 
   #onEvent(ev: NostrEvent): void {
@@ -387,7 +415,11 @@ export class GameController {
     for (const [slot, entry] of this.#outbox) if (!entry.orphan) held.push({ ev: entry.event, slot });
     for (const ev of this.#buffer.splice(0)) held.push({ ev, slot: null });
     const at = (ev: NostrEvent): number => this.#seen.get(ev.id) ?? Number.POSITIVE_INFINITY;
-    held.sort((a, b) => at(a.ev) - at(b.ev));
+    // Among events seen at the same time (or never, on a fresh load) a resign goes last. The session would wait for
+    // its head anyway (PROTOCOL §8.3), but a resign whose head is already on the chain counts at once, outside the
+    // per-seat cap on waiting resigns, so junk resigns the same seat flooded cannot crowd it out on a fresh device.
+    const rank = (ev: NostrEvent): number => (ev.kind === KIND.resign ? 1 : 0);
+    held.sort((a, b) => at(a.ev) - at(b.ev) || rank(a.ev) - rank(b.ev));
     for (const { ev, slot } of held) {
       if (this.#receive(session, ev).status !== 'rejected' || slot === null) continue;
       const entry = this.#outbox.get(slot);
@@ -462,6 +494,7 @@ export class GameController {
     }
     this.#rootEv = ev;
     this.#root = root;
+    this.game.value = root.game;
     this.#noteSeen(ev.id, this.#d.now());
     this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
     if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
@@ -637,6 +670,7 @@ export class GameController {
     this.view.value = v;
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
+    this.canResign.value = this.#synced && session.canResign();
     this.status.value = this.#statusOf(v, duties);
     this.#cacheStatus(v.head.seq, this.status.value, now);
     this.#maybePrune(v, duties);

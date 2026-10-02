@@ -124,7 +124,7 @@ export interface SimReport {
   forfeits: number[];
   equivocators: number[];
   attested: number[];
-  /** Moves on the chain (shuffle steps included), and game actions among them. */
+  /** Moves on the chain (shuffle steps included, if the game has a deck), and game actions among them. */
   moves: number;
   actions: number;
   /** Events on the relay, of every kind. */
@@ -140,7 +140,7 @@ export interface SimReport {
 }
 
 /** The in-game kinds a client subscribes to (PROTOCOL §9). */
-const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest];
+const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
 const RELAYS = ['wss://relay.sim.invalid'];
 const DEFAULT_START = 1_700_000_000;
 /** The most events one client publishes in one turn; a sound session needs far fewer. */
@@ -550,7 +550,8 @@ export function simulateGame(opts: SimOptions): SimReport {
     equivocators: final.equivocators,
     attested: final.attested,
     moves: final.head.seq,
-    actions: Math.max(0, final.head.seq - seats),
+    // A deckless game has no shuffle steps before its first action (D045).
+    actions: Math.max(0, final.head.seq - final.shuffleSteps),
     events: relay.size,
     rounds,
     duration: clock - rootAt,

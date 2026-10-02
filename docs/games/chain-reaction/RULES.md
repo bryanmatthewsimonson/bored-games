@@ -149,7 +149,7 @@ In live play, tiles are dealt as positions in a jointly shuffled encrypted deck 
 
 ## Edge-case catalog
 
-Each entry has a named test in `packages/games/chain-reaction/test/catalog/` whose title starts with its id. `catalog-coverage.test.ts` fails if any id below has no test.
+Each entry has a named test in `packages/games/chain-reaction/test/catalog/` whose title starts with its id. `tests/catalog.test.ts` fails if any id below has no test, or any catalog test has no entry.
 
 **Notation:**
 - `s1: 1A-5A` means chain s1 occupies 1A through 5A.

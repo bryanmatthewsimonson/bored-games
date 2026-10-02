@@ -8,6 +8,7 @@ export const KIND = {
   timeout: 7454,
   reveal: 7455,
   attest: 7456,
+  resign: 7457,
 } as const;
 
 /** Protocol version, carried as `["proto","1"]` on every game event. */

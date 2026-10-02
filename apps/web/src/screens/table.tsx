@@ -27,7 +27,7 @@ import {
   shareUrl,
   tableChip,
 } from '../lobby-model.ts';
-import { gameHref, homeHref } from '../router.ts';
+import { activeGame, gameHref, homeHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager, tableIsMine } from '../storage.ts';
 
 const KIND_LABEL = { creator: 'Creator', invited: 'Invited', open: 'Open seat' } as const;
@@ -104,6 +104,14 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const [confirming, setConfirming] = useState(false);
   const [picks, setPicks] = useState<Hex[] | null>(null);
   const [searchedLong, setSearchedLong] = useState(false);
+  // The header's Rules link follows this table's game while the screen is open.
+  const tableGame = view?.table.game ?? null;
+  useEffect(() => {
+    activeGame.value = tableGame;
+    return () => {
+      activeGame.value = null;
+    };
+  }, [tableGame]);
 
   // Once the game exists, everybody at the table goes to it.
   const rootId = view?.root?.id ?? null;

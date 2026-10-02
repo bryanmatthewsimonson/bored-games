@@ -4,9 +4,10 @@ import { npubEncode, shortNpub } from './bech32.ts';
 import { copyText } from './clipboard.ts';
 import { Avatar } from './components/avatar.tsx';
 import { useApp } from './context.ts';
+import { DEFAULT_GAME } from './games/ids.ts';
 import { DEFAULT_PROFILE } from './identity.ts';
 import { useProfile } from './profiles.ts';
-import { homeHref, route, rulesHref } from './router.ts';
+import { activeGame, homeHref, route, rulesHref } from './router.ts';
 
 export function CopyButton(props: { text: string; label: string; onCopied?: () => void }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -62,6 +63,13 @@ export function IdentityBadge() {
   );
 }
 
+/** The game the header's Rules link opens: the rules page's own, the open table's or game's, else the default. */
+export function rulesGame(): string {
+  const r = route.value;
+  if (r.name === 'rules') return r.game;
+  return activeGame.value ?? DEFAULT_GAME;
+}
+
 export function Header() {
   const { profile, settingsOpen } = useApp();
   return (
@@ -72,7 +80,7 @@ export function Header() {
       <div class="header-end">
         <a
           class="header-link"
-          href={rulesHref()}
+          href={rulesHref(rulesGame())}
           aria-current={route.value.name === 'rules' ? 'page' : undefined}
           // In a game, a new tab keeps the running game open instead of rebuilding it on return.
           {...(route.value.name === 'game' ? { target: '_blank', rel: 'noopener' } : {})}

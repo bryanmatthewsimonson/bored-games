@@ -258,6 +258,7 @@ describe('helpers and constants', () => {
       timeout: 7454,
       reveal: 7455,
       attest: 7456,
+      resign: 7457,
     });
     expect(PROTO).toBe('1');
     expect(DEADLINES).toEqual([86400, 259200, 604800]);
