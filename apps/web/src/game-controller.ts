@@ -30,7 +30,6 @@ import type { Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
-import { profileName } from './profile-model.ts';
 import {
   type GameStatusName,
   loadSecrets,
@@ -192,8 +191,6 @@ export class GameController {
   readonly legal: Signal<readonly unknown[]> = signal([]);
   /** A seat this player may claim a timeout against now, or null. */
   readonly timeoutTarget: Signal<number | null> = signal(null);
-  /** Each seat's profile name from its kind 0 metadata (`profileName`), or null; in seat order. */
-  readonly profileNames: Signal<readonly (string | null)[]> = signal([]);
   /** The seats' identity pubkeys, in seat order. */
   readonly seats: Signal<readonly Hex[]> = signal([]);
   readonly table: Signal<ParsedTable | null> = signal(null);
@@ -212,8 +209,6 @@ export class GameController {
   /** The Table this profile validated the root against on an earlier load; preferred over the relays' copies. */
   #storedTable: NostrEvent | null = null;
   readonly #joins = new Map<string, NostrEvent>();
-  /** The newest kind 0 metadata event per seat pubkey. */
-  readonly #profiles = new Map<string, NostrEvent>();
   /** Game events that arrived before the session existed and the relays sent all they hold. */
   #buffer: NostrEvent[] = [];
   /** The seats' session keys and npubs, once the root is known: only their game events are taken. */
@@ -484,9 +479,6 @@ export class GameController {
     this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
-    this.#stops.push(
-      this.#d.pool.subscribe([{ kinds: [0], authors: seats }], (p) => this.#onProfile(p, seats)),
-    );
     this.#d.pool.addRelays?.(root.relays);
     const [, creator, tableId] = root.tableAddress.split(':');
     this.#stops.push(
@@ -530,17 +522,6 @@ export class GameController {
       this.#joins.set(ev.id, ev);
     } else return;
     this.#tryCreate();
-  }
-
-  /** A seat's kind 0 metadata; the newest per pubkey names it. Relays are not trusted to filter. */
-  #onProfile(ev: NostrEvent, seats: readonly Hex[]): void {
-    if (this.#disposed || ev.kind !== 0 || !seats.includes(ev.pubkey)) return;
-    if ((this.#profiles.get(ev.pubkey)?.created_at ?? -1) >= ev.created_at) return;
-    this.#profiles.set(ev.pubkey, ev);
-    this.profileNames.value = seats.map((pk) => {
-      const p = this.#profiles.get(pk);
-      return p === undefined ? null : profileName(p.content);
-    });
   }
 
   /** The relays' Table versions, newest first (ties: lowest id). */

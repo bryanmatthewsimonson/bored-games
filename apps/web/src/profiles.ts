@@ -5,7 +5,7 @@
  */
 import type { Hex, NostrEvent } from '@bored-games/protocol';
 import { type ReadonlySignal, type Signal, signal } from '@preact/signals';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import { useApp } from './context.ts';
 import { isImportedKey, type Signer } from './identity.ts';
 import type { ControllerDeps } from './net.ts';
@@ -15,6 +15,7 @@ import {
   newerEvent,
   type ParsedProfile,
   type ProfileChanges,
+  type ProfileInfo,
   parseProfile,
   profileTemplate,
   saveProfileCache,
@@ -304,4 +305,20 @@ export function useProfile(pubkey: Hex): ProfileEntry {
   const store = useProfiles();
   useEffect(() => store.want([pubkey]), [store, pubkey]);
   return store.get(pubkey).value;
+}
+
+/**
+ * The profiles of several pubkeys (a game's seats), in order, followed while the calling component is mounted:
+ * null where none is known. The array keeps its identity until one of the profiles changes, so it can key a memo.
+ */
+export function usePlayerProfiles(pubkeys: readonly Hex[]): readonly (ProfileInfo | null)[] {
+  const store = useProfiles();
+  const key = pubkeys.join(',');
+  // Keyed by the joined pubkeys: a new array with the same keys does not follow them again.
+  useEffect(() => store.want(pubkeys), [store, key]);
+  const infos = pubkeys.map((pk) => store.get(pk).value.info);
+  const last = useRef(infos);
+  const prev = last.current;
+  if (prev.length !== infos.length || infos.some((p, i) => p !== prev[i])) last.current = infos;
+  return last.current;
 }

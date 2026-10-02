@@ -334,6 +334,17 @@ describe('ProfileStore on the dev relay', () => {
     };
   };
 
+  it('names a player by the newer of two kind 0 events published in turn, its bidi override removed', async () => {
+    const seat = signer();
+    const writer = newStore();
+    const base = Math.floor(Date.now() / 1000) - 10;
+    for (const [i, display_name] of ['Old', 'Ann\u202e'].entries())
+      await writer.pool.publish(kind0(seat, { display_name }, base + i));
+    const reader = newStore();
+    reader.store.want([seat.pubkey]);
+    await waitFor(() => reader.store.get(seat.pubkey).value.info?.name === 'Ann');
+  }, 30_000);
+
   it('newest wins, and a save keeps unknown fields and tags', async () => {
     const me = signer();
     const writer = newStore();
