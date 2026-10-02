@@ -168,9 +168,10 @@ export function badShuffle(seat: number): Adversary {
 }
 
 /**
- * `resign`: the seat plays honestly until the chain reaches `atSeq` moves, then resigns (PROTOCOL §4.9, D045) and
- * only attests from then on. Not a cheat, but a seat whose departure the others must agree on: the resign is
- * labelled so the report shows how every client received it.
+ * `resign`: the seat plays honestly until the chain reaches `atSeq` moves, then resigns on its own decision
+ * (PROTOCOL §4.9, D045; 2-seat games without a deck only) and only attests from then on. On its own turn no move
+ * can race the resign, so every client must agree. Not a cheat: the resign is labelled so the report shows how
+ * every client received it.
  */
 export function resignAt(seat: number, atSeq: number): Adversary {
   let done = false;
@@ -179,7 +180,7 @@ export function resignAt(seat: number, atSeq: number): Adversary {
     seat,
     turn(t) {
       if (done) return 'honest';
-      if (t.session.view().head.seq < atSeq || !t.session.canResign()) return 'honest';
+      if (t.session.view().head.seq < atSeq || !t.session.canResign() || !decides(t.session)) return 'honest';
       done = true;
       t.publish(t.session.buildResign(t.rnd, t.now), 'resign');
       return 'honest';

@@ -84,19 +84,13 @@ describe('game chrome helpers (D045)', () => {
     expect(resignedSeats(viewOf({ resigned: [1] }))).toEqual([1]);
   });
 
-  it('explains what resigning does: a cancel before the first action, a loss or last place after', () => {
+  it('explains what resigning does: a cancel before the first action, a loss after', () => {
     expect(
       resignExplanation(viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 0 } })),
     ).toMatch(/cancels the game/);
     expect(
       resignExplanation(viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 3 } })),
     ).toMatch(/You lose the game/);
-    expect(resignExplanation(viewOf({ phase: 'play', seats: 3, head: { id: 'h', seq: 3 } }))).toMatch(
-      /cancels the game/,
-    );
-    expect(resignExplanation(viewOf({ phase: 'play', seats: 3, head: { id: 'h', seq: 9 } }))).toMatch(
-      /you are ranked last/,
-    );
   });
 
   it('counts the attestations once there is a result', () => {

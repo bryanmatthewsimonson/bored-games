@@ -159,7 +159,10 @@ describe('GameController with a deckless game (Chess)', () => {
   it('resigns once: the game ends with the resigning seat last, and both attest', async () => {
     const { rootId, white, black } = await startChess();
     await play(white, 0, 'e2e4', 1);
-    await waitFor('Black can resign', () => black.canResign.value);
+    // Black resigns on its turn, having seen 1. e4: a resign is final on receipt (PROTOCOL §8.3), so one sent
+    // before the move arrived would end Black's game at the root and White's after the move.
+    await waitFor("Black's turn", () => black.status.value === 'your-turn');
+    expect(black.canResign.value).toBe(true);
     await black.resign();
     expect(black.error.value).toBeNull();
     for (const c of [white, black]) {

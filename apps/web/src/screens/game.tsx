@@ -76,13 +76,14 @@ export function resignedSeats(view: SessionView | null): readonly number[] {
   return Array.isArray(r) ? r.filter((x): x is number => Number.isInteger(x)) : [];
 }
 
-/** What resigning does, for the confirm step: before the first game action the game is cancelled instead. */
+/**
+ * What resigning does, for the confirm step. Resigning exists only in 2-player games without a deck (D045; the
+ * button shows only where the session allows it): you lose, or before the first move the game is cancelled.
+ */
 export function resignExplanation(view: SessionView): string {
   const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started) return 'No move has been played yet, so resigning cancels the game without a result.';
-  return view.seats === 2
-    ? 'You lose the game. This cannot be undone.'
-    : 'The game ends now: you are ranked last and the others are ranked as the game stands. This cannot be undone.';
+  return 'You lose the game. This cannot be undone.';
 }
 
 /** "Result signed by 2 of 2 players", once the session has a result to attest; null before. */
