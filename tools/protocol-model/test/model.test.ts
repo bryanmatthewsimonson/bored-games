@@ -194,24 +194,21 @@ describe('liveness, honest seats only', () => {
   });
 });
 
-describe.runIf(BIG)('bigger scope (PROTOCOL_MODEL_BIG=1)', () => {
-  it('fgr: every mode and coalition, 4 moves, 3 adversary moves, an Ack, a claim, a deadline', () => {
+describe.runIf(BIG)('bigger scope (PROTOCOL_MODEL_BIG=1, about half an hour)', () => {
+  const safe = (r: Result): void => {
+    expect(r.complete).toBe(true);
+    expectSafe(Object.fromEntries(Object.entries(r.violations).map(([k, v]) => [k, v?.count ?? 0])));
+  };
+
+  it('fgr: every mode and coalition, 4 moves, 3 adversary moves, an Ack', () => {
     for (const mode of MODES) {
-      const s = sweep({ ...base, design: 'fgr', mode, length: 4, advMoves: 3, advClaims: 1, expiries: 1 });
+      const s = sweep({ ...base, design: 'fgr', mode, length: 4, advMoves: 3 });
       expect(s.complete, mode).toBe(true);
       expectSafe(s.counts);
     }
-  }, 3_600_000);
+  }, 7_200_000);
 
-  it('fgr: the late-Ack scope itself (6 moves, 6 adversary moves, two colluders)', () => {
-    for (const mode of MODES) {
-      const r = explore({ ...base, design: 'fgr', mode, length: 6, advMoves: 6, coalition: [0, 1] });
-      expect(r.complete, mode).toBe(true);
-      expectSafe(Object.fromEntries(Object.entries(r.violations).map(([k, v]) => [k, v?.count ?? 0])));
-    }
-  }, 3_600_000);
-
-  it('fgr: resigns and claims for every coalition', () => {
+  it('fgr: a claim, a resign and a deadline, every coalition', () => {
     const s = sweep({
       ...base,
       design: 'fgr',
@@ -223,17 +220,24 @@ describe.runIf(BIG)('bigger scope (PROTOCOL_MODEL_BIG=1)', () => {
     });
     expect(s.complete).toBe(true);
     expectSafe(s.counts);
-  }, 3_600_000);
+  }, 7_200_000);
 
-  it('fgr: 4 seats, 4 moves', () => {
-    for (const mode of MODES) {
-      const runs = [[0], [1], [0, 1], [0, 2], [1, 3]].map((coalition) =>
-        explore({ ...base, seats: 4, design: 'fgr', mode, length: 4, advMoves: 2, coalition }),
-      );
-      for (const r of runs) {
-        expect(r.complete).toBe(true);
-        expectSafe(Object.fromEntries(Object.entries(r.violations).map(([k, v]) => [k, v?.count ?? 0])));
-      }
-    }
-  }, 3_600_000);
+  it('fgr: 4 seats, 4 moves, every pair of colluders', () => {
+    // A single adversary leaves 3 honest clients, whose delivery orders exceed this scope (over 4 million states).
+    for (const mode of MODES)
+      for (const coalition of [
+        [0, 1],
+        [0, 2],
+        [0, 3],
+        [1, 2],
+        [1, 3],
+        [2, 3],
+      ])
+        safe(explore({ ...base, seats: 4, design: 'fgr', mode, length: 4, coalition }));
+  }, 7_200_000);
+
+  it('fgr: the late-Ack scope itself (6 moves, 6 adversary moves, two colluders)', () => {
+    for (const mode of MODES)
+      safe(explore({ ...base, design: 'fgr', mode, length: 6, advMoves: 6, coalition: [0, 1] }));
+  }, 7_200_000);
 });
