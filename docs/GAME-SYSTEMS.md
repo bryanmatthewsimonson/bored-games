@@ -297,7 +297,7 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 
 ### 4.12 Branding packs and catalog metadata (Phase E)
 - **Catalog entry** (`packages/games/<id>/src/catalog.ts`, pure): players, play time, weight, luck, genre, mechanisms, modes (competitive, team, co-op, solo), turn style (sequential, simultaneous), `hiddenInfo`, `randomness`. Proposed additions from this document: `randomness: 'none' | 'deck' | 'dice'` instead of a boolean, and `pace: 'async' | 'live-recommended'` from §2.3, so players know a decide-then-roll game is best played live.
-- **Brand packs:** user-facing names in the game's theme; licensed packs in `licensed/`, off on the public site (owner's choice, Phase E3).
+- **Brand packs:** user-facing names in the game's theme; licensed packs in `licensed/`, off on the public site (owner's choice, Phase E3). A game that implements a published one says "Compare to <title>" with a BoardGameGeek link (`compareTo`, D053).
 - **Tests** (Phase E1): `players` matches `seatRange`; `hiddenInfo || randomness !== 'none'` iff the game uses a deck or the beacon.
 
 ## 5. Game families

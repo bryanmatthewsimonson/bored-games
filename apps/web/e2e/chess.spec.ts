@@ -93,6 +93,11 @@ async function startChess(a: Player, b: Player, shot?: string): Promise<void> {
   await expect(a.page.getByLabel('Players', { exact: true })).toHaveValue('2');
   await expect(a.page.getByText('1 open seat')).toBeVisible();
   await expect(a.page.getByRole('link', { name: 'How to play' })).toHaveAttribute('href', '#/rules/chess');
+  await expect(a.page.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveAttribute(
+    'href',
+    'https://boardgamegeek.com/boardgame/171',
+  );
+  await expect(a.page.getByText('Compare to', { exact: false })).toHaveCount(0);
   if (shot !== undefined) await shoot(a, shot);
   await a.page.getByRole('button', { name: 'Create table' }).click();
   await expect(a.page).toHaveURL(/#\/t\/[0-9a-f]{64}\//);

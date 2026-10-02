@@ -3,10 +3,13 @@
  * form, and the open tables and the player's own games of this game. The lobby lists every game's tables; this
  * page keeps this game's (relays cannot filter by game, see table-lists.tsx).
  */
+import { BRAND } from '@bored-games/brand';
 import { useEffect } from 'preact/hooks';
 import { gameNames } from '../brands.ts';
 import {
   bestText,
+  bggUrl,
+  compareText,
   complexityText,
   GENRE_LABELS,
   informationText,
@@ -100,6 +103,25 @@ export function GamePage(props: { game: string }) {
               <dt>Information</dt>
               <dd>{informationText(entry)}</dd>
             </dl>
+            {entry.bggId !== null && (
+              <p class="game-links">
+                <a href={bggUrl(entry.bggId)} target="_blank" rel="noopener noreferrer">
+                  BoardGameGeek
+                </a>
+              </p>
+            )}
+            {entry.compareTo !== null && (
+              <div class="game-links">
+                <p>
+                  <a href={bggUrl(entry.compareTo.bggId)} target="_blank" rel="noopener noreferrer">
+                    {compareText(entry.compareTo)}
+                  </a>
+                </p>
+                <p class="hint">
+                  {BRAND.name} is not affiliated with or endorsed by the makers of {entry.compareTo.title}.
+                </p>
+              </div>
+            )}
           </section>
         </div>
         <div class="stack">

@@ -3,12 +3,15 @@
  * pack (theme.ts for the trademark-safe one).
  */
 import type { CatalogEntry } from '@bored-games/game-kit';
+import { COMPARE_BGG_ID, COMPARE_TITLE } from './compare.ts';
 import { CHAIN_REACTION_ID } from './module.ts';
 
 export const CHAIN_REACTION_CATALOG: CatalogEntry = {
   id: CHAIN_REACTION_ID,
-  // An implementation of a published game's mechanics under its own names, so no BoardGameGeek entry of its own.
+  // An implementation of a published game's mechanics under its own names, so no BoardGameGeek entry of its own;
+  // the catalog says "Compare to" that game instead, with a link to its entry (compare.ts, D053).
   bggId: null,
+  compareTo: { title: COMPARE_TITLE, bggId: COMPARE_BGG_ID },
   year: null,
   status: 'stable',
   players: { min: 3, max: 6, best: [4, 5] },

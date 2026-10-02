@@ -6,8 +6,10 @@ import { describe, expect, it } from 'vitest';
 import {
   activeFilters,
   bestText,
+  bggUrl,
   type CatalogFilters,
   type CatalogItem,
+  compareText,
   complexityOf,
   complexityText,
   filterCatalog,
@@ -121,6 +123,15 @@ describe('catalog search', () => {
     expect(normalize('  Tile-Placement  x ')).toBe('tile placement x');
   });
 
+  it('matches the title of the game a game compares to (D053), and only for that game', () => {
+    const compare = CATALOG.get('chain-reaction')?.entry.compareTo;
+    if (compare == null) throw new Error('Chain Reaction compares to a published game');
+    expect(ids({ query: compare.title })).toEqual(['chain-reaction']);
+    expect(ids({ query: compare.title.toUpperCase() })).toEqual(['chain-reaction']);
+    expect(matchesQuery(made({ compareTo: null }), compare.title)).toBe(false);
+    expect(matchesQuery(made({ compareTo: { title: 'Elder Game', bggId: 9 } }), 'elder')).toBe(true);
+  });
+
   it('combines search and filters', () => {
     expect(ids({ query: 'classic', players: 2 })).toEqual(['chess']);
   });
@@ -141,6 +152,11 @@ describe('catalog words', () => {
     expect(luckText(cr)).toBe('Some (2 of 5)');
     expect(luckText(base)).toBe('None');
     expect(mechanismLabel('capture-elimination')).toBe('Capture elimination');
+  });
+
+  it('links to BoardGameGeek by id and says "Compare to" the title', () => {
+    expect(bggUrl(171)).toBe('https://boardgamegeek.com/boardgame/171');
+    expect(compareText({ title: 'Elder Game', bggId: 9 })).toBe('Compare to Elder Game');
   });
 
   it('counts results for the live region', () => {

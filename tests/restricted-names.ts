@@ -10,6 +10,11 @@
  * - every string value of every licensed pack (`licensedPackStrings`), whatever it is: title, aliases, tagline,
  *   summary and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is
  *   covered without touching this file.
+ *
+ * One exception (D053): the exact phrases in `ALLOWED_PHRASES` ("Compare to" the reference title, as a store brand
+ * says it) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
+ * repo guard, the public build scan and `pnpm scan:dist`) let them through. Only the whole phrase, spelled exactly:
+ * the title alone, in another case or inside another word is still caught.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -42,7 +47,25 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
   'hydration',
 ]);
 
+/**
+ * The exact phrases the public site may show although they hold a restricted name (D053), case-sensitive. Each
+ * is stored as one string literal in its game's `src` (Chain Reaction: `src/compare.ts`), which a guard test
+ * checks. Keep this to whole phrases: never add the bare title, here or to ALLOWED_WORDS.
+ */
+export const ALLOWED_PHRASES: readonly string[] = ['Compare to Acquire'];
+
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * `text` with every allowed phrase replaced by a space: only where it stands as a whole phrase, so a phrase run
+ * into a longer word on either side ("Compare to Acquired") is left for the matchers to catch.
+ */
+export function withoutAllowedPhrases(text: string): string {
+  return ALLOWED_PHRASES.reduce(
+    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_])`, 'g'), ' '),
+    text,
+  );
+}
 
 /** The words of `text` (letters and digits, joined by `_`) that contain a restricted name, not allowed ones. */
 export function restrictedIn(text: string): string[] {
@@ -62,9 +85,13 @@ export function licensedIn(text: string, strings: readonly string[]): string[] {
   );
 }
 
-/** Everything restricted in `text`: names from the fixed list and licensed pack strings. */
+/**
+ * Everything restricted in `text`: names from the fixed list and licensed pack strings, once the allowed phrases
+ * are cut out. Every scan goes through here.
+ */
 export function findRestricted(text: string, strings: readonly string[]): string[] {
-  return [...new Set([...restrictedIn(text), ...licensedIn(text, strings)])];
+  const t = withoutAllowedPhrases(text);
+  return [...new Set([...restrictedIn(t), ...licensedIn(t, strings)])];
 }
 
 const SKIP = new Set(['node_modules', 'dist', 'dist-e2e', 'test-results', 'playwright-report', 'coverage']);

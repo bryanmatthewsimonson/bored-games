@@ -2,11 +2,15 @@
  * The game catalog (D046): every registered rules module has a catalog entry that agrees with it (seat range,
  * deck and hidden information) and a trademark-safe brand pack.
  */
+import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { catalogProblems } from '@bored-games/game-kit';
+import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
+import { catalogItems, GameCard } from '../src/components/game-catalog.tsx';
 import { CATALOG } from '../src/games/catalog.ts';
 import { GAME_IDS } from '../src/games/ids.ts';
 import { MODULES } from '../src/net.ts';
+import { renderTree, spokenText } from './render-tree.ts';
 
 describe('game catalog', () => {
   it('has one entry per hosted game, in picker order', () => {
@@ -47,7 +51,13 @@ describe('game catalog', () => {
       hiddenInfo: true,
       randomness: true,
     });
+    // No BoardGameGeek entry of its own: "Compare to" the published game instead (D053), title cut from the phrase.
+    expect(cr?.bggId).toBeNull();
+    expect(cr?.compareTo).toEqual({ title: COMPARE_TITLE, bggId: 5 });
+    expect(`Compare to ${cr?.compareTo?.title}`).toBe(COMPARE_PHRASE);
     const chess = CATALOG.get('chess')?.entry;
+    expect(chess?.bggId).toBe(171);
+    expect(chess?.compareTo).toBeNull();
     expect(chess).toMatchObject({
       players: { min: 2, max: 2 },
       playMinutes: { min: 10, max: 120 },
@@ -58,5 +68,15 @@ describe('game catalog', () => {
       hiddenInfo: false,
       randomness: false,
     });
+  });
+
+  it('shows "Compare to" on the card of a game that compares to another, and only there', () => {
+    const card = (id: string): string => {
+      const item = catalogItems().find((i) => i.entry.id === id);
+      if (item === undefined) throw new Error(id);
+      return spokenText(renderTree(h(GameCard, { item })));
+    };
+    expect(card('chain-reaction')).toContain(COMPARE_PHRASE);
+    expect(card('chess')).not.toContain('Compare to');
   });
 });

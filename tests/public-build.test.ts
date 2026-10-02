@@ -2,8 +2,9 @@
  * The public build scan (D046): build the web app as the Pages workflow does (`VITE_LICENSED_BRANDS=0`, no other
  * `VITE_*` variable) and scan every file, source maps included, for every restricted name and every licensed pack
  * string (restricted-names.ts). A control build with the flag on must contain every one of those strings, which
- * proves the scan, the pack coverage and the flag. Both build into temporary directories, so `apps/web/dist` and
- * a concurrent run are left alone. Part of `pnpm test`, so of `pnpm check` and CI; a build takes a few seconds.
+ * proves the scan, the pack coverage and the flag; the public build must hold the one allowed phrase (D053). Both
+ * build into temporary directories, so `apps/web/dist` and a concurrent run are left alone. Part of `pnpm test`,
+ * so of `pnpm check` and CI; a build takes a few seconds.
  * `pnpm scan:dist` runs the same scan on an existing build (the Pages workflow runs it before uploading).
  */
 import { execFileSync } from 'node:child_process';
@@ -11,6 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { COMPARE_PHRASE } from '../packages/games/chain-reaction/src/compare.ts';
 import { BINARY, filesUnder, findRestricted, licensedPackStrings, scanDir } from './restricted-names.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -50,6 +52,12 @@ describe('public build', () => {
     expect(existsSync(join(dist, 'index.html'))).toBe(true);
     expect(filesUnder(dist).some((f) => f.endsWith('.map'))).toBe(true);
     expect(scanDir(dist, strings)).toEqual([]);
+    // The one allowed mention (D053) ships, as one literal in the bundle, and the scan let it through.
+    const js = filesUnder(join(dist, 'assets'))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => readFileSync(f, 'utf8'))
+      .join('\n');
+    expect(js).toContain(COMPARE_PHRASE);
   }, 180_000);
 
   it('holds every one of them in a build made with VITE_LICENSED_BRANDS=1 (the control)', () => {

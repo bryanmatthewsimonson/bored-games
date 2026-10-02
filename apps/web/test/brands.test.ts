@@ -79,11 +79,26 @@ describe('brand packs', () => {
   });
 
   it('finds a game by its licensed aliases only while they are in effect', () => {
-    const query = { ...NO_FILTERS, query: ORIGINAL_BRAND.gameTitle };
-    expect(filterCatalog(catalogItems(), query)).toEqual([]);
+    // Every alias but the title, which the safe catalog also matches as the "Compare to" title (D053).
+    const aliases = ORIGINAL_BRAND.aliases.filter((a) => a !== ORIGINAL_BRAND.gameTitle);
+    expect(aliases.length).toBeGreaterThan(0);
+    const found = (q: string) =>
+      filterCatalog(catalogItems(), { ...NO_FILTERS, query: q }).map((i) => i.entry.id);
+    for (const alias of aliases) expect(found(alias), alias).toEqual([]);
     setLicensedPacks(LICENSED);
     chooseBranding('original');
-    expect(filterCatalog(catalogItems(), query).map((i) => i.entry.id)).toEqual(['chain-reaction']);
+    for (const alias of aliases) expect(found(alias), alias).toEqual(['chain-reaction']);
+  });
+
+  it('finds the game by the original title under either names, as the "Compare to" title (D053)', () => {
+    const found = () =>
+      filterCatalog(catalogItems(), { ...NO_FILTERS, query: ORIGINAL_BRAND.gameTitle }).map(
+        (i) => i.entry.id,
+      );
+    expect(found()).toEqual(['chain-reaction']);
+    setLicensedPacks(LICENSED);
+    chooseBranding('original');
+    expect(found()).toEqual(['chain-reaction']);
   });
 
   it("follows the profile's setting", () => {

@@ -1188,6 +1188,12 @@ input[type="search"] {
   color: var(--muted);
 }
 
+.game-card-compare {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .game-card-facts {
   display: flex;
   flex-wrap: wrap;
@@ -1269,6 +1275,14 @@ input[type="search"] {
 
 .game-page .facts {
   margin: 0;
+}
+
+.game-links {
+  margin: 12px 0 0;
+}
+
+.game-links p {
+  margin: 0 0 4px;
 }
 
 /* Settings: Game names (D046) */

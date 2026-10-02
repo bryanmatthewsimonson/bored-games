@@ -18,6 +18,8 @@
  * - E2E_FINISH=1: then play on, declaring the end as soon as it is allowed, until every player sees the final
  *   results and a passed audit (the end-of-game secrets and attestations).
  */
+import { BRAND } from '@bored-games/brand';
+import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { type Browser, type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
 
 const RELAY = process.env.E2E_RELAY ?? 'ws://localhost:7777';
@@ -144,10 +146,20 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   const started = Date.now();
   const log = (msg: string) => console.log(`[${((Date.now() - started) / 1000).toFixed(1)}s] ${msg}`);
 
-  // a creates a table from the game's page in the catalog: herself plus the other seats, open.
+  // a creates a table from the game's page in the catalog: herself plus the other seats, open. She finds it by
+  // the title of the published game it compares to (D053), which its card and page name only in that phrase.
   const a = await open(browser, 'a', appUrl('a'));
+  await a.page.getByLabel('Search games').fill(COMPARE_TITLE);
+  await expect(a.page.locator('.catalog-count')).toHaveText(/^1 of \d+ games$/);
+  await expect(a.page.locator('.game-card-compare')).toHaveText(COMPARE_PHRASE);
   await a.page.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
   await expect(a.page).toHaveURL(/#\/games\/chain-reaction$/);
+  const compare = a.page.getByRole('link', { name: COMPARE_PHRASE, exact: true });
+  await expect(compare).toHaveAttribute('href', 'https://boardgamegeek.com/boardgame/5');
+  await expect(
+    a.page.getByText(`${BRAND.name} is not affiliated with or endorsed by the makers of ${COMPARE_TITLE}.`),
+  ).toBeVisible();
+  await expect(a.page.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveCount(0);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
   await a.page.getByLabel('Players', { exact: true }).selectOption(String(SEATS));
   await expect(a.page.getByText(`${SEATS - 1} open seats`)).toBeVisible();

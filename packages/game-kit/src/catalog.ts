@@ -62,6 +62,12 @@ export interface CatalogEntry {
   readonly id: string;
   /** The game's BoardGameGeek id, or null. */
   readonly bggId: number | null;
+  /**
+   * The published game this one implements under its own names, for a "Compare to <title>" link to its
+   * BoardGameGeek entry (D053), or null. The title is the published game's, so the public site may show it only
+   * in that phrase: the trademark guard allows nothing else.
+   */
+  readonly compareTo: { readonly title: string; readonly bggId: number } | null;
   /** The year the game was first published, or null. */
   readonly year: number | null;
   readonly status: CatalogStatus;
@@ -111,7 +117,8 @@ const isInt = (n: unknown): n is number => Number.isInteger(n);
 /**
  * Every way `entry` disagrees with `module` or with the vocabularies, as messages; empty when it is consistent.
  * Checks: the id; the players against `seatRange(defaultRules())`; the best counts within them; the play time;
- * weight and luck in range; the vocabularies; and `hiddenInfo || randomness` exactly when the game has a deck.
+ * weight and luck in range; the vocabularies; `hiddenInfo || randomness` exactly when the game has a deck; and
+ * BoardGameGeek ids (its own and `compareTo`'s) positive integers, with a `compareTo` title.
  */
 export function catalogProblems(
   entry: CatalogEntry,
@@ -145,5 +152,10 @@ export function catalogProblems(
     out.push(`hiddenInfo || randomness must be ${hasDeck}: the game ${hasDeck ? 'has' : 'has no'} deck`);
   if (entry.tags.some((tag) => tag !== tag.toLowerCase() || tag.trim() === ''))
     out.push('tags are non-empty and lower case');
+  const bggOk = (n: number): boolean => isInt(n) && n > 0;
+  if (entry.bggId !== null && !bggOk(entry.bggId)) out.push('bggId must be a positive integer or null');
+  const c = entry.compareTo;
+  if (c !== null && (c.title.trim() === '' || !bggOk(c.bggId)))
+    out.push('compareTo needs a title and a positive integer bggId');
   return out;
 }
