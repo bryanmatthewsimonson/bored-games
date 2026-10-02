@@ -56,6 +56,7 @@ describe('RulesContent', () => {
       `${r.founderShares} free share`,
       `all ${r.chains.length} chains are on the board`,
       '12 columns',
+      'longer with more players',
       '108 spaces',
     ])
       expect(text, fragment).toContain(fragment);

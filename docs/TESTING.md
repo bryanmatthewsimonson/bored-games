@@ -2,25 +2,28 @@
 
 How to play Chain Reaction locally, with real people, and how to run the tests. Commands run from the repo root.
 
-## 1. Local play: three players in one browser
+## 1. Local play: 3 to 6 players in one browser
+
+Chain Reaction takes 3 to 6 players. The steps below use three; for more, open one more window per player (`profile=d`, `e`, `f`) and choose that many players at **Create table**.
 
 You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 
 1. Run `pnpm install`.
 2. Run `pnpm dev`. This starts the in-memory dev relay on `ws://localhost:7777` and the app on `http://localhost:5173`. Ctrl-C stops both. The relay keeps nothing, so restarting it loses every table and game.
    - **Ports are fixed.** Vite runs with `strictPort`, so if port 5173 (or the relay's 7777) is already taken, `pnpm dev` stops with an error instead of moving to another port. Stop the other process (often an earlier `pnpm dev`) and run it again.
-3. Open **three separate browser windows side by side, not tabs**, one per player:
+3. Open **three separate browser windows side by side, not tabs**, one per player (one more per extra player):
    - `http://localhost:5173/?profile=a&relays=ws://localhost:7777`
    - `http://localhost:5173/?profile=b&relays=ws://localhost:7777`
    - `http://localhost:5173/?profile=c&relays=ws://localhost:7777`
+   - for a bigger table, the same with `profile=d`, `e` and `f`
 
-   Each profile has its own key and storage, so these are three separate players. The header shows `profile: a`, and so on.
+   Each profile has its own key and storage, so these are separate players. The header shows `profile: a`, and so on.
    - **Why windows:** browsers throttle timers in hidden tabs, which slows the automatic shuffle and deal to a crawl. If a window seems stuck, click into it to focus it.
    - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the default public relay (`wss://relay.primal.net`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the default list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
-4. **Create** (window a): under **New table**, choose **3 players** (the default) and a **Time allowed per move**, then click **Create table** (the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
-5. **Join** (windows b and c): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
+4. **Create** (window a): under **New table**, choose **3 players** (the default; up to 6 are possible) and a **Time allowed per move**, then click **Create table** (for 3 players the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
+5. **Join** (every window but a): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
    - To join with the link instead, click **Copy share link** in window a. The link carries no profile, so add one before pasting it into window b: `http://localhost:5173/?profile=b#/t/…`. Then click **Join this table**.
-6. **Start** (window a): once the page says "Every seat is taken.", click **Start game**, then **Yes, start the game**. All three windows move to the game.
+6. **Start** (window a): once the page says "Every seat is taken.", click **Start game**, then **Yes, start the game**. All the windows move to the game.
 7. **Play.** The status bar at the top says whose move it is ("Your move: place a tile.", or "Waiting for npub1… to …"). In the window whose move it is:
    - **Place a tile:** click a tile under **Your tiles**, or pick it in **Place a tile**, then click **Place …**. Hovering over a tile previews where it lands.
    - **Found a chain**, **Choose the surviving chain** and **Order the defunct chains** appear when a placement calls for them.
@@ -32,7 +35,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    - **Rules** in the header (and **How to play** next to **New table** on Home) opens the player rules at `#/rules`, including the price card.
 
 ### What to expect
-- **Setup takes some seconds.** After the start, each client shuffles the deck and proves the shuffle, then deals. The screen shows "Shuffling the deck: 1 of 3 players done.", "Dealing the tiles…" and "Working… this can take a few seconds." With three players on a laptop this takes about 15–30 s. Every player's window must be open on the game for its share of the work to happen.
+- **Setup takes some seconds, and longer with more players.** After the start, each client shuffles the deck and proves the shuffle, then deals; the players shuffle one after another, so every extra player adds a step, and every client checks every step. The screen shows "Shuffling the deck: 1 of 3 players done.", "Dealing the tiles…" and "Working… this can take a few seconds." Measured by `pnpm e2e` with all the windows on one 4-core machine, from **Yes, start the game** to the first move: about 11 s with 3 players, 16 s with 4, 28 s with 5 and 43 s with 6. Expect about 15–30 s with three players on a laptop, and about a minute with six. Every player's window must be open on the game for its share of the work to happen.
 - **Turns are asynchronous.** Nothing hurries a player. Close a window whenever you like: reopening the game (from Home, **Your games** → **Open game**) rebuilds it from the relay and the secrets saved in that profile.
 - **Merger decisions can come to you out of turn.** When a chain is taken over, each player holding its shares disposes of them in turn order. That form can appear in a window whose turn it is not, so check every window when the game seems to wait.
 - **A new tile can show as "?" for a while.** Each other player's next move carries the decryption share for the tile you drew. Until every other player has moved once, your new tile shows as "?". It is always known before you need it.
@@ -70,8 +73,9 @@ If you chose the extension but it is not there when the page loads (disabled, or
 
 ## 4. Running the tests
 - **`pnpm check`** runs typecheck, Biome lint and every Vitest project (engine, deck, protocol, client, relay, dev relay, web, brand, fuzz smoke and repo guards). Run it before every commit. CI (`.github/workflows/ci.yml`) runs it on pushes to `main` and on pull requests.
-- **`pnpm e2e`** is the end-to-end browser test (`apps/web/e2e/play.spec.ts`, about 1–2 minutes). It starts a dev relay and `vite preview` on free ports. Three players in three browser contexts then create, join, start and play at least two full rounds through the UI, on until a merger disposal. One player reloads mid-game. All three must agree on the board and the turn at the end. It is not part of `pnpm check`.
+- **`pnpm e2e`** is the end-to-end browser test (`apps/web/e2e/play.spec.ts`, about 1–2 minutes). It starts a dev relay and `vite preview` on free ports. The players (3 by default, one browser context each) then create, join, start and play at least two full rounds through the UI, on until a merger disposal. One player reloads mid-game. All of them must agree on the board and the turn at the end. It is not part of `pnpm check`.
   - The first time on a new machine, run `pnpm --filter @bored-games/web exec playwright install chromium`. The dev container already has the browser.
+  - `E2E_SEATS=6 pnpm e2e` plays with 4, 5 or 6 players instead of 3 (values outside 3–6 are clamped). It plays 2 full rounds and one more turn, and the time allowed for the setup and for the whole test grows with the seats. With 6 players it takes about 2 minutes, with the setup at about 43 s (see "What to expect").
   - `E2E_FINISH=1 pnpm e2e` plays to the final results and a passed audit (about 3 minutes).
   - `E2E_SCREENSHOTS=/some/dir pnpm e2e` saves a screenshot per player. `pnpm e2e --headed` shows the browser.
 - **`pnpm build:web`** builds the static app into `apps/web/dist`, as the Pages workflow does.

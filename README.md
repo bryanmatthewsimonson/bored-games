@@ -11,13 +11,13 @@ pnpm install   # Node ≥ 22.18, pnpm 10
 pnpm dev       # dev relay on ws://localhost:7777 + app on http://localhost:5173
 ```
 
-Open `http://localhost:5173/?profile=a&relays=ws://localhost:7777`, then the same with `profile=b` and `profile=c`, in three browser windows side by side (hidden tabs slow the shuffle). Each profile is a separate player, and `relays=` keeps it on the local relay. Create a table in one tab, join it from the others, start the game and play. **`docs/TESTING.md`** walks through local play step by step, then covers playing with real people (GitHub Pages and relays) and the known limitations.
+Open `http://localhost:5173/?profile=a&relays=ws://localhost:7777`, then the same with `profile=b` and `profile=c`, in three browser windows side by side, one per player (hidden tabs slow the shuffle); a table takes 3 to 6 players, so open `profile=d` to `f` for more. Each profile is a separate player, and `relays=` keeps it on the local relay. Create a table in one tab, join it from the others, start the game and play. **`docs/TESTING.md`** walks through local play step by step, then covers playing with real people (GitHub Pages and relays) and the known limitations.
 
 ## Commands
 
 ```sh
 pnpm check                 # typecheck + lint + all unit tests (run before every commit)
-pnpm e2e                   # end-to-end browser test: three players through the UI (Playwright)
+pnpm e2e                   # end-to-end browser test: 3 players through the UI (Playwright); E2E_SEATS=6 for 3 to 6
 pnpm fuzz --games 1000     # random-play invariant fuzzing of the rules engine
 pnpm build:web             # static build in apps/web/dist (deployed to GitHub Pages once CI passes on main)
 ```
