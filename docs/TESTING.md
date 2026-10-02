@@ -66,6 +66,11 @@ Install a NIP-07 extension (for example Alby or nos2x) and reload the app. In **
 
 If you chose the extension but it is not there when the page loads (disabled, or injected too late), the app uses the profile's local key and says "Browser extension not found; using this profile's local key." Without an extension, the app creates a local key per profile. **Settings → Identity → Show secret key (nsec)** shows it so you can export it.
 
+### Names, pictures and keys
+- **Settings → Name and picture** sets the name, about line and picture that other players see beside your npub (your NOSTR kind 0 profile). A picture can be an uploaded photo (cropped to 256×256 and re-encoded without its metadata), one of the gallery pictures, or an https link. Uploads go to the Blossom server `https://blossom.primal.net`; change it under **Picture server**. Until you add a name, Home suggests it.
+- **Settings → Identity → Use a secret key from elsewhere** imports an `nsec`. The previous key is kept, and **Switch back** returns to it. Games stay with the key that joined them (D041).
+- On the first table you create or join, the browser is asked to keep this site's data, and Settings shows whether it agreed. Home reminds you to back up your key until you copy it or tick "I've saved it".
+
 ## 3. Known limitations
 - **No cross-device backup of game secrets yet.** Each game's secrets live only in this browser, under this profile. Keep using the same browser and profile for a game. Clearing site data loses your seat in running games.
 - **No "your turn" notifications.** Home's badge only reflects games this profile has had open (section 1).
@@ -78,5 +83,6 @@ If you chose the extension but it is not there when the page loads (disabled, or
   - `E2E_SEATS=6 pnpm e2e` plays with 4, 5 or 6 players instead of 3 (values outside 3–6 are clamped). It plays 2 full rounds and one more turn, and the time allowed for the setup and for the whole test grows with the seats. With 6 players it takes about 2 minutes, with the setup at about 43 s (see "What to expect").
   - `E2E_FINISH=1 pnpm e2e` plays to the final results and a passed audit (about 3 minutes).
   - `E2E_SCREENSHOTS=/some/dir pnpm e2e` saves a screenshot per player. `pnpm e2e --headed` shows the browser.
+  - `apps/web/e2e/profile.spec.ts` (a few seconds) checks names and pictures with the Blossom server intercepted: one player uploads a photo carrying EXIF data, the other picks a gallery picture, and each sees the other's name, picture and npub on the table seats. `pnpm e2e profile.spec.ts` runs it alone.
 - **`pnpm build:web`** builds the static app into `apps/web/dist`, as the Pages workflow does.
 - **`pnpm fuzz --games 1000`** plays random games against the rules engine and checks its invariants (`--games 10000` for the full run). `pnpm fuzz --one "<seed#i>" --players N` replays one failing game.
