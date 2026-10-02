@@ -30,11 +30,33 @@
  * - Liveness (honest-only runs): once the network is quiet, every honest seat knows every value granted to it on
  *   the chain (`prompt`), and with a lazy seat that never acks nor shares early, it knows it once every other seat
  *   has moved after the grant (`fallback`).
+ * - Ratings (round 2): no stop, and no stop that overrides a counted claim or resign, leaves the equivocator or its
+ *   coalition better off than a forfeit (`rating`).
+ * - Flags: an honest seat (one key, possibly on two devices) is never flagged for vouching for two sides
+ *   (`honest-flagged`).
+ *
+ * Round-2 options: honest seats on two devices that share one key with independent delivery (`devices`), moves
+ * that draw two positions (`multiDraw`), and honest humans who leave when their client shows a stop and come back
+ * one deadline after being notified of a resume (`absence`).
  */
 
 export type Seat = number;
-export type Mode = 'private' | 'viewers' | 'public';
 /**
+ * Grant modes: `private` (U1, the drawer), `viewers` (U2, every seat but the drawer), `public` (U3, a card played
+ * from the drawer's hand and shown to all), `roll` (U4, a public value whose point is bound to the move's id).
+ */
+export type Mode = 'private' | 'viewers' | 'public' | 'roll';
+/**
+ * - `pile`: candidate (d) (prompt-reveal.md §5): ownership is fixed before any share is released (per-seat draw
+ *   piles cut from the shuffled deck, so seat k's i-th draw is always position p_k(i)); shares are released at
+ *   once, with no Acks; positions past a seat's pile come from a common reserve and use the slow path only; a
+ *   fork stops the game at the fork (unless one side already reached the end: that ending stands) and is the
+ *   equivocator's forfeit; a stop never overrides a counted claim or resign.
+ * - `fgr2`: round 2 of the recommended design (prompt-reveal.md §5): `fgr`, but a fork stops unless exactly one
+ *   side is vouched for by every seat but the equivocator (never the lowest id), every move is acked, a seat that
+ *   vouches for two sides is flagged (and a fork where one did stops), a stop is the equivocator's forfeit, a stop
+ *   never overrides a counted claim or resign (rule 9), and once a client holds a fork every claim needs two
+ *   deadlines (rule 10b).
  * - `v1`: PROTOCOL v1: shares ride on the seat's own next move; fork choice (length, then lowest id); no acks.
  * - `d039`: v1 plus prompt shares as soon as the grant is on the client's chain (D039, reverted).
  * - `ack`: "acknowledge, then share" as in fast-reveal.md §2 (acks of drawing moves, release on all acks, the
@@ -44,9 +66,9 @@ export type Mode = 'private' | 'viewers' | 'public';
  * - `fgr`: the recommended design (prompt-reveal.md §5): acks, release only on a final move (every seat vouches
  *   for it by a move or an ack in its subtree), fork stop, and the slow path as in v1.
  */
-export type Design = 'v1' | 'd039' | 'ack' | 'ack-lock' | 'fs' | 'fgr';
+export type Design = 'v1' | 'd039' | 'ack' | 'ack-lock' | 'fs' | 'fgr' | 'fgr2' | 'pile';
 
-export const DESIGNS: readonly Design[] = ['v1', 'd039', 'ack', 'ack-lock', 'fs', 'fgr'];
+export const DESIGNS: readonly Design[] = ['v1', 'd039', 'ack', 'ack-lock', 'fs', 'fgr', 'fgr2', 'pile'];
 export const MODES: readonly Mode[] = ['private', 'viewers', 'public'];
 
 export interface Scope {
@@ -68,6 +90,26 @@ export interface Scope {
   readonly rivalsPerPrev: number;
   /** Honest-only runs: a seat that moves but never acks or shares outside its moves (offline between turns). */
   readonly lazy?: Seat | null;
+  /** Clients per honest seat: 2 models one session key on two devices with independent delivery. */
+  readonly devices?: number;
+  /**
+   * With two devices, which ones act on their own: `all`; `first` (one designated acking device per seat); or
+   * `checked` (`first`, and a device lets its human move only after checking the seat's own published events for
+   * a vouch on another side, as a query to the relays would).
+   */
+  readonly ackDevice?: 'all' | 'first' | 'checked';
+  /** `pile`: positions in each seat's own draw pile; later draws come from the common reserve. */
+  readonly pile?: number;
+  /** The adversary may also sign moves that draw two positions. */
+  readonly multiDraw?: boolean;
+  /** Honest humans leave when their client shows a stop, and return one deadline after a resume. */
+  readonly absence?: boolean;
+  /**
+   * When a stop overrides a counted claim or resign (fork-stop designs): `at-or-past` (round 1: a fork at or
+   * below its head), `strict` (strictly below its head, as the round-2 review proposed) or `none` (never: the
+   * round-2 default, since `strict` still lets a colluder void a counted timeout). Default by design.
+   */
+  readonly rule9?: 'at-or-past' | 'strict' | 'none';
   /** Stop exploring at the first violation of these kinds (regression checks). */
   readonly stopAt?: readonly ViolationKind[];
   /**
@@ -86,7 +128,10 @@ export type ViolationKind =
   | 'divergence'
   | 'claim-race'
   | 'not-prompt'
-  | 'no-fallback';
+  | 'no-fallback'
+  | 'rating'
+  | 'honest-flagged'
+  | 'self-leak';
 
 export interface Violation {
   readonly kind: ViolationKind;
@@ -111,7 +156,7 @@ interface MoveEv {
   readonly seat: Seat;
   readonly prev: string;
   readonly depth: number;
-  readonly kind: 'draw' | 'pass';
+  readonly kind: Kind;
   readonly v: number;
   /** Shares released inside the move (the slow path): `pos:to`, `to` = `*` for public. */
   readonly rel: readonly string[];
@@ -150,6 +195,9 @@ type Ev = MoveEv | AckEv | ShareEv | ClaimEv | ResignEv;
 
 const ROOT = 'R';
 
+type Kind = 'draw' | 'draw2' | 'pass';
+const DRAWS: Record<Kind, number> = { draw: 1, draw2: 2, pass: 0 };
+
 /* ------------------------------------------------------------------------------------------------ state */
 
 interface Frozen {
@@ -160,10 +208,17 @@ interface Frozen {
 
 interface Client {
   readonly seat: Seat;
+  readonly device: number;
   readonly has: ReadonlySet<string>;
   readonly frozen: Frozen | null;
   /** The head at which this client's deadline last passed, if it is still the head. */
   readonly expired: string | null;
+  /** How many deadlines passed at `expired`. */
+  readonly expiredCount: number;
+  /** The client has shown a stop since it was last live. */
+  readonly sawStop: boolean;
+  /** The seat's human left on seeing a stop and has not been notified back yet (`absence`). */
+  readonly absent: boolean;
 }
 
 interface State {
@@ -180,10 +235,26 @@ interface Grant {
   readonly pos: number;
   readonly v: Viewers;
   readonly move: string;
+  /** A position whose owner depends on history (the `pile` design's common reserve): slow path only. */
+  readonly reserve: boolean;
+}
+
+/** Position numbers: pile p_k(i) = k·100 + i; reserve 1000 + j; a roll bound to a move id 2000 + its index. */
+const PILE = 100;
+const RESERVE = 1000;
+const ROLL = 2000;
+const rollIds = new Map<string, number>();
+function rollPos(key: string): number {
+  let n = rollIds.get(key);
+  if (n === undefined) {
+    n = ROLL + rollIds.size;
+    rollIds.set(key, n);
+  }
+  return n;
 }
 
 function viewersOf(mode: Mode, drawer: Seat, seats: number): Viewers {
-  if (mode === 'public') return { public: true };
+  if (mode === 'public' || mode === 'roll') return { public: true };
   if (mode === 'private') return { public: false, seats: [drawer] };
   return {
     public: false,
@@ -226,7 +297,18 @@ class Explorer {
   run(): Result {
     let st: State = {
       events: new Map(),
-      clients: this.honest.map((seat) => ({ seat, has: new Set(), frozen: null, expired: null })),
+      clients: this.honest.flatMap((seat) =>
+        Array.from({ length: this.s.devices ?? 1 }, (_, device) => ({
+          seat,
+          device,
+          has: new Set<string>(),
+          frozen: null,
+          expired: null,
+          expiredCount: 0,
+          sawStop: false,
+          absent: false,
+        })),
+      ),
       expiries: 0,
     };
     st = this.settle(st);
@@ -269,10 +351,35 @@ class Explorer {
     }
     const cl = st.clients.map(
       (c) =>
-        `${setKey(c.has)}|${c.frozen === null ? '' : `${c.frozen.reason}${c.frozen.path.at(-1) ?? ROOT}`}|${c.expired ?? ''}`,
+        `${setKey(c.has)}|${c.frozen === null ? '' : `${c.frozen.reason}${c.frozen.path.at(-1) ?? ROOT}`}|${c.expired ?? ''}:${c.expiredCount}|${c.sawStop ? 's' : ''}${c.absent ? 'a' : ''}`,
     );
     const full = `${evs}#${cl.join('#')}#${st.expiries}`;
     return this.s.exactKeys === true ? full : compact(full);
+  }
+
+  private who(c: Client): string {
+    return (this.s.devices ?? 1) > 1 ? `seat ${c.seat}${'ab'[c.device] ?? c.device}` : `seat ${c.seat}`;
+  }
+
+  /**
+   * Deadlines a client must see pass at its head before a claim there counts. Round 2 (rule 10b): two, once the
+   * client holds a fork on its chain, since any seat may have seen a stop there and left (a function of the held
+   * events, unlike "this client resumed").
+   */
+  private claimNeed(c: Client, st: State): number {
+    return this.s.design === 'fgr2' && this.view(st, c).forked ? 2 : 1;
+  }
+
+  /** Whether a published move or Ack by \`seat\` conflicts with \`head\` (the \`checked\` device policy). */
+  private conflictsWithOwn(st: State, seat: Seat, head: string): boolean {
+    const get = (id: string) => st.events.get(id) as MoveEv;
+    const above = new Set([ROOT, ...pathTo(head, get)]);
+    for (const e of st.events.values()) {
+      if (e.seat !== seat || (e.t !== 'move' && e.t !== 'ack')) continue;
+      const target = e.t === 'move' ? e.prev : e.move;
+      if (!above.has(target) && !pathTo(target, get).includes(head)) return true;
+    }
+    return false;
   }
 
   /* ----------------------------------------------------------------------------------------- views */
@@ -303,7 +410,7 @@ class Explorer {
         // A move whose prev the client lacks would only be pooled; deliver prevs first (no loss of generality:
         // a pooled move changes nothing until its prev arrives).
         if (e.t === 'move' && e.prev !== ROOT && !c.has.has(e.prev)) continue;
-        out.push([`deliver ${e.id} to seat ${c.seat}`, this.settle(deliver(st, i, [e.id]))]);
+        out.push([`deliver ${e.id} to ${this.who(c)}`, this.settle(deliver(st, i, [e.id]))]);
       }
     }
     // Honest moves, whenever the seat's human gets to it.
@@ -312,7 +419,7 @@ class Explorer {
       const next = this.honestMove(st, i);
       if (next === null) continue;
       moved.push(next);
-      out.push([`seat ${(st.clients[i] as Client).seat} moves`, next]);
+      out.push([`${this.who(st.clients[i] as Client)} moves`, next]);
     }
     if (this.coalition.size > 0) this.adversary(st, evs, out);
     // A deadline passes on one honest client: only while honest gossip is complete and no honest seat still has a
@@ -323,13 +430,26 @@ class Explorer {
         if (c.frozen !== null) continue;
         const v = this.view(st, c);
         if (v.status !== 'live') continue;
-        if (c.expired === v.head) continue;
+        // Another deadline at the same head only matters where a claim needs two (rule 10b).
+        if (c.expired === v.head && c.expiredCount >= this.claimNeed(c, st)) continue;
+        // A passing deadline also brings back every absent human: it was notified of the resume (A5, `absence`).
         const next: State = {
           ...st,
           expiries: st.expiries + 1,
-          clients: st.clients.map((x, j) => (j === i ? { ...x, expired: v.head } : x)),
+          clients: st.clients.map((x, j) =>
+            j === i
+              ? {
+                  ...x,
+                  expired: v.head,
+                  expiredCount: x.expired === v.head ? x.expiredCount + 1 : 1,
+                  absent: false,
+                }
+              : x.absent
+                ? { ...x, absent: false }
+                : x,
+          ),
         };
-        out.push([`deadline passes for seat ${c.seat} at ${v.head}`, this.settle(next)]);
+        out.push([`deadline passes for ${this.who(c)} at ${v.head}`, this.settle(next)]);
       }
     }
     return out;
@@ -346,7 +466,7 @@ class Explorer {
         const c = st.clients[i] as Client;
         if (ev.t === 'move' && ev.prev !== ROOT && !c.has.has(ev.prev)) continue;
         const next: State = { ...st, events: new Map(st.events).set(ev.id, ev) };
-        out.push([`${label} → seat ${c.seat}`, this.settle(deliver(next, i, [ev.id]))]);
+        out.push([`${label} → ${this.who(c)}`, this.settle(deliver(next, i, [ev.id]))]);
       }
     };
     // Moves: on any prev where an adversary seat is pending, within the rivals cap.
@@ -359,7 +479,7 @@ class Explorer {
         if (!this.coalition.has(seat)) continue;
         const rivals = moves.filter((m) => m.prev === p.id);
         if (rivals.length >= s.rivalsPerPrev) continue;
-        for (const kind of ['draw', 'pass'] as const) {
+        for (const kind of (s.multiDraw === true ? ['draw', 'draw2', 'pass'] : ['draw', 'pass']) as Kind[]) {
           for (let v = 0; v < s.rivalsPerPrev; v++) {
             const id = moveId(p.id, seat, kind, v);
             if (st.events.has(id) || rivals.some((r) => r.v === v)) continue;
@@ -380,10 +500,11 @@ class Explorer {
         }
       }
     }
-    // Acks (designs with acks): of any drawing move (any move for fgr), by a coalition seat other than its signer.
+    // Acks (designs with acks): of any drawing move (any move for fgr and fgr2), by a coalition seat other than
+    // its signer.
     if (counts.ack < s.advAcks && hasAcks(s.design)) {
       for (const m of moves) {
-        if (s.design !== 'fgr' && m.kind !== 'draw') continue;
+        if (!isFgr(s.design) && DRAWS[m.kind] === 0) continue;
         for (const a of this.coalition) {
           if (a === m.seat) continue;
           const id = `A${a}:${m.id}`;
@@ -455,18 +576,29 @@ class Explorer {
     if (freeze !== null)
       return { ...st, clients: st.clients.map((x, j) => (j === i ? { ...x, frozen: freeze } : x)) };
     if (c.expired !== null && c.expired !== v.head) {
-      c = { ...c, expired: null };
+      c = { ...c, expired: null, expiredCount: 0 };
+      st = { ...st, clients: st.clients.map((x, j) => (j === i ? c : x)) };
+    }
+    // Stops and resumes (R12): a human who sees a stop may leave (`absence`).
+    if (v.status === 'stop' && !c.sawStop) {
+      c = { ...c, sawStop: true, absent: s.absence === true };
+      st = { ...st, clients: st.clients.map((x, j) => (j === i ? c : x)) };
+    } else if (v.status === 'live' && c.sawStop) {
+      c = { ...c, sawStop: false };
       st = { ...st, clients: st.clients.map((x, j) => (j === i ? c : x)) };
     }
     if (v.status !== 'live') return st;
     const me = c.seat;
     const lazy = s.lazy === me;
     const made: Ev[] = [];
-    const released = this.releasedBy(st, me);
-    // Acks.
-    if (hasAcks(s.design) && !lazy) {
+    const released = this.releasedBy(c, st);
+    // Acks: of every move on the chain (fgr2), or of granting moves; with `ackDevice: first`, only device 0 acks.
+    const acking = !lazy && ((s.ackDevice ?? 'all') === 'all' || c.device === 0);
+    if (hasAcks(s.design) && acking) {
       for (const m of v.pathMoves) {
-        if (m.seat === me || m.kind !== 'draw' || v.ackedByMe.has(m.id)) continue;
+        if (m.seat === me || v.ackedByMe.has(m.id)) continue;
+        if (s.design !== 'fgr2' && DRAWS[m.kind] === 0) continue;
+        if (s.ackDevice === 'checked' && this.conflictsWithOwn(st, me, m.id)) continue;
         if (v.myAcks.some((a) => conflicts(v, a, m.id))) continue;
         made.push({ t: 'ack', id: `A${me}:${m.id}`, seat: me, move: m.id });
       }
@@ -490,12 +622,18 @@ class Explorer {
         }
       }
     }
-    // Honest claims, when this client's deadline passed at the head.
-    if (c.expired === v.head && v.pending !== me && !c.has.has(`C${me}@${v.head}`)) {
+    // Honest claims, when this client's deadline passed at the head (twice after a resume, in round 2).
+    if (
+      c.expired === v.head &&
+      c.expiredCount >= this.claimNeed(c, st) &&
+      v.pending !== me &&
+      !c.has.has(`C${me}@${v.head}`)
+    ) {
       made.push({ t: 'claim', id: `C${me}@${v.head}`, seat: me, head: v.head });
     }
     if (made.length === 0) return st;
     const events = new Map(st.events);
+    // Another device of the same seat may already have published the same Ack or share: the same event here.
     for (const e of made) events.set(e.id, e);
     // Standalone shares reach every honest client at once: they change no honest decision (only what a client
     // can read), and the adversary sees them at once anyway, so their delivery order is not explored.
@@ -521,11 +659,16 @@ class Explorer {
    */
   private honestMove(st: State, i: number): State | null {
     const c = st.clients[i] as Client;
-    if (c.frozen !== null) return null;
+    if (c.frozen !== null || c.absent) return null;
     const v = this.view(st, c);
     const me = c.seat;
-    if (v.status !== 'live' || v.pending !== me || v.builtAt.has(v.head)) return null;
-    const released = this.releasedBy(st, me);
+    if (v.status !== 'live' || v.pending !== me) return null;
+    // The human plays each of its turns once, on whichever device: it remembers it took turn number d.
+    const depth = v.path.length + 1;
+    for (const e of st.events.values()) if (e.t === 'move' && e.seat === me && e.depth === depth) return null;
+    // `checked`: no published move or Ack by this seat may conflict with the head it would build on.
+    if (this.s.ackDevice === 'checked' && this.conflictsWithOwn(st, me, v.head)) return null;
+    const released = this.releasedBy(c, st);
     const rel: string[] = [];
     for (const g of v.grants)
       for (const o of owed(g, me)) if (!released.has(o) && !rel.includes(o)) rel.push(o);
@@ -541,6 +684,7 @@ class Explorer {
       kc: this.coalitionKnows(st),
       honest: true,
     };
+    if (st.events.has(ev.id)) return null;
     let next: State = { ...st, events: new Map(st.events).set(ev.id, ev) };
     if (this.coalition.size === 0)
       for (let j = 0; j < st.clients.length; j++) next = deliver(next, j, [ev.id]);
@@ -551,8 +695,10 @@ class Explorer {
   private mayRelease(v: View, g: Grant, me: Seat): boolean {
     const d = this.s.design;
     if (d === 'd039' || d === 'fs') return true;
+    // Candidate (d): a position with a fixed owner is released at once; the reserve waits for the slow path.
+    if (d === 'pile') return !g.reserve;
     const m = v.byId.get(g.move) as MoveEv;
-    if (d === 'fgr') return v.final.has(g.move);
+    if (isFgr(d)) return v.final.has(g.move);
     if (d === 'ack' || d === 'ack-lock') {
       // Acks of the move from every seat but its signer, own included.
       for (let k = 0; k < this.s.seats; k++) if (k !== m.seat && !v.acks.get(g.move)?.has(k)) return false;
@@ -581,7 +727,7 @@ class Explorer {
     if (best !== null) return { path: v.path, reason: 'resign', seat: best.seat };
     // A claim counts when its head is the head, this client's deadline passed there, and its claimant is not
     // the stalled (pending) seat.
-    if (c.expired === v.head) {
+    if (c.expired === v.head && c.expiredCount >= this.claimNeed(c, st)) {
       for (const id of c.has) {
         const e = st.events.get(id) as Ev;
         if (e.t === 'claim' && e.head === v.head && e.seat !== v.pending)
@@ -591,10 +737,12 @@ class Explorer {
     return null;
   }
 
-  private releasedBy(st: State, seat: Seat): Set<string> {
+  /** What this client knows its seat released: from the events it holds (another device's may not have arrived). */
+  private releasedBy(c: Client, st: State): Set<string> {
     const out = new Set<string>();
-    for (const e of st.events.values()) {
-      if (e.seat !== seat) continue;
+    for (const id of c.has) {
+      const e = st.events.get(id) as Ev;
+      if (e.seat !== c.seat) continue;
       if (e.t === 'share') out.add(`${e.pos}:${e.to === null ? '*' : e.to}`);
       else if (e.t === 'move') for (const r of e.rel) out.add(r);
     }
@@ -643,11 +791,11 @@ class Explorer {
       const v = views[i] as View;
       // Fork stop takes precedence (prompt-reveal.md §5, rule 4): a stop at a prev on the path of a counted claim
       // or resign voids it, so the result is a function of the held events.
-      if (c.frozen !== null && v.status === 'stop' && stopVoids(s.design, v.path, c.frozen.path))
-        return { path: v.path, end: v.status, frozen: null, view: v };
+      if (c.frozen !== null && v.status === 'stop' && this.stopVoids(v.path, c.frozen.path))
+        return { path: v.path, end: v.status, frozen: null, view: v, voided: c.frozen };
       const path = c.frozen?.path ?? v.path;
       const end = c.frozen !== null ? c.frozen.reason : v.status;
-      return { path, end, frozen: c.frozen, view: v };
+      return { path, end, frozen: c.frozen, view: v, voided: null as Frozen | null };
     });
     // S3.
     const sig = finals.map((f) => `${f.end}:${f.path.at(-1) ?? ROOT}`);
@@ -655,24 +803,56 @@ class Explorer {
       const raced = finals.some((f) => f.frozen !== null);
       this.report(
         raced ? 'claim-race' : 'divergence',
-        `honest results differ: ${st.clients.map((c, i) => `seat ${c.seat} ${sig[i]}`).join(', ')}`,
+        `honest results differ: ${st.clients.map((c, i) => `${this.who(c)} ${sig[i]}`).join(', ')}`,
         trace,
       );
     }
     // S2.
     for (const f of finals) {
-      if (f.frozen?.reason === 'claim' && !this.coalition.has(f.frozen.seat))
+      if (f.frozen?.reason === 'claim' && !this.coalition.has(f.frozen.seat)) {
+        // The claim race (PROTOCOL §11): an honest seat whose own clients already ended the game on an accepted
+        // claim stops moving, and is timed out on a client that never accepted it. Known v1 residual. (Ended on a
+        // counted resign instead, it needs a fork: F8, reported as an honest forfeit.)
+        const seat = f.frozen.seat;
+        const ended = st.clients
+          .filter((c) => c.seat === seat)
+          .every((c) => c.frozen !== null && c.frozen.reason === 'claim');
         this.report(
-          'honest-forfeit',
-          `honest seat ${f.frozen.seat} timed out at ${f.path.at(-1) ?? ROOT}`,
+          ended ? 'claim-race' : 'honest-forfeit',
+          `honest seat ${seat} timed out at ${f.path.at(-1) ?? ROOT}${ended ? ' after its own client ended the game' : ''}`,
           trace,
         );
+      }
       if (f.end === 'stop' && !this.coalition.has(f.view.stopSeat as Seat))
         this.report(
           'honest-forfeit',
           `the game stopped on an honest seat's fork (${f.view.stopSeat})`,
           trace,
         );
+    }
+    // Flags: a seat that vouched for two sides of a fork is flagged (round 2); never an honest one.
+    for (const f of finals)
+      for (const x of f.view.flagged)
+        if (!this.coalition.has(x))
+          this.report('honest-flagged', `honest seat ${x} vouched for two sides of a fork`, trace);
+    // Ratings (round 2): a stop must never leave the equivocator, or its coalition, better off than a forfeit.
+    // Two seats: every result is rated, and a forfeit is a rated loss. Three or more: a timeout is a rated last
+    // place, while a resign and (round 2) a stop follow the owner's abort policy (unrated, the aborter recorded).
+    for (const f of finals) {
+      if (f.end === 'stop' && s.seats === 2 && !forfeitStop(s.design))
+        this.report('rating', `the stop by seat ${f.view.stopSeat} leaves a 2-seat game unrated`, trace);
+      const lost = f.voided;
+      if (lost !== null && this.coalition.has(lost.seat)) {
+        const same = f.view.stopSeat === lost.seat;
+        const sameEffect = same && (lost.reason === 'resign' || s.seats === 2) && forfeitStop(s.design);
+        if (!sameEffect)
+          this.report(
+            'rating',
+            `a stop at ${f.path.at(-1) ?? ROOT} voids seat ${lost.seat}'s counted ${lost.reason}` +
+              ` (now the stop of seat ${f.view.stopSeat})`,
+            trace,
+          );
+      }
     }
     // S1.
     if (this.coalition.size > 0) {
@@ -698,7 +878,18 @@ class Explorer {
             const hp = pathTo(r.head, (id) => st.events.get(id) as MoveEv);
             return hp.length > fset.length && fset.every((id, k) => hp[k] === id);
           });
-          const who = `seat ${(st.clients[i] as Client).seat}`;
+          const who = this.who(st.clients[i] as Client);
+          // Candidate (d): a pile position belongs to one seat on every branch. If that seat is in the coalition,
+          // the coalition only learned a card of its own early (an equivocating seat's own next draw).
+          if (s.design === 'pile' && pos < RESERVE && this.coalition.has(Math.floor(pos / PILE))) {
+            this.report(
+              'self-leak',
+              `coalition {${[...this.coalition].join(',')}} reads its own seat ${Math.floor(pos / PILE)}'s ` +
+                `pile position ${pos} early (on ${who}'s final chain [${f.path.join(' ')}], ${f.end})`,
+              trace,
+            );
+            continue;
+          }
           const held = grants.filter((g) => g.pos === pos).map((g) => viewersText(g.v));
           this.report(
             postEnd ? 'post-end' : 'exposure',
@@ -751,6 +942,16 @@ class Explorer {
         for (const r of e.rel) if (r === `${pos}:*` || r === `${pos}:${c.seat}`) from.add(e.seat);
     }
     return from.size === this.s.seats;
+  }
+
+  /** Rule 9: whether a stop at the end of \`stop\` overrides a counted result on \`frozen\` (fork-stop designs). */
+  private stopVoids(stop: readonly string[], frozen: readonly string[]): boolean {
+    const d = this.s.design;
+    if (d !== 'fs' && d !== 'pile' && !isFgr(d)) return false;
+    const rule = this.s.rule9 ?? (d === 'fgr2' || d === 'pile' ? 'none' : 'at-or-past');
+    if (rule === 'none') return false;
+    const below = stop.length <= frozen.length && stop.every((id, k) => frozen[k] === id);
+    return below && (rule === 'at-or-past' || stop.length < frozen.length);
   }
 
   private report(kind: ViolationKind, detail: string, trace: () => string[]): void {
@@ -806,19 +1007,22 @@ function evKey(e: Ev): string {
   return e.id;
 }
 
-function moveId(prev: string, seat: Seat, kind: 'draw' | 'pass', v: number): string {
-  return `${prev === ROOT ? '' : `${prev}/`}${seat}${kind === 'draw' ? 'd' : 'p'}${v}`;
-}
-
-/** Whether a stop at the end of `stop` voids a frozen result on `frozen` (fork-stop designs only). */
-function stopVoids(d: Design, stop: readonly string[], frozen: readonly string[]): boolean {
-  return (
-    (d === 'fs' || d === 'fgr') && stop.length <= frozen.length && stop.every((id, k) => frozen[k] === id)
-  );
+function moveId(prev: string, seat: Seat, kind: Kind, v: number): string {
+  const k = kind === 'draw' ? 'd' : kind === 'draw2' ? 'D' : 'p';
+  return `${prev === ROOT ? '' : `${prev}/`}${seat}${k}${v}`;
 }
 
 function hasAcks(d: Design): boolean {
-  return d === 'ack' || d === 'ack-lock' || d === 'fgr';
+  return d === 'ack' || d === 'ack-lock' || isFgr(d);
+}
+
+/** Designs in which a stop is scored as the equivocator's forfeit (round 2 and candidate (d)). */
+function forfeitStop(d: Design): boolean {
+  return d === 'fgr2' || d === 'pile';
+}
+
+function isFgr(d: Design): boolean {
+  return d === 'fgr' || d === 'fgr2';
 }
 
 function deliver(st: State, i: number, ids: string[]): State {
@@ -846,9 +1050,22 @@ function pathTo(head: string, get: (id: string) => MoveEv): string[] {
 function grantsOn(s: Scope, path: readonly string[], get: (id: string) => MoveEv): Grant[] {
   const out: Grant[] = [];
   let pos = 0;
+  let reserve = 0;
+  const drawn = new Map<Seat, number>();
   for (const id of path) {
     const m = get(id);
-    if (m.kind === 'draw') out.push({ pos: pos++, v: viewersOf(s.mode, m.seat, s.seats), move: id });
+    for (let n = 0; n < DRAWS[m.kind]; n++) {
+      const v = viewersOf(s.mode, m.seat, s.seats);
+      if (s.mode === 'roll') {
+        // A roll's point is bound to the move that requests it: a rival move rolls a different value.
+        out.push({ pos: rollPos(`${id}#${n}`), v, move: id, reserve: false });
+      } else if (s.design === 'pile') {
+        const i = drawn.get(m.seat) ?? 0;
+        drawn.set(m.seat, i + 1);
+        if (i < (s.pile ?? PILE)) out.push({ pos: m.seat * PILE + i, v, move: id, reserve: false });
+        else out.push({ pos: RESERVE + reserve++, v, move: id, reserve: true });
+      } else out.push({ pos: pos++, v, move: id, reserve: false });
+    }
   }
   return out;
 }
@@ -864,6 +1081,10 @@ interface View {
   readonly head: string;
   readonly status: 'live' | 'over' | 'stop';
   readonly stopSeat: Seat | null;
+  /** Seats that vouched for two sides of a fork on the walk (fork-stop designs). */
+  readonly flagged: ReadonlySet<Seat>;
+  /** A fork (a held rival) exists at some prev on the walk. */
+  readonly forked: boolean;
   readonly pending: Seat;
   readonly grants: readonly Grant[];
   readonly pathMoves: readonly MoveEv[];
@@ -955,18 +1176,18 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   const vouches = (id: string, k: Seat): boolean => {
     const sub = subtree(id);
     if (sub.some((m) => m.seat === k)) return true;
-    if (s.design === 'fgr') return sub.some((m) => acks.get(m.id)?.has(k) === true);
+    if (isFgr(s.design)) return sub.some((m) => acks.get(m.id)?.has(k) === true);
     return false;
   };
   // Finality.
   const final = new Set<string>();
   for (const m of linked.values()) {
     if (s.design === 'ack' || s.design === 'ack-lock') {
-      if (m.kind !== 'draw') continue;
+      if (DRAWS[m.kind] === 0) continue;
       let all = true;
       for (let k = 0; k < s.seats; k++) if (k !== m.seat && acks.get(m.id)?.has(k) !== true) all = false;
       if (all) final.add(m.id);
-    } else if (s.design === 'fgr' || s.design === 'fs') {
+    } else if (isFgr(s.design) || s.design === 'fs') {
       let all = true;
       for (let k = 0; k < s.seats; k++) if (k !== m.seat && !vouches(m.id, k)) all = false;
       if (all) final.add(m.id);
@@ -990,6 +1211,8 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   let at = ROOT;
   let status: View['status'] = 'live';
   let stopSeat: Seat | null = null;
+  const flagged = new Set<Seat>();
+  let forked = false;
   for (;;) {
     if (path.length >= s.length) {
       status = 'over';
@@ -998,15 +1221,36 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     const ks = kids.get(at) ?? [];
     if (ks.length === 0) break;
     let next: MoveEv;
-    if (s.design === 'fs' || s.design === 'fgr') {
+    if (s.design === 'pile') {
       if (ks.length === 1) next = ks[0] as MoveEv;
       else {
+        // A fork stops the game at the fork (the equivocator's forfeit), unless a side already reached the end:
+        // a finished game is never reopened (over first, then length, then lowest id, as v1).
+        const done = ks.filter((k) => path.length + 1 + longest(k.id) >= s.length);
+        if (done.length === 0) {
+          status = 'stop';
+          stopSeat = path.length % s.seats;
+          break;
+        }
+        next = bestOf(done);
+      }
+    } else if (s.design === 'fs' || isFgr(s.design)) {
+      if (ks.length === 1) next = ks[0] as MoveEv;
+      else {
+        forked = true;
         const pend = path.length % s.seats;
         const sides = ks.filter((k) => {
           for (let x = 0; x < s.seats; x++) if (x !== pend && !vouches(k.id, x)) return false;
           return true;
         });
-        if (sides.length === 0) {
+        const here = new Set<Seat>();
+        for (let x = 0; x < s.seats; x++)
+          if (x !== pend && ks.filter((k) => vouches(k.id, x)).length >= 2) here.add(x);
+        for (const x of here) flagged.add(x);
+        // Round 1 follows the lowest id among several vouched sides. Round 2 stops unless exactly one side is
+        // vouched for and no seat vouched for two sides (a double vouch makes "every seat" meaningless).
+        const doubled = here.size > 0;
+        if (sides.length === 0 || (s.design === 'fgr2' && (sides.length > 1 || doubled))) {
           status = 'stop';
           stopSeat = pend;
           break;
@@ -1041,6 +1285,8 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     head: path.at(-1) ?? ROOT,
     status,
     stopSeat,
+    flagged: s.design === 'fgr2' ? flagged : new Set<Seat>(),
+    forked,
     pending: path.length % s.seats,
     grants: grantsOn(s, path, (id) => byId.get(id) as MoveEv),
     pathMoves,

@@ -1,14 +1,18 @@
 /**
  * pnpm --filter @bored-games/protocol-model explore [options]
  *
- *   --design v1,d039,ack,ack-lock,fs,fgr   designs to explore (default: all)
- *   --mode private,viewers,public          grant modes (default: all)
+ *   --design v1,d039,ack,ack-lock,fs,fgr,fgr2,pile   designs to explore (default: all; pile = candidate (d))
+ *   --mode private,viewers,public,roll     grant modes (default: private, viewers, public)
+ *   --pile 1                               pile design: draws per seat before the common reserve
  *   --seats 3        --length 4            seats, and moves until the game is over
  *   --moves 3        --acks 1              adversary budgets: moves (rivals included) and acks
  *   --claims 1       --resigns 1           adversary budgets: timeout claims and resigns
  *   --expiries 1     --rivals 2            deadlines that may pass; most adversary moves on one prev
  *   --coalition all|0|0,1                  adversary seats (all = every coalition of 1 or 2 seats)
  *   --honest                               honest-only liveness runs instead (with --lazy <seat>)
+ *   --devices 2      --ack-device all|first|checked   two devices per honest seat, and which act on their own
+ *   --multi-draw     --absence             moves drawing two positions; humans who leave on a stop
+ *   --rule9 at-or-past|strict|none         when a stop overrides a counted claim or resign
  *   --max-states 5000000                   give up past this many states per run (reported as incomplete)
  *   --traces                               print the first trace of every violation kind
  *
@@ -34,6 +38,12 @@ const { values } = parseArgs({
     lazy: { type: 'string' },
     'max-states': { type: 'string', default: '5000000' },
     traces: { type: 'boolean', default: false },
+    devices: { type: 'string', default: '1' },
+    'ack-device': { type: 'string', default: 'all' },
+    'multi-draw': { type: 'boolean', default: false },
+    absence: { type: 'boolean', default: false },
+    rule9: { type: 'string' },
+    pile: { type: 'string' },
   },
 });
 
@@ -46,7 +56,7 @@ const seats = num(values.seats, 'seats');
 const designs = (values.design?.split(',') ?? DESIGNS) as Design[];
 const modes = (values.mode?.split(',') ?? MODES) as Mode[];
 for (const d of designs) if (!DESIGNS.includes(d)) throw new Error(`unknown design ${d}`);
-for (const m of modes) if (!MODES.includes(m)) throw new Error(`unknown mode ${m}`);
+for (const m of modes) if (![...MODES, 'roll'].includes(m)) throw new Error(`unknown mode ${m}`);
 
 function coalitions(): Seat[][] {
   if (values.honest) return [[]];
@@ -82,6 +92,12 @@ for (const design of designs) {
         rivalsPerPrev: num(values.rivals, 'rivals'),
         lazy: values.lazy === undefined ? null : num(values.lazy, 'lazy'),
         maxStates: num(values['max-states'], 'max-states'),
+        devices: num(values.devices, 'devices'),
+        ackDevice: values['ack-device'] as 'all' | 'first' | 'checked',
+        multiDraw: values['multi-draw'],
+        absence: values.absence,
+        ...(values.pile === undefined ? {} : { pile: num(values.pile, 'pile') }),
+        ...(values.rule9 === undefined ? {} : { rule9: values.rule9 as 'at-or-past' | 'strict' | 'none' }),
       });
       states += r.states;
       complete &&= r.complete;
