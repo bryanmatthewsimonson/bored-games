@@ -333,6 +333,11 @@ main:has(.cr-game) {
   border-style: dashed;
 }
 
+.cr-tile-unknown .cr-tile-badge {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* Decisions */
 .cr-fieldset {
   margin: 0;
