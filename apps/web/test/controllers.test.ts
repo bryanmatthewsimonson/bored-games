@@ -625,6 +625,65 @@ describe('GameController', () => {
     ).toHaveLength(2);
   }, 180_000);
 
+  it('reveals a drawn tile within seconds: the other seats send their shares quietly, with no move (D039)', async () => {
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const mover = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const drawer = players.indexOf(mover);
+    const others = [1, 2].map((d) => (drawer + d) % 3);
+    const next = players[others[0] as number] as GameController;
+    const sharesOnRelay = async () => (await query({ kinds: [KIND.shares], '#e': [rootId] })).length;
+    const hidden = () =>
+      handTiles(mover.view.value?.state as ChainReactionState, drawer).filter((t) => t.tile === null).length;
+
+    // Play the turn up to its end: place a tile (and found a chain if asked), then end it buying nothing.
+    type Act = { type: string; buy?: unknown[]; declareEnd?: boolean; discard?: unknown[] };
+    let end: Act | undefined;
+    for (let i = 0; i < 5 && end === undefined; i++) {
+      await waitFor('my decision', () => mover.status.value === 'your-turn' && mover.legal.value.length > 0);
+      const legal = mover.legal.value as Act[];
+      end = legal.find((a) => a.type === 'endTurn' && a.buy?.length === 0 && !a.declareEnd);
+      if (end === undefined) await mover.act(legal.find((a) => a.type === 'place') ?? legal[0]);
+    }
+    expect(end).toBeDefined();
+    const before = await sharesOnRelay();
+    // Every status the other seats show from the end of the turn on.
+    const seen = others.map(() => [] as string[]);
+    for (const [i, k] of others.entries())
+      disposers.push((players[k] as GameController).status.subscribe((s) => seen[i]?.push(s)));
+
+    await mover.act(end);
+    // The new tile is hidden until both other seats have sent their shares; nobody acts meanwhile.
+    expect(hidden()).toBe(1);
+    await waitFor('the drawn tile revealed', () => hidden() === 0, 10_000);
+    expect(await sharesOnRelay()).toBe(before + 2);
+    // Each Shares event left the outbox once the relay confirmed it.
+    const sharesSlots = (k: number) => {
+      const p = bySeat[k] as Profile;
+      return [...loadOutbox(p.deps.storage, p.name, rootId).keys()].filter((s) => s.startsWith('shares:'));
+    };
+    await waitFor('the shares slots pruned', () => others.every((k) => sharesSlots(k).length === 0), 5_000);
+
+    // The quiet duty never showed "working" or "stuck": the next seat went straight to its turn.
+    await waitFor('the next turn', () => next.status.value === 'your-turn' && next.legal.value.length > 0);
+    for (const s of seen.flat()) expect(['waiting', 'your-turn']).toContain(s);
+    expect(seen[0]?.at(-1)).toBe('your-turn');
+    expect(seen[1]?.every((s) => s === 'waiting')).toBe(true);
+    expect(players.every((g) => g.error.value === null)).toBe(true);
+
+    // Its move carries no shares: they are already out.
+    const seq = (next.view.value?.head.seq ?? 0) + 1;
+    await next.act((next.legal.value as Act[]).find((a) => a.type === 'place') ?? next.legal.value[0]);
+    for (const g of players) await waitFor('the move everywhere', () => g.view.value?.head.seq === seq);
+    const p = bySeat[others[0] as number] as Profile;
+    const move = savedMove(p, rootId, seq)?.event;
+    expect(JSON.parse(move?.content ?? '{}').shares).toEqual([]);
+  }, 180_000);
+
   it('names a stalled seat once the deadline has passed, and a timeout claim ends the game', async () => {
     const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
     const players = bySeat.map((p) => game(rootId, p.deps));
