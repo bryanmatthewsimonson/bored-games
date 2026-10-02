@@ -157,7 +157,7 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   const compare = a.page.getByRole('link', { name: COMPARE_PHRASE, exact: true });
   await expect(compare).toHaveAttribute('href', 'https://boardgamegeek.com/boardgame/5');
   await expect(
-    a.page.getByText(`${BRAND.name} is not affiliated with or endorsed by the makers of ${COMPARE_TITLE}.`),
+    a.page.getByText(`${BRAND.name} is not affiliated with or endorsed by the makers of that game.`),
   ).toBeVisible();
   await expect(a.page.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveCount(0);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();

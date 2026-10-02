@@ -5,6 +5,7 @@
 import {
   type BrandNames,
   type CatalogEntry,
+  COMPARE_PREFIX,
   GENRES,
   type Genre,
   type Mechanism,
@@ -254,7 +255,7 @@ export function bggUrl(id: number): string {
  * one allowed phrase, compare.ts), so no bundle holds it as a literal of its own.
  */
 export function compareText(c: NonNullable<CatalogEntry['compareTo']>): string {
-  return `Compare to ${c.title}`;
+  return `${COMPARE_PREFIX}${c.title}`;
 }
 
 /** What the players can see: hidden information or perfect information. */

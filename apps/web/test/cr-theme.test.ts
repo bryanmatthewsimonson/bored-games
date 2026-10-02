@@ -104,7 +104,7 @@ function expectNamesFrom(brand: ChainReactionBrand, other: ChainReactionBrand): 
     // The looks belong to the slot: the pack's own when it has them, else the safe ones.
     const own = brand.looks?.[c.id as ChainSlot];
     expect([v.label, v.color, v.pattern]).toEqual(
-      own === undefined ? [safe.label, safe.color, safe.pattern] : [own.label, own.color, own.pattern],
+      own === undefined ? [safe.label, safe.color, safe.pattern] : [own.label, own.color, safe.pattern],
     );
   });
   expect(theme.title).toBe(brand.gameTitle);
@@ -154,9 +154,13 @@ describe('the theme as a parameter', () => {
   });
 
   it("uses a pack's own looks for the slots it gives, and the safe looks for the others", () => {
-    const own = { label: 'X', color: '#123456', pattern: 'dots' } as const;
+    const own = { label: 'X', color: '#123456' };
     const theme = chainReactionTheme({ ...TEST_BRAND, looks: { s2: own } });
-    expect(theme.chains.s2).toEqual({ name: 'Dune', ...own });
+    expect(theme.chains.s2).toEqual({
+      name: 'Dune',
+      ...own,
+      pattern: CHAIN_REACTION_THEME.chains.s2.pattern,
+    });
     for (const s of CHAIN_SLOTS.filter((x) => x !== 's2')) {
       const { name: _, ...look } = theme.chains[s];
       const { name: __, ...safe } = CHAIN_REACTION_THEME.chains[s];
@@ -164,16 +168,30 @@ describe('the theme as a parameter', () => {
     }
   });
 
+  it('never takes a pattern from a pack, even one that slips past the type', () => {
+    const sneaky = { label: 'X', color: '#123456', pattern: 'solid' } as unknown as {
+      label: string;
+      color: string;
+    };
+    const theme = chainReactionTheme({ ...TEST_BRAND, looks: { s2: sneaky } });
+    expect(theme.chains.s2.pattern).toBe(CHAIN_REACTION_THEME.chains.s2.pattern);
+    expect(theme.chains.s2.pattern).not.toBe('solid');
+  });
+
   it('gives the original pack a complete set of looks: initials, distinct colors, the safe patterns', () => {
     const theme = chainReactionTheme(ORIGINAL_BRAND);
     for (const s of CHAIN_SLOTS) {
       const look = ORIGINAL_BRAND.looks?.[s];
       expect(look, s).toBeDefined();
-      expect(theme.chains[s]).toEqual({ name: ORIGINAL_BRAND.chains[s].name, ...look });
+      expect(theme.chains[s]).toEqual({
+        name: ORIGINAL_BRAND.chains[s].name,
+        ...look,
+        pattern: CHAIN_REACTION_THEME.chains[s].pattern,
+      });
+      expect(Object.keys(look ?? {}).sort()).toEqual(['color', 'label']);
       expect(look?.label).toBe(ORIGINAL_BRAND.chains[s].name.charAt(0));
       expect(look?.color).toMatch(/^#[0-9a-f]{6}$/);
       expect(look?.color).not.toBe(CHAIN_REACTION_THEME.chains[s].color);
-      expect(look?.pattern).toBe(CHAIN_REACTION_THEME.chains[s].pattern);
     }
     const looks = CHAIN_SLOTS.map((s) => theme.chains[s]);
     expect(new Set(looks.map((l) => l.label)).size).toBe(7);

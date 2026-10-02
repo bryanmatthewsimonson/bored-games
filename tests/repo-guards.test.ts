@@ -17,6 +17,7 @@ import {
   findRestricted,
   licensedDirs,
   licensedPackStrings,
+  packStrings,
   restrictedIn,
 } from './restricted-names.ts';
 
@@ -220,6 +221,8 @@ describe('branding', () => {
         'xCompare to Acquire',
         'Compare to Acquire, the Acquire company',
         'Compare to Acquire Tower',
+        'Compare to Acquire-style',
+        'Compare to Acquire’s',
       ])
         expect(findRestricted(text, strings), text).not.toEqual([]);
       for (const name of companies) {
@@ -246,9 +249,16 @@ describe('branding', () => {
     // Only those: not the pack id, and not the looks (D053), whose label letters, colors and pattern words would
     // otherwise be banned everywhere.
     expect(strings).toEqual([...new Set(pack)].sort());
-    const looks = Object.values(ORIGINAL_BRAND.looks ?? {}).flatMap((l) => [l.label, l.color, l.pattern]);
-    expect(looks.length).toBe(21);
+    const looks = Object.values(ORIGINAL_BRAND.looks ?? {}).flatMap((l) => [l.label, l.color]);
+    expect(looks.length).toBe(14);
     for (const value of [...looks, ORIGINAL_BRAND.id]) expect(strings, value).not.toContain(value);
+    // Only a pack's own top-level `id` and `looks` are skipped: the same keys deeper down are scanned.
+    const nested = {
+      id: 'p',
+      looks: { b1: { label: 'Q' } },
+      chains: { b1: { name: 'N', id: 'Deep', looks: 'Too' } },
+    };
+    expect([...packStrings(nested)].sort()).toEqual(['Deep', 'N', 'Too']);
     // The proper names (the title, capitalised aliases and the chains) are on the fixed list too, so they are
     // caught in any case and inside identifiers, not only as the pack spells them.
     const names = [

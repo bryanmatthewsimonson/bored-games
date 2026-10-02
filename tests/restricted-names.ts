@@ -59,11 +59,12 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
 
 /**
  * `text` with every allowed phrase replaced by a space: only where it stands as a whole phrase, so a phrase run
- * into a longer word on either side ("Compare to Acquired") is left for the matchers to catch.
+ * into a longer word on either side ("Compare to Acquired"), or followed by a hyphen or a typographic apostrophe
+ * ("…-style", "…’s"), is left for the matchers to catch. The ASCII `'` may follow: it closes a quoted literal.
  */
 export function withoutAllowedPhrases(text: string): string {
   return ALLOWED_PHRASES.reduce(
-    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_])`, 'g'), ' '),
+    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_\\-\u2019])`, 'g'), ' '),
     text,
   );
 }
@@ -111,15 +112,25 @@ export function licensedDirs(root: string): string[] {
     .flatMap(find);
 }
 
-/** The keys of a licensed pack whose values are not names: the pack id and the looks (D053). */
+/** The top-level keys of a licensed pack whose values are not names: the pack id and the looks (D053). */
 const NOT_NAMES: ReadonlySet<string> = new Set(['id', 'looks']);
 
+/** Every non-empty string inside `value`, at any depth. */
 function stringsOf(value: unknown, out: Set<string>): void {
   if (typeof value === 'string') {
     if (value.trim() !== '') out.add(value.trim());
   } else if (Array.isArray(value)) for (const v of value) stringsOf(v, out);
   else if (typeof value === 'object' && value !== null)
-    for (const [k, v] of Object.entries(value)) if (!NOT_NAMES.has(k)) stringsOf(v, out);
+    for (const v of Object.values(value)) stringsOf(v, out);
+}
+
+/** The strings of one exported pack: every string but those under its top-level `id` and `looks`. */
+export function packStrings(pack: unknown, out: Set<string> = new Set()): Set<string> {
+  if (Array.isArray(pack)) for (const p of pack) packStrings(p, out);
+  else if (typeof pack === 'object' && pack !== null) {
+    for (const [k, v] of Object.entries(pack)) if (!NOT_NAMES.has(k)) stringsOf(v, out);
+  } else stringsOf(pack, out);
+  return out;
 }
 
 /**
@@ -132,7 +143,7 @@ export async function licensedPackStrings(root: string): Promise<string[]> {
   for (const dir of licensedDirs(root))
     for (const name of readdirSync(dir).filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
       const mod: Record<string, unknown> = await import(pathToFileURL(join(dir, name)).href);
-      stringsOf(Object.values(mod), out);
+      for (const pack of Object.values(mod)) packStrings(pack, out);
     }
   return [...out].sort();
 }

@@ -56,6 +56,9 @@ export type CatalogStatus = (typeof STATUSES)[number];
 
 export type Luck = 0 | 1 | 2 | 3 | 4 | 5;
 
+/** The words before a `compareTo` title wherever it is shown: "Compare to <title>" (D053). */
+export const COMPARE_PREFIX = 'Compare to ';
+
 /** One game in the catalog: facts about the game, never a display name. */
 export interface CatalogEntry {
   /** The rules module id (`GameModule.id`). */
