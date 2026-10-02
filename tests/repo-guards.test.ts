@@ -2,12 +2,22 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ORIGINAL_BRAND } from '../packages/games/chain-reaction/licensed/original.ts';
+import { CHAIN_REACTION_CATALOG } from '../packages/games/chain-reaction/src/catalog.ts';
 import {
+  COMPARE_BGG_ID,
+  COMPARE_PHRASE,
+  COMPARE_PREFIX,
+  COMPARE_TITLE,
+} from '../packages/games/chain-reaction/src/compare.ts';
+import {
+  ALLOWED_PHRASES,
+  ALLOWED_WORDS,
   BINARY,
   filesUnder,
   findRestricted,
   licensedDirs,
   licensedPackStrings,
+  packStrings,
   restrictedIn,
 } from './restricted-names.ts';
 
@@ -157,6 +167,72 @@ describe('branding', () => {
     expect(findRestricted('hotel chainsaw', ['hotel chains'])).toEqual([]);
   });
 
+  describe('the one allowed phrase (D053)', () => {
+    const companies = [
+      ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
+      'Sackson',
+      'Zeta',
+      'Hydra',
+      'Fusion',
+      'America',
+      'Quantum',
+      'Phoenix',
+    ];
+
+    it('is exactly "Compare to" the reference title, stored once in compare.ts', () => {
+      expect(ALLOWED_PHRASES).toEqual(['Compare to Acquire']);
+      expect(ALLOWED_PHRASES).toEqual([COMPARE_PHRASE]);
+      expect(COMPARE_PREFIX + COMPARE_TITLE).toBe(COMPARE_PHRASE);
+      expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
+      expect(CHAIN_REACTION_CATALOG.compareTo).toEqual({ title: COMPARE_TITLE, bggId: COMPARE_BGG_ID });
+      expect(COMPARE_BGG_ID).toBe(5);
+      // compare.ts writes the phrase as one literal and never the title on its own.
+      const code = readFileSync(join(root, 'packages/games/chain-reaction/src/compare.ts'), 'utf8');
+      expect(code.split(`'${COMPARE_PHRASE}'`)).toHaveLength(2);
+      expect(findRestricted(code.replace(`'${COMPARE_PHRASE}'`, ''), strings)).toEqual([]);
+    });
+
+    it('passes the guard, alone and in code, with the licensed strings in the scan', () => {
+      expect(strings).toContain(COMPARE_TITLE);
+      for (const text of [
+        'Compare to Acquire',
+        'const p = "Compare to Acquire";',
+        '`Compare to Acquire`.replace(/^Compare to /, ``)',
+        "<a>Compare to Acquire</a> and 'Compare to Acquire'",
+      ])
+        expect(findRestricted(text, strings), text).toEqual([]);
+    });
+
+    it('lets nothing else through: the bare title, other cases, other words and every company', () => {
+      expect(ALLOWED_WORDS.has(COMPARE_TITLE.toLowerCase())).toBe(false);
+      for (const text of [
+        'Acquire',
+        'acquire',
+        'ACQUIRE',
+        'acquires',
+        'reacquired',
+        'AcquireRules',
+        'compare to Acquire',
+        'Compare to acquire',
+        'COMPARE TO ACQUIRE',
+        'Compare  to Acquire',
+        'Compare to Acquired',
+        'Compare to Acquire_x',
+        'xCompare to Acquire',
+        'Compare to Acquire, the Acquire company',
+        'Compare to Acquire Tower',
+        'Compare to Acquire-style',
+        'Compare to Acquire’s',
+      ])
+        expect(findRestricted(text, strings), text).not.toEqual([]);
+      for (const name of companies) {
+        expect(findRestricted(name, strings), name).not.toEqual([]);
+        expect(findRestricted(`Compare to ${name}`, strings), name).not.toEqual([]);
+        expect(findRestricted(`Compare to Acquire ${name}`, strings), name).not.toEqual([]);
+      }
+    });
+  });
+
   it('exempts only licensed/ directories, and the fixed list covers every name in the packs', () => {
     expect(licensedDirs(root).map((d) => relative(root, d))).toEqual([
       'packages/games/chain-reaction/licensed',
@@ -170,6 +246,19 @@ describe('branding', () => {
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
     ];
     for (const value of pack) expect(strings, value).toContain(value);
+    // Only those: not the pack id, and not the looks (D053), whose label letters, colors and pattern words would
+    // otherwise be banned everywhere.
+    expect(strings).toEqual([...new Set(pack)].sort());
+    const looks = Object.values(ORIGINAL_BRAND.looks ?? {}).flatMap((l) => [l.label, l.color]);
+    expect(looks.length).toBe(14);
+    for (const value of [...looks, ORIGINAL_BRAND.id]) expect(strings, value).not.toContain(value);
+    // Only a pack's own top-level `id` and `looks` are skipped: the same keys deeper down are scanned.
+    const nested = {
+      id: 'p',
+      looks: { b1: { label: 'Q' } },
+      chains: { b1: { name: 'N', id: 'Deep', looks: 'Too' } },
+    };
+    expect([...packStrings(nested)].sort()).toEqual(['Deep', 'N', 'Too']);
     // The proper names (the title, capitalised aliases and the chains) are on the fixed list too, so they are
     // caught in any case and inside identifiers, not only as the pack spells them.
     const names = [

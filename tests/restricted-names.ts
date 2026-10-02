@@ -7,9 +7,15 @@
  * - the fixed list below (the reference game's name, its designer's, and its published editions' chain names),
  *   matched case-insensitively anywhere inside a word, so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught;
  *   a handful of ordinary words that contain one (Preact's `hydrate`) are allowed;
- * - every string value of every licensed pack (`licensedPackStrings`), whatever it is: title, aliases, tagline,
- *   summary and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is
- *   covered without touching this file.
+ * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
+ *   and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is covered
+ *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
+ *   names, and scanning for them would ban single letters and ordinary words.
+ *
+ * One exception (D053): the exact phrases in `ALLOWED_PHRASES` ("Compare to" the reference title, as a store brand
+ * says it) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
+ * repo guard, the public build scan and `pnpm scan:dist`) let them through. Only the whole phrase, spelled exactly:
+ * the title alone, in another case or inside another word is still caught.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -42,7 +48,26 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
   'hydration',
 ]);
 
+/**
+ * The exact phrases the public site may show although they hold a restricted name (D053), case-sensitive. Each
+ * is stored as one string literal in its game's `src` (Chain Reaction: `src/compare.ts`), which a guard test
+ * checks. Keep this to whole phrases: never add the bare title, here or to ALLOWED_WORDS.
+ */
+export const ALLOWED_PHRASES: readonly string[] = ['Compare to Acquire'];
+
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * `text` with every allowed phrase replaced by a space: only where it stands as a whole phrase, so a phrase run
+ * into a longer word on either side ("Compare to Acquired"), or followed by a hyphen or a typographic apostrophe
+ * ("…-style", "…’s"), is left for the matchers to catch. The ASCII `'` may follow: it closes a quoted literal.
+ */
+export function withoutAllowedPhrases(text: string): string {
+  return ALLOWED_PHRASES.reduce(
+    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_\\-\u2019])`, 'g'), ' '),
+    text,
+  );
+}
 
 /** The words of `text` (letters and digits, joined by `_`) that contain a restricted name, not allowed ones. */
 export function restrictedIn(text: string): string[] {
@@ -62,9 +87,13 @@ export function licensedIn(text: string, strings: readonly string[]): string[] {
   );
 }
 
-/** Everything restricted in `text`: names from the fixed list and licensed pack strings. */
+/**
+ * Everything restricted in `text`: names from the fixed list and licensed pack strings, once the allowed phrases
+ * are cut out. Every scan goes through here.
+ */
 export function findRestricted(text: string, strings: readonly string[]): string[] {
-  return [...new Set([...restrictedIn(text), ...licensedIn(text, strings)])];
+  const t = withoutAllowedPhrases(text);
+  return [...new Set([...restrictedIn(t), ...licensedIn(t, strings)])];
 }
 
 const SKIP = new Set(['node_modules', 'dist', 'dist-e2e', 'test-results', 'playwright-report', 'coverage']);
@@ -83,24 +112,38 @@ export function licensedDirs(root: string): string[] {
     .flatMap(find);
 }
 
+/** The top-level keys of a licensed pack whose values are not names: the pack id and the looks (D053). */
+const NOT_NAMES: ReadonlySet<string> = new Set(['id', 'looks']);
+
+/** Every non-empty string inside `value`, at any depth. */
 function stringsOf(value: unknown, out: Set<string>): void {
   if (typeof value === 'string') {
-    if (value.trim() !== '' && !/^(original|safe)$/.test(value)) out.add(value.trim());
+    if (value.trim() !== '') out.add(value.trim());
   } else if (Array.isArray(value)) for (const v of value) stringsOf(v, out);
   else if (typeof value === 'object' && value !== null)
     for (const v of Object.values(value)) stringsOf(v, out);
 }
 
+/** The strings of one exported pack: every string but those under its top-level `id` and `looks`. */
+export function packStrings(pack: unknown, out: Set<string> = new Set()): Set<string> {
+  if (Array.isArray(pack)) for (const p of pack) packStrings(p, out);
+  else if (typeof pack === 'object' && pack !== null) {
+    for (const [k, v] of Object.entries(pack)) if (!NOT_NAMES.has(k)) stringsOf(v, out);
+  } else stringsOf(pack, out);
+  return out;
+}
+
 /**
- * Every string value exported by every licensed pack module (`licensed/*.ts`, tests excluded) under `root`: the
- * titles, aliases, taglines, summaries and chain names. Pack ids ('original') are left out: they are not names.
+ * Every name and text string exported by every licensed pack module (`licensed/*.ts`, tests excluded) under
+ * `root`: the titles, aliases, taglines, summaries and chain names. Pack ids ('original') and looks (label
+ * letters, colors, patterns) are left out: they are not names.
  */
 export async function licensedPackStrings(root: string): Promise<string[]> {
   const out = new Set<string>();
   for (const dir of licensedDirs(root))
     for (const name of readdirSync(dir).filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
       const mod: Record<string, unknown> = await import(pathToFileURL(join(dir, name)).href);
-      stringsOf(Object.values(mod), out);
+      for (const pack of Object.values(mod)) packStrings(pack, out);
     }
   return [...out].sort();
 }

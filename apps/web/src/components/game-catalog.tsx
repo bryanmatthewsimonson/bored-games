@@ -11,6 +11,7 @@ import {
   type CatalogItem,
   COMPLEXITIES,
   type ComplexityId,
+  compareText,
   complexityText,
   filterCatalog,
   GENRE_LABELS,
@@ -72,6 +73,7 @@ export function GameCard(props: { item: CatalogItem }) {
             </a>
           </h3>
           <p class="game-card-tagline">{names.tagline}</p>
+          {entry.compareTo !== null && <p class="game-card-compare">{compareText(entry.compareTo)}</p>}
           <ul class="game-card-facts">
             <li class="game-fact">
               <span class="sr-only">Players: </span>

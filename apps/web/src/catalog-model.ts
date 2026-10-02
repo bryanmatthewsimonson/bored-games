@@ -5,6 +5,7 @@
 import {
   type BrandNames,
   type CatalogEntry,
+  COMPARE_PREFIX,
   GENRES,
   type Genre,
   type Mechanism,
@@ -150,10 +151,15 @@ export function normalize(text: string): string {
   return text.toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** The words a game is found by: its name and aliases, its tags and its mechanisms. */
+/**
+ * The words a game is found by: its name and aliases, the title of the game it compares to (so typing the
+ * original title finds the game on the public site, D053), its tags and its mechanisms.
+ */
 export function searchText(item: CatalogItem): string {
+  const { names, entry } = item;
+  const compare = entry.compareTo === null ? [] : [entry.compareTo.title];
   return normalize(
-    [item.names.gameTitle, ...item.names.aliases, ...item.entry.tags, ...item.entry.mechanisms].join(' | '),
+    [names.gameTitle, ...names.aliases, ...compare, ...entry.tags, ...entry.mechanisms].join(' | '),
   );
 }
 
@@ -237,6 +243,19 @@ export function modesText(e: CatalogEntry): string {
   return MODE_CHOICES.filter((m) => e.modes.includes(m.id))
     .map((m) => m.label)
     .join(', ');
+}
+
+/** A game's BoardGameGeek page, by id only (no slug). */
+export function bggUrl(id: number): string {
+  return `https://boardgamegeek.com/boardgame/${id}`;
+}
+
+/**
+ * "Compare to <title>" (D053). The title comes from the catalog entry at run time (Chain Reaction's is cut from its
+ * one allowed phrase, compare.ts), so no bundle holds it as a literal of its own.
+ */
+export function compareText(c: NonNullable<CatalogEntry['compareTo']>): string {
+  return `${COMPARE_PREFIX}${c.title}`;
 }
 
 /** What the players can see: hidden information or perfect information. */

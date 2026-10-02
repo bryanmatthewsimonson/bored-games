@@ -7,6 +7,7 @@ import { CHESS_ID } from './module.ts';
 export const CHESS_CATALOG: CatalogEntry = {
   id: CHESS_ID,
   bggId: 171,
+  compareTo: null,
   year: null,
   status: 'beta',
   players: { min: 2, max: 2, best: [2] },

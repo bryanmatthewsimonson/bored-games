@@ -1,6 +1,7 @@
 /*
  * The Chain Reaction theme is a parameter (D046): every chain name the model produces (board, hand, decisions,
- * status, log, price card) comes from the theme it is given, and the looks stay the same under every pack.
+ * status, log, price card) comes from the theme it is given. The looks are the safe ones unless the pack brings its
+ * own (D053: the licensed original pack brings the original colors and initials), and the patterns never change.
  */
 
 import { type ChainReactionAction, chainReaction, DEFAULT_RULES } from '@bored-games/chain-reaction';
@@ -10,6 +11,7 @@ import {
   CHAIN_SLOTS,
   type ChainReactionBrand,
   type ChainReactionTheme,
+  type ChainSlot,
   chainReactionTheme,
   SAFE_BRAND,
 } from '@bored-games/chain-reaction/theme';
@@ -99,8 +101,11 @@ function expectNamesFrom(brand: ChainReactionBrand, other: ChainReactionBrand): 
     const safe = chainView(CHAIN_REACTION_THEME, DEFAULT_RULES, i);
     expect(v.name).toBe(brand.chains[c.id as keyof ChainReactionBrand['chains']].name);
     expect(nameOfChainId(theme, c.id)).toBe(v.name);
-    // The looks belong to the slot, whatever the names.
-    expect([v.label, v.color, v.pattern]).toEqual([safe.label, safe.color, safe.pattern]);
+    // The looks belong to the slot: the pack's own when it has them, else the safe ones.
+    const own = brand.looks?.[c.id as ChainSlot];
+    expect([v.label, v.color, v.pattern]).toEqual(
+      own === undefined ? [safe.label, safe.color, safe.pattern] : [own.label, own.color, safe.pattern],
+    );
   });
   expect(theme.title).toBe(brand.gameTitle);
 }
@@ -116,6 +121,81 @@ describe('the theme as a parameter', () => {
   it('builds the safe theme from the safe pack', () => {
     expect(chainReactionTheme(SAFE_BRAND)).toEqual(CHAIN_REACTION_THEME);
     expect(CHAIN_REACTION_THEME.brand).toBe('safe');
+  });
+
+  it('keeps the safe looks unchanged: letters outside A-I, distinct colors, one pattern each', () => {
+    expect(SAFE_BRAND.looks).toBeUndefined();
+    const looks = CHAIN_SLOTS.map((s) => CHAIN_REACTION_THEME.chains[s]);
+    expect(looks.map((l) => l.label)).toEqual(['J', 'L', 'O', 'Q', 'R', 'S', 'T']);
+    expect(looks.map((l) => l.color)).toEqual([
+      '#2e9d6b',
+      '#2f5fb3',
+      '#3b3b44',
+      '#c98bb9',
+      '#b8333f',
+      '#1d3f8f',
+      '#d99a2b',
+    ]);
+    expect(looks.map((l) => l.pattern)).toEqual([
+      'solid',
+      'stripes',
+      'dots',
+      'grid',
+      'diagonal',
+      'waves',
+      'checks',
+    ]);
+    // A pack without looks (the test pack) gets exactly the safe ones.
+    for (const s of CHAIN_SLOTS) {
+      const { name: _, ...look } = chainReactionTheme(TEST_BRAND).chains[s];
+      const { name: __, ...safe } = CHAIN_REACTION_THEME.chains[s];
+      expect(look).toEqual(safe);
+    }
+  });
+
+  it("uses a pack's own looks for the slots it gives, and the safe looks for the others", () => {
+    const own = { label: 'X', color: '#123456' };
+    const theme = chainReactionTheme({ ...TEST_BRAND, looks: { s2: own } });
+    expect(theme.chains.s2).toEqual({
+      name: 'Dune',
+      ...own,
+      pattern: CHAIN_REACTION_THEME.chains.s2.pattern,
+    });
+    for (const s of CHAIN_SLOTS.filter((x) => x !== 's2')) {
+      const { name: _, ...look } = theme.chains[s];
+      const { name: __, ...safe } = CHAIN_REACTION_THEME.chains[s];
+      expect(look, s).toEqual(safe);
+    }
+  });
+
+  it('never takes a pattern from a pack, even one that slips past the type', () => {
+    const sneaky = { label: 'X', color: '#123456', pattern: 'solid' } as unknown as {
+      label: string;
+      color: string;
+    };
+    const theme = chainReactionTheme({ ...TEST_BRAND, looks: { s2: sneaky } });
+    expect(theme.chains.s2.pattern).toBe(CHAIN_REACTION_THEME.chains.s2.pattern);
+    expect(theme.chains.s2.pattern).not.toBe('solid');
+  });
+
+  it('gives the original pack a complete set of looks: initials, distinct colors, the safe patterns', () => {
+    const theme = chainReactionTheme(ORIGINAL_BRAND);
+    for (const s of CHAIN_SLOTS) {
+      const look = ORIGINAL_BRAND.looks?.[s];
+      expect(look, s).toBeDefined();
+      expect(theme.chains[s]).toEqual({
+        name: ORIGINAL_BRAND.chains[s].name,
+        ...look,
+        pattern: CHAIN_REACTION_THEME.chains[s].pattern,
+      });
+      expect(Object.keys(look ?? {}).sort()).toEqual(['color', 'label']);
+      expect(look?.label).toBe(ORIGINAL_BRAND.chains[s].name.charAt(0));
+      expect(look?.color).toMatch(/^#[0-9a-f]{6}$/);
+      expect(look?.color).not.toBe(CHAIN_REACTION_THEME.chains[s].color);
+    }
+    const looks = CHAIN_SLOTS.map((s) => theme.chains[s]);
+    expect(new Set(looks.map((l) => l.label)).size).toBe(7);
+    expect(new Set(looks.map((l) => l.color)).size).toBe(7);
   });
 
   it('renders the rules page and the price card in the pack given', () => {

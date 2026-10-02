@@ -7,6 +7,7 @@ const toy = createToy();
 const ENTRY: CatalogEntry = {
   id: 'toy',
   bggId: null,
+  compareTo: null,
   year: null,
   status: 'experimental',
   players: { min: 2, max: 4, best: [3] },
@@ -28,6 +29,8 @@ const ENTRY: CatalogEntry = {
 describe('catalogProblems', () => {
   it('accepts an entry that agrees with its module', () => {
     expect(catalogProblems(ENTRY, toy)).toEqual([]);
+    const linked = { ...ENTRY, bggId: 12, compareTo: { title: 'Other Game', bggId: 3 } };
+    expect(catalogProblems(linked, toy)).toEqual([]);
   });
 
   it('has the documented vocabularies', () => {
@@ -51,6 +54,10 @@ describe('catalogProblems', () => {
     ['solo for a game of 2 or more', { modes: ['solo', 'competitive'] }],
     ['perfect information with a deck', { hiddenInfo: false, randomness: false }],
     ['an upper-case tag', { tags: ['Cards'] }],
+    ['a bggId of 0', { bggId: 0 }],
+    ['a fractional bggId', { bggId: 1.5 }],
+    ['a compareTo without a title', { compareTo: { title: ' ', bggId: 3 } }],
+    ['a compareTo with a bad bggId', { compareTo: { title: 'Other Game', bggId: -1 } }],
   ])('rejects %s', (_label, change) => {
     expect(catalogProblems({ ...ENTRY, ...change }, toy)).not.toEqual([]);
   });

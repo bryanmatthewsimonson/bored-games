@@ -9,7 +9,7 @@ export type {
   Mode,
   TurnStructure,
 } from './catalog.ts';
-export { catalogProblems, GENRES, MECHANISMS, MODES, STATUSES, TURNS } from './catalog.ts';
+export { COMPARE_PREFIX, catalogProblems, GENRES, MECHANISMS, MODES, STATUSES, TURNS } from './catalog.ts';
 export type {
   FuzzBatchOptions,
   FuzzBatchReport,

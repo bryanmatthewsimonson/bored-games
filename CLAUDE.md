@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use the reference game's name or its chain names, in any case, outside `licensed/` directories (licensed brand packs, loaded only by builds made with `VITE_LICENSED_BRANDS=1` and never deployed until licensed) and `docs/`. The repo guard (every package file) and the build scans (`pnpm check`, and `pnpm scan:dist` before every Pages upload) enforce this (D046).
+Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use the reference game's name or its chain names, in any case, outside `licensed/` directories (licensed brand packs, loaded only by builds made with `VITE_LICENSED_BRANDS=1` and never deployed until licensed) and `docs/`, with one exception: the exact phrase "Compare to <reference title>", stored once in `packages/games/chain-reaction/src/compare.ts` (D053). The repo guard (every package file) and the build scans (`pnpm check`, and `pnpm scan:dist` before every Pages upload) enforce this (D046).
 
 ## Commands
 - `pnpm install`: install (Node ≥ 22.18, pnpm 10)
