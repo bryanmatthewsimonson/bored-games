@@ -6,6 +6,8 @@ How to play Chain Reaction and Chess locally, with real people, and how to run t
 
 Chain Reaction takes 3 to 6 players. The steps below use three; for more, open one more window per player (`profile=d`, `e`, `f`) and choose that many players at **Create table**.
 
+Home lists **Your games**, then the **Game catalog** (a search box plus filters for player count, genre, mode, length and complexity), then the **Open tables** of every game. Each game has its own page (`#/games/<id>`): what the game is, its facts, **How to play**, the **New table** form, and its open tables and your games of it.
+
 You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
 
 1. Run `pnpm install`.
@@ -20,7 +22,7 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    Each profile has its own key and storage, so these are separate players. The header shows `profile: a`, and so on.
    - **Why windows:** browsers throttle timers in hidden tabs, which slows the automatic shuffle and deal to a crawl. If a window seems stuck, click into it to focus it.
    - **Why `&relays=`:** it saves `ws://localhost:7777` as the profile's only relay, so local tests stay off public relays. Without it, `pnpm dev` uses the dev relay **and** the default public relay (`wss://relay.primal.net`). The setting is saved per profile, so later visits need no `&relays=`; **Settings → Reset to defaults** restores the default list. Only `ws://localhost[:port]` and `ws://127.0.0.1[:port]` are accepted here, and only by `pnpm dev` (a dev server) or a build made with `VITE_ALLOW_LINK_RELAYS=1` (as `pnpm e2e` does). Any other relay in the link, or any `?relays=` on the published site, is ignored, and the page says "Ignored relays from the link; change relays in Settings."
-4. **Create** (window a): under **New table**, choose **3 players** (the default; up to 6 are possible) and a **Time allowed per move**, then click **Create table** (for 3 players the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
+4. **Create** (window a): in the **Game catalog** on Home, click **Chain Reaction** to open its page. Under **New table**, choose **3 players** (the default; up to 6 are possible) and a **Time allowed per move**, then click **Create table** (for 3 players the form shows "2 open seats" before you create it). The Table page opens and says "Waiting for 2 more players."
 5. **Join** (every window but a): the table appears on Home under **Open tables**; click **Join**. The page then says "You are seated."
    - To join with the link instead, click **Copy share link** in window a. The link carries no profile, so add one before pasting it into window b: `http://localhost:5173/?profile=b#/t/…`. Then click **Join this table**.
 6. **Start** (window a): once the page says "Every seat is taken.", click **Start game**, then **Yes, start the game**. All the windows move to the game.
@@ -32,12 +34,12 @@ You need Node 22.18 or later and pnpm 10 (`corepack enable` provides pnpm).
    - **End the game:** once an end condition holds, **Buy shares and end your turn** shows a **Declare the end of the game** checkbox. The results then show "Audit: checking the hidden moves…" and then "Audit passed".
    - The **Log** panel lists what happened, newest last (the last 100 lines).
    - **Price card** (above the Chains panel) opens the share prices and the majority and minority bonuses for every size, with each chain on the board marked in the row of its current size. **Rules** opens the player rules in a new tab.
-   - **Rules** in the header (and **How to play** next to **New table** on Home) opens the rules of the game at hand at `#/rules/<game>` (`#/rules/chain-reaction`, with the price card; old `#/rules` links still open it).
+   - **Rules** in the header (and **How to play** on a game's page) opens the rules of the game at hand at `#/rules/<game>` (`#/rules/chain-reaction`, with the price card; old `#/rules` links still open it).
 
 ### Chess (2 players)
 Chess has no hidden cards, so there is no shuffle or deal: the board appears as soon as the game starts.
 1. Run `pnpm dev` and open two windows, `?profile=a&relays=ws://localhost:7777` and `?profile=b&relays=ws://localhost:7777`.
-2. **Create** (window a): under **New table**, set **Game** to **Chess** (the form then offers 2 players only), then **Create table**. **How to play** opens the Chess rules (`#/rules/chess`).
+2. **Create** (window a): find **Chess** in the Home catalog (type "chess" in **Search games**, or pick **2** players) and click it. Its **New table** form offers 2 players only; click **Create table**. **How to play** on the page opens the Chess rules (`#/rules/chess`).
 3. **Join** (window b) and **Start** (window a) as above. Window a plays White.
 4. **Play:** click one of your pieces, then the square to move it to (legal squares show a dot). A pawn reaching the last rank shows a **Promote to** select before you click its square. Tick **Offer a draw with this move** to offer a draw with your move; your opponent then sees **Accept the draw**. The move list is on the right.
 5. **Resign** (under the board; only in 2-player games without a deck, so Chess for now) asks for confirmation first, then ends the game: you lose. Before the first move, resigning cancels the game instead.
@@ -56,6 +58,16 @@ Fool's mate is a quick test: 1. f3 e5 2. g4 Qh4#. The board is a placeholder; th
 - **Home badges.** On Home, **Your games** shows a **Your turn** badge for a game that was waiting on you when this profile last had it open. It is not a live inbox: a game this profile has not opened for a while shows "Open to check".
 - **Resigning.** Only 2-player games without a deck (Chess) offer **Resign**; Chain Reaction has no Resign button until the owner decides how resigning should work with more players and hidden tiles (D045).
 - **Timeouts.** Once a player's move deadline (1, 3 or 7 days, chosen at **Create table**) has passed, the other players get a **Claim timeout** button in the status bar (or on the setup screen). It asks for confirmation first (**Yes, claim the timeout**) and explains the result: the stalled player forfeits and the game ends at once, or, before the first move after the deal, the game is cancelled. Nothing is claimed automatically. The deadlines are too long to try this in a short local session.
+
+### Game names: trademark-safe or licensed (D046)
+Every build shows the trademark-safe names (Chain Reaction, Jade, Lapis…). The original names of the game Chain Reaction implements are a licensed brand pack, kept out of the published site until they are licensed: **Settings → Game names** there says "Only the trademark-safe names are available on this site."
+
+To try the licensed pack locally:
+1. Stop any running `pnpm dev`, then run `VITE_LICENSED_BRANDS=1 pnpm dev` and open a window as in step 3.
+2. **Settings → Game names** now offers **Trademark-safe names** and **Original names (licensed)**, each with examples. Pick one: the choice is saved per profile (`bg:<profile>:branding`) and applies at once, in an open game too.
+3. Check that the switch reaches every place a name appears: the catalog card and the game page (title, tagline, summary; the catalog search also finds the game by the licensed title), the board's cell names (screen reader), the Chains, Players and holdings panels, the decisions, the status line, the log, the **Price card** and the rules page (`#/rules/chain-reaction`). The label letters, colors and patterns stay the same under both.
+
+Only what one player sees changes: the games, their events and the other players are unaffected. `#/dev/board/mid` in a dev server shows a game screen without playing one. Never deploy a build made with the flag: the public build scan (`pnpm scan:build`, part of `pnpm check`) proves that the normal build holds none of the licensed names.
 
 ## 2. Playing with real people
 
@@ -89,14 +101,14 @@ If you chose the extension but it is not there when the page loads (disabled, or
 - NIP-46 remote signers are not supported.
 
 ## 4. Running the tests
-- **`pnpm check`** runs typecheck, Biome lint and every Vitest project (engine, deck, protocol, client, relay, dev relay, web, brand, fuzz smoke and repo guards). Run it before every commit. CI (`.github/workflows/ci.yml`) runs it on pushes to `main` and on pull requests.
+- **`pnpm check`** runs typecheck, Biome lint and every Vitest project (engine, deck, protocol, client, relay, dev relay, web, brand, fuzz smoke and repo guards). The repo guards include the public build scan (`tests/public-build.test.ts`, alone with `pnpm scan:build`): it builds the web app as GitHub Pages gets it and checks that no file in `apps/web/dist`, source maps included, holds a restricted name, then checks a `VITE_LICENSED_BRANDS=1` control build does. Run it before every commit. CI (`.github/workflows/ci.yml`) runs it on pushes to `main` and on pull requests.
 - **`pnpm e2e`** runs every end-to-end browser spec in `apps/web/e2e/` (about 1–2 minutes): `play.spec.ts`, `profile.spec.ts` and `chess.spec.ts`. The main one, `play.spec.ts`, is described here. It starts a dev relay and `vite preview` on free ports. The players (3 by default, one browser context each) then create, join, start and play at least two full rounds through the UI, on until a merger disposal. One player reloads mid-game. All of them must agree on the board and the turn at the end. It is not part of `pnpm check`.
   - The first time on a new machine, run `pnpm --filter @bored-games/web exec playwright install chromium`. The dev container already has the browser.
   - `E2E_SEATS=6 pnpm e2e` plays with 4, 5 or 6 players instead of 3 (values outside 3–6 are clamped). It plays 2 full rounds and one more turn, and the time allowed for the setup and for the whole test grows with the seats. With 6 players it takes about 2 minutes, with the setup at about 43 s (see "What to expect").
   - `E2E_FINISH=1 pnpm e2e` plays to the final results and a passed audit (about 3 minutes).
   - `E2E_SCREENSHOTS=/some/dir pnpm e2e` saves a screenshot per player. `pnpm e2e --headed` shows the browser.
   - `apps/web/e2e/profile.spec.ts` (a few seconds) checks names and pictures with the Blossom server intercepted: one player uploads a photo carrying EXIF data, the other picks a gallery picture, and each sees the other's name, picture and npub on the table seats. `pnpm e2e profile.spec.ts` runs it alone.
-  - `apps/web/e2e/chess.spec.ts` (a few seconds): two players pick Chess on Home, create, join and start a table, play Fool's mate (both see the checkmate and both attestations), then a second game ends by resign. `pnpm e2e chess.spec.ts` runs it alone; with `E2E_SCREENSHOTS` it saves the picker and the board mid-game, at mate and after the resign at 1280 and 390 px.
+  - `apps/web/e2e/chess.spec.ts` (a few seconds): two players find Chess in the Home catalog by searching, open its page, create, join and start a table, play Fool's mate (both see the checkmate and both attestations), then a second game ends by resign. `pnpm e2e chess.spec.ts` runs it alone; with `E2E_SCREENSHOTS` it saves the picker and the board mid-game, at mate and after the resign at 1280 and 390 px.
 - **`pnpm sim --game chess|chain-reaction`** plays whole games between independent clients over an in-memory relay (`--adversary vanish|resign|equivocate|…`); `pnpm test:sim` runs the long Chain Reaction sim tests.
 - **`pnpm build:web`** builds the static app into `apps/web/dist`, as the Pages workflow does.
 - **`pnpm fuzz --games 1000`** plays random games against the rules engine and checks its invariants (`--games 10000` for the full run). `pnpm fuzz --one "<seed#i>" --players N` replays one failing game.

@@ -1,35 +1,35 @@
 # CLAUDE.md
 
-Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use the reference game's name or its chain names in product code; a test enforces this.
+Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use the reference game's name or its chain names outside a `licensed/` directory: that is a licensed brand pack, loaded only by builds made with `VITE_LICENSED_BRANDS=1` and never published until licensed. The repo guard and the public build scan enforce this (D046).
 
 ## Commands
 - `pnpm install`: install (Node ≥ 22.18, pnpm 10)
 - `pnpm test`: all Vitest projects (kit, chain-reaction, chess, deck, protocol, client, relay, dev-relay, web, brand, fuzz smoke, repo guards)
 - `pnpm vitest run --project <name>`: one project (for example `web` or `client`)
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`
-- `pnpm check`: typecheck + lint + test. Run it before every commit.
+- `pnpm check`: typecheck + lint + test (including the public build scan, `pnpm scan:build`). Run it before every commit.
 - `pnpm fuzz --games 10000 [--seed S] [--players 3-6] [--no-views]`: invariant fuzzing across workers
 - `pnpm fuzz --one "<seed#i>" --players N`: reproduce one failing game
-- `pnpm dev`: the dev relay (`ws://localhost:7777`) and the Vite dev server (`http://localhost:5173`, `strictPort`); open `?profile=a&relays=ws://localhost:7777` per player (`docs/TESTING.md`)
+- `pnpm dev`: the dev relay (`ws://localhost:7777`) and the Vite dev server (`http://localhost:5173`, `strictPort`); open `?profile=a&relays=ws://localhost:7777` per player (`docs/TESTING.md`). `VITE_LICENSED_BRANDS=1 pnpm dev` adds the licensed names (Settings → Game names)
 - `pnpm relay`: the in-memory dev relay alone, on port 7777
 - `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, Chess) on free ports (not part of `check`)
 - `pnpm sim --game <id>`: whole games between independent clients over an in-memory relay
 - `pnpm build:web`: static build of `apps/web` into `apps/web/dist` (GitHub Pages deploys it once CI passes on `main`)
 
 ## Repo map
-- `packages/game-kit/`: the `GameModule` contract, canonical JSON, hash, PRNG, replay and generic fuzzer (pure)
+- `packages/game-kit/`: the `GameModule` contract, canonical JSON, hash, PRNG, replay, generic fuzzer, and the catalog types and vocabularies (pure)
 - `packages/deck/`: mental-poker deck crypto on secp256k1: ElGamal, shuffle proofs, DLEQ shares, wire codecs (pure `src/`, randomness injected; `scripts/` holds `vectors` and `bench`)
 - `packages/protocol/`: NOSTR events for the protocol: NIP-01 ids and signatures, lobby events (Table, Join, Game root) and in-game events (Move, Shares, Timeout, Secret, Attestation), strict parsers (pure)
 - `packages/client/`: `GameSession`, the deterministic fold over one game's signed events (duties, timeouts, audit)
 - `packages/relay/`: the relay pool (WebSocket injected; not pure)
-- `packages/games/chain-reaction/`: the Chain Reaction rules engine (pure). `src/theme.ts` is the only file with user-facing game names.
+- `packages/games/chain-reaction/`: the Chain Reaction rules engine (pure). `src/theme.ts` is the only `src` file with user-facing game names (the trademark-safe brand pack); `licensed/` holds the licensed pack.
 - `packages/games/chess/`: the Chess rules engine (pure, deckless)
 - `packages/brand/`: platform display name
 - `apps/web/`: the Preact + Signals web app: lobby and game controllers, screens, the game registry (`games/registry.ts`), `games/<id>/` components, `e2e/`
 - `tools/fuzz/`: fuzz CLI, plus per-game policies and deck orders (test tooling only)
 - `tools/dev-relay/`: in-memory NIP-01 relay for development and tests
 - `scripts/dev.ts`: runs `pnpm relay` and the Vite dev server together
-- `tests/`: repo-wide guards (purity, branding)
+- `tests/`: repo-wide guards (purity, branding, the public build scan for restricted names)
 - `docs/`: ARCHITECTURE, PROTOCOL, PLAN (status and open questions), DECISIONS (log), TESTING (owner's guide), `games/chain-reaction/RULES.md` (source of truth)
 
 ## Conventions
@@ -42,8 +42,8 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - **Dependencies:** few. Justify each one in `docs/DECISIONS.md`.
 - **Commits:** small and focused; nothing is done while tests fail. Keep `docs/PLAN.md` status and `docs/DECISIONS.md` current so a fresh session can pick up cold.
 - **Adding a game (D045):**
-  - `packages/games/<id>`: a pure `GameModule` (`decks` may be `[]`), its `src/theme.ts` and `test/catalog/`;
+  - `packages/games/<id>`: a pure `GameModule` (`decks` may be `[]`), its `src/theme.ts`, a `src/catalog.ts` entry and a trademark-safe brand pack (D046), and `test/catalog/`;
   - `docs/games/<id>/RULES.md` with a `#### Cnn` catalog (`tests/catalog.test.ts` checks it);
   - a fuzz target in `tools/fuzz/src/index.ts` (the sim takes `--game <id>`);
-  - the web app: the module in `MODULES` (`apps/web/src/net.ts`), the id in `apps/web/src/games/ids.ts`, and `apps/web/src/games/<id>/` with `meta.ts`, a component taking `GameViewProps` and a rules page, registered in `games/registry.ts` and `game-names.ts`;
+  - the web app: the module in `MODULES` (`apps/web/src/net.ts`), the id in `apps/web/src/games/ids.ts`, and `apps/web/src/games/<id>/` with `meta.ts`, a component taking `GameViewProps` and a rules page, registered in `games/registry.ts`, `game-names.ts` and `games/catalog.ts`;
   - an e2e spec in `apps/web/e2e/`.

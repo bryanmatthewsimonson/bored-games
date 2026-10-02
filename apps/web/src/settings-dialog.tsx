@@ -246,7 +246,7 @@ export function GameNamesSection() {
         <legend class="sr-only">Game names</legend>
         <label class="radio">
           <input type="radio" name="branding" checked={current === 'safe'} onChange={() => choose('safe')} />
-          <span>
+          <span class="names-option">
             Trademark-safe names
             <span class="hint">{games.map((g) => packExample(g.safe)).join('; ')}</span>
           </span>
@@ -258,7 +258,7 @@ export function GameNamesSection() {
             checked={current === 'original'}
             onChange={() => choose('original')}
           />
-          <span>
+          <span class="names-option">
             Original names (licensed)
             <span class="hint">{games.map((g) => packExample(g.original)).join('; ')}</span>
           </span>

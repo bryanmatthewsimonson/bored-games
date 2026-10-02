@@ -137,16 +137,21 @@ Event kinds are chosen in Phase 2 after checking the NIPs registry, avoiding 300
 ## More than one game (D045)
 
 - **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the seat count with a deck, else 0) marks where game actions start.
-- **Web registry.** `apps/web/src/games/registry.ts` lists every hosted game: names (`meta.ts`, from the game's theme), the in-game component (`GameViewProps`), the rules page (`#/rules/<gameId>`) and the setup copy. `screens/game.tsx` is generic: the setup progress, the chrome every game shares (notices, final places, attestations, Resign) and the table's game component. Home offers a game picker until the catalog (Phase E).
+- **Web registry.** `apps/web/src/games/registry.ts` lists every hosted game: names (`meta.ts`, from the game's theme), the in-game component (`GameViewProps`), the rules page (`#/rules/<gameId>`) and the setup copy. `screens/game.tsx` is generic: the setup progress, the chrome every game shares (notices, final places, attestations, Resign) and the table's game component.
 - **Tools.** The fuzzer and the sim take `--game`; one meta-test checks the rules catalog of every `docs/games/*/RULES.md`.
+
+- **Catalog (D046).** Each game package exports a pure `catalog.ts` `CatalogEntry` (players, play time, weight, luck, genre, mechanisms, modes, hidden information, randomness, tags; the types and controlled vocabularies are in `packages/game-kit/src/catalog.ts`). `apps/web/src/games/catalog.ts` lists the entries with each game's trademark-safe brand pack, and a test checks every entry against its module (`players` = `seatRange`, `hiddenInfo || randomness` iff the game has a deck). Home is Your games, the Game catalog (search plus filters, pure in `catalog-model.ts`) and the open tables of every game; a game's page `#/games/<id>` holds its summary and facts, How to play, the New table form and that game's tables. The lobby filters tables by game on the client: relays index only single-letter tags, so they cannot filter on `game`.
 
 ## Names and branding
 
 Internal ids are permanent once they appear in network events: `chain-reaction`, and chain ids `b1 b2 s1 s2 s3 p1 p2`. User-facing names live only in:
 - `packages/brand/src/brand.ts` for the platform
-- one theme file per game, e.g. `packages/games/chain-reaction/src/theme.ts`.
+- one theme file per game, e.g. `packages/games/chain-reaction/src/theme.ts`, holding the game's trademark-safe **brand pack**
+- licensed brand packs, outside `src`, e.g. `packages/games/chain-reaction/licensed/original.ts`.
 
-The reference game's name and its editions' chain names never appear in source; a repo test enforces this.
+**Brand packs (D046).** A pack is a game's display strings under one branding: `{id, gameTitle, tagline, summary, aliases[]}`, plus `chains: {b1: {name}, …}` for Chain Reaction. Looks (label letters, colors, patterns) are not part of a pack: they stay the safe theme's. Each player chooses in Settings → Game names (`branding: 'safe' | 'original'`, stored as `bg:<profile>:branding`); `apps/web/src/brands.ts` gives the pack in effect as signals, so every screen that names a game re-renders on a change. Chain Reaction's model functions take the theme explicitly (`chainView(theme, …)`, `logLines(…, {theme})`, `priceCard(theme, …)`, `RulesContent theme`); only the registry screen and the rules route read the theme in effect (`games/chain-reaction/theme.ts`).
+
+**Licensed packs never ship publicly.** The web app loads them only through a dynamic import guarded by `import.meta.env.VITE_LICENSED_BRANDS === '1'` (`apps/web/src/licensed-brands.ts`); Vite replaces the flag at build time, so the public build drops the import and the pack. The reference game's name and its editions' chain names appear only in `licensed/` directories (and docs): the repo guard scans every package file outside them, checks that no `src` file imports from `licensed/` statically, and `tests/public-build.test.ts` builds the public app and scans `apps/web/dist` for every restricted name. A licensed build (`VITE_LICENSED_BRANDS=1`) is for local testing until the names are licensed.
 
 ## Risks
 
