@@ -7,6 +7,7 @@ export {
   type AttestSpec,
   type Audit,
   attestTemplate,
+  type EndedBy,
   logHash,
   type MoveContent,
   type MoveSpec,

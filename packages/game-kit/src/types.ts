@@ -72,6 +72,13 @@ export interface Outcome {
   readonly places: readonly number[];
   readonly scores: readonly number[];
   readonly reason: string;
+  /**
+   * Set only by the platform, never by a module: the result does not count toward ratings (a Resign ended a game of
+   * 3 or more seats, PROTOCOL §8.3, D052). Absent otherwise.
+   */
+  readonly unrated?: true;
+  /** Set only by the platform, with `unrated`: the seat whose Resign ended the game. Absent otherwise. */
+  readonly endedBy?: { readonly type: 'resign'; readonly seat: Seat };
 }
 
 export type SetupInput<R> =

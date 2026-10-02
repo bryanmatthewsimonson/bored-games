@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { chess } from '@bored-games/chess';
-import { createRng } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   type Hex,
@@ -17,20 +16,19 @@ import {
   deliver,
   LATE,
   MODULES,
-  makeGame,
   makeModuleGame,
   NOW,
   newSession,
-  shuffleAll,
   statuses,
   T0,
   type TestGame,
 } from './helpers.ts';
 
 /*
- * Resign (PROTOCOL §4.9, §8.3, D045): allowed only in 2-seat games without a deck. A Resign counts as soon as it
- * is received, whatever head it names, and like an accepted timeout it is final for the client that received it:
- * later moves, claims and resigns change nothing. A resign received after the result is final changes nothing.
+ * Resign (PROTOCOL §4.9, §8.3, D045) in a 2-seat game without a deck (Chess); games with a deck or more seats are in
+ * resign-deck.test.ts (D052). A Resign counts once the head it names is on the chain, and like an accepted timeout
+ * it is final for the client that received it: later moves, claims and resigns change nothing. A resign received
+ * after the result is final changes nothing.
  */
 
 /** A 64-hex id nobody holds. */
@@ -381,28 +379,33 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
   });
 });
 
-describe('resign elsewhere is not allowed (D045: until the owner decides)', () => {
-  it('a 3-seat Chain Reaction game rejects every Resign, in any order, and plays on', () => {
-    const game = makeGame(3, 'resign-cr');
-    const players = [0, 1, 2].map((seat) => newSession(game, seat));
-    const spectator = newSession(game, null);
-    const all = [...players, spectator];
-    shuffleAll(game, players, [spectator]);
-    const deals = players.map((s, k) => s.buildDeal(game.rnd, T0 + 200 + k));
-    deliver(all, deals);
-    const rng = createRng('resign-cr-policy');
-    for (let i = 0; i < 3; i++) {
-      const p = spectator.view().pending;
-      if (p.type !== 'player') throw new Error('no decision pending');
-      const s = players[p.seat] as GameSession;
-      deliver(all, [s.buildAction(rng.pick(s.legalActions()), game.rnd, T0 + 1000 + i)]);
+describe('2-seat Chess resigns are unchanged by D052', () => {
+  it('the Resign event and every attestation are byte for byte what they were before D052', () => {
+    const t = chessTable('resign-pin');
+    play(t, 0, 'e2e4');
+    play(t, 1, 'e7e5');
+    const r = (t.players[1] as GameSession).buildResign(t.game.rnd, T0 + 500);
+    expect(r.content).toBe('{"type":"resign"}');
+    expect(r.tags).toEqual([
+      ['e', t.game.rootId, '', 'root'],
+      ['e', t.spectator.view().head.id, '', 'head'],
+      ['proto', '1'],
+    ]);
+    deliver(t.all, [r]);
+    // Rated: no `unrated`, no `endedBy`. Pinned from the code before D052.
+    const pinned =
+      '{"audit":{"fail":[1],"reason":"resign"},"logHash":"921463230ba8f7c60d4559b0103b06cf9887fac34bbb3871c9e37f32f4667a25","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]}}';
+    for (const s of t.players) {
+      expect(s.attestTemplate(NOW)).toEqual({
+        kind: 7456,
+        created_at: NOW,
+        tags: [
+          ['e', t.game.rootId, '', 'root'],
+          ['proto', '1'],
+        ],
+        content: pinned,
+      });
     }
-    for (const s of all) expect(s.canResign()).toBe(false);
-    expect(() => (players[1] as GameSession).buildResign(game.rnd, T0 + 2000)).toThrow(/not allowed/);
-    const r = resignEvent(game, 1, spectator.view().head.id);
-    const reason = 'resigning is allowed only in 2-seat games without a deck';
-    expect(deliver(all, [r, r]).flat()).toEqual(Array(8).fill({ status: 'rejected', reason }));
-    for (const s of all) expect(s.view()).toMatchObject({ phase: 'play', resigned: [] });
-    expect(players.some((s) => s.duties().some((d) => d.kind === 'decide'))).toBe(true);
+    expect(t.game.rootId).toBe('eb9cd01af4a2aa47c1681ab90fbd21019035675f0d89c32dc64acb0c8974e0c5');
   });
 });
