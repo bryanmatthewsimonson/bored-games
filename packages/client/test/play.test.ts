@@ -55,6 +55,8 @@ describe('play: game-action moves', () => {
   const moves: NostrEvent[] = [];
   /** Per move, each session's head, pending, log hash and public state hash. */
   const agreement: string[][] = [];
+  /** Per move: how many shares its signer owed before it, and the signer's duties and decision after it. */
+  const paid: { owed: number; after: unknown; decides: boolean }[] = [];
   /** A move whose signer published its owed shares in a separate, earlier Shares event. */
   let early: { shares: NostrEvent; move: NostrEvent };
   /** A valid alternative to `moves[rival.index]`, signed by the same seat on the same prev. */
@@ -75,6 +77,7 @@ describe('play: game-action moves', () => {
       const pending = spectator.view().pending;
       if (pending.type !== 'player') throw new Error(`move ${i}: no player decision is pending`);
       const s = players[pending.seat] as GameSession;
+      const owed = s.duties().find((d) => d.kind === 'share');
       // The uniform fuzz policy.
       const legal = s.legalActions();
       const action = rng.pick(legal);
@@ -101,6 +104,12 @@ describe('play: game-action moves', () => {
       expect(statuses(deliver(all, [ev]))).toEqual(Array(4).fill('accepted'));
       log.push(ev);
       moves.push(ev);
+      const next = spectator.view().pending;
+      paid.push({
+        owed: owed?.kind === 'share' ? owed.positions.length : 0,
+        after: s.duties(),
+        decides: next.type === 'player' && next.seat === pending.seat,
+      });
       agreement.push(
         all.map((x) => {
           const v = x.view();
@@ -127,6 +136,15 @@ describe('play: game-action moves', () => {
     // The spectator's state is exactly the public part.
     expect(stateHash(stateOf(spectator))).toBe(publicHash(spectator));
     for (const s of [...players, spectator]) expect(s.view().forfeits).toEqual([]);
+  });
+
+  it('clears a share duty with the move that carries the shares: after its move a seat owes nothing', () => {
+    expect(paid).toHaveLength(MOVES);
+    for (const [i, p] of paid.entries()) {
+      expect(p.after, `after move ${i}`).toEqual(p.decides ? [{ kind: 'decide' }] : []);
+    }
+    // Some of those moves paid a share duty that was due when the seat decided.
+    expect(paid.filter((p) => p.owed > 0).length).toBeGreaterThan(0);
   });
 
   it('gives the decide duty and legal actions only to the pending seat, and builds only legal actions', () => {

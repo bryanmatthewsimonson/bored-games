@@ -424,10 +424,37 @@ export function simulateGame(opts: SimOptions): SimReport {
     }
   };
 
+  /**
+   * Send the shares the seat owes (D039), if any. A held event is re-sent, and one the seat's own session now
+   * refuses (its final deck changed under a fork) is built anew. It never holds back the duties after it: shares
+   * still owed ride on the seat's next move.
+   */
+  const sendShares = (c: Client): void => {
+    const duty = c.session.duties().find((d) => d.kind === 'share');
+    if (duty === undefined) return;
+    const slot = slotOf(c, duty);
+    const held = c.outbox.get(slot);
+    if (held !== undefined) {
+      if (publish(c, held) !== 'rejected') return;
+      c.outbox.delete(slot);
+    }
+    let ev: NostrEvent;
+    try {
+      ev = build(c, duty);
+    } catch (e) {
+      fail(`${c.label}: building share failed: ${errorText(e)}`);
+      return;
+    }
+    c.outbox.set(slot, ev);
+    const status = publish(c, ev);
+    if (status !== 'accepted') fail(`${c.label}: its own share event was ${status}`);
+  };
+
   /** Do the seat's duties, one event at a time, until none is due or one makes no progress. */
   const performDuties = (c: Client): void => {
     for (let i = 0; i < MAX_PER_TURN; i++) {
-      const duty = c.session.duties()[0];
+      sendShares(c);
+      const duty = c.session.duties().find((d) => d.kind !== 'share');
       if (duty === undefined) return;
       const slot = slotOf(c, duty);
       const held = c.outbox.get(slot);

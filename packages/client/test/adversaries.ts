@@ -8,6 +8,8 @@ import {
   type NostrEvent,
   type PosShare,
   parseMove,
+  parseShares,
+  sharesTemplate,
 } from '@bored-games/protocol';
 import type { GameSession } from '../src/session.ts';
 import type { Adversary, SimPolicy, SimReport, SimTurn } from '../src/sim.ts';
@@ -50,23 +52,43 @@ function withBadShare(t: SimTurn, ev: NostrEvent): NostrEvent | null {
 }
 
 const decides = (s: GameSession): boolean => s.duties().some((d) => d.kind === 'decide');
+const owesShares = (s: GameSession): boolean => s.duties().some((d) => d.kind === 'share');
+
+/** The seat's owed shares (D039) as a Shares event with the first share corrupted, signed by its session key. */
+function badSharesEvent(t: SimTurn): NostrEvent {
+  const { shares } = parseShares(t.session.buildShares(t.rnd, t.now));
+  const spoilt = shares.map((x, i) => (i === 0 ? { pos: x.pos, share: corrupt(x.share) } : x));
+  const tmpl = sharesTemplate({ rootId: t.session.view().rootId, shares: spoilt }, t.now);
+  return finalizeEvent(tmpl, t.identity.sessionSk, t.rnd);
+}
 
 /**
- * `badShare`: at its first decision whose move carries a share or a reveal, the seat publishes the move with one
- * share corrupted instead. Everyone rejects it; the seat then plays on honestly.
+ * `badShare`, two cheats:
+ * - at its first share duty, the seat publishes its owed shares (D039) as a Shares event with one share corrupted;
+ * - then it withholds its owed shares until its first decision whose move carries a share or a reveal, and
+ *   publishes that move with one share corrupted instead.
+ * Everyone rejects both; the seat then plays on honestly.
  */
 export function badShare(seat: number): Adversary {
-  let done = false;
+  let sharesDone = false;
+  let moveDone = false;
   return {
     name: 'badShare',
     seat,
     turn(t) {
-      if (done || !decides(t.session)) return 'honest';
+      if (!sharesDone && owesShares(t.session)) {
+        sharesDone = true;
+        t.publish(badSharesEvent(t), 'badShares');
+        return 'pass';
+      }
+      if (moveDone || !sharesDone) return 'honest';
+      // Hold the shares back, so that the move carries them.
+      if (!decides(t.session)) return owesShares(t.session) ? 'pass' : 'honest';
       const honest = t.session.buildAction(t.choose(), t.rnd, t.now);
       const bad = withBadShare(t, honest);
       // The honest event is dropped unpublished; with nothing to spoil, the seat plays honestly this time.
       if (bad === null) return 'honest';
-      done = true;
+      moveDone = true;
       t.publish(bad, 'badShare');
       return 'pass';
     },
@@ -240,7 +262,10 @@ export function unexpected(report: SimReport, seat: number): string[] {
       want(report.forfeits.length === 0, `forfeits ${report.forfeits}`);
       break;
     case 'badShare':
-      want(report.cheats.length === 1, 'it never cheated');
+      want(
+        report.cheats.map((c) => c.label).join() === 'badShares,badShare',
+        'it did not publish a bad Shares event, then a bad move',
+      );
       want(rejected, `cheat received as ${cheatStatuses}`);
       want(report.phase === 'done', `phase ${report.phase}, not done`);
       want(report.audit === 'pass', `audit ${audit}`);
