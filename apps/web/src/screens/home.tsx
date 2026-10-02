@@ -5,13 +5,94 @@ import { BRAND } from '@bored-games/brand';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { Hex } from '@bored-games/protocol';
 import { useState } from 'preact/hooks';
+import { Avatar } from '../components/avatar.tsx';
 import { NewTableForm } from '../components/new-table-form.tsx';
 import { TableCard } from '../components/table-card.tsx';
 import { useApp } from '../context.ts';
+import { backupReminderVisible, markBackedUp } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
+import { profileNudgeVisible } from '../profile-model.ts';
+import { useProfile } from '../profiles.ts';
 import { gameHref, tableHref } from '../router.ts';
+import { readItem, requestPersistenceOnce, storageKey, storageManager, writeItem } from '../storage.ts';
+
+/** A listed table of another player key this profile used (D041). */
+export const OTHER_KEY_DETAIL = 'Under another key: switch to it in Settings to play';
+
+/** Storage name of the dismissed profile nudge. */
+export const NUDGE_DISMISSED = 'nudge-profile';
+
+/** "Back up your key", for a local key with a table, until the nsec is copied or the player says it is saved. */
+function BackupReminder() {
+  const { signer, store, profile, settingsOpen } = useApp();
+  const lobby = useLobby();
+  const [, setSaved] = useState(false);
+  // Read so that a new table, or closing Settings after copying the key, renders this again.
+  void lobby.myTables.value;
+  void settingsOpen.value;
+  if (!backupReminderVisible(profile, store, signer)) return null;
+  return (
+    <section class="panel warning backup" aria-labelledby="backup-h">
+      <h2 id="backup-h">Back up your key</h2>
+      <p>
+        Your seats belong to a secret key kept only in this browser. If this site's data is cleared, or you
+        move to another device, you need the key to play your games. Copy it from Settings and keep it
+        somewhere safe, such as a password manager.
+      </p>
+      <div class="row">
+        <button type="button" class="btn btn-primary" onClick={() => (settingsOpen.value = true)}>
+          Open Settings to copy it
+        </button>
+        <label class="check">
+          <input
+            type="checkbox"
+            onChange={(e) => {
+              if (e.currentTarget.checked && markBackedUp(profile, store, signer.pubkey)) setSaved(true);
+            }}
+          />
+          I've saved it
+        </label>
+      </div>
+    </section>
+  );
+}
+
+/** "Add your name and picture", once the player's profile has loaded without a name. */
+function ProfileNudge() {
+  const { signer, store, profile, settingsOpen } = useApp();
+  const me = useProfile(signer.pubkey);
+  const key = storageKey(profile, NUDGE_DISMISSED);
+  const [dismissed, setDismissed] = useState(() => readItem(store, key) === '1');
+  if (!profileNudgeVisible(me, dismissed)) return null;
+  return (
+    <section class="panel nudge" aria-label="Your name and picture">
+      <Avatar pubkey={signer.pubkey} picture={null} size={48} />
+      <div class="nudge-body">
+        <p>
+          <strong>Add your name and picture so friends recognize you.</strong> Until then, other players see
+          only your public key and this pattern.
+        </p>
+        <div class="row">
+          <button type="button" class="btn btn-primary" onClick={() => (settingsOpen.value = true)}>
+            Add name and picture
+          </button>
+          <button
+            type="button"
+            class="btn"
+            onClick={() => {
+              writeItem(store, key, '1');
+              setDismissed(true);
+            }}
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function MyTables(props: { tables: readonly MyTable[] }) {
   const lobby = useLobby();
@@ -23,49 +104,53 @@ function MyTables(props: { tables: readonly MyTable[] }) {
     );
   return (
     <ul class="cards">
-      {props.tables.map((t) => {
-        // A started game's status comes from what its game screen saved; Home never runs a game session.
-        const started = t.rootId !== null || t.table.status === 'started';
-        const known =
-          started && t.table.status !== 'cancelled'
-            ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
-            : { status: null, check: false };
-        const chip = tableChip(t.table, t.lobby, known.status);
-        const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
-        return (
-          <TableCard
-            key={t.address}
-            href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
-            game={t.table.game}
-            seats={t.table.seats}
-            deadline={t.table.deadline}
-            creator={t.table.creator}
-            isCreator={t.role === 'creator'}
-            chip={chip}
-            badge={attentionBadge(t.role, chip, known.status)}
-            detail={known.check ? 'Open to check' : seated}
-            action={
-              <a
-                class="btn btn-small"
-                href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
-              >
-                {t.rootId !== null ? 'Open game' : 'Open table'}
-              </a>
-            }
-          />
-        );
-      })}
+      {[...props.tables]
+        .sort((a, b) => Number(a.otherKey) - Number(b.otherKey))
+        .map((t) => {
+          // A started game's status comes from what its game screen saved; Home never runs a game session.
+          const started = t.rootId !== null || t.table.status === 'started';
+          const known =
+            started && t.table.status !== 'cancelled'
+              ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
+              : { status: null, check: false };
+          const chip = tableChip(t.table, t.lobby, known.status);
+          const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
+          return (
+            <TableCard
+              key={t.address}
+              href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+              game={t.table.game}
+              seats={t.table.seats}
+              deadline={t.table.deadline}
+              creator={t.table.creator}
+              isCreator={t.role === 'creator'}
+              chip={chip}
+              badge={t.otherKey ? null : attentionBadge(t.role, chip, known.status)}
+              detail={t.otherKey ? OTHER_KEY_DETAIL : known.check ? 'Open to check' : seated}
+              action={
+                <a
+                  class="btn btn-small"
+                  href={t.rootId !== null ? gameHref(t.rootId) : tableHref(t.table.creator, t.table.tableId)}
+                >
+                  {t.rootId !== null ? 'Open game' : 'Open table'}
+                </a>
+              }
+            />
+          );
+        })}
     </ul>
   );
 }
 
 function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
+  const { profile, store } = useApp();
   const lobby = useLobby();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ address: string; message: string } | null>(null);
 
   const join = async (t: TableEntry) => {
     if (busy !== null) return;
+    requestPersistenceOnce(profile, store, storageManager());
     setBusy(t.address);
     setError(null);
     try {
@@ -150,6 +235,9 @@ export function HomeScreen() {
         <p class="lede">{CHAIN_REACTION_THEME.tagline}</p>
         <p class="muted">{BRAND.tagline}</p>
       </section>
+
+      <BackupReminder />
+      <ProfileNudge />
 
       <div class={mine.length > 0 ? 'home-grid lists-first' : 'home-grid'}>
         <div class="stack">

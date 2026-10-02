@@ -2,11 +2,13 @@ import { BRAND } from '@bored-games/brand';
 import { useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from './bech32.ts';
 import { copyText } from './clipboard.ts';
+import { Avatar } from './components/avatar.tsx';
 import { useApp } from './context.ts';
 import { DEFAULT_PROFILE } from './identity.ts';
+import { useProfile } from './profiles.ts';
 import { homeHref, route, rulesHref } from './router.ts';
 
-export function CopyButton(props: { text: string; label: string }) {
+export function CopyButton(props: { text: string; label: string; onCopied?: () => void }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const reset = () => setState('idle');
   return (
@@ -14,7 +16,11 @@ export function CopyButton(props: { text: string; label: string }) {
       <button
         type="button"
         class="btn btn-small"
-        onClick={async () => setState((await copyText(props.text)) ? 'copied' : 'failed')}
+        onClick={async () => {
+          const ok = await copyText(props.text);
+          setState(ok ? 'copied' : 'failed');
+          if (ok) props.onCopied?.();
+        }}
         onBlur={reset}
         onMouseLeave={reset}
       >
@@ -34,15 +40,24 @@ export function CopyButton(props: { text: string; label: string }) {
 
 export function IdentityBadge() {
   const { signer } = useApp();
+  const me = useProfile(signer.pubkey).info;
   const npub = npubEncode(signer.pubkey);
   return (
     <div class="identity">
-      <span class="sr-only">Your public key:</span>
-      <code class="npub" title={npub}>
-        {shortNpub(npub)}
-      </code>
-      {signer.kind === 'nip07' && <span class="chip">extension</span>}
-      <CopyButton text={npub} label="Copy" />
+      <Avatar pubkey={signer.pubkey} picture={me?.picture ?? null} size={32} />
+      {me?.name != null && (
+        <bdi class="player-name" title={me.name}>
+          {me.name}
+        </bdi>
+      )}
+      <span class="identity-key">
+        <span class="sr-only">Your public key:</span>
+        <code class="npub" title={npub}>
+          {shortNpub(npub)}
+        </code>
+        {signer.kind === 'nip07' && <span class="chip">extension</span>}
+        <CopyButton text={npub} label="Copy" />
+      </span>
     </div>
   );
 }

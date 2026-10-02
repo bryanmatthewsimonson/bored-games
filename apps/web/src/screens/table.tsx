@@ -5,10 +5,12 @@
 import type { LobbyView } from '@bored-games/client';
 import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
-import { NpubTag, StatusChip } from '../components/chips.tsx';
+import { PlayerTag } from '../components/avatar.tsx';
+import { StatusChip } from '../components/chips.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
+import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
   attentionBadge,
@@ -26,6 +28,7 @@ import {
   tableChip,
 } from '../lobby-model.ts';
 import { gameHref, homeHref } from '../router.ts';
+import { requestPersistenceOnce, storageManager, tableIsMine } from '../storage.ts';
 
 const KIND_LABEL = { creator: 'Creator', invited: 'Invited', open: 'Open seat' } as const;
 
@@ -38,7 +41,7 @@ function Seats(props: { view: LobbyView; me: Hex }) {
           <span class="seat-kind">{KIND_LABEL[r.kind]}</span>
           <span class="seat-who">
             {r.npub !== null ? (
-              <NpubTag pubkey={r.npub} isMe={r.isMe} />
+              <PlayerTag pubkey={r.npub} isMe={r.isMe} size={32} />
             ) : (
               <span class="muted">Anyone can take this seat</span>
             )}
@@ -78,7 +81,7 @@ function Picker(props: {
               disabled={!on && picks.length >= want}
               onChange={() => toggle(c.npub)}
             />
-            <NpubTag pubkey={c.npub} />
+            <PlayerTag pubkey={c.npub} />
           </label>
         );
       })}
@@ -90,7 +93,7 @@ function Picker(props: {
 }
 
 export function TableScreen(props: { creator: string; tableId: string }) {
-  const { deps, signer } = useApp();
+  const { deps, signer, profile, store } = useApp();
   const lobby = useLobby();
   const me = signer.pubkey;
   const address = `37450:${props.creator}:${props.tableId}`;
@@ -142,6 +145,8 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const check = joinCheck(view, me);
   const seated = view.joins.some((j) => j.npub === me);
   const pending = joinRequestPending(view, me);
+  // Listed here under another player key (D041): joining with this key would need that key's game keys.
+  const otherKey = !tableIsMine(profile, store, address, me);
   const missing = t.seats - view.seatsFilled;
   const picker = needsPicker(view);
   const chosen = picks ?? defaultPicks(view);
@@ -162,7 +167,10 @@ export function TableScreen(props: { creator: string; tableId: string }) {
     }
   };
 
-  const join = () => run(() => lobby.join(address), 'Could not join this table.');
+  const join = () => {
+    requestPersistenceOnce(profile, store, storageManager());
+    return run(() => lobby.join(address), 'Could not join this table.');
+  };
   const start = () =>
     run(async () => {
       const seats = picker ? seatListFor(view, chosen) : null;
@@ -183,7 +191,7 @@ export function TableScreen(props: { creator: string; tableId: string }) {
         </div>
         <p class="muted">
           {isCreator ? 'You created this table.' : 'Created by'}{' '}
-          {!isCreator && <NpubTag pubkey={t.creator} />}
+          {!isCreator && <PlayerTag pubkey={t.creator} />}
         </p>
 
         <h2>Seats</h2>
@@ -200,7 +208,8 @@ export function TableScreen(props: { creator: string; tableId: string }) {
 
         {t.status === 'open' && view.root === null && (
           <div class="stack">
-            {check.eligible && (
+            {otherKey && <p class="warning">{OTHER_KEY_TABLE}</p>}
+            {check.eligible && !otherKey && (
               <div class="row">
                 <button type="button" class="btn btn-primary" disabled={busy} onClick={() => void join()}>
                   {busy ? 'Joining…' : check.reason === 'invited' ? 'Accept invitation' : 'Join this table'}

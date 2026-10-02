@@ -5,6 +5,7 @@
 export {
   DEFAULT_BACKOFF_MS,
   EOSE_TIMEOUT_MS,
+  type EoseInfo,
   type Filter,
   PUBLISH_TIMEOUT_MS,
   type PublishResult,

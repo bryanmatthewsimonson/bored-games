@@ -1,7 +1,7 @@
 import type { SessionView } from '@bored-games/client';
 import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
-import { MAX_PROFILE_NAME, profileName } from '../src/game-controller.ts';
+import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
   equivocationWarning,
   equivocatorsOf,

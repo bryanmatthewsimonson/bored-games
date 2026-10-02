@@ -1,7 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import { gameTitle } from '../game-names.ts';
 import { deadlineLabel, type TableChip, type TurnBadge } from '../lobby-model.ts';
-import { AttentionBadge, NpubTag, StatusChip } from './chips.tsx';
+import { PlayerTag } from './avatar.tsx';
+import { AttentionBadge, StatusChip } from './chips.tsx';
 
 /** One row of a table list: title link, status, creator, seats and deadline, and an action on the right. */
 export function TableCard(props: {
@@ -27,7 +28,7 @@ export function TableCard(props: {
           <StatusChip chip={props.chip} />
           <AttentionBadge badge={props.badge} />
           <span>
-            by <NpubTag pubkey={props.creator} isMe={props.isCreator} />
+            by <PlayerTag pubkey={props.creator} isMe={props.isCreator} />
           </span>
           {props.detail !== null && <span class="muted">{props.detail}</span>}
           <span class="muted">{deadlineLabel(props.deadline)} per move</span>

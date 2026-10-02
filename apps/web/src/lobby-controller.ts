@@ -39,6 +39,7 @@ import {
   saveRootId,
   saveSecrets,
   storageKey,
+  tableIsMine,
   writeJson,
 } from './storage.ts';
 
@@ -54,6 +55,8 @@ export interface MyTable extends TableEntry {
   role: 'creator' | 'player';
   /** Null until the Joins have been folded (or when they cannot be). */
   lobby: LobbyView | null;
+  /** True when this profile listed the table under another player key (D041): it cannot be played now. */
+  otherKey: boolean;
   /** The game's id once a valid root exists. */
   rootId: string | null;
 }
@@ -69,6 +72,10 @@ export interface NewTable {
   /** The module id; the first registered module by default. */
   game?: string;
 }
+
+/** Why a join is refused for a table this profile joined or created with another player key. */
+export const OTHER_KEY_TABLE =
+  'You are at this table with another key. Switch to that key in Settings → Identity to play here, or ask the creator for a new table.';
 
 /** How many recent tables the open list asks each relay for. */
 export const OPEN_TABLES_LIMIT = 200;
@@ -340,17 +347,23 @@ export class LobbyController {
     return this.#d.signer.sign(t);
   }
 
-  /** Sign a Join with this table's saved keys, or with fresh keys saved first. */
+  /**
+   * Sign a Join with this table's saved keys, or with fresh keys saved first. Keys saved for another player key
+   * are never reused (that would link the two keys publicly, D041), and never replaced (that would lose the
+   * other key's seat): the join is refused instead.
+   */
   async #signJoin(table: ParsedTable): Promise<NostrEvent> {
-    const saved = loadSecrets(this.#d.profile, this.#d.storage, table.address);
+    const { profile, storage } = this.#d;
+    if (!tableIsMine(profile, storage, table.address, this.#me)) throw new Error(OTHER_KEY_TABLE);
+    const saved = loadSecrets(profile, storage, table.address);
     let keys: GameKeys;
     if (saved !== null) keys = keysFromSecrets(saved);
     else {
       keys = newGameKeys(this.#d.rnd);
-      if (!saveSecrets(this.#d.profile, this.#d.storage, table.address, secretsOf(keys)))
+      if (!saveSecrets(profile, storage, table.address, { ...secretsOf(keys), owner: this.#me }))
         throw new Error('Could not save the game keys in this browser.');
     }
-    addToTableList(this.#d.profile, this.#d.storage, table.address);
+    addToTableList(profile, storage, table.address, this.#me);
     this.#followMine();
     return this.#sign(buildJoinTemplate(table, this.#me, keys, this.#d.relays(), this.#d.rnd, this.#d.now()));
   }
@@ -503,6 +516,7 @@ export class LobbyController {
         table,
         role: table.creator === this.#me ? 'creator' : 'player',
         lobby,
+        otherKey: !tableIsMine(this.#d.profile, this.#d.storage, address, this.#me),
         rootId: lobby?.root?.id ?? null,
       });
     }

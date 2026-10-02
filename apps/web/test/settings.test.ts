@@ -42,6 +42,22 @@ describe('settings', () => {
     expect(s.relays.value).toEqual(DEFAULT_RELAYS);
   });
 
+  it('keeps the picture server per profile, defaulting to Primal', () => {
+    const store = memoryStorage();
+    const s = createSettings('alice', store, false);
+    expect(s.blossom.value).toBe('https://blossom.primal.net');
+    expect(s.setBlossom('https://cdn.example.com/')).toBe(true);
+    expect(s.blossom.value).toBe('https://cdn.example.com');
+    expect(store.getItem('bg:alice:blossom')).toBe('https://cdn.example.com');
+    expect(createSettings('alice', store, false).blossom.value).toBe('https://cdn.example.com');
+    expect(createSettings('bob', store, false).blossom.value).toBe('https://blossom.primal.net');
+    s.setBlossom('http://insecure.example');
+    expect(s.blossom.value).toBe('https://blossom.primal.net');
+    expect(store.getItem('bg:alice:blossom')).toBeNull();
+    store.setItem('bg:alice:blossom', 'garbage');
+    expect(createSettings('alice', store, false).blossom.value).toBe('https://blossom.primal.net');
+  });
+
   it('persists per profile', () => {
     const store = memoryStorage();
     createSettings('alice', store, false).setRelays(['wss://x.example']);

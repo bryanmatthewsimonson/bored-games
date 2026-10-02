@@ -751,3 +751,302 @@ textarea[aria-invalid="true"] {
 .claim-confirm p {
   margin: 0;
 }
+
+/* Avatars and player tags (D040) */
+.avatar {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  overflow: hidden;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.avatar-pattern,
+.avatar img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.avatar img {
+  object-fit: cover;
+}
+
+.avatar img[hidden] {
+  display: none;
+}
+
+.player-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.player-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+}
+
+.player-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings: name and picture */
+textarea.prose {
+  font-family: var(--font);
+  font-size: 1rem;
+}
+
+.profile-section .field + .field,
+.profile-section .picture-field {
+  margin-top: 12px;
+}
+
+.picture-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.picture-side {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.segmented {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.seg span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.seg + .seg span {
+  margin-left: -1px;
+}
+
+.seg:first-of-type span {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.seg:last-of-type span {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.seg input:checked + span {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.seg input:focus-visible + span {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.gallery-item[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.picture-panel {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.picture-panel .row {
+  margin: 0;
+}
+
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+}
+
+.file-btn:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gallery-item {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 2px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.gallery-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.gallery-item img {
+  border-radius: 50%;
+}
+
+.server-details {
+  margin-top: 8px;
+}
+
+.server-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.confirm h4 {
+  margin: 0;
+}
+
+/* Home reminders */
+.nudge {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.nudge-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.nudge-body p {
+  margin: 0;
+}
+
+.nudge-body .row {
+  margin-bottom: 0;
+}
+
+.identity {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.identity .npub {
+  white-space: nowrap;
+}
+
+.identity-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.identity .player-name {
+  max-width: 12em;
+}
+
+.backup h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.backup p {
+  margin: 0;
+}
+
+.backup .row {
+  margin-bottom: 0;
+}
+
+.storage-status {
+  font-size: 0.9rem;
+}
+
+.key-import {
+  margin-top: 12px;
+}
+
+.key-import .npub {
+  white-space: nowrap;
+}
+
+.key-import h4 {
+  margin: 0;
+}
+
+.kept-keys {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kept-keys .row {
+  margin: 4px 0;
+}
+
+.key-import summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.key-import form {
+  margin-top: 8px;
+}
+
+.key-label {
+  font-weight: 600;
+}
+
+.key-import input[type="password"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  font: inherit;
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+@media (max-width: 480px) {
+  /* Keep the phone header to two rows: the avatar and npub identify the player; the name is in Settings. */
+  .identity .player-name {
+    display: none;
+  }
+}

@@ -65,6 +65,7 @@ export {
   type Hex,
   isHex64,
   type NostrEvent,
+  sha256Hex,
   verifyEvent,
 } from './nostr.ts';
 export { many, named, one, requireProto } from './tags.ts';

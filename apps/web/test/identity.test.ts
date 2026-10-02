@@ -1,19 +1,39 @@
 import { finalizeEvent, getPublicKey, verifyEvent } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
-import { decodeNostrKey } from '../src/bech32.ts';
+import { decodeNostrKey, npubEncode, nsecEncode } from '../src/bech32.ts';
 import { hexToBytes } from '../src/hex.ts';
 import {
+  backupReminderVisible,
   exportNsec,
+  gamesInProgress,
+  importSecretKey,
   invalidProfileName,
+  isBackedUp,
+  KEPT_KEYS_SOFT_CAP,
+  KEY_ERRORS,
+  keptKeys,
   loadIdentity,
+  markBackedUp,
   type Nip07,
+  parseSecretKeyInput,
   profileFromLocation,
+  pruneKeptKeys,
   readSignerChoice,
+  switchToKeptKey,
   waitForNostr,
   writeSignerChoice,
 } from '../src/identity.ts';
 import type { RandomBytes } from '../src/random.ts';
-import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
+import {
+  addToTableList,
+  type KeyValueStore,
+  loadSecrets,
+  memoryStorage,
+  saveGameStatus,
+  saveSecrets,
+  tableIsMine,
+  tableOwner,
+} from '../src/storage.ts';
 
 /** Deterministic counter-based bytes, never zero in the first byte. */
 function seeded(start = 1): RandomBytes {
@@ -258,5 +278,201 @@ describe('persistence and profile notices', () => {
     expect(invalidProfileName({ search: '?profile=' })).toBe('');
     expect(invalidProfileName({ search: '?profile=bob' })).toBeNull();
     expect(invalidProfileName({ search: '' })).toBeNull();
+  });
+});
+
+/** A store that counts as persistent (like localStorage), unlike `memoryStorage()`. */
+function diskStore(): KeyValueStore {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => {
+      m.set(k, v);
+    },
+    removeItem: (k) => {
+      m.delete(k);
+    },
+  };
+}
+
+const pk = (skHex: string) => getPublicKey(hexToBytes(skHex));
+
+describe('key import (D041)', () => {
+  const SK_A = '11'.repeat(32);
+  const SK_B = '22'.repeat(32);
+  const SK_C = '33'.repeat(32);
+  const PK_B = pk(SK_B);
+  const ctxFor = (store: KeyValueStore, now = 1000) => ({
+    current: (() => {
+      const sk = store.getItem('bg:p:sk');
+      return sk === null ? 'ee'.repeat(32) : pk(sk);
+    })(),
+    now,
+  });
+
+  it('parses an nsec or 64 hex characters, and refuses an npub with its own message', () => {
+    expect(parseSecretKeyInput(` ${nsecEncode(SK_B)} `)).toEqual({ ok: true, hex: SK_B });
+    expect(parseSecretKeyInput(SK_B.toUpperCase())).toEqual({ ok: true, hex: SK_B });
+    expect(parseSecretKeyInput(npubEncode(PK_B))).toEqual({ ok: false, error: KEY_ERRORS.npub });
+    expect(parseSecretKeyInput('')).toEqual({ ok: false, error: KEY_ERRORS.empty });
+    expect(parseSecretKeyInput('nsec1nope')).toEqual({ ok: false, error: KEY_ERRORS.malformed });
+    expect(parseSecretKeyInput('0'.repeat(64))).toEqual({ ok: false, error: KEY_ERRORS.invalid });
+    expect(parseSecretKeyInput('f'.repeat(64))).toEqual({ ok: false, error: KEY_ERRORS.invalid });
+  });
+
+  it('imports, keeps the old key, switches to the local signer, and switches back', async () => {
+    const store = diskStore();
+    store.setItem('bg:p:sk', SK_A);
+    writeSignerChoice('p', store, 'nip07');
+    expect(keptKeys('p', store)).toEqual([]);
+    expect(importSecretKey('p', store, nsecEncode(SK_B), ctxFor(store))).toEqual({ ok: true, pubkey: PK_B });
+    expect(store.getItem('bg:p:sk')).toBe(SK_B);
+    expect(readSignerChoice('p', store)).toBe('local');
+    expect(keptKeys('p', store).map((k) => k.pubkey)).toEqual([pk(SK_A)]);
+    expect((await loadIdentity('p', store, seeded())).pubkey).toBe(PK_B);
+    expect(importSecretKey('p', store, SK_B, ctxFor(store))).toEqual({ ok: false, error: KEY_ERRORS.same });
+    // The imported key exists elsewhere: no backup reminder for it.
+    expect(isBackedUp('p', store, PK_B)).toBe(true);
+
+    expect(switchToKeptKey('p', store, pk(SK_A), ctxFor(store, 2000))).toEqual({
+      ok: true,
+      pubkey: pk(SK_A),
+    });
+    expect(store.getItem('bg:p:sk')).toBe(SK_A);
+    expect(keptKeys('p', store).map((k) => k.pubkey)).toEqual([PK_B]);
+    expect((await loadIdentity('p', store, seeded())).pubkey).toBe(pk(SK_A));
+    expect(switchToKeptKey('p', store, pk(SK_C), ctxFor(store)).ok).toBe(false);
+  });
+
+  it('never loses a key: importing twice keeps both earlier keys (C1)', () => {
+    const store = diskStore();
+    store.setItem('bg:p:sk', SK_A);
+    expect(importSecretKey('p', store, SK_B, ctxFor(store, 100)).ok).toBe(true);
+    expect(importSecretKey('p', store, SK_C, ctxFor(store, 200)).ok).toBe(true);
+    expect(store.getItem('bg:p:sk')).toBe(SK_C);
+    expect(keptKeys('p', store).map((k) => k.pubkey)).toEqual([pk(SK_B), pk(SK_A)]);
+    // Switch back to A, then import B again: C and A are still kept, never overwritten.
+    expect(switchToKeptKey('p', store, pk(SK_A), ctxFor(store, 300)).ok).toBe(true);
+    expect(importSecretKey('p', store, SK_B, ctxFor(store, 400)).ok).toBe(true);
+    expect(store.getItem('bg:p:sk')).toBe(SK_B);
+    expect(
+      keptKeys('p', store)
+        .map((k) => k.pubkey)
+        .sort(),
+    ).toEqual([pk(SK_A), pk(SK_C)].sort());
+  });
+
+  it('folds a key kept by the older single-slot version into the list', () => {
+    const store = diskStore();
+    store.setItem('bg:p:sk', SK_B);
+    store.setItem('bg:p:sk-previous', SK_A);
+    expect(keptKeys('p', store).map((k) => k.pubkey)).toEqual([pk(SK_A)]);
+    expect(importSecretKey('p', store, SK_C, ctxFor(store)).ok).toBe(true);
+    expect(store.getItem('bg:p:sk-previous')).toBeNull();
+    expect(
+      keptKeys('p', store)
+        .map((k) => k.pubkey)
+        .sort(),
+    ).toEqual([pk(SK_A), pk(SK_B)].sort());
+  });
+
+  it('drops kept keys past the cap only when backed up and idle', () => {
+    const keys = Array.from({ length: KEPT_KEYS_SOFT_CAP + 3 }, (_, i) => ({
+      pubkey: i.toString(16).padStart(64, '0'),
+      sk: '',
+      at: i,
+    }));
+    // The three oldest (at 0, 1, 2): only 1 may go.
+    const kept = pruneKeptKeys(keys, (k) => k.at === 1);
+    expect(kept).toHaveLength(KEPT_KEYS_SOFT_CAP + 2);
+    expect(kept.some((k) => k.at === 1)).toBe(false);
+    expect(pruneKeptKeys(keys, () => true)).toHaveLength(KEPT_KEYS_SOFT_CAP);
+    expect(pruneKeptKeys(keys, () => false)).toHaveLength(KEPT_KEYS_SOFT_CAP + 3);
+  });
+
+  it('refuses to import when this browser is not saving site data (I5)', () => {
+    const store = memoryStorage();
+    store.setItem('bg:p:sk', SK_A);
+    expect(importSecretKey('p', store, SK_B, ctxFor(store))).toEqual({
+      ok: false,
+      error: KEY_ERRORS.notPersistent,
+    });
+    expect(store.getItem('bg:p:sk')).toBe(SK_A);
+  });
+
+  it('works without a current key, and refuses an npub without changing anything', () => {
+    const store = diskStore();
+    expect(importSecretKey('p', store, SK_B, ctxFor(store)).ok).toBe(true);
+    expect(keptKeys('p', store)).toEqual([]);
+    expect(importSecretKey('p', store, npubEncode(PK_B), ctxFor(store))).toEqual({
+      ok: false,
+      error: KEY_ERRORS.npub,
+    });
+    expect(store.getItem('bg:p:sk')).toBe(SK_B);
+  });
+
+  it('gives every listed table and saved secrets an owner before the key changes (I3)', () => {
+    const store = diskStore();
+    store.setItem('bg:p:sk', SK_A);
+    const secrets = { sessionSk: new Uint8Array(32).fill(1), deckSecret: new Uint8Array(32).fill(2) };
+    // Listed before keys could be imported: no owner recorded.
+    addToTableList('p', store, `37450:${'cd'.repeat(32)}:1`);
+    saveSecrets('p', store, `37450:${'cd'.repeat(32)}:1`, secrets);
+    addToTableList('p', store, `37450:${pk(SK_A)}:2`);
+    expect(tableOwner('p', store, `37450:${'cd'.repeat(32)}:1`)).toBeNull();
+    expect(tableIsMine('p', store, `37450:${'cd'.repeat(32)}:1`, PK_B)).toBe(true);
+
+    expect(importSecretKey('p', store, SK_B, ctxFor(store)).ok).toBe(true);
+    for (const a of [`37450:${'cd'.repeat(32)}:1`, `37450:${pk(SK_A)}:2`]) {
+      expect(tableOwner('p', store, a)).toBe(pk(SK_A));
+      expect(tableIsMine('p', store, a, PK_B)).toBe(false);
+      expect(tableIsMine('p', store, a, pk(SK_A))).toBe(true);
+    }
+    expect(loadSecrets('p', store, `37450:${'cd'.repeat(32)}:1`)?.owner).toBe(pk(SK_A));
+    // Their games count for A, not for B.
+    expect(gamesInProgress('p', store, PK_B)).toBe(0);
+    expect(gamesInProgress('p', store, pk(SK_A), false)).toBe(2);
+  });
+
+  it('counts the games still bound to a key', () => {
+    const store = memoryStorage();
+    const me = 'aa'.repeat(32);
+    const secrets = (rootId?: string) => ({
+      sessionSk: new Uint8Array(32).fill(1),
+      deckSecret: new Uint8Array(32).fill(2),
+      owner: me,
+      ...(rootId === undefined ? {} : { rootId }),
+    });
+    expect(gamesInProgress('p', store, me)).toBe(0);
+    const tables = ['37450:a:1', '37450:a:2', '37450:a:3', '37450:a:4'];
+    for (const t of tables) addToTableList('p', store, t, me);
+    saveSecrets('p', store, tables[1] as string, secrets('aa'.repeat(32)));
+    saveSecrets('p', store, tables[2] as string, secrets('bb'.repeat(32)));
+    saveSecrets('p', store, tables[3] as string, secrets('cc'.repeat(32)));
+    saveGameStatus('p', store, 'bb'.repeat(32), { status: 'done', seq: 9, updatedAt: 1 });
+    saveGameStatus('p', store, 'cc'.repeat(32), { status: 'your-turn', seq: 3, updatedAt: 1 });
+    // Table 1 is still in its lobby, 2 has no saved status, 3 is over, 4 is going.
+    expect(gamesInProgress('p', store, me)).toBe(3);
+    expect(gamesInProgress('p', store, 'bb'.repeat(32))).toBe(0);
+    expect(gamesInProgress('q', store, me)).toBe(0);
+  });
+
+  it('reminds a local key with a table of its own to back up, until that key is marked saved', () => {
+    const store = memoryStorage();
+    const me = { kind: 'local' as const, pubkey: PK_B };
+    expect(backupReminderVisible('p', store, me)).toBe(false);
+    addToTableList('p', store, '37450:a:1', PK_B);
+    expect(backupReminderVisible('p', store, me)).toBe(true);
+    expect(backupReminderVisible('p', store, { ...me, kind: 'nip07' })).toBe(false);
+    // A key with only another key's tables gets no reminder.
+    expect(backupReminderVisible('p', store, { kind: 'local', pubkey: 'ab'.repeat(32) })).toBe(false);
+    expect(markBackedUp('p', store, PK_B)).toBe(true);
+    expect(isBackedUp('p', store, PK_B)).toBe(true);
+    expect(backupReminderVisible('p', store, me)).toBe(false);
+    // Several keys can be backed up; an older single-pubkey flag still counts.
+    expect(markBackedUp('p', store, 'ab'.repeat(32))).toBe(true);
+    expect(isBackedUp('p', store, PK_B)).toBe(true);
+    store.setItem('bg:p:backup', 'cd'.repeat(32));
+    expect(isBackedUp('p', store, 'cd'.repeat(32))).toBe(true);
   });
 });

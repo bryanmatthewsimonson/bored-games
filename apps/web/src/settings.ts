@@ -1,5 +1,6 @@
 import { isRelayUrl } from '@bored-games/protocol';
 import { type Signal, signal } from '@preact/signals';
+import { DEFAULT_BLOSSOM, parseBlossomServer } from './blossom.ts';
 import { type KeyValueStore, readItem, removeItem, storageKey, writeItem } from './storage.ts';
 
 /** The owner's choice of default relay for everybody (D038). Players can add more in Settings. */
@@ -67,11 +68,17 @@ export interface Settings {
    */
   setRelays(list: readonly string[]): boolean;
   resetRelays(): boolean;
+  /** The Blossom server that profile pictures are uploaded to (D040). */
+  blossom: Signal<string>;
+  /** Saves a server URL; null or an invalid URL restores the default. Returns false when it was not saved. */
+  setBlossom(url: string | null): boolean;
 }
 
-/** Settings persisted per profile under `bg:<profile>:relays`. */
+/** Settings persisted per profile under `bg:<profile>:relays` and `bg:<profile>:blossom`. */
 export function createSettings(profile: string, store: KeyValueStore, dev: boolean): Settings {
   const key = storageKey(profile, 'relays');
+  const blossomKey = storageKey(profile, 'blossom');
+  const blossom = signal(parseBlossomServer(readItem(store, blossomKey) ?? '') ?? DEFAULT_BLOSSOM);
   const load = (): string[] => {
     const raw = readItem(store, key);
     if (raw !== null) {
@@ -101,6 +108,17 @@ export function createSettings(profile: string, store: KeyValueStore, dev: boole
       removeItem(store, key);
       relays.value = defaultRelays(dev);
       return readItem(store, key) === null;
+    },
+    blossom,
+    setBlossom(url) {
+      const next = url === null ? null : parseBlossomServer(url);
+      if (next === null || next === DEFAULT_BLOSSOM) {
+        removeItem(store, blossomKey);
+        blossom.value = DEFAULT_BLOSSOM;
+        return readItem(store, blossomKey) === null;
+      }
+      blossom.value = next;
+      return writeItem(store, blossomKey, next);
     },
   };
 }

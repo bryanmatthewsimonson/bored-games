@@ -1,5 +1,6 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
 import { Board } from './board.tsx';
@@ -36,6 +37,8 @@ export interface ChainReactionGameProps {
   onAct: (a: ChainReactionAction) => void | Promise<void>;
   /** Display name per seat. */
   names: readonly string[];
+  /** An avatar per seat, shown beside the name in the Players panel and the results (optional). */
+  avatars?: readonly ComponentChildren[] | undefined;
   /** Log lines, newest last. */
   events: readonly string[];
   /** The most recently placed tile, from the event log. */
@@ -128,7 +131,12 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
           </section>
         )}
         {over ? (
-          <ResultsView rows={resultRows(state, names)} audit={props.audit} names={names} />
+          <ResultsView
+            rows={resultRows(state, names)}
+            audit={props.audit}
+            names={names}
+            avatars={props.avatars}
+          />
         ) : (
           mySeat !== null && (
             <section class="cr-panel cr-decision" aria-label="Your decision">
@@ -162,7 +170,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
           </a>
         </nav>
         <ChainsPanel rows={chains} spectator={mySeat === null} />
-        <PlayersPanel rows={players} />
+        <PlayersPanel rows={players} avatars={props.avatars} />
         <EventLog events={props.events} />
       </div>
       <PriceCardDialog

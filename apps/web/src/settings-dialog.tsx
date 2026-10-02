@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { npubEncode } from './bech32.ts';
 import { useApp } from './context.ts';
 import { CopyButton } from './header.tsx';
-import { exportNsec, writeSignerChoice } from './identity.ts';
+import { claimTablesFor, exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
 import { parseRelayInput } from './settings.ts';
+import { KeyImport, StorageStatus } from './settings-key.tsx';
+import { ProfileSection } from './settings-profile.tsx';
 
 function RelaySection() {
   const { settings } = useApp();
@@ -105,15 +107,24 @@ function RelaySection() {
 }
 
 function IdentitySection() {
-  const { profile, store, signer, nostr } = useApp();
+  const { profile, store, signer, nostr, persistent } = useApp();
   const [reveal, setReveal] = useState(false);
+  const [switchError, setSwitchError] = useState('');
   const npub = npubEncode(signer.pubkey);
   const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
   // Reveal reads the key back from storage; when storage is blocked there is nothing to show.
   const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 
   const useExtension = (on: boolean) => {
-    writeSignerChoice(profile, store, on ? 'nip07' : 'local');
+    // The tables listed so far belong to the key in use: record that before the key changes (D041). If that
+    // cannot be saved, the other key could later take these tables for its own, so do not switch.
+    if (
+      !claimTablesFor(profile, store, signer.pubkey) ||
+      !writeSignerChoice(profile, store, on ? 'nip07' : 'local')
+    ) {
+      setSwitchError('Could not switch: this browser would not save the change.');
+      return;
+    }
     // A different signer is a different player: start clean rather than patch live state.
     window.location.reload();
   };
@@ -136,6 +147,11 @@ function IdentitySection() {
           />
           Use browser extension (NIP-07)
         </label>
+      )}
+      {switchError !== '' && (
+        <p class="error" role="alert">
+          {switchError}
+        </p>
       )}
       {signer.kind === 'nip07' ? (
         <p class="muted">Your key is held by the browser extension, so there is nothing to export here.</p>
@@ -170,7 +186,11 @@ function IdentitySection() {
                   autocomplete="off"
                   spellcheck={false}
                 />
-                <CopyButton text={nsec} label="Copy nsec" />
+                <CopyButton
+                  text={nsec}
+                  label="Copy nsec"
+                  onCopied={() => markBackedUp(profile, store, signer.pubkey)}
+                />
                 <button type="button" class="btn btn-small" onClick={() => setReveal(false)}>
                   Hide
                 </button>
@@ -179,6 +199,8 @@ function IdentitySection() {
           )}
         </>
       )}
+      {signer.kind === 'local' && persistent && <StorageStatus />}
+      <KeyImport />
     </section>
   );
 }
@@ -214,6 +236,7 @@ export function SettingsDialog() {
               Close
             </button>
           </div>
+          <ProfileSection />
           <RelaySection />
           <IdentitySection />
         </div>

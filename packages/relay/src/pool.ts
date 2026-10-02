@@ -47,6 +47,17 @@ export interface SubscribeOptions {
 }
 
 export type PublishResult = { url: string; ok: boolean; message: string };
+
+/**
+ * What `onEose` is told: how many relays actually sent EOSE (a relay that failed, or closed the subscription,
+ * counts as answered for the end-of-stored-events signal but not here), out of how many, and whether the
+ * deadline fired first.
+ */
+export interface EoseInfo {
+  eose: number;
+  relays: number;
+  timedOut: boolean;
+}
 export type RelayState = 'connecting' | 'open' | 'closed';
 
 export const DEFAULT_BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
@@ -77,8 +88,10 @@ interface Subscription {
   id: string;
   filters: Filter[];
   onEvent: (ev: NostrEvent, url: string) => void;
-  onEose: (() => void) | undefined;
+  onEose: ((info: EoseInfo) => void) | undefined;
   seen: Set<string>;
+  /** Relays that sent EOSE for this subscription. */
+  eosed: Set<string>;
   /** Relays that have answered with EOSE or CLOSED, or have failed, since the subscription began. */
   answered: Set<string>;
   eoseFired: boolean;
@@ -177,7 +190,7 @@ export class RelayPool {
   subscribe(
     filters: Filter[],
     onEvent: (ev: NostrEvent, url: string) => void,
-    onEose?: () => void,
+    onEose?: (info: EoseInfo) => void,
     opts: SubscribeOptions = {},
   ): () => void {
     const sub: Subscription = {
@@ -186,6 +199,7 @@ export class RelayPool {
       onEvent,
       onEose,
       seen: new Set(),
+      eosed: new Set(),
       answered: new Set(),
       eoseFired: false,
       eoseTimer: null,
@@ -193,7 +207,7 @@ export class RelayPool {
     this.#subs.set(sub.id, sub);
     sub.eoseTimer = setTimeout(() => {
       sub.eoseTimer = null;
-      this.#fireEose(sub);
+      this.#fireEose(sub, true);
     }, opts.eoseTimeoutMs ?? this.#eoseTimeout);
     for (const r of this.#relays) if (this.#isOpen(r)) this.#sendReq(r, sub);
     // A relay already known to be down does not hold the end-of-stored-events signal back.
@@ -317,16 +331,17 @@ export class RelayPool {
   }
 
   /** Mark EOSE reached and call `onEose` in a microtask, unless the subscription has ended by then. */
-  #fireEose(sub: Subscription): void {
+  #fireEose(sub: Subscription, timedOut = false): void {
     if (sub.eoseFired || this.#subs.get(sub.id) !== sub) return;
     sub.eoseFired = true;
     this.#clearEoseTimer(sub);
     const onEose = sub.onEose;
     if (onEose === undefined) return;
+    const info: EoseInfo = { eose: sub.eosed.size, relays: this.#relays.length, timedOut };
     queueMicrotask(() => {
       if (this.#subs.get(sub.id) !== sub) return;
       try {
-        onEose();
+        onEose(info);
       } catch {
         // A consumer's error must not break the pool.
       }
@@ -369,6 +384,7 @@ export class RelayPool {
         const sub = typeof msg[1] === 'string' ? this.#subs.get(msg[1]) : undefined;
         if (!sub) return;
         sub.answered.add(r.url);
+        if (msg[0] === 'EOSE') sub.eosed.add(r.url);
         this.#checkEose(sub);
         return;
       }
