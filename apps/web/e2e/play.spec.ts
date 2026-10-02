@@ -34,8 +34,6 @@ const MAX_TURN = Math.max(UNTIL_TURN, 120);
 const SETUP_MS = (5 * 60_000 * SEATS) / 3;
 /** One decision, including relay round trips. */
 const MOVE_MS = 60_000;
-/** A tile drawn at the end of a turn is revealed by the other players' apps within this (D039). */
-const REVEAL_MS = 15_000;
 const SHOTS = process.env.E2E_SCREENSHOTS;
 const FINISH = process.env.E2E_FINISH === '1';
 
@@ -186,7 +184,6 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   // must rebuild from the relays and its saved secrets.
   let moves = 0;
   let disposals = 0;
-  let reveals = 0;
   let firstPlace = true;
   let reloaded = false;
   for (;;) {
@@ -211,16 +208,6 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
     await expect
       .poll(async () => (await stateOf(actor)).seq, { timeout: MOVE_MS })
       .toBeGreaterThan(before.seq);
-    if (what.startsWith('Buy shares')) {
-      // The other players' apps send their decryption shares as soon as they see the draw (D039), so the drawn
-      // tile shows without waiting for their moves. Background tabs are throttled, so one context only logs.
-      const t0 = Date.now();
-      const hidden = actor.page.locator('.cr-tile-unknown');
-      if (ONE_CONTEXT) await hidden.count();
-      else await expect(hidden).toHaveCount(0, { timeout: REVEAL_MS });
-      if (reveals++ === 0)
-        log(`${actor.name}'s drawn tile revealed in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-    }
     if (firstPlace && what.startsWith('Place a tile')) {
       firstPlace = false;
       const tile = what.replace(/^.*Place /, '').trim();
@@ -234,7 +221,6 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
     }
     if (moves > 10 * MAX_TURN) throw new Error(`no progress after ${moves} decisions`);
   }
-  log(`${reveals} drawn tiles revealed without waiting for a move`);
   if (disposals === 0) log(`no merger by turn ${MAX_TURN}: the disposal form was not exercised`);
 
   // Everyone converges on the same state: seq, turn and board.

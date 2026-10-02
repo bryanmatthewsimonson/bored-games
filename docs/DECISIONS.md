@@ -453,7 +453,9 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - **Cost.** A single relay is a single point of failure: if it is down, or later tightens its limits, no game on the defaults can proceed. Players can add relays in Settings; a table's events go to its creator's relays.
 - **Existing profiles** keep the relay list they saved; **Settings → Reset to defaults** picks up the new default.
 
-## D039: Prompt decryption shares for a drawn tile (owner request, 2026-10-02; residual risk awaits owner sign-off)
+## D039: Prompt decryption shares for a drawn tile (owner request, 2026-10-02)
+**Reverted** (owner rejected the residual risk, 2026-10-02). The merge (`fd7f346`) was reverted, so none of what follows is in the code: there is no `share` duty, no quiet duty, no `shares:` outbox slot and no "being revealed" tile, and a drawn tile is again revealed by the shares riding on each other seat's next move (PROTOCOL §6.2). A future fast reveal must be cheat-proof (D042). The text below is kept as it was so the history explains itself.
+
 - **Problem.** The engine draws at End turn, so the bag position belongs to the drawer at once, but the drawer reads the tile only once every other seat's decryption share is in. Those shares rode only on each other seat's next move (PROTOCOL §6.2), so a new tile showed "?" until everyone else had moved, often hours in async play.
 - **Decision.** In the play phase, a seat publishes the shares it owes in one Shares event (7453) as soon as it sees them owed, without waiting for its next move. PROTOCOL §6.2 makes it a SHOULD ("prompt sharing"). The rule that a move carries every share its seat still owes is unchanged and stays the liveness guarantee for a seat that is offline.
 - **Client.** `GameSession.duties()` returns `{kind: 'share', positions}` in play whenever the seat owes shares as of the head, **first**, before `decide`. It is never due in the shuffle, the deal (the `deal` duty covers it), the end (the secrets reveal everything), after a timeout, or for a spectator. `buildShares(rnd, createdAt)` builds the event; it shares a private helper with `buildDeal`. A seat's next move then carries `shares: []`; a client that receives that move before the Shares event buffers it until the shares arrive (§6.2, already so). The simulator gives the duty an outbox slot `shares:<positions>`.
@@ -509,6 +511,43 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - **Persistent storage.** `navigator.storage.persist()` is requested on the first table created or joined, inside the click handler, so it counts as a user gesture. It is never requested on page load, because Firefox shows a prompt. It is asked once per profile (`bg:<profile>:persist-asked`). Settings shows whether the browser keeps this site's data, with **Ask to keep it** when it does not.
 - **Backup reminder.** Home shows "Back up your key" for a local key with at least one table of its own, until the nsec is copied in Settings or "I've saved it" is ticked. `bg:<profile>:backup` holds the set of pubkeys backed up, so switching keys does not lose the mark.
 - **Alternatives.** A NIP-49 encrypted export (adds a password flow; copying the nsec already exists), and the NIP-78 relay backup of game secrets (PLAN, Phase 2e), which stays open.
+
+## D042: Fast reveal must be cheat-proof (owner, 2026-10-02)
+- **Decision.** D039's prompt sharing is reverted (`git revert -m 1 fd7f346`): a drawn tile is again revealed by the decryption shares on each other seat's next move (PROTOCOL §6.2), so it can show "?" for hours in async play. A faster reveal may come back only if **no seat, alone or with colluders, can use it to expose another player's tile or make an honest player forfeit**. Detection and ranking last, as D039 offered, are not enough.
+- **Explaining the wait instead.** The "?" tile is now a focusable button with a small popover (hover, tap, or Enter; Escape, a tap elsewhere or leaving closes it; `aria-expanded`, `aria-controls`, and `aria-describedby` so the text is read on focus): "Your new tile. It's yours already, but it stays hidden until every other player has made their next move: each move carries that player's part of the reveal, so no one, not even the app, can see your tile without you. It's always revealed before your next turn while the game goes on." A one-line note under the hand says the same while a tile is hidden. Once a timeout ends the game, a tile never revealed is a plain "?" with no popover, since the promise no longer holds. The popover state is a pure reducer (`tipReducer` in `hand.tsx`) held by the game component, so `Hand` and `UnknownTile` stay hook-free and are render-tested. The rules page and TESTING.md carry the same explanation.
+- **A candidate design for later: acknowledge, then share.** The full write-up and analysis are in `docs/proposals/fast-reveal.md`, with status Proposal, not built. **It is not yet cheat-proof**, and it does not ship until an adversarial review signs it off.
+  - When a seat draws, every other seat publishes a small signed **Ack** of that move (a new event kind). An honest seat never acknowledges two conflicting moves, and it persists that before publishing.
+  - A seat releases its share of the drawn position only when:
+    - it holds Acks of the drawing move from **every seat other than the drawer**;
+    - the move is on its chain;
+    - it holds no rival of the move.
+  - A move acknowledged by every other seat is **final**: fork choice drops any branch that does not contain every final move. Finality depends only on the Acks held and only grows with them (it is monotone), so clients holding the same events agree whatever the arrival order.
+  - **The base design alone is broken (review I1, the late-Ack attack).**
+    - An equivocator E publishes A, then a rival B. Its colluder k withholds its Ack of A, so the honest seats follow B and play on.
+    - k's late Ack then makes A final and reorganizes every client far back onto A.
+    - This forces honest seats to equivocate or time out, rewinds the head, and can mix their slow-path shares on B with the shares released on A, exposing a tile.
+  - **Recommended amendment: "ack implies lock".**
+    - A seat that acknowledged a move never builds on, nor shares on, a branch without it, unless a conflicting move is final.
+    - With the lock, finality can never pull an honest seat off a branch it built on. The late-Ack attack then fails: no honest seat moves on B, and A wins on length.
+    - Added with it: no early share while a rival is held, and acknowledging conflicting moves counts as evidence of cheating, like move equivocation.
+  - **Open: honest splits.**
+    - When honest seats acknowledge different rivals, neither can become final, and the locks must be released somehow.
+    - Every release rule found so far lets a colluder fake a split and recreate the late-Ack attack (though that colluder is then caught), or makes finality non-monotone.
+    - Until the review finds a sound rule, or the owner accepts that residual, the design is not cheat-proof.
+  - **When everyone is online** and nobody cheats, a tile shows in about a second (two relay round trips). A partitioned or offline seat means a missing Ack, so play falls back to today's path.
+  - **Cost.**
+    - About 2(S−1) extra small events per drawing turn.
+    - A new event kind.
+    - Locks and a finality filter in fork choice.
+    - A protocol version bump.
+- **Alternatives.** Keeping D039 with its residual risk (rejected by the owner); a grace delay before sharing (an attacker just waits); a fork tie-break that favors the earlier rival (no agreed notion of "earlier" without trusting `created_at`).
+
+## D043: "Your cash and shares" panel (owner request, 2026-10-02)
+- **What.** A panel right below "Your tiles" shows the player's own money prominently: three totals (cash, share value, net worth), then one row per chain held with its chip, count, current price and value. A chain held but not on the board reads "not on the board, worth $0". A footnote says net worth is cash plus shares at today's prices, before any bonuses.
+- **Model.** The pure `myHoldings(state, mySeat)` in `apps/web/src/games/chain-reaction/model.ts` builds it from the player's own exact `playerRows` row and the `chainRows` prices (the rules come from the state), so it can never show a number the Players and Chains panels do not. Unit-tested over scripted games, plus render tests of `HoldingsPanel`.
+- **When.** Never for a spectator (`myHoldings` returns null). Hidden once the game is over: final scoring has sold every share of a chain on the board (RULES "Final scoring"), and the results table gives every player's final cash. It stays after a timeout ends the game, with the hand.
+- **Layout.** Same panel style as the others; the totals are a three-column grid and the rows a compact table, checked at 1280 px and 390 px with no horizontal scroll.
+- **Alternatives.** Only the Chains panel's "Mine" column and the Players panel's own row (already there, but small and spread over two panels); a net worth that includes the majority bonuses a player would get now (needs the other players' hidden counts, so it could not be shown).
 
 ## D044: Game systems: platform, shared systems and per-game code (owner request, 2026-10-02)
 - **Request.** Before more game development, decide which game systems (cards, dice, private hands, …) are shared libraries and which belong to one game, with player-level privacy of hands considered first. The design is `docs/GAME-SYSTEMS.md`; nothing in it beyond what it marks "exists" is built, and each system gets its own PROTOCOL section, DECISIONS entry and adversarial review when it is built.

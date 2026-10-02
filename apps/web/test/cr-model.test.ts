@@ -16,6 +16,7 @@ import { canonicalJson } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import {
   firstLegal,
+  newGame,
   playUntil,
   randomLegal,
   type ScriptedGame,
@@ -29,11 +30,13 @@ import {
   findDispose,
   findEndTurn,
   formatMoney,
+  handBadgesShown,
   handTiles,
   LOG_LINES,
   lastPlacedTile,
   lastTileOf,
   logLines,
+  myHoldings,
   newlyPlacedTile,
   playerRows,
   priceCard,
@@ -408,6 +411,94 @@ describe('playerRows', () => {
   it('falls back to a seat name when none is given', () => {
     const rows = playerRows(get('place').state, [], null);
     expect(rows[0]?.name).toBe('Seat 1');
+  });
+});
+
+describe('handBadgesShown', () => {
+  it("is on only for the viewer's own place or skip decision, never on another seat's turn", () => {
+    let others = 0;
+    for (const g of samples('badges', 4, 3)) {
+      const s = g.state;
+      const acting = actor(s);
+      for (let seat = 0; seat < s.seats; seat++) {
+        const legal = seat === acting ? legalFor(s) : [];
+        const d = decisionFor(s, legal);
+        expect(handBadgesShown(d)).toBe(d.kind === 'place' || d.kind === 'skip');
+        if (s.phase.kind === 'place' && seat !== acting) {
+          expect(handBadgesShown(d)).toBe(false);
+          others++;
+        }
+        if (s.phase.kind === 'place' && seat === acting) expect(handBadgesShown(d)).toBe(true);
+      }
+    }
+    expect(others).toBeGreaterThan(10);
+  });
+});
+
+describe('myHoldings', () => {
+  it('values my shares at the current prices, with cash, share value and net worth', () => {
+    let lines = 0;
+    for (const g of [...samples('h1', 4, 9), ...samples('h2', 5, 11)]) {
+      const full = g.state;
+      if (full.phase.kind === 'over') continue;
+      for (const mySeat of [0, 2]) {
+        const s = viewFor(full, mySeat);
+        const h = myHoldings(s, mySeat);
+        if (h === null) throw new Error('no holdings');
+        const p = full.players[mySeat];
+        if (!p) throw new Error('no player');
+        const sizes = chainSizes(s.board, s.rules.chains.length);
+        expect(h.cash).toBe(p.cash);
+        expect(h.lines.map((l) => l.chain.index)).toEqual(p.shares.flatMap((n, c) => (n > 0 ? [c] : [])));
+        for (const l of h.lines) {
+          const size = sizes[l.chain.index] ?? 0;
+          expect(l.count).toBe(p.shares[l.chain.index]);
+          expect(l.onBoard).toBe(size > 0);
+          expect(l.price).toBe(size > 0 ? sharePrice(s.rules, l.chain.index, size) : 0);
+          expect(l.value).toBe(l.count * l.price);
+          lines++;
+        }
+        const shareValue = h.lines.reduce((sum, l) => sum + l.value, 0);
+        expect(h.shareValue).toBe(shareValue);
+        expect(h.netWorth).toBe(p.cash + shareValue);
+      }
+    }
+    expect(lines).toBeGreaterThan(10);
+  });
+
+  it('lists a chain that is not on the board at $0', () => {
+    // A state with one chain on the board and another not.
+    const s = samples('h3', 4, 5)
+      .map((g) => g.state)
+      .find((x) => {
+        const n = chainSizes(x.board, x.rules.chains.length);
+        return n.some((k) => k === 0) && n.some((k) => k > 0);
+      });
+    if (!s) throw new Error('no state');
+    const sizes = chainSizes(s.board, s.rules.chains.length);
+    const off = sizes.indexOf(0);
+    const on = sizes.findIndex((n) => n > 0);
+    const shares = s.rules.chains.map((_, c) => (c === off ? 3 : c === on ? 2 : 0));
+    const mine = { ...s, players: s.players.map((p, i) => (i === 0 ? { ...p, cash: 1234, shares } : p)) };
+    const h = myHoldings(mine, 0);
+    const price = sharePrice(s.rules, on, sizes[on] ?? 0);
+    expect(h?.lines.map((l) => [l.chain.index, l.count, l.onBoard, l.price, l.value])).toEqual(
+      [
+        [off, 3, false, 0, 0],
+        [on, 2, true, price, 2 * price],
+      ].sort((a, b) => (a[0] as number) - (b[0] as number)),
+    );
+    expect(h?.shareValue).toBe(2 * price);
+    expect(h?.netWorth).toBe(1234 + 2 * price);
+  });
+
+  it('is empty of lines without shares, and null for a spectator', () => {
+    const s = newGame('holdings-start', 4).state;
+    const h = myHoldings(s, 1);
+    expect(h?.lines).toEqual([]);
+    expect(h?.shareValue).toBe(0);
+    expect(h?.netWorth).toBe(h?.cash);
+    expect(myHoldings(s, null)).toBeNull();
   });
 });
 

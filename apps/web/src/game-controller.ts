@@ -3,9 +3,8 @@
  *
  * - It loads the root, the table and the Joins, builds the session for this player's seat (from the saved game
  *   secrets) or as a spectator, and folds in every game event from the relays.
- * - It performs this seat's automatic duties one at a time (shuffle, deal, share, secret, attest). Only `decide`
- *   waits for the player, through `act`. The `share` duty is quiet: it never shows "working" and never hides "your
- *   turn", and its slots leave the outbox once a relay confirms them (D039).
+ * - It performs this seat's automatic duties one at a time (shuffle, deal, secret, attest). Only `decide` waits
+ *   for the player, through `act`.
  * - Every event it builds is saved to an outbox in storage before it is published. A reopened tab republishes
  *   an unconfirmed event, and a duty whose event is already in the outbox reuses it: nothing is signed twice.
  *   A move is kept under the head it was built on, and one the session no longer accepts (an orphan, after the
@@ -43,8 +42,8 @@ import {
 
 /**
  * - `syncing`: loading from the relays
- * - `working`: performing an automatic duty (shuffle, deal, secret, attest; never the quiet `share`)
- * - `stuck`: an automatic duty other than `share` failed at this head and is not retried until the game moves on
+ * - `working`: performing an automatic duty (shuffle, deal, secret, attest)
+ * - `stuck`: an automatic duty failed at this head and is not retried until the game moves on
  * - `your-turn`: this seat's decision, with no move of its own already waiting at this head
  */
 export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-turn' | 'done' | 'cancelled';
@@ -65,16 +64,7 @@ const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, 
 export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
-const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'secret', 'attest'];
-
-/**
- * Automatic duties done quietly (D039): small and fast, so they never set `working` or yield, and a failure is not
- * `stuck` (the shares still ride on the seat's next move). They never hide "your turn" or make it flicker.
- */
-const QUIET: readonly Duty['kind'][] = ['share'];
-
-/** The outbox slot prefix of a `share` duty's event (`shares:<positions>`); pruned once a relay confirms it. */
-const SHARES_SLOT = 'shares:';
+const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'secret', 'attest'];
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -132,8 +122,8 @@ export function loadSeen(
 }
 
 /**
- * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `shares:<positions>` (until confirmed),
- * `secret`, `attest` and `timeout:<seat>:<head>`.
+ * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest` and
+ * `timeout:<seat>:<head>`.
  */
 export function loadOutbox(
   store: ControllerDeps['storage'],
@@ -254,7 +244,7 @@ export class GameController {
     this.#outbox = loadOutbox(this.#d.storage, this.#d.profile, this.rootId);
     this.#seen = loadSeen(this.#d.storage, this.#d.profile, this.rootId);
     // The root first; the game's events are asked for once the root names the seats (`#subscribeGame`).
-    this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev, url) => this.#onEvent(ev, url)));
+    this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev) => this.#onEvent(ev)));
     this.#stops.push(this.#d.timers.every(TICK_MS, () => this.tick()));
   }
 
@@ -327,8 +317,7 @@ export class GameController {
 
   /* --------------------------------------------------------------------------------------------- loading */
 
-  /** An event from the relays; `url` is the relay that delivered it first. */
-  #onEvent(ev: NostrEvent, url: string): void {
+  #onEvent(ev: NostrEvent): void {
     if (this.#disposed) return;
     if (ev.kind === KIND.root && ev.id === this.rootId) {
       this.#onRoot(ev);
@@ -338,7 +327,7 @@ export class GameController {
     if (!this.#seated(ev)) return;
     this.#got.add(ev.id);
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
-    if (entry !== undefined && this.#delivered(entry[0], [url])) this.#confirm(entry[0]);
+    if (entry !== undefined) this.#confirm(entry[0]);
     // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
     if (this.#session === null || !this.#gameEose) {
       if (this.#buffer.length < MAX_BUFFER) this.#buffer.push(ev);
@@ -435,7 +424,7 @@ export class GameController {
       let fresh = 0;
       let oldest = Number.POSITIVE_INFINITY;
       let stop = (): void => {};
-      const onEvent = (ev: NostrEvent, url: string): void => {
+      const onEvent = (ev: NostrEvent): void => {
         if (this.#disposed) return;
         // Only seated events this client had not seen move the page: a stranger's event, or an old one dated far
         // back, must not steer `until`.
@@ -443,7 +432,7 @@ export class GameController {
           fresh++;
           if (ev.created_at < oldest) oldest = ev.created_at;
         }
-        this.#onEvent(ev, url);
+        this.#onEvent(ev);
       };
       const onEose = (): void => {
         if (this.#disposed) return;
@@ -668,18 +657,16 @@ export class GameController {
   #statusOf(v: SessionView, duties: readonly Duty[]): GameStatus {
     if (!this.#synced) return 'syncing';
     if (v.phase === 'cancelled') return 'cancelled';
-    if (this.#working || this.#nextAuto(duties, v, false) !== null) return 'working';
+    if (this.#working || this.#nextAuto(duties, v) !== null) return 'working';
     if (this.#stuck(duties, v)) return 'stuck';
     if (v.phase === 'done') return 'done';
     if (duties.some((d) => d.kind === 'decide') && !this.#ownMovePending(v)) return 'your-turn';
     return 'waiting';
   }
 
-  /** An automatic duty other than a quiet one is due but failed at this head. */
+  /** An automatic duty is due but failed at this head. */
   #stuck(duties: readonly Duty[], v: SessionView): boolean {
-    return duties.some(
-      (d) => AUTO.includes(d.kind) && !QUIET.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`),
-    );
+    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
   }
 
   /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
@@ -692,7 +679,7 @@ export class GameController {
   #maybePrune(v: SessionView, duties: readonly Duty[]): void {
     if (this.#disposed || this.#outbox.size === 0) return;
     if (v.phase !== 'done' && v.phase !== 'cancelled') return;
-    if (this.#working || this.#nextAuto(duties, v, false) !== null) return;
+    if (this.#working || this.#nextAuto(duties, v) !== null) return;
     if (![...this.#outbox.values()].every((e) => e.confirmed || e.orphan)) return;
     this.#outbox.clear();
     removeItem(this.#d.storage, outboxKey(this.#d.profile, this.rootId));
@@ -700,10 +687,8 @@ export class GameController {
 
   /* -------------------------------------------------------------------------------------------- duties */
 
-  /** The next automatic duty due and not failed at this head; with `quiet` false, quiet duties are skipped. */
-  #nextAuto(duties: readonly Duty[], v: SessionView, quiet = true): Duty['kind'] | null {
+  #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
     for (const kind of AUTO) {
-      if (!quiet && QUIET.includes(kind)) continue;
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
@@ -730,14 +715,11 @@ export class GameController {
         const v = session.view();
         const kind = this.#nextAuto(session.duties(), v);
         if (kind === null) break;
-        const quiet = QUIET.includes(kind);
-        if (!quiet) {
-          this.#working = true;
-          this.#refresh();
-          // Let the screen show "working" before a long proof blocks the thread.
-          await this.#yield();
-          if (this.#disposed) return;
-        }
+        this.#working = true;
+        this.#refresh();
+        // Let the screen show "working" before a long proof blocks the thread.
+        await this.#yield();
+        if (this.#disposed) return;
         const head = session.view().head;
         const key = `${kind}@${head.id}`;
         try {
@@ -747,9 +729,7 @@ export class GameController {
           await this.#perform(session, kind);
         } catch (e) {
           this.#failed.add(key);
-          // A quiet duty's failure costs only time: the seat's next move carries what it owed.
-          if (!quiet)
-            this.error.value = `Could not ${kind === 'deal' ? 'deal' : `send the ${kind}`}: ${errorText(e)}`;
+          this.error.value = `Could not ${kind === 'deal' ? 'deal' : `send the ${kind}`}: ${errorText(e)}`;
         }
       }
     } finally {
@@ -770,12 +750,6 @@ export class GameController {
     // built anew. None of them is a chain move, so a second one is never equivocation: a seat's later shares of a
     // position are ignored, its secret is one value, and its latest attestation is the one that counts.
     if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
-    if (kind === 'share') {
-      // One slot per set of positions owed, so a retry re-sends the same event (D039).
-      const duty = session.duties().find((d) => d.kind === 'share');
-      if (duty?.kind !== 'share') return;
-      return this.#single(`${SHARES_SLOT}${duty.positions.join(',')}`, () => session.buildShares(rnd, now()));
-    }
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
       // A new attestation must be later than the refused one, or it would not replace it (latest wins).
@@ -798,7 +772,7 @@ export class GameController {
     return this.#commit(slot, await build());
   }
 
-  /** The event saved for a single-slot duty (`deal`, `shares:…`, `secret`, `attest`), unless it was refused. */
+  /** The event saved for a single-slot duty (`deal`, `secret`, `attest`), unless the session refused it. */
   #live(slot: string): NostrEvent | null {
     const entry = this.#outbox.get(slot);
     return entry !== undefined && !entry.orphan ? entry.event : null;
@@ -881,42 +855,11 @@ export class GameController {
     return writeJson(this.#d.storage, key, all);
   }
 
-  /** Remove one slot from the stored outbox (other tabs may have written other slots). */
-  #unpersist(slot: string): void {
-    if (this.#disposed) return;
-    const key = outboxKey(this.#d.profile, this.rootId);
-    const stored = readJson(this.#d.storage, key);
-    if (typeof stored !== 'object' || stored === null || Array.isArray(stored) || !(slot in stored)) return;
-    writeJson(this.#d.storage, key, Object.fromEntries(Object.entries(stored).filter(([k]) => k !== slot)));
-  }
-
-  /**
-   * Whether relays at `urls` holding the slot's event count as delivered. For a `shares:` slot only a root relay
-   * counts (D039): the seat's next move carries no shares, so peers hold that move back until they get the Shares
-   * event, and they read the root's relays, not this player's own.
-   */
-  #delivered(slot: string, urls: readonly string[]): boolean {
-    if (!slot.startsWith(SHARES_SLOT)) return urls.length > 0;
-    const root = this.#root?.relays ?? [];
-    return urls.some((u) => root.includes(u));
-  }
-
-  /**
-   * Mark the slot's event delivered. A `shares:` slot is dropped instead (D039): it is a small event a seat sends
-   * after most draws, so keeping each would grow storage by about a hundred events a game. Dropping it is safe:
-   * one of the game's relays holds it (`#delivered`), and should the duty come back, a new Shares event is
-   * harmless (a seat's first share of a position is the one kept, and Shares events are not chain moves).
-   */
   #confirm(slot: string): void {
     const entry = this.#outbox.get(slot);
     if (entry === undefined || entry.confirmed) return;
-    if (slot.startsWith(SHARES_SLOT)) {
-      this.#outbox.delete(slot);
-      this.#unpersist(slot);
-    } else {
-      entry.confirmed = true;
-      this.#persist(slot);
-    }
+    entry.confirmed = true;
+    this.#persist(slot);
     if ([...this.#outbox.values()].every((e) => e.confirmed || e.orphan)) this.notice.value = null;
   }
 
@@ -930,10 +873,8 @@ export class GameController {
     try {
       const results = await this.#d.pool.publish(entry.event, unionRelays(root.relays, this.#d.relays()));
       if (this.#disposed) return;
-      const ok = results.filter((r) => r.ok).map((r) => r.url);
-      if (this.#delivered(slot, ok)) this.#confirm(slot);
-      else if (ok.length === 0) this.notice.value = 'Not delivered to any relay yet; retrying.';
-      else this.notice.value = "Not delivered to this game's relays yet; retrying.";
+      if (results.some((r) => r.ok)) this.#confirm(slot);
+      else this.notice.value = 'Not delivered to any relay yet; retrying.';
     } finally {
       this.#inFlight.delete(slot);
     }

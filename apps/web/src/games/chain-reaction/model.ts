@@ -157,15 +157,9 @@ export function boardCells(s: ChainReactionState, lastTile: number | null = null
 
 export type HandBadge = 'playable' | 'found' | 'merge' | 'dead' | 'blocked';
 
-/** What one of the viewer's tiles that it cannot read yet is called (D039). */
-export const REVEALING = 'New tile, being revealed';
-
 export interface HandTile {
   readonly pos: number;
-  /**
-   * Null when this state does not know the tile: another seat's hand in a view, or the viewer's own tile while it
-   * is being revealed (drawn, with some other seat's decryption share not in yet; D039).
-   */
+  /** Null when this state does not know the tile (another seat's hand in a view). */
   readonly tile: number | null;
   readonly id: string | null;
   readonly cls: TileClass | null;
@@ -199,7 +193,7 @@ function previewOf(rules: ChainReactionRules, cls: TileClass): string {
 export function handTiles(s: ChainReactionState, seat: number): HandTile[] {
   return (s.players[seat]?.hand ?? []).map((h) => {
     if (h.tile === null)
-      return { pos: h.pos, tile: null, id: null, cls: null, badge: null, preview: REVEALING };
+      return { pos: h.pos, tile: null, id: null, cls: null, badge: null, preview: 'Hidden tile' };
     const cls = classifyTile(s.board, s.rules, h.tile);
     return {
       pos: h.pos,
@@ -373,6 +367,49 @@ export function playerRows(
   });
 }
 
+/** One chain the viewer holds shares in, valued at its current price. */
+export interface MyHolding {
+  readonly chain: ChainView;
+  readonly count: number;
+  /** False when the chain is not on the board: its shares have no price and are worth $0 for now. */
+  readonly onBoard: boolean;
+  /** The current share price; 0 when the chain is not on the board. */
+  readonly price: number;
+  /** `count × price`. */
+  readonly value: number;
+}
+
+/** The "Your cash and shares" panel: the viewer's own cash and shares, valued at today's prices. */
+export interface MyHoldings {
+  readonly cash: number;
+  /** One line per chain held, in chain order. */
+  readonly lines: readonly MyHolding[];
+  /** The sum of the lines' values. */
+  readonly shareValue: number;
+  /** Cash plus share value (majority and minority bonuses not included). */
+  readonly netWorth: number;
+}
+
+/**
+ * The viewer's own cash and shares (D043), built from their exact `playerRows` row and the `chainRows` prices,
+ * so it shows nothing the Players and Chains panels do not. Null for a spectator.
+ */
+export function myHoldings(s: ChainReactionState, mySeat: number | null): MyHoldings | null {
+  if (mySeat === null) return null;
+  const me = playerRows(s, [], mySeat).find((r) => r.me);
+  if (me === undefined || me.cash === null) return null;
+  const chains = chainRows(s, mySeat);
+  const lines = me.shares.map((h) => {
+    const row = chains[h.chain.index];
+    const count = h.count ?? 0;
+    const onBoard = row?.active === true;
+    const price = onBoard ? (row?.price ?? 0) : 0;
+    return { chain: h.chain, count, onBoard, price, value: count * price };
+  });
+  const shareValue = lines.reduce((sum, l) => sum + l.value, 0);
+  return { cash: me.cash, lines, shareValue, netWorth: me.cash + shareValue };
+}
+
 export interface ResultRow {
   readonly seat: number;
   readonly name: string;
@@ -467,6 +504,15 @@ function lookup(actions: readonly ChainReactionAction[], candidate: unknown): Ch
 const isCount = (n: number): boolean => Number.isInteger(n) && n >= 0;
 
 /** Maps the seat's legal actions to the decision the screen asks for. */
+/**
+ * Whether the hand shows each tile's badge ("playable", "merge", "dead"…) and preview text: only while this
+ * viewer is placing (or must skip placing). On anyone else's turn the badges would read as advice for a turn that
+ * is not theirs, and while a founding or merger resolves the pending tile makes the classification unreliable.
+ */
+export function handBadgesShown(decision: Decision): boolean {
+  return decision.kind === 'place' || decision.kind === 'skip';
+}
+
 export function decisionFor(s: ChainReactionState, legal: readonly ChainReactionAction[]): Decision {
   const first = legal[0];
   if (!first) return { kind: 'wait' };

@@ -3,14 +3,14 @@
  * DOM by `renderTree`. The panels, their parts and `Avatar` use no hooks. Every row is rendered with an avatar,
  * so the hidden-holdings checks also cover the avatar markup.
  */
-import type { ChainReactionState } from '@bored-games/chain-reaction';
+import { type ChainReactionState, chainSizes } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { Avatar } from '../src/components/avatar.tsx';
 import { playUntil, randomLegal } from '../src/games/chain-reaction/fixture.ts';
-import { formatMoney, playerRows, resultRows } from '../src/games/chain-reaction/model.ts';
-import { PlayersPanel, ResultsView } from '../src/games/chain-reaction/panels.tsx';
+import { formatMoney, myHoldings, playerRows, resultRows } from '../src/games/chain-reaction/model.ts';
+import { HoldingsPanel, PlayersPanel, ResultsView } from '../src/games/chain-reaction/panels.tsx';
 import { classOf, type El, findAll, isEl, renderTree, spokenText, textOf } from './render-tree.ts';
 
 const NAMES = ['Ann', 'Bo', 'Cy', 'Di'];
@@ -137,5 +137,62 @@ describe('ResultsView', () => {
       expect(textOf([tr])).toContain(NAMES[r.seat]);
       expect(textOf([tr])).toContain(formatMoney(r.cash));
     });
+  });
+});
+
+describe('HoldingsPanel', () => {
+  const s = midGame();
+  const render = (state: ChainReactionState, seat: number) => {
+    const holdings = myHoldings(state, seat);
+    if (holdings === null) throw new Error('no holdings');
+    return { h: holdings, tree: renderTree(h(HoldingsPanel, { holdings })) };
+  };
+
+  it('shows my cash, share value and net worth, and a row per chain held with count, price and value', () => {
+    const { h, tree } = render(s, 0);
+    expect(h.lines.length).toBeGreaterThanOrEqual(2);
+    const [section] = findAll(tree, (el) => el.tag === 'section');
+    expect(section?.attrs['aria-labelledby']).toBe('cr-mine-h');
+    expect(textOf(tree)).toContain('Your cash and shares');
+    const totals = findAll(tree, (el) => el.tag === 'dd').map((el) => textOf([el]));
+    expect(totals).toEqual([formatMoney(h.cash), formatMoney(h.shareValue), formatMoney(h.netWorth)]);
+    const rows = findAll(tree, (el) => el.tag === 'tr').slice(1);
+    expect(rows).toHaveLength(h.lines.length);
+    h.lines.forEach((l, i) => {
+      const row = rows[i] as El;
+      expect(findAll([row], (el) => classOf(el).includes('cr-swatch'))).toHaveLength(1);
+      const cells = findAll([row], (el) => el.tag === 'td').map((el) => textOf([el]));
+      expect(spokenText([row])).toContain(l.chain.name);
+      expect(cells).toEqual(
+        l.onBoard
+          ? [String(l.count), formatMoney(l.price), formatMoney(l.value)]
+          : [String(l.count), 'not on the board, worth $0'],
+      );
+    });
+  });
+
+  it('says "not on the board" for a chain held but not on the board', () => {
+    const off = chainSizes(s.board, s.rules.chains.length).indexOf(0);
+    expect(off).toBeGreaterThanOrEqual(0);
+    const state = {
+      ...s,
+      players: s.players.map((p, i) =>
+        i === 1 ? { ...p, shares: p.shares.map((n, c) => (c === off ? 4 : n)) } : p,
+      ),
+    };
+    const { tree } = render(state, 1);
+    const offRow = findAll(tree, (el) => el.tag === 'tr' && classOf(el).includes('cr-inactive'));
+    expect(offRow).toHaveLength(1);
+    expect(textOf(offRow)).toContain('not on the board, worth $0');
+  });
+
+  it('says so when I hold no shares', () => {
+    const state = {
+      ...s,
+      players: s.players.map((p, i) => (i === 3 ? { ...p, shares: p.shares.map(() => 0) } : p)),
+    };
+    const { tree } = render(state, 3);
+    expect(findAll(tree, (el) => el.tag === 'table')).toEqual([]);
+    expect(textOf(tree)).toContain('You hold no shares yet.');
   });
 });

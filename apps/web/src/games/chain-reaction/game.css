@@ -333,9 +333,110 @@ main:has(.cr-game) {
   border-style: dashed;
 }
 
-.cr-tile-unknown .cr-tile-badge {
-  color: var(--accent);
+/*
+ * The "?" tile and its popover. The popover is placed against the hand, not the tile, so it never leaves the
+ * panel: under its tile when there is room (`--i` is the tile's index), else flush with the hand's right edge.
+ */
+.cr-hand-panel .cr-hand {
+  position: relative;
+}
+
+button.cr-tile-unknown {
+  cursor: help;
+}
+
+.cr-tile-unknown[aria-expanded="true"] {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.cr-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: clamp(0px, calc(var(--i, 0) * 58px), calc(100% - min(22rem, 100%)));
+  z-index: 5;
+  width: min(22rem, 100%);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+
+/* Bridges the gap above the popover, so the pointer can move from the "?" onto the text (WCAG 1.4.13). */
+.cr-tip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 10px;
+}
+
+.cr-tip[hidden] {
+  display: none;
+}
+
+.cr-hidden-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+/* Your cash and shares: three totals, then one row per chain held. */
+.cr-mine-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.cr-mine-totals > div {
+  padding: 6px 10px;
+  background: #f3f5f8;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.cr-mine-totals dt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cr-mine-totals dd {
+  margin: 0;
+  font-size: 1.2rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.cr-mine-totals .cr-mine-net {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.cr-mine-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.cr-mine-table .cr-mine-off {
+  font-style: italic;
+  white-space: normal;
+}
+
+.cr-mine-none {
+  margin: 0;
+}
+
+.cr-mine-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
 }
 
 /* Decisions */
@@ -709,6 +810,18 @@ main:has(.cr-game) {
   .cr-safe {
     padding: 0 3px;
     font-size: 0.6rem;
+  }
+
+  .cr-mine-totals {
+    gap: 6px;
+  }
+
+  .cr-mine-totals > div {
+    padding: 5px 7px;
+  }
+
+  .cr-mine-totals dd {
+    font-size: 1.02rem;
   }
 }
 

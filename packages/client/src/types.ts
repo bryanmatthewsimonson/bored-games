@@ -41,9 +41,6 @@ export type ReceiveResult =
 /**
  * What this seat must publish next:
  * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
- * - `share`: in play, the decryption shares this seat owes and has not published, at `positions` (ascending);
- *   `buildShares`. It comes first, before a `decide` duty: a seat publishes them as soon as it sees a draw, so
- *   the drawer learns its tile without waiting for this seat's next move (D039). The next move then carries none.
  * - `secret`: the game is over and my deck secret is not in yet; `buildSecret`.
  * - `attest`: the game is done with an audit and my attestation is not accepted yet. Attesting is a SHOULD
  *   (PROTOCOL §7), so the duty is advisory. Attestations are signed by the seat's npub, which the session does not
@@ -54,7 +51,6 @@ export type ReceiveResult =
 export type Duty =
   | { kind: 'shuffle' }
   | { kind: 'deal' }
-  | { kind: 'share'; positions: number[] }
   | { kind: 'decide' }
   | { kind: 'secret' }
   | { kind: 'attest' };

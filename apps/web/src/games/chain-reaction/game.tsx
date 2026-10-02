@@ -1,23 +1,33 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useReducer, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
 import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
-import { Hand } from './hand.tsx';
+import { Hand, TIP_CLOSED, type TipEvent, tipReducer } from './hand.tsx';
 import { isLocked, submitUnderLock } from './lock.ts';
 import {
   boardCells,
   chainRows,
   decisionFor,
   type HandTile,
+  handBadgesShown,
   handTiles,
+  myHoldings,
   playerRows,
   resultRows,
   statusLine,
 } from './model.ts';
-import { type Audit, ChainsPanel, EventLog, PlayersPanel, ResultsView, StatusBar } from './panels.tsx';
+import {
+  type Audit,
+  ChainsPanel,
+  EventLog,
+  HoldingsPanel,
+  PlayersPanel,
+  ResultsView,
+  StatusBar,
+} from './panels.tsx';
 import { PriceCardDialog } from './price-card.tsx';
 import './game.css';
 
@@ -52,7 +62,7 @@ export interface ChainReactionGameProps {
   onClaimTimeout?: (() => void) | undefined;
   /** What the claim does (who forfeits), for the confirm step. */
   timeoutExplanation?: string | undefined;
-  /** True once the game has ended outside the rules (a timeout): no tile is being revealed any more. */
+  /** True once the game has ended outside the rules (a timeout): a hidden tile will never be revealed. */
   ended?: boolean | undefined;
 }
 
@@ -64,6 +74,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   // controller reports the publish finished, so a double click can never send two moves.
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [priceCardOpen, setPriceCardOpen] = useState(false);
+  const [tip, onTip] = useReducer<typeof TIP_CLOSED, TipEvent>(tipReducer, TIP_CLOSED);
 
   useEffect(() => {
     if (!props.busy) setSentAt(null);
@@ -72,14 +83,38 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
     setSelected(null);
     setPreview(null);
   }, [state.seq]);
+  // An open "?" popover closes on Escape wherever the focus is (a hover popover too, WCAG 1.4.13), and a pinned
+  // one on a tap or click anywhere else (touch browsers may not move the focus on a tap).
+  const tipOpen = tip.pos !== null;
+  useEffect(() => {
+    if (!tipOpen) return;
+    const away = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest('.cr-unknown'))) onTip({ type: 'close' });
+    };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onTip({ type: 'close' });
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [tipOpen]);
 
   const cells = useMemo(() => boardCells(state, props.lastTile ?? null), [state, props.lastTile]);
   const hand = useMemo(() => (mySeat === null ? [] : handTiles(state, mySeat)), [state, mySeat]);
   const decision = useMemo(() => decisionFor(state, props.legal), [state, props.legal]);
+  // The "?" popover stays open while other seats move, and closes once its tile is revealed.
+  useEffect(() => {
+    if (tip.pos !== null && !hand.some((t) => t.pos === tip.pos && t.tile === null)) onTip({ type: 'close' });
+  }, [hand, tip.pos]);
   const chains = chainRows(state, mySeat);
   const players = playerRows(state, names, mySeat);
   const status = statusLine(state, names, mySeat);
   const over = state.phase.kind === 'over';
+  // Hidden for a spectator, and once the game is over: the results then give every player's final cash.
+  const holdings = over ? null : myHoldings(state, mySeat);
 
   const lock = { canAct: props.canAct, busy: props.busy, sentAt, seq: state.seq };
   const locked = isLocked(lock);
@@ -121,15 +156,18 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
             <Hand
               tiles={hand}
               placeable={placeable}
-              showBadges={state.phase.kind === 'place'}
+              showBadges={handBadgesShown(decision)}
               selected={selected}
               disabled={locked}
               onSelect={setSelected}
               onPreview={setPreview}
-              revealing={props.ended !== true}
+              ended={props.ended === true}
+              tip={tip}
+              onTip={onTip}
             />
           </section>
         )}
+        {holdings !== null && <HoldingsPanel holdings={holdings} />}
         {over ? (
           <ResultsView
             rows={resultRows(state, names)}

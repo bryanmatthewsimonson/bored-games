@@ -1817,30 +1817,25 @@ export class GameSession {
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
   }
 
-  /**
-   * What this seat must publish next, as of the canonical head. Spectators have none. In play, the shares this
-   * seat owes come first (D039), then its decision, if any.
-   */
+  /** What this seat must publish next, as of the canonical head. Spectators have none. */
   duties(): Duty[] {
     const me = this.me;
     if (me === null) return [];
     // After a timeout only the attestation can be due.
     const live = this.timedOut === null;
     if (live && this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
-    if (live && this.phase === 'deal' && this.owed(me).length > 0) return [{ kind: 'deal' }];
-    const owed = live && this.phase === 'play' ? this.owed(me) : [];
-    const share: Duty[] = owed.length > 0 ? [{ kind: 'share', positions: owed }] : [];
-    if (this.decides(me)) return [...share, { kind: 'decide' }];
-    if (share.length > 0) return share;
+    if (
+      live &&
+      this.phase === 'deal' &&
+      this.shares.missing(me.seat, this.module.dealt(this.state)).length > 0
+    ) {
+      return [{ kind: 'deal' }];
+    }
+    if (this.decides(me)) return [{ kind: 'decide' }];
     if (live && this.phase === 'end' && !this.secrets.has(me.seat)) return [{ kind: 'secret' }];
     // Attesting is a SHOULD (PROTOCOL §7): the duty is advisory.
     if (this.attestContent() !== null && !this.attested().includes(me.seat)) return [{ kind: 'attest' }];
     return [];
-  }
-
-  /** The positions `me` owes as of the head and has not shared yet, ascending (PROTOCOL §6.2). */
-  private owed(me: Identity): number[] {
-    return this.shares.missing(me.seat, this.module.dealt(this.state));
   }
 
   /**
@@ -1910,23 +1905,9 @@ export class GameSession {
    * nobody, that this seat has not shared yet, sorted by position. Build it once and re-send that event.
    */
   buildDeal(rnd: RandomBytes, createdAt: number): NostrEvent {
-    return this.owedSharesEvent(this.requireDuty('deal'), rnd, createdAt);
-  }
-
-  /**
-   * My owed shares in play (`share` duty, D039): one Shares event with a share for every position the `share`
-   * duty names, sorted by position. Publish it as soon as the duty appears, so the drawer learns its tile without
-   * waiting for my next move, which then carries no shares. Build it once and re-send that event; a second build
-   * is harmless (only a seat's first share of a position is kept) but wasteful.
-   */
-  buildShares(rnd: RandomBytes, createdAt: number): NostrEvent {
-    return this.owedSharesEvent(this.requireDuty('share'), rnd, createdAt);
-  }
-
-  /** One Shares event, signed by my session key, with my share of every position I owe and have not shared. */
-  private owedSharesEvent(me: Identity, rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('deal');
     const deck = this.finalDeck() as Ciphertext[];
-    const shares = this.owed(me).map((pos) => ({
+    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map((pos) => ({
       pos,
       share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
     }));
@@ -1953,7 +1934,7 @@ export class GameSession {
       pos,
       share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
     });
-    const shares = this.owed(me).map(share);
+    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map(share);
     const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
     const reveals = shown.sort((a, b) => a - b).map(share);
     const t = moveTemplate(

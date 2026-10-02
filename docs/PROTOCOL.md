@@ -18,7 +18,7 @@ A game is a pure rules module implementing `GameModule` (`packages/game-kit`). C
 | Who may act | The rules module's `pending()` names exactly one seat, or a public deck reveal. Only that seat's session key may extend the move chain. |
 | Ordering and forks | Moves form a hash chain (`prev` plus `seq`). Fork choice picks one chain. Two valid-looking moves on the same parent from the same signer prove equivocation; the signer ranks last. |
 | Hidden cards | Mental poker: ElGamal on secp256k1 with a joint key, one shuffle by every seat with a **zero-knowledge proof of shuffle**, and decryption shares with **DLEQ proofs**. |
-| Async dealing | Each seat that is online publishes its decryption shares for other seats' new cards as soon as it sees the draw (a Shares event), so a drawn card is readable in seconds. Otherwise they ride on its own next move: every other seat acts between a player's draw and that player's next turn. |
+| Async dealing | Each seat attaches decryption shares for other seats' new cards to its own next event. Every other seat acts between a player's draw and that player's next turn. |
 | Result | Every client replays the log. At the end, each seat reveals its deck secret, and every client re-plays the whole game with all cards visible to audit every hidden claim. Players then sign attestations. |
 | Abandonment | Per-game move deadline (1, 3 or 7 days), measured on each client's own clock. After it, a timeout claim makes every stalled seat forfeit. |
 
@@ -200,7 +200,7 @@ The hash-chained log.
 - `shares` holds the decryption shares the sender owes (§6.2), sorted by position.
 
 ### 4.5 Shares (7453)
-Decryption shares outside the chain: the deal round, and in play the prompt shares a seat publishes as soon as it sees a draw (§6.2). Valid in any phase; a seat's later share of a position it already shared is ignored (§5.4).
+Decryption shares outside the chain: the deal round, or optional early help.
 
 **Tags:** `["e", <rootId>, "", "root"]`.
 
@@ -342,7 +342,6 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **The rule (monotone).** A game-action move by seat `k` on parent state `S` is acceptable only if, counting `k`'s verified shares the client already holds plus those in the move, `k` has a share for every position it owes at `S`. The rule counts only what is held, never what is absent.
 - **Buffering.** A move that fails only this rule MUST be buffered, not rejected. The missing shares may still arrive, for example in a Shares event published earlier that reaches this client later. The move links once they are held. Clients therefore converge whatever order events arrive in.
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
-- **Prompt sharing (SHOULD, D039).** In the play phase, a client SHOULD publish the shares its seat owes as of the head in one Shares event (7453) as soon as it sees them owed, typically when another seat draws, without waiting for its own next move. The drawer then reads its card within seconds while the other seats are online. Its next move then carries none, since they are already published. That move is no longer self-contained: peers buffer it until the Shares event reaches them, so a client MUST deliver the Shares event to the root's relays (§4.3), not only to relays of its own, and retry until one of them accepts it. A Shares event that leaves the stall set as it was is not progress (§8.1), so prompt sharing never moves a deadline. The rule above stays the guarantee: a seat that is offline still pays on its next move. Prompt sharing lets one seat expose a tile at will (§11).
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
 ### 6.3 Public reveals
@@ -489,12 +488,6 @@ It MUST also meet these contract rules, which the session relies on:
   - A claim's date proves nothing: dating a claim, a move or a share ahead or back changes no client's judgement.
   - A client without persisted first-seen times (a new device) sees every event for the first time when it syncs, which restarts its deadlines. That only delays its own acceptance.
 - **The claim race.** Clients accept a claim at different moments: each when its own deadline passes, so there is a window between the first and the last. If a stalled seat publishes inside that window, clients can split. One that accepted first ignores the late event (§8.2, finality). One that folds the event first rejects the claim if it was a move, since the head moved on; if it was a share or a secret, its deadline restarts, and it later forfeits fewer seats or none. Signatures cannot settle the order, since any `created_at` can be claimed. The window opens only after a full deadline of silence from the stalled seat, so this is accepted as a residual risk.
-- **Tile exposure by equivocation (prompt sharing, D039; awaiting the owner's acceptance).** A decryption share is a value, not bound to a branch, and prompt sharing (§6.2) sends it within seconds of a draw with no human action. So one seat E can expose a tile alone:
-  1. E signs branch A on prev `h`, drawing position p for itself, and waits while the other seats' clients share p. E reads p.
-  2. Before the next seat N moves, E signs branch B on the same prev: the same length, an id ground down to be lower, and a different draw count (a forged `skipPlace`, for example, which is accepted in play and only fails the audit). Fork choice breaks equal-length ties by the lowest id (§6.6), so every client switches to B, where p goes to N.
-  3. E knows N's tile. If N's own share of p went out on branch A, all shares of p become public once the others share it for N on B, and every seat can read N's tile.
-
-  It is always detected: two signed moves on one prev flag E, who is ranked last (§6.6, §8.2), and clients warn every player that a tile dealt around then may be known. There is no cryptographic fix, since a share is the same value on every branch, and a grace delay before sharing does not stop a deliberate attacker, who waits for the shares. Without prompt sharing, shares rode on the sharers' own moves, which lengthened branch A, so the exposure needed honest seats to build on both branches. The trade-off (instant reveal against the exposure of one tile to a seat that is guaranteed to be caught and ranked last) is put to the owner (PLAN open question 10).
 - **Postponement by fresh shares (closed by Ruling 11).** Only events that change the stalled set count as progress (§8.1), so a stalled seat cannot restart its own deadline by publishing shares it was not stalled on.
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` first, so a finished game cannot be reopened. When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never rewind or cancel a game (§6.6): they flag the signer, who forfeits at the end.
