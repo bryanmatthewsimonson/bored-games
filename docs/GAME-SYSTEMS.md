@@ -52,7 +52,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 | Turn order | `pending()` names one seat or a public reveal | partial | `game-kit/types.ts` | simultaneous phases: §4.4, §4.8 |
 | Deckless sessions | games with `decks(rules) = []` (Chess) | exists (D045) | `packages/client` | `shuffleSteps = decks ? seats : 0` (`SessionView.shuffleSteps`); deckless audit with `deckOrders: {}` |
 | Timeouts and forfeit | Timeout 7454, local-clock deadlines, `rankWithForfeits` | exists | D020, D030, PROTOCOL §8 | a deckless game forfeits after its first move (D045) |
-| Resign | voluntary forfeit at any time | exists (D045) | kind **7457** `{type:'resign'}`, signed by the session key, naming the head; PROTOCOL §4.9, §8.3 | `canResign()`, `buildResign(rnd, createdAt)`; order-independent; the resigner ranks last via `rankWithForfeits` |
+| Resign | voluntary forfeit at any time | partial (D045): 2-seat games without a deck only | kind **7457** `{type:'resign'}`, signed by the session key, naming the head (informational); PROTOCOL §4.9, §8.3 | `canResign()`, `buildResign(rnd, createdAt)`; counts on receipt and is final for the client; the resigner ranks last. Multi-seat and deck games wait for the owner (§7) |
 | Audit and attestation | Secret 7455, full-mode replay, Attest 7456 | exists (one deck or none) | `packages/client/src/audit.ts` | audit modes (§4.1.7) |
 | Results and ratings | attested outcomes; ratings in Phase 4 | partial | D012 | team and co-op outcomes: §4.7 |
 | Game registry (web) | per-game component, rules page, setup copy | exists (D045) | `apps/web/src/games/registry.ts` | `{id, title, tagline, Component, RulesPage, setupCopy}`; catalog and brands come in Phase E |
@@ -265,7 +265,7 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 | Variable order, extra turns | Patchwork (the player behind moves), doubles | exists for games without private draws | with private draws, check the liveness rule (§4.1.8) |
 | Response windows | "any player may challenge" (Coup) | missing | each other seat answers in seat order (S − 1 async steps), or a prompt duty under D042 |
 | Simultaneous phase | sealed bids, drafting, rock-paper-scissors | missing | §4.4 |
-| Resign at any time | every game | exists (D045) | kind 7457 outside the turn order; order-independent (PROTOCOL §8.3) |
+| Resign at any time | 2-seat games without a deck (D045); others open (§7) | partial | kind 7457 outside the turn order; final on receipt (PROTOCOL §8.3) |
 | Real time | action games | not supported | against D004; out of scope |
 
 ### 4.9 Timers and clocks
@@ -339,6 +339,9 @@ Each step ends with its RULES.md catalog, fuzz target (10,000 games, zero failur
 3. **Async rules adaptations.** Are draw-ahead (Carcassonne-like) and snapshot reshuffles acceptable as named variants, or should such games wait for live play?
 4. **End-of-game reveal.** Today every card becomes public at the end. May games without hidden claims (poker) skip it, so folded hands stay private forever?
 5. **Retiring seats.** For elimination games, is it acceptable that a retiring seat's own cards become public when it leaves?
+   - **Resign in multi-seat and deck games (D045, PROTOCOL §8.3).** Resign is limited to 2-seat games without a deck until these are decided:
+     - Should a Resign in a game of 3 or more seats end the game for everyone, or **retire** the seat (§4.1.6) while the others play on? Ending the game allows kingmaking by timing: a seat out of contention picks the moment that fixes the others' ranking, at no cost to itself.
+     - In a deck game, ending by Resign skips the end-of-game reveal, so hidden-card cheats made before it are never audited. Options: a Secret phase and a partial audit up to the head after a Resign, or a Resign that carries the resigner's deck secret (as retire does), so its own hidden claims stay checkable.
 6. **Solo play.** Casual and unrated only, or adopt an external beacon such as drand for verifiable solo randomness (a third party)?
 7. **Live play.** Are minute-level deadlines and chess clocks wanted, with the claim race this brings (§4.9)?
 8. **Scope.** Confirm out of scope for now: deck-building, moderator-driven hidden-role games (Werewolf-style), and real-time games.

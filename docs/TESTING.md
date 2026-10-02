@@ -40,7 +40,7 @@ Chess has no hidden cards, so there is no shuffle or deal: the board appears as 
 2. **Create** (window a): under **New table**, set **Game** to **Chess** (the form then offers 2 players only), then **Create table**. **How to play** opens the Chess rules (`#/rules/chess`).
 3. **Join** (window b) and **Start** (window a) as above. Window a plays White.
 4. **Play:** click one of your pieces, then the square to move it to (legal squares show a dot). A pawn reaching the last rank shows a **Promote to** select before you click its square. Tick **Offer a draw with this move** to offer a draw with your move; your opponent then sees **Accept the draw**. The move list is on the right.
-5. **Resign** (under the board, any game) asks for confirmation first, then ends the game: you are ranked last (in Chess, you lose). Before the first move, resigning cancels the game instead.
+5. **Resign** (under the board; only in 2-player games without a deck, so Chess for now) asks for confirmation first, then ends the game: you lose. Before the first move, resigning cancels the game instead.
 6. At the end both windows show the result and "Result confirmed: signed by all 2 players." once both apps have signed it.
 
 Fool's mate is a quick test: 1. f3 e5 2. g4 Qh4#. The board is a placeholder; the full Chess UI comes in Phase D2.
@@ -54,7 +54,7 @@ Fool's mate is a quick test: 1. f3 e5 2. g4 Qh4#. The board is a placeholder; th
 - **Other players' shares and cash are hidden.** As at a real table, the Players panel shows another player's holdings only as chain chips without counts, and their cash only as "has cash" or "no cash". Your own row is exact, and the Chains panel's sizes, prices and bank supply are exact. The log shows other players' counts and amounts only for the current and the previous turn; older lines say "Ann bought Jade and Lapis shares." Everything is shown at game over (D037).
 - **"Stuck: an automatic step failed"** means a shuffle, deal or secret step failed. Reloading that window retries it.
 - **Home badges.** On Home, **Your games** shows a **Your turn** badge for a game that was waiting on you when this profile last had it open. It is not a live inbox: a game this profile has not opened for a while shows "Open to check".
-- **Resigning.** **Resign** under the play area ends the game for everybody after a confirm step: you are ranked last and the others by the game as it stands (cash in Chain Reaction). A move another player sent at the same moment still counts, and if that move ended the game, the game's own result stands.
+- **Resigning.** Only 2-player games without a deck (Chess) offer **Resign**; Chain Reaction has no Resign button until the owner decides how resigning should work with more players and hidden tiles (D045).
 - **Timeouts.** Once a player's move deadline (1, 3 or 7 days, chosen at **Create table**) has passed, the other players get a **Claim timeout** button in the status bar (or on the setup screen). It asks for confirmation first (**Yes, claim the timeout**) and explains the result: the stalled player forfeits and the game ends at once, or, before the first move after the deal, the game is cancelled. Nothing is claimed automatically. The deadlines are too long to try this in a short local session.
 
 ## 2. Playing with real people

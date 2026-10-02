@@ -109,14 +109,14 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.
-- **Resign.** Any seat may resign at any time with a Resign event (kind 7457) naming the head it saw. Its effect depends only on the events held, never on their order: moves keep linking, a chain that reaches the module's end stands, and otherwise the game ends with the resigning seat last and the others ranked by `standings` (PROTOCOL §8.3, D045).
+- **Resign.** In a 2-seat game without a deck (Chess), either seat may resign at any time with a Resign event (kind 7457). It counts as soon as a client receives it and, like an accepted timeout, it is final for that client: the resigning seat is last and later events change nothing. A Resign that arrives after the result is final (the game's own end, a claim) changes nothing. Multi-seat and deck games reject Resigns until the owner decides how they should work (PROTOCOL §8.3, D045).
 - **Timeouts.** NOSTR `created_at` is self-reported, so it is never used for deadlines. Each client measures the deadline (set in the game root) on its own clock, from the time it first saw the game's last progress. A player may then publish a timeout claim, and each client accepts it once its own deadline has passed: every stalled seat forfeits (D020, D030), and acceptance is final for that client. A stall before the first game action (during the shuffle or the deal) instead cancels the game, with no result. A stalled seat that acts while some clients have accepted and others have not can split them; this race is documented and accepted.
 
 ## Ratifying results
 
 - There is no authority.
 - Final scoring in Chain Reaction uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a **result attestation** signed by the player's npub: game root, final log hash, outcome, and audit verdict.
-- A game ended by a timeout or a resign is not audited, since the deck is not decrypted. Its attestation records the forfeiting seats in place of the audit verdict. A deckless game (Chess) has nothing to decrypt: its audit replays the log as soon as the game is over.
+- A game ended by a timeout is not audited, since the deck is not decrypted, and a resign (only in games without a deck) skips the replay. The attestation then records the forfeiting seats in place of the audit verdict. A deckless game (Chess) has nothing to decrypt: at its own end, its audit replays the log at once.
 - A result is **valid** if its log verifies. It is **finalized** when every player attests.
 - Stats and ratings use only valid results.
 
