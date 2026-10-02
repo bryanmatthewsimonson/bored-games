@@ -31,7 +31,8 @@
  *   the chain (`prompt`), and with a lazy seat that never acks nor shares early, it knows it once every other seat
  *   has moved after the grant (`fallback`).
  * - Ratings (round 2): no stop, and no stop that overrides a counted claim or resign, leaves the equivocator or its
- *   coalition better off than a forfeit (`rating`).
+ *   coalition better off than a forfeit (`rating`). A stop below an end that a side had already reached, with 3
+ *   or more seats, turns a finished game into an unrated abort (`ended-void`, reported apart: a residual of `stop`).
  * - Flags: an honest seat (one key, possibly on two devices) is never flagged for vouching for two sides
  *   (`honest-flagged`).
  *
@@ -47,11 +48,11 @@ export type Seat = number;
  */
 export type Mode = 'private' | 'viewers' | 'public' | 'roll';
 /**
- * - `pile`: candidate (d) (prompt-reveal.md §5): ownership is fixed before any share is released (per-seat draw
- *   piles cut from the shuffled deck, so seat k's i-th draw is always position p_k(i)); shares are released at
- *   once, with no Acks; positions past a seat's pile come from a common reserve and use the slow path only; a
- *   fork stops the game at the fork (unless one side already reached the end: that ending stands) and is the
- *   equivocator's forfeit; a stop never overrides a counted claim or resign.
+ * - `stop`: candidate (e), "plain stop" (prompt-reveal.md §5): one shared pile; shares released as soon as the
+ *   drawing move is held (as `d039`); any held fork stops the game at the fork, never picking a branch and never
+ *   resuming (with `overStands`, a side that already reached the end stands instead); the stop is the
+ *   equivocator's forfeit; a stop never overrides a counted claim or resign (`rule9: none`; `strict`, the owner's
+ *   first rule, still lets a colluder void a counted timeout).
  * - `fgr2`: round 2 of the recommended design (prompt-reveal.md §5): `fgr`, but a fork stops unless exactly one
  *   side is vouched for by every seat but the equivocator (never the lowest id), every move is acked, a seat that
  *   vouches for two sides is flagged (and a fork where one did stops), a stop is the equivocator's forfeit, a stop
@@ -66,9 +67,9 @@ export type Mode = 'private' | 'viewers' | 'public' | 'roll';
  * - `fgr`: the recommended design (prompt-reveal.md §5): acks, release only on a final move (every seat vouches
  *   for it by a move or an ack in its subtree), fork stop, and the slow path as in v1.
  */
-export type Design = 'v1' | 'd039' | 'ack' | 'ack-lock' | 'fs' | 'fgr' | 'fgr2' | 'pile';
+export type Design = 'v1' | 'd039' | 'ack' | 'ack-lock' | 'fs' | 'fgr' | 'fgr2' | 'stop';
 
-export const DESIGNS: readonly Design[] = ['v1', 'd039', 'ack', 'ack-lock', 'fs', 'fgr', 'fgr2', 'pile'];
+export const DESIGNS: readonly Design[] = ['v1', 'd039', 'ack', 'ack-lock', 'fs', 'fgr', 'fgr2', 'stop'];
 export const MODES: readonly Mode[] = ['private', 'viewers', 'public'];
 
 export interface Scope {
@@ -98,8 +99,8 @@ export interface Scope {
    * a vouch on another side, as a query to the relays would).
    */
   readonly ackDevice?: 'all' | 'first' | 'checked';
-  /** `pile`: positions in each seat's own draw pile; later draws come from the common reserve. */
-  readonly pile?: number;
+  /** `stop`: a fork below a side that already reached the end does not stop the game; that ending stands. */
+  readonly overStands?: boolean;
   /** The adversary may also sign moves that draw two positions. */
   readonly multiDraw?: boolean;
   /** Honest humans leave when their client shows a stop, and return one deadline after a resume. */
@@ -130,8 +131,8 @@ export type ViolationKind =
   | 'not-prompt'
   | 'no-fallback'
   | 'rating'
-  | 'honest-flagged'
-  | 'self-leak';
+  | 'ended-void'
+  | 'honest-flagged';
 
 export interface Violation {
   readonly kind: ViolationKind;
@@ -235,13 +236,9 @@ interface Grant {
   readonly pos: number;
   readonly v: Viewers;
   readonly move: string;
-  /** A position whose owner depends on history (the `pile` design's common reserve): slow path only. */
-  readonly reserve: boolean;
 }
 
-/** Position numbers: pile p_k(i) = k·100 + i; reserve 1000 + j; a roll bound to a move id 2000 + its index. */
-const PILE = 100;
-const RESERVE = 1000;
+/** Position numbers: the shared pile 0, 1, 2, …; a roll bound to a move id 2000 + its index. */
 const ROLL = 2000;
 const rollIds = new Map<string, number>();
 function rollPos(key: string): number {
@@ -694,9 +691,8 @@ class Explorer {
 
   private mayRelease(v: View, g: Grant, me: Seat): boolean {
     const d = this.s.design;
-    if (d === 'd039' || d === 'fs') return true;
-    // Candidate (d): a position with a fixed owner is released at once; the reserve waits for the slow path.
-    if (d === 'pile') return !g.reserve;
+    // D039, fork stop alone and candidate (e): released as soon as the granting move is held.
+    if (d === 'd039' || d === 'fs' || d === 'stop') return true;
     const m = v.byId.get(g.move) as MoveEv;
     if (isFgr(d)) return v.final.has(g.move);
     if (d === 'ack' || d === 'ack-lock') {
@@ -841,6 +837,14 @@ class Explorer {
     for (const f of finals) {
       if (f.end === 'stop' && s.seats === 2 && !forfeitStop(s.design))
         this.report('rating', `the stop by seat ${f.view.stopSeat} leaves a 2-seat game unrated`, trace);
+      // With 3 or more seats a stop is an unrated abort: voiding a game that had already ended (rated) is more
+      // than a resign can do.
+      if (f.end === 'stop' && s.seats > 2 && f.view.endedVoided)
+        this.report(
+          'ended-void',
+          `the stop by seat ${f.view.stopSeat} voids a game that had already ended`,
+          trace,
+        );
       const lost = f.voided;
       if (lost !== null && this.coalition.has(lost.seat)) {
         const same = f.view.stopSeat === lost.seat;
@@ -879,17 +883,6 @@ class Explorer {
             return hp.length > fset.length && fset.every((id, k) => hp[k] === id);
           });
           const who = this.who(st.clients[i] as Client);
-          // Candidate (d): a pile position belongs to one seat on every branch. If that seat is in the coalition,
-          // the coalition only learned a card of its own early (an equivocating seat's own next draw).
-          if (s.design === 'pile' && pos < RESERVE && this.coalition.has(Math.floor(pos / PILE))) {
-            this.report(
-              'self-leak',
-              `coalition {${[...this.coalition].join(',')}} reads its own seat ${Math.floor(pos / PILE)}'s ` +
-                `pile position ${pos} early (on ${who}'s final chain [${f.path.join(' ')}], ${f.end})`,
-              trace,
-            );
-            continue;
-          }
           const held = grants.filter((g) => g.pos === pos).map((g) => viewersText(g.v));
           this.report(
             postEnd ? 'post-end' : 'exposure',
@@ -947,8 +940,8 @@ class Explorer {
   /** Rule 9: whether a stop at the end of \`stop\` overrides a counted result on \`frozen\` (fork-stop designs). */
   private stopVoids(stop: readonly string[], frozen: readonly string[]): boolean {
     const d = this.s.design;
-    if (d !== 'fs' && d !== 'pile' && !isFgr(d)) return false;
-    const rule = this.s.rule9 ?? (d === 'fgr2' || d === 'pile' ? 'none' : 'at-or-past');
+    if (d !== 'fs' && d !== 'stop' && !isFgr(d)) return false;
+    const rule = this.s.rule9 ?? (d === 'fgr2' || d === 'stop' ? 'none' : 'at-or-past');
     if (rule === 'none') return false;
     const below = stop.length <= frozen.length && stop.every((id, k) => frozen[k] === id);
     return below && (rule === 'at-or-past' || stop.length < frozen.length);
@@ -1018,7 +1011,7 @@ function hasAcks(d: Design): boolean {
 
 /** Designs in which a stop is scored as the equivocator's forfeit (round 2 and candidate (d)). */
 function forfeitStop(d: Design): boolean {
-  return d === 'fgr2' || d === 'pile';
+  return d === 'fgr2' || d === 'stop';
 }
 
 function isFgr(d: Design): boolean {
@@ -1050,21 +1043,13 @@ function pathTo(head: string, get: (id: string) => MoveEv): string[] {
 function grantsOn(s: Scope, path: readonly string[], get: (id: string) => MoveEv): Grant[] {
   const out: Grant[] = [];
   let pos = 0;
-  let reserve = 0;
-  const drawn = new Map<Seat, number>();
   for (const id of path) {
     const m = get(id);
     for (let n = 0; n < DRAWS[m.kind]; n++) {
       const v = viewersOf(s.mode, m.seat, s.seats);
-      if (s.mode === 'roll') {
-        // A roll's point is bound to the move that requests it: a rival move rolls a different value.
-        out.push({ pos: rollPos(`${id}#${n}`), v, move: id, reserve: false });
-      } else if (s.design === 'pile') {
-        const i = drawn.get(m.seat) ?? 0;
-        drawn.set(m.seat, i + 1);
-        if (i < (s.pile ?? PILE)) out.push({ pos: m.seat * PILE + i, v, move: id, reserve: false });
-        else out.push({ pos: RESERVE + reserve++, v, move: id, reserve: true });
-      } else out.push({ pos: pos++, v, move: id, reserve: false });
+      // A roll's point is bound to the move that requests it: a rival move rolls a different value.
+      if (s.mode === 'roll') out.push({ pos: rollPos(`${id}#${n}`), v, move: id });
+      else out.push({ pos: pos++, v, move: id });
     }
   }
   return out;
@@ -1085,6 +1070,8 @@ interface View {
   readonly flagged: ReadonlySet<Seat>;
   /** A fork (a held rival) exists at some prev on the walk. */
   readonly forked: boolean;
+  /** The stop is at a fork with a side that had already reached the end (`stop`): a finished game voided. */
+  readonly endedVoided: boolean;
   readonly pending: Seat;
   readonly grants: readonly Grant[];
   readonly pathMoves: readonly MoveEv[];
@@ -1213,6 +1200,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   let stopSeat: Seat | null = null;
   const flagged = new Set<Seat>();
   let forked = false;
+  let endedVoided = false;
   for (;;) {
     if (path.length >= s.length) {
       status = 'over';
@@ -1221,18 +1209,19 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     const ks = kids.get(at) ?? [];
     if (ks.length === 0) break;
     let next: MoveEv;
-    if (s.design === 'pile') {
+    if (s.design === 'stop') {
       if (ks.length === 1) next = ks[0] as MoveEv;
       else {
-        // A fork stops the game at the fork (the equivocator's forfeit), unless a side already reached the end:
-        // a finished game is never reopened (over first, then length, then lowest id, as v1).
+        // Candidate (e): any held fork stops the game here, the equivocator's forfeit. With `overStands`, a side
+        // that already reached the end stands instead (over first, then length, then lowest id, as v1).
         const done = ks.filter((k) => path.length + 1 + longest(k.id) >= s.length);
-        if (done.length === 0) {
+        if (s.overStands === true && done.length > 0) next = bestOf(done);
+        else {
           status = 'stop';
           stopSeat = path.length % s.seats;
+          endedVoided = done.length > 0;
           break;
         }
-        next = bestOf(done);
       }
     } else if (s.design === 'fs' || isFgr(s.design)) {
       if (ks.length === 1) next = ks[0] as MoveEv;
@@ -1287,6 +1276,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     stopSeat,
     flagged: s.design === 'fgr2' ? flagged : new Set<Seat>(),
     forked,
+    endedVoided,
     pending: path.length % s.seats,
     grants: grantsOn(s, path, (id) => byId.get(id) as MoveEv),
     pathMoves,

@@ -324,57 +324,105 @@ describe('final, or stop, round 2 (fgr2): no exposure, forfeit, divergence or ra
 });
 
 /*
- * Candidate (d), the recommended design (prompt-reveal.md §5): ownership of every hidden position is fixed before
- * any share is released (per-seat piles), shares go out at once with no Acks, a fork stops the game as the
- * equivocator's forfeit. The only learning allowed is a coalition reading its own seat's card early (`self-leak`).
+ * Candidate (e), "plain stop", the recommended design (prompt-reveal.md §5): one shared pile, shares released as
+ * soon as the drawing move is held, any held fork stops the game as the equivocator's forfeit (never a pick, never
+ * a resume), and a stop never overrides a counted claim or resign.
  */
-describe('candidate (d), fixed ownership: no exposure, forfeit, divergence or rating gain', () => {
-  const pile = { ...base, design: 'pile', advAcks: 0 } as const;
+describe('candidate (e), plain stop: no exposure, honest forfeit, rating gain or divergence', () => {
+  const stop = { ...base, design: 'stop', advAcks: 0 } as const;
 
   it('every mode (private, viewers, public, roll) and every coalition, 3 moves', () => {
     for (const mode of [...MODES, 'roll'] as Mode[]) {
-      const s = sweep({ ...pile, mode, length: 3 });
+      const s = sweep({ ...stop, mode, length: 3 });
       expect(s.complete, mode).toBe(true);
       expectSafe(s.counts);
     }
   });
 
-  it('claims, resigns and a deadline; moves that draw two positions; a 1-card pile and the reserve', () => {
-    for (const extra of [
-      { advClaims: 1, advResigns: 1, expiries: 1 },
-      { multiDraw: true },
-      { pile: 1, length: 4 },
-    ]) {
-      const s = sweep({ ...pile, mode: 'private', length: 3, ...extra });
+  it('claims, resigns and a deadline; moves that draw two positions', () => {
+    for (const extra of [{ advClaims: 1, advResigns: 1, expiries: 1 }, { multiDraw: true }]) {
+      const s = sweep({ ...stop, mode: 'private', length: 3, ...extra });
       expect(s.complete).toBe(true);
       expectSafe(s.counts);
     }
   });
 
-  it('the review’s attacks 1–4 have nothing to work on', () => {
-    // 1: one key on two devices (no Acks: only human moves are signed).
-    expectSafe(counts(explore({ ...pile, mode: 'private', length: 3, coalition: [0, 2], devices: 2 })));
-    // 2: a stop is the equivocator's forfeit in a 2-seat game.
-    expectSafe(counts(explore({ ...pile, seats: 2, mode: 'private', length: 3, coalition: [0] })));
-    // 3: a stop never overrides a counted timeout.
-    expectSafe(counts(explore({ ...pile, mode: 'private', length: 3, coalition: [1], expiries: 1 })));
-    // 4: no Acks, so no interim stop to resume from; humans who leave on a stop are never timed out.
-    const s = sweep({ ...pile, mode: 'private', length: 3, absence: true, advClaims: 1, expiries: 1 });
-    expectSafe(s.counts);
-  });
-
-  it('at a late-Ack depth: two colluders, 5 moves, 5 adversary moves', () => {
-    const r = explore({ ...pile, mode: 'private', length: 5, advMoves: 5, coalition: [0, 1] });
+  it('D039, the late-Ack depth and honest splits all end in a stop', () => {
+    expectSafe(counts(explore({ ...stop, mode: 'private', length: 3, coalition: [1] })));
+    const r = explore({ ...stop, mode: 'private', length: 5, advMoves: 5, coalition: [0, 1] });
     expect(r.complete).toBe(true);
     expectSafe(counts(r));
   });
 
-  it('liveness: pile draws are prompt; reserve draws fall back to the slow path', () => {
+  it('the review’s attacks 1–4', () => {
+    // 1: one key on two devices (no Acks; a device that never saw A plays on B until A surfaces).
+    for (const coalition of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as Seat[][])
+      expectSafe(counts(explore({ ...stop, mode: 'private', length: 3, coalition, devices: 2 })));
+    // 2: the stop is the equivocator's forfeit in a 2-seat game.
+    expectSafe(counts(explore({ ...stop, seats: 2, mode: 'private', length: 3, coalition: [0] })));
+    // 3: a stop never overrides a counted timeout (own head, or a colluder's fork below it).
+    expectSafe(counts(explore({ ...stop, mode: 'private', length: 3, coalition: [1], expiries: 1 })));
+    expectSafe(
+      counts(explore({ ...stop, mode: 'private', length: 3, advMoves: 3, coalition: [0, 1], expiries: 1 })),
+    );
+    // 4: no resume, and humans who leave on a stop are never timed out.
+    expectSafe(
+      counts(
+        explore({
+          ...stop,
+          mode: 'private',
+          length: 3,
+          coalition: [0],
+          absence: true,
+          expiries: 1,
+          advClaims: 1,
+        }),
+      ),
+    );
+  });
+
+  it('regressions: the owner’s "strictly above the head" rule 9 and "a finished ending stands" both fail', () => {
+    const flip = explore({
+      ...stop,
+      rule9: 'strict',
+      mode: 'private',
+      length: 3,
+      advMoves: 3,
+      coalition: [0, 1],
+      expiries: 1,
+      stopAt: ['rating'],
+    });
+    expect(flip.violations.rating?.first.detail).toMatch(/voids seat 1's counted claim/);
+    // Letting a finished side stand is picking a branch: the coalition finishes its rival and keeps what it read.
+    const pick = explore({
+      ...stop,
+      overStands: true,
+      mode: 'private',
+      length: 5,
+      advMoves: 5,
+      coalition: [0, 1],
+      stopAt: ['exposure'],
+    });
+    expect(pick.violations.exposure).toBeDefined();
+  });
+
+  it('residual: with 3 or more seats, a stop can turn a game that had ended into an unrated abort', () => {
+    const r = explore({ ...stop, mode: 'private', length: 3, coalition: [0], stopAt: ['ended-void'] });
+    expect(r.violations['ended-void']).toBeDefined();
+  });
+
+  it('liveness: every grant is readable once the network is quiet', () => {
     for (const mode of [...MODES, 'roll'] as Mode[]) {
-      const live = explore({ ...pile, mode, length: 5, advMoves: 0, coalition: [] });
+      const live = explore({ ...stop, mode, length: 5, advMoves: 0, coalition: [] });
       expect(Object.keys(live.violations), mode).toEqual([]);
-      const reserve = explore({ ...pile, mode, pile: 1, length: 5, advMoves: 0, coalition: [] });
-      expect(reserve.violations['no-fallback'], mode).toBeUndefined();
+      for (const lazy of [0, 1, 2]) {
+        const r = explore({ ...stop, mode, length: 5, advMoves: 0, coalition: [], lazy });
+        expect(r.violations['no-fallback'], `${mode} lazy ${lazy}`).toBeUndefined();
+      }
     }
   });
 });
@@ -497,14 +545,14 @@ describe.runIf(BIG)('bigger scope for round 2 (PROTOCOL_MODEL_BIG=1, about an ho
   }, 7_200_000);
 });
 
-describe.runIf(BIG)('bigger scope for candidate (d) (PROTOCOL_MODEL_BIG=1)', () => {
-  const pile = { ...base, design: 'pile', advAcks: 0 } as const;
+describe.runIf(BIG)('bigger scope for candidate (e) (PROTOCOL_MODEL_BIG=1)', () => {
+  const stop = { ...base, design: 'stop', advAcks: 0 } as const;
   const ALL4: Seat[][] = [[0], [1], [2], [3], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
 
   it('3 seats, 4 moves, 3 adversary moves, multi-draw, a claim, a resign, a deadline, every mode', () => {
     for (const mode of [...MODES, 'roll'] as Mode[]) {
       const s = sweep({
-        ...pile,
+        ...stop,
         mode,
         length: 4,
         advMoves: 3,
@@ -521,19 +569,22 @@ describe.runIf(BIG)('bigger scope for candidate (d) (PROTOCOL_MODEL_BIG=1)', () 
   it('4 seats, 4 moves, every coalition of 1 or 2 seats (single adversaries included), every mode', () => {
     for (const mode of [...MODES, 'roll'] as Mode[])
       for (const coalition of ALL4) {
-        const r = explore({ ...pile, seats: 4, mode, length: 4, coalition });
+        const r = explore({ ...stop, seats: 4, mode, length: 4, coalition });
         expect(r.complete).toBe(true);
         expectSafe(counts(r));
       }
   }, 7_200_000);
 
-  it('two devices per honest seat, a claim and a deadline, every coalition', () => {
-    const s = sweep({ ...pile, mode: 'private', length: 3, devices: 2, advClaims: 1, expiries: 1 });
+  it('two devices per honest seat, a claim and a deadline, every coalition; absent humans at 4 moves', () => {
+    const s = sweep({ ...stop, mode: 'private', length: 3, devices: 2, advClaims: 1, expiries: 1 });
     expect(s.complete).toBe(true);
     expectSafe(s.counts);
+    const a = sweep({ ...stop, mode: 'private', length: 4, absence: true, advClaims: 1, expiries: 2 });
+    expect(a.complete).toBe(true);
+    expectSafe(a.counts);
   }, 7_200_000);
 
-  it('the late-Ack scope with a claim; the reserve at 5 moves', () => {
+  it('the late-Ack scope with a claim, colluder pairs', () => {
     for (const coalition of [
       [0, 1],
       [0, 2],
@@ -541,11 +592,8 @@ describe.runIf(BIG)('bigger scope for candidate (d) (PROTOCOL_MODEL_BIG=1)', () 
     ])
       expectSafe(
         counts(
-          explore({ ...pile, length: 6, advMoves: 6, advClaims: 1, expiries: 1, coalition, mode: 'private' }),
+          explore({ ...stop, length: 6, advMoves: 6, advClaims: 1, expiries: 1, coalition, mode: 'private' }),
         ),
       );
-    const s = sweep({ ...pile, mode: 'private', pile: 1, length: 5, advMoves: 3 });
-    expect(s.complete).toBe(true);
-    expectSafe(s.counts);
   }, 7_200_000);
 });

@@ -1,9 +1,9 @@
 /**
  * pnpm --filter @bored-games/protocol-model explore [options]
  *
- *   --design v1,d039,ack,ack-lock,fs,fgr,fgr2,pile   designs to explore (default: all; pile = candidate (d))
+ *   --design v1,d039,ack,ack-lock,fs,fgr,fgr2,stop   designs to explore (default: all; stop = candidate (e))
  *   --mode private,viewers,public,roll     grant modes (default: private, viewers, public)
- *   --pile 1                               pile design: draws per seat before the common reserve
+ *   --over-stands                          stop design: a side that already reached the end stands
  *   --seats 3        --length 4            seats, and moves until the game is over
  *   --moves 3        --acks 1              adversary budgets: moves (rivals included) and acks
  *   --claims 1       --resigns 1           adversary budgets: timeout claims and resigns
@@ -43,7 +43,7 @@ const { values } = parseArgs({
     'multi-draw': { type: 'boolean', default: false },
     absence: { type: 'boolean', default: false },
     rule9: { type: 'string' },
-    pile: { type: 'string' },
+    'over-stands': { type: 'boolean', default: false },
   },
 });
 
@@ -96,7 +96,7 @@ for (const design of designs) {
         ackDevice: values['ack-device'] as 'all' | 'first' | 'checked',
         multiDraw: values['multi-draw'],
         absence: values.absence,
-        ...(values.pile === undefined ? {} : { pile: num(values.pile, 'pile') }),
+        overStands: values['over-stands'],
         ...(values.rule9 === undefined ? {} : { rule9: values.rule9 as 'at-or-past' | 'strict' | 'none' }),
       });
       states += r.states;
