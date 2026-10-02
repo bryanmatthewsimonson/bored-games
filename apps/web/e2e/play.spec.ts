@@ -197,7 +197,8 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
       log(`b reloaded at turn ${turn} and rebuilt the game`);
     }
     const actor = await nextToAct(players);
-    if (moves === 0) log(`first decision ${((Date.now() - startedGame) / 1000).toFixed(1)}s after Start game`);
+    if (moves === 0)
+      log(`first decision ${((Date.now() - startedGame) / 1000).toFixed(1)}s after Start game`);
     const before = await stateOf(actor);
     const what = await decide(actor);
     moves++;
