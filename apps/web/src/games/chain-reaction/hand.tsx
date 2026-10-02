@@ -4,7 +4,7 @@ import type { HandTile } from './model.ts';
 export const HIDDEN_TILE_HELP =
   'Your new tile. It’s yours already, but it stays hidden until every other player has made their next ' +
   'move: each move carries that player’s part of the reveal, so no one, not even the app, can see your ' +
-  'tile without you. It’s always revealed before your next turn.';
+  'tile without you. It’s always revealed before your next turn while the game goes on.';
 
 /** Shown under the hand while a tile is hidden: the popover needs a hover or a tap, this line does not. */
 export const HIDDEN_TILE_NOTE =
@@ -46,6 +46,15 @@ export function tipReducer(s: TipState, e: TipEvent): TipState {
   }
 }
 
+/**
+ * Whether a blur moved the focus to another element outside the "?" tile. A blur with no new focus (a click on
+ * the popover text or on the page) keeps the popover; a click outside it is closed by the game's listener.
+ */
+export function focusLeftTip(next: unknown): boolean {
+  const el = next as { closest?: (selector: string) => unknown } | null;
+  return typeof el?.closest === 'function' && el.closest('.cr-unknown') === null;
+}
+
 /** The id of a hidden tile's popover, for `aria-describedby` and `aria-controls`. */
 export const tipId = (pos: number): string => `cr-tip-${pos}`;
 
@@ -82,7 +91,9 @@ export function UnknownTile(props: {
         aria-controls={id}
         aria-describedby={id}
         onClick={() => onTip({ type: 'click', pos })}
-        onBlur={() => onTip({ type: 'close' })}
+        onBlur={(e) => {
+          if (focusLeftTip(e.relatedTarget)) onTip({ type: 'close' });
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Escape' && props.open) {
             e.preventDefault();
@@ -117,10 +128,7 @@ export function Hand(props: {
   tiles: readonly HandTile[];
   /** Tile indices the seat may place now. */
   placeable: ReadonlySet<number>;
-  /**
-   * Show each tile's badge and preview text. Off outside the place phase: while a founding or merger
-   * resolves, the pending tile makes the classification unreliable.
-   */
+  /** Show each tile's badge and preview text: only for the viewer's own place decision (`handBadgesShown`). */
   showBadges: boolean;
   selected: number | null;
   disabled: boolean;

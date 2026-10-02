@@ -30,6 +30,7 @@ import {
   findDispose,
   findEndTurn,
   formatMoney,
+  handBadgesShown,
   handTiles,
   LOG_LINES,
   lastPlacedTile,
@@ -410,6 +411,27 @@ describe('playerRows', () => {
   it('falls back to a seat name when none is given', () => {
     const rows = playerRows(get('place').state, [], null);
     expect(rows[0]?.name).toBe('Seat 1');
+  });
+});
+
+describe('handBadgesShown', () => {
+  it("is on only for the viewer's own place or skip decision, never on another seat's turn", () => {
+    let others = 0;
+    for (const g of samples('badges', 4, 3)) {
+      const s = g.state;
+      const acting = actor(s);
+      for (let seat = 0; seat < s.seats; seat++) {
+        const legal = seat === acting ? legalFor(s) : [];
+        const d = decisionFor(s, legal);
+        expect(handBadgesShown(d)).toBe(d.kind === 'place' || d.kind === 'skip');
+        if (s.phase.kind === 'place' && seat !== acting) {
+          expect(handBadgesShown(d)).toBe(false);
+          others++;
+        }
+        if (s.phase.kind === 'place' && seat === acting) expect(handBadgesShown(d)).toBe(true);
+      }
+    }
+    expect(others).toBeGreaterThan(10);
   });
 });
 

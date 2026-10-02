@@ -400,7 +400,8 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
             <strong>A new tile shows "?" for a while.</strong> The tile is yours as soon as you draw it, but
             it stays hidden until every other player has made their next move: each move carries that player's
             part of the reveal, so no one, not even the app, can see your tile without you. It is always
-            revealed before your next turn. In the game, hover over or tap the "?" for this explanation.
+            revealed before your next turn while the game goes on. In the game, hover over or tap the "?" for
+            this explanation.
           </li>
           <li>
             <strong>Merger decisions can come to you out of turn.</strong> When a chain you hold shares in is

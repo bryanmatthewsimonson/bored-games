@@ -12,6 +12,7 @@ import {
   chainRows,
   decisionFor,
   type HandTile,
+  handBadgesShown,
   handTiles,
   myHoldings,
   playerRows,
@@ -81,7 +82,6 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   useEffect(() => {
     setSelected(null);
     setPreview(null);
-    onTip({ type: 'close' });
   }, [state.seq]);
   // An open "?" popover closes on Escape wherever the focus is (a hover popover too, WCAG 1.4.13), and a pinned
   // one on a tap or click anywhere else (touch browsers may not move the focus on a tap).
@@ -105,6 +105,10 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   const cells = useMemo(() => boardCells(state, props.lastTile ?? null), [state, props.lastTile]);
   const hand = useMemo(() => (mySeat === null ? [] : handTiles(state, mySeat)), [state, mySeat]);
   const decision = useMemo(() => decisionFor(state, props.legal), [state, props.legal]);
+  // The "?" popover stays open while other seats move, and closes once its tile is revealed.
+  useEffect(() => {
+    if (tip.pos !== null && !hand.some((t) => t.pos === tip.pos && t.tile === null)) onTip({ type: 'close' });
+  }, [hand, tip.pos]);
   const chains = chainRows(state, mySeat);
   const players = playerRows(state, names, mySeat);
   const status = statusLine(state, names, mySeat);
@@ -152,7 +156,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
             <Hand
               tiles={hand}
               placeable={placeable}
-              showBadges={state.phase.kind === 'place'}
+              showBadges={handBadgesShown(decision)}
               selected={selected}
               disabled={locked}
               onSelect={setSelected}

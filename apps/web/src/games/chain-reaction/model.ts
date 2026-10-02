@@ -504,6 +504,15 @@ function lookup(actions: readonly ChainReactionAction[], candidate: unknown): Ch
 const isCount = (n: number): boolean => Number.isInteger(n) && n >= 0;
 
 /** Maps the seat's legal actions to the decision the screen asks for. */
+/**
+ * Whether the hand shows each tile's badge ("playable", "merge", "dead"…) and preview text: only while this
+ * viewer is placing (or must skip placing). On anyone else's turn the badges would read as advice for a turn that
+ * is not theirs, and while a founding or merger resolves the pending tile makes the classification unreliable.
+ */
+export function handBadgesShown(decision: Decision): boolean {
+  return decision.kind === 'place' || decision.kind === 'skip';
+}
+
 export function decisionFor(s: ChainReactionState, legal: readonly ChainReactionAction[]): Decision {
   const first = legal[0];
   if (!first) return { kind: 'wait' };

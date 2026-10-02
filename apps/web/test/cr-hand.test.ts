@@ -5,6 +5,7 @@
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import {
+  focusLeftTip,
   Hand,
   HIDDEN_TILE_HELP,
   HIDDEN_TILE_NOTE,
@@ -82,7 +83,7 @@ describe('Hand: the "?" tile', () => {
     expect(HIDDEN_TILE_HELP).toMatch(/^Your new tile\. It’s yours already/);
     expect(HIDDEN_TILE_HELP).toContain('until every other player has made their next move');
     expect(HIDDEN_TILE_HELP).toContain('not even the app');
-    expect(HIDDEN_TILE_HELP).toMatch(/always revealed before your next turn\.$/);
+    expect(HIDDEN_TILE_HELP).toMatch(/always revealed before your next turn while the game goes on\.$/);
   });
 
   it('shows the popover and marks the button expanded when its tile is the open one', () => {
@@ -100,7 +101,10 @@ describe('Hand: the "?" tile', () => {
     const b = unknownButton(tree);
     const call = (el: El, name: string, ev: unknown) => (el.attrs[name] as (e: unknown) => void)(ev);
     call(b, 'onClick', {});
-    call(b, 'onBlur', {});
+    // Blur closes only when the focus moves to another element outside the "?".
+    call(b, 'onBlur', { relatedTarget: null });
+    call(b, 'onBlur', { relatedTarget: { closest: () => ({}) } });
+    call(b, 'onBlur', { relatedTarget: { closest: () => null } });
     const esc = { key: 'Escape', preventDefault: () => {}, stopPropagation: () => {} };
     call(b, 'onKeyDown', esc);
     call(b, 'onKeyDown', { ...esc, key: 'a' });
@@ -136,11 +140,41 @@ describe('Hand: the "?" tile', () => {
     expect(img?.attrs['aria-label']).toBe(NOT_REVEALED);
   });
 
+  it('shows no badge or preview text when badges are off (not my place decision)', () => {
+    const tree = renderTree(
+      h(Hand, {
+        tiles: [known],
+        placeable: new Set<number>(),
+        showBadges: false,
+        selected: null,
+        disabled: true,
+        onSelect: () => {},
+        onPreview: () => {},
+        ended: false,
+        tip: TIP_CLOSED,
+        onTip: () => {},
+      }),
+    );
+    const [tile] = findAll(tree, (el) => el.tag === 'button');
+    expect(tile?.attrs['aria-label']).toBe('1A');
+    expect(tile?.attrs.title).toBeUndefined();
+    expect(textOf(tree)).not.toContain('playable');
+  });
+
   it('keeps known tiles as buttons with their badge', () => {
     const tree = render([known, drawn]);
     const tiles = findAll(tree, (el) => el.tag === 'button');
     expect(tiles).toHaveLength(2);
     expect(tiles[0]?.attrs['aria-label']).toBe('1A, playable: Stays unincorporated');
+  });
+});
+
+describe('focusLeftTip', () => {
+  it('is true only for a new focus outside the "?" tile', () => {
+    expect(focusLeftTip(null)).toBe(false);
+    expect(focusLeftTip(undefined)).toBe(false);
+    expect(focusLeftTip({ closest: () => null })).toBe(true);
+    expect(focusLeftTip({ closest: (sel: string) => (sel === '.cr-unknown' ? {} : null) })).toBe(false);
   });
 });
 
