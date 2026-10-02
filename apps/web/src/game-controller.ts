@@ -287,7 +287,7 @@ export class GameController {
     this.#outbox = loadOutbox(this.#d.storage, this.#d.profile, this.rootId);
     this.#seen = loadSeen(this.#d.storage, this.#d.profile, this.rootId);
     // The root first; the game's events are asked for once the root names the seats (`#subscribeGame`).
-    this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev) => this.#onEvent(ev)));
+    this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev, url) => this.#onEvent(ev, url)));
     this.#stops.push(this.#d.timers.every(TICK_MS, () => this.tick()));
   }
 
@@ -360,7 +360,8 @@ export class GameController {
 
   /* --------------------------------------------------------------------------------------------- loading */
 
-  #onEvent(ev: NostrEvent): void {
+  /** An event from the relays; `url` is the relay that delivered it first. */
+  #onEvent(ev: NostrEvent, url: string): void {
     if (this.#disposed) return;
     if (ev.kind === KIND.root && ev.id === this.rootId) {
       this.#onRoot(ev);
@@ -370,7 +371,7 @@ export class GameController {
     if (!this.#seated(ev)) return;
     this.#got.add(ev.id);
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
-    if (entry !== undefined) this.#confirm(entry[0]);
+    if (entry !== undefined && this.#delivered(entry[0], [url])) this.#confirm(entry[0]);
     // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
     if (this.#session === null || !this.#gameEose) {
       if (this.#buffer.length < MAX_BUFFER) this.#buffer.push(ev);
@@ -467,7 +468,7 @@ export class GameController {
       let fresh = 0;
       let oldest = Number.POSITIVE_INFINITY;
       let stop = (): void => {};
-      const onEvent = (ev: NostrEvent): void => {
+      const onEvent = (ev: NostrEvent, url: string): void => {
         if (this.#disposed) return;
         // Only seated events this client had not seen move the page: a stranger's event, or an old one dated far
         // back, must not steer `until`.
@@ -475,7 +476,7 @@ export class GameController {
           fresh++;
           if (ev.created_at < oldest) oldest = ev.created_at;
         }
-        this.#onEvent(ev);
+        this.#onEvent(ev, url);
       };
       const onEose = (): void => {
         if (this.#disposed) return;
@@ -937,10 +938,21 @@ export class GameController {
   }
 
   /**
+   * Whether relays at `urls` holding the slot's event count as delivered. For a `shares:` slot only a root relay
+   * counts (D039): the seat's next move carries no shares, so peers hold that move back until they get the Shares
+   * event, and they read the root's relays, not this player's own.
+   */
+  #delivered(slot: string, urls: readonly string[]): boolean {
+    if (!slot.startsWith(SHARES_SLOT)) return urls.length > 0;
+    const root = this.#root?.relays ?? [];
+    return urls.some((u) => root.includes(u));
+  }
+
+  /**
    * Mark the slot's event delivered. A `shares:` slot is dropped instead (D039): it is a small event a seat sends
    * after most draws, so keeping each would grow storage by about a hundred events a game. Dropping it is safe:
-   * the relay holds it, and should the duty come back, a new Shares event is harmless (a seat's first share of a
-   * position is the one kept, and Shares events are not chain moves).
+   * one of the game's relays holds it (`#delivered`), and should the duty come back, a new Shares event is
+   * harmless (a seat's first share of a position is the one kept, and Shares events are not chain moves).
    */
   #confirm(slot: string): void {
     const entry = this.#outbox.get(slot);
@@ -965,8 +977,10 @@ export class GameController {
     try {
       const results = await this.#d.pool.publish(entry.event, unionRelays(root.relays, this.#d.relays()));
       if (this.#disposed) return;
-      if (results.some((r) => r.ok)) this.#confirm(slot);
-      else this.notice.value = 'Not delivered to any relay yet; retrying.';
+      const ok = results.filter((r) => r.ok).map((r) => r.url);
+      if (this.#delivered(slot, ok)) this.#confirm(slot);
+      else if (ok.length === 0) this.notice.value = 'Not delivered to any relay yet; retrying.';
+      else this.notice.value = "Not delivered to this game's relays yet; retrying.";
     } finally {
       this.#inFlight.delete(slot);
     }
