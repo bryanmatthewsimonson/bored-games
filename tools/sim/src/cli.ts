@@ -1,5 +1,6 @@
 /**
- * pnpm sim [--games 4] [--seats 3-6] [--seed sim] [--adversary name] [--adversary-seat 1] [--vanish-at n]
+ * pnpm sim [--game chain-reaction|chess] [--games 4] [--seats 3-6] [--seed sim] [--adversary name]
+ *          [--adversary-seat 1] [--vanish-at n]
  *          [--policy quick|<fuzz policy>] [--deadline 86400] [--max-rounds 20000] [--full-sync]
  *          [--workers n] [--json]
  *
@@ -7,7 +8,9 @@
  * the lobby, the shuffle, the deal, play, the audit and attestations, with events delivered out of order and
  * twice, a simulated clock and timeout claims. Game i uses seed "<seed>#<i>", seat count seats[i % n] and, unless
  * --policy names one, the fuzz policy i % (policy count). With --adversary one seat cheats, and each game is also
- * checked for that adversary's expected result. Prints one line per game and the totals; exits 1 on any failure.
+ * checked for that adversary's expected result. --game picks the game (any fuzz target); --seats defaults to its
+ * seat counts (3-6 for Chain Reaction, 2 for Chess). Prints one line per game and the totals; exits 1 on any
+ * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns.
  */
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
@@ -24,9 +27,10 @@ import {
   unexpected,
 } from '../../../packages/client/test/adversaries.ts';
 
-const GAME = 'chain-reaction';
+const DEFAULT_GAME = 'chain-reaction';
 
 interface Job {
+  game: string;
   seed: string;
   games: number;
   seatCounts: number[];
@@ -53,8 +57,8 @@ interface Result {
 type Msg = { kind: 'game'; result: Result } | { kind: 'done' };
 
 function policyFor(job: Job, index: number): { name: string; choose: SimPolicy } {
-  const target = TARGETS[GAME];
-  if (target === undefined) throw new Error(`unknown game ${GAME}`);
+  const target = TARGETS[job.game];
+  if (target === undefined) throw new Error(`unknown game ${job.game}`);
   if (job.policy === 'quick') return { name: 'quick', choose: quickPolicy };
   const policies = target.policies;
   const p =
@@ -64,8 +68,8 @@ function policyFor(job: Job, index: number): { name: string; choose: SimPolicy }
 }
 
 function runOne(job: Job, index: number): Result {
-  const target = TARGETS[GAME];
-  if (target === undefined) throw new Error(`unknown game ${GAME}`);
+  const target = TARGETS[job.game];
+  if (target === undefined) throw new Error(`unknown game ${job.game}`);
   const seats = job.seatCounts[index % job.seatCounts.length] as number;
   const policy = policyFor(job, index);
   let adv: Adversary | undefined;
@@ -138,8 +142,9 @@ function line(r: Result): string {
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
+      game: { type: 'string', default: DEFAULT_GAME },
       games: { type: 'string', default: '4' },
-      seats: { type: 'string', default: '3-6' },
+      seats: { type: 'string' },
       seed: { type: 'string', default: 'sim' },
       adversary: { type: 'string' },
       'adversary-seat': { type: 'string', default: '1' },
@@ -157,12 +162,19 @@ async function main(): Promise<void> {
     console.error(`unknown adversary "${name}"; known: ${ADVERSARIES.join(', ')}`);
     process.exit(2);
   }
+  const game = values.game as string;
+  const target = TARGETS[game];
+  if (target === undefined) {
+    console.error(`unknown game "${game}"; known: ${Object.keys(TARGETS).join(', ')}`);
+    process.exit(2);
+  }
   const games = Number(values.games);
   const workers = Math.max(1, Math.min(Number(values.workers ?? availableParallelism()), games));
   const base: Omit<Job, 'worker' | 'workers'> = {
+    game,
     seed: values.seed as string,
     games,
-    seatCounts: parseSeats(values.seats as string),
+    seatCounts: values.seats === undefined ? [...target.defaultSeatCounts] : parseSeats(values.seats),
     adversary: name as AdversaryName | null,
     adversarySeat: Number(values['adversary-seat']),
     vanishAt: values['vanish-at'] === undefined ? null : Number(values['vanish-at']),
@@ -201,7 +213,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ games: results.length, seconds, results }, null, 2));
   } else {
     console.log(
-      `\n${results.length} games (seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}): ` +
+      `\n${results.length} ${game} games (seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}): ` +
         `${results.length - failed.length} ok, ${failed.length} failed; ${count('done')} done, ${count('cancelled')} cancelled; ` +
         `${actions} actions, ${events} events in ${seconds.toFixed(1)}s (${workers} workers)`,
     );

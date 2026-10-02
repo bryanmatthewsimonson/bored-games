@@ -76,7 +76,7 @@ None. Chess has no decks (`decks(rules) = []`), so `dealt`, `knownTo` and `revea
 
 ## Edge-case catalog
 
-Each entry has a named test in `packages/games/chess/test/catalog/` whose title starts with its id. `catalog-coverage.test.ts` fails if any id below has no test.
+Each entry has a named test in `packages/games/chess/test/catalog/` whose title starts with its id. `tests/catalog.test.ts` fails if any id below has no test, or any catalog test has no entry.
 
 **Notation:** positions are given as FEN. A move list such as `e2e4 e7e5` alternates seats starting with the side to move. "Rejected (`code`)" names the engine error code.
 
