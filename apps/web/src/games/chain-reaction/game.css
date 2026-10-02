@@ -534,11 +534,6 @@ main:has(.cr-game) {
   flex: 1 1 auto;
 }
 
-.cr-player-head .cr-cash {
-  flex: none;
-  line-height: 24px;
-}
-
 /* A long name with its npub wraps beside the avatar instead of widening the panel. */
 .cr-player-label {
   min-width: 0;
@@ -558,6 +553,11 @@ main:has(.cr-game) {
 .cr-cash-hidden {
   font-size: 0.85rem;
   font-weight: 400;
+}
+
+.cr-player-head .cr-cash {
+  flex: none;
+  line-height: 24px;
 }
 
 .cr-player-meta {
