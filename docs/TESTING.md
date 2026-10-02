@@ -68,7 +68,7 @@ If you chose the extension but it is not there when the page loads (disabled, or
 
 ### Names, pictures and keys
 - **Settings → Name and picture** sets the name, about line and picture that other players see beside your npub (your NOSTR kind 0 profile). A picture can be an uploaded photo (cropped to 256×256 and re-encoded without its metadata), one of the gallery pictures, or an https link. Uploads go to the Blossom server `https://blossom.primal.net`; change it under **Picture server**. Until you add a name, Home suggests it.
-- **Settings → Identity → Use a secret key from elsewhere** imports an `nsec`. The previous key is kept, and **Switch back** returns to it. Games stay with the key that joined them (D041).
+- **Settings → Identity → Use a secret key from elsewhere** imports an `nsec`. Every key you replace is kept in this browser under **Other keys**, with **Switch to**. Games stay with the key that joined them: Home marks another key's tables "Under another key", and they cannot be joined from the current key (D041). The import is refused in a private window, where nothing would be saved.
 - On the first table you create or join, the browser is asked to keep this site's data, and Settings shows whether it agreed. Home reminds you to back up your key until you copy it or tick "I've saved it".
 
 ## 3. Known limitations
