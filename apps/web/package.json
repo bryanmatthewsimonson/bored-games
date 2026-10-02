@@ -13,6 +13,7 @@
   "dependencies": {
     "@bored-games/brand": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
+    "@bored-games/chess": "workspace:*",
     "@bored-games/client": "workspace:*",
     "@bored-games/deck": "workspace:*",
     "@bored-games/game-kit": "workspace:*",

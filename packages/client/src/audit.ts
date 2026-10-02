@@ -23,10 +23,11 @@ export interface AuditInput {
   /** The validated rules the game started with. */
   rules: unknown;
   seats: number;
-  deckId: string;
-  /** The final deck: the output of the last shuffle step. */
+  /** The module's one deck, or null for a deckless game (D045). */
+  deckId: string | null;
+  /** The final deck: the output of the last shuffle step; empty for a deckless game. */
   deck: readonly Ciphertext[];
-  /** Every seat's deck secret `x_k`, in seat order, each already checked against `X_k`. */
+  /** Every seat's deck secret `x_k`, in seat order, each already checked against `X_k`; unused when deckless. */
   secrets: readonly bigint[];
   /** Card points to card indices for the deck (`cardTable`). */
   cards: ReadonlyMap<string, number>;
@@ -51,7 +52,8 @@ const everyone = (seats: number, reason: string): Audit => ({
 
 /**
  * The R6 audit (PROTOCOL §7): decrypt every final-deck position with all the secrets, set the module up in full
- * mode with that order, and replay the interleaved action log.
+ * mode with that order, and replay the interleaved action log. A deckless game (D045) has nothing to decrypt: it
+ * is set up in full mode with `deckOrders: {}` and replays its log the same way.
  * - The first action the full-mode engine rejects fails its actor. A rejected derived reveal, a position that
  *   decrypts to no card, or a module that refuses the order fails every seat: no single seat is to blame.
  * - If the replay's outcome differs from the declared one, every seat fails ("outcome mismatch").
@@ -59,18 +61,17 @@ const everyone = (seats: number, reason: string): Audit => ({
  */
 export function auditGame(input: AuditInput): Audit {
   const { module, seats } = input;
-  const order: number[] = [];
-  for (const [pos, ct] of input.deck.entries()) {
-    const card = cardOf(input.cards, decryptWithSecrets(ct, input.secrets));
-    if (card === null) return everyone(seats, `deck position ${pos} decrypts to no card`);
-    order.push(card);
+  const deckOrders: Record<string, number[]> = {};
+  if (input.deckId !== null) {
+    const order: number[] = [];
+    for (const [pos, ct] of input.deck.entries()) {
+      const card = cardOf(input.cards, decryptWithSecrets(ct, input.secrets));
+      if (card === null) return everyone(seats, `deck position ${pos} decrypts to no card`);
+      order.push(card);
+    }
+    deckOrders[input.deckId] = order;
   }
-  const init = module.setup({
-    rules: input.rules,
-    seats,
-    mode: 'full',
-    deckOrders: { [input.deckId]: order },
-  });
+  const init = module.setup({ rules: input.rules, seats, mode: 'full', deckOrders });
   if (!init.ok) return everyone(seats, `full-mode setup fails: ${init.error.code}: ${init.error.message}`);
   let state = init.value;
   for (const entry of input.log) {

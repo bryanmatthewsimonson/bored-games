@@ -12,7 +12,7 @@ import {
 } from '../src/screens/game.tsx';
 
 const viewOf = (v: Partial<SessionView>): SessionView =>
-  ({ seats: 3, head: { id: 'h', seq: 3 }, ...v }) as SessionView;
+  ({ seats: 3, shuffleSteps: 3, head: { id: 'h', seq: 3 }, ...v }) as SessionView;
 
 describe('game screen helpers', () => {
   it('formats the time left on the deadline', () => {
@@ -50,6 +50,13 @@ describe('game screen helpers', () => {
     expect(timeoutExplanation(viewOf({ phase: 'play', head: { id: 'h', seq: 4 } }), 'Bo')).toMatch(
       /Bo forfeits: the game ends now, Bo is ranked last/,
     );
+    // A deckless game (D045) has no shuffle steps: its first move is a game action.
+    expect(
+      timeoutExplanation(viewOf({ phase: 'play', shuffleSteps: 0, head: { id: 'h', seq: 0 } }), 'Bo'),
+    ).toMatch(/cancelled without a result/);
+    expect(
+      timeoutExplanation(viewOf({ phase: 'play', shuffleSteps: 0, head: { id: 'h', seq: 1 } }), 'Bo'),
+    ).toMatch(/Bo forfeits: the game ends now/);
     expect(timeoutExplanation(viewOf({ phase: 'end', head: { id: 'h', seq: 90 } }), 'Bo')).toMatch(
       /end-of-game secret .* Bo forfeits and is ranked last/,
     );

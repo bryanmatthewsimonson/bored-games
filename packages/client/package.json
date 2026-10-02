@@ -15,6 +15,7 @@
     "@bored-games/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@bored-games/chain-reaction": "workspace:*"
+    "@bored-games/chain-reaction": "workspace:*",
+    "@bored-games/chess": "workspace:*"
   }
 }

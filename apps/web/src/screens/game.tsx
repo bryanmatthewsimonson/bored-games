@@ -62,12 +62,12 @@ export function equivocatorsOf(view: SessionView | null): readonly number[] {
  * first game action (the shuffle, the deal, or play before any move after them) the game is cancelled instead.
  */
 export function timeoutExplanation(view: SessionView, who: string): string {
-  const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.seats;
+  const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started)
     return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits, and because no move has been played yet the game is cancelled without a result.`;
   if (view.phase === 'end')
     return `${who} has not sent their end-of-game secret in time. If you claim the timeout, ${who} forfeits and is ranked last.`;
-  return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits: the game ends now, ${who} is ranked last and the others are ranked by their cash as if the game ended now.`;
+  return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits: the game ends now, ${who} is ranked last and the others are ranked as if the game ended now.`;
 }
 
 /** The seats a timeout claim made forfeit, when one ended the game; empty otherwise. */

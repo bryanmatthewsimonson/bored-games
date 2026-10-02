@@ -62,6 +62,11 @@ export interface SessionView {
   phase: Phase;
   rootId: Hex;
   seats: number;
+  /**
+   * The shuffle steps that open the chain (PROTOCOL §6.1): the seat count in a game with a deck, 0 in a deckless
+   * game (D045). The first game action is move `shuffleSteps + 1`.
+   */
+  shuffleSteps: number;
   mySeat: number | null;
   /** The last accepted move, or the root (seq 0) before the first. */
   head: { id: Hex; seq: number };

@@ -35,6 +35,9 @@ importers:
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../../packages/games/chain-reaction
+      '@bored-games/chess':
+        specifier: workspace:*
+        version: link:../../packages/games/chess
       '@bored-games/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -87,6 +90,9 @@ importers:
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../games/chain-reaction
+      '@bored-games/chess':
+        specifier: workspace:*
+        version: link:../games/chess
 
   packages/deck:
     dependencies:

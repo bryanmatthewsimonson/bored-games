@@ -227,9 +227,16 @@ export class GameSession {
   private readonly module: AnyModule;
   private readonly root: ParsedRoot;
   private readonly rules: unknown;
-  private readonly deckId: string;
+  /** The module's one deck, or null for a deckless game (D045): no shuffle, no deal, no shares, no secrets. */
+  private readonly deckId: string | null;
+  /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
   private readonly seats: number;
+  /**
+   * The shuffle steps at the start of the chain (PROTOCOL §6.1): one per seat when the game has a deck, none when
+   * it is deckless. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
+   */
+  private readonly shuffleSteps: number;
   /** Seat deck keys `X_k` and their sum, the joint key `X`. */
   private readonly keys: Point[];
   private readonly X: Point;
@@ -240,7 +247,7 @@ export class GameSession {
   /** Card points to card indices for the deck. */
   private readonly cards: ReadonlyMap<string, number>;
 
-  private phase: Phase = 'shuffle';
+  private phase: Phase;
   /** The canonical chain: accepted moves in `seq` order. */
   private readonly chain: ParsedMove[] = [];
   /** The root id and every move on the canonical chain. */
@@ -389,27 +396,37 @@ export class GameSession {
     this.root = root;
     this.rules = rules;
     const decks = module.decks(rules);
-    if (decks.length !== 1) throw new ClientError(`a session supports exactly one deck, not ${decks.length}`);
-    const deck = decks[0] as { id: string; size: number };
-    this.deckId = deck.id;
-    this.deckSize = deck.size;
+    if (decks.length > 1) throw new ClientError(`a session supports one deck or none, not ${decks.length}`);
+    const deck = decks[0] ?? null;
+    this.deckId = deck?.id ?? null;
+    this.deckSize = deck?.size ?? 0;
     this.seats = root.seats.length;
+    this.shuffleSteps = deck === null ? 0 : this.seats;
+    // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
     this.X = jointKey(this.keys);
     this.seatOf = new Map(root.seats.map((s, i) => [s.session, i]));
     this.npubSeat = new Map(root.seats.map((s, i) => [s.npub, i]));
     this.me = input.me === null ? null : { ...input.me, sessionSk: input.me.sessionSk.slice() };
-    this.decks = [initialDeck(this.deckId, this.deckSize)];
-    this.cards = cardTable(this.deckId, this.deckSize);
+    this.decks = deck === null ? [] : [initialDeck(deck.id, deck.size)];
+    this.cards = deck === null ? new Map() : cardTable(deck.id, deck.size);
     this.shares = new ShareStore(this.seats);
     this.linked.add(root.id);
     this.rootSeenAt = input.rootSeenAt;
     this.clock = input.rootSeenAt;
+    this.phase = 'shuffle';
+    // A deckless game has nothing to shuffle or deal: it starts in play, its view-mode state set up now.
+    if (deck === null) this.startDeal();
+  }
+
+  /** Whether the game has a deck (PROTOCOL §6.1); a deckless game has no shares and no secrets (D045). */
+  private hasDeck(): boolean {
+    return this.deckId !== null;
   }
 
   /**
    * A session for the game started by `input.root`. Throws `ClientError` when the table or root does not parse,
-   * the root is not a valid start of the game (`validateRoot`), the module has other than one deck, or `me` does
+   * the root is not a valid start of the game (`validateRoot`), the module has more than one deck, or `me` does
    * not hold the seat it names. Joins that do not parse are ignored; `validateRoot` reports the ones it misses.
    */
   static create(input: SessionInput): GameSession {
@@ -523,7 +540,8 @@ export class GameSession {
     if (kind === KIND.attest) return this.intakeAttest(ev);
     let parsed: { kind: 'move'; m: ParsedMove } | { kind: 'shares'; s: ParsedShares };
     try {
-      if (kind === KIND.move) parsed = { kind: 'move', m: parseMove(ev, this.deckSize) };
+      // A deckless game parses with a 1-card deck so that a shuffle step gets moveShape's clear rejection.
+      if (kind === KIND.move) parsed = { kind: 'move', m: parseMove(ev, Math.max(1, this.deckSize)) };
       else if (kind === KIND.shares) parsed = { kind: 'shares', s: parseShares(ev) };
       else return { status: 'rejected', reason: `kind ${String(kind)} is not an in-game event` };
     } catch (e) {
@@ -668,13 +686,19 @@ export class GameSession {
     return this.flagged.join() !== flagged ? { status: 'accepted' } : { status: 'stored' };
   }
 
-  /** Checks that hold whatever the state: the content type for its `seq`, and a shuffle step's signer. */
+  /**
+   * Checks that hold whatever the state: the content type for its `seq`, a shuffle step's signer, and, in a
+   * deckless game, no shares or reveals.
+   */
   private moveShape(m: ParsedMove, seat: number): string | null {
-    if (m.seq <= this.seats) {
-      if (m.content.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
+    const c = m.content;
+    if (m.seq <= this.shuffleSteps) {
+      if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
       if (seat !== m.seq - 1) return `shuffle step ${m.seq} must be signed by seat ${m.seq - 1}`;
-    } else if (m.content.type !== 'action') {
+    } else if (c.type !== 'action') {
       return `move ${m.seq} must be a game action`;
+    } else if (!this.hasDeck() && (c.shares.length > 0 || c.reveals.length > 0)) {
+      return 'a deckless game carries no shares or reveals';
     }
     return null;
   }
@@ -728,6 +752,7 @@ export class GameSession {
   }
 
   private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
+    if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no shares');
     for (const { pos } of s.shares) {
       if (pos >= this.deckSize) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
@@ -770,6 +795,7 @@ export class GameSession {
     const seat = this.seatOf.get(s.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
     this.see(s.id, now);
+    if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no deck secrets');
     if (!this.secretMatches(seat, s.deckSecret)) {
       return this.rejectEvent(s.id, `the deck secret does not match seat ${seat}'s deck key`);
     }
@@ -965,7 +991,7 @@ export class GameSession {
         return reject('the shuffle proof does not verify');
       this.decks.push(c.deck);
       this.link(m);
-      if (m.seq === this.seats) this.startDeal();
+      if (m.seq === this.shuffleSteps) this.startDeal();
       return 'accepted';
     }
     return this.foldAction(m, seat, c);
@@ -1088,8 +1114,9 @@ export class GameSession {
     return ok;
   }
 
+  /** Only called in a game with a deck. */
   private shuffleCtx(seat: number): ShuffleCtx {
-    return { rootId: this.root.id, seat, deckId: this.deckId };
+    return { rootId: this.root.id, seat, deckId: this.deckId as string };
   }
 
   private link(m: ParsedMove): void {
@@ -1112,12 +1139,15 @@ export class GameSession {
     this.events = Object.freeze(next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next);
   }
 
+  /** The output of the last shuffle step; null until the shuffle is complete, and always in a deckless game. */
   private finalDeck(): Ciphertext[] | null {
-    return this.decks.length > this.seats ? (this.decks[this.seats] as Ciphertext[]) : null;
+    if (!this.hasDeck()) return null;
+    return this.decks.length > this.shuffleSteps ? (this.decks[this.shuffleSteps] as Ciphertext[]) : null;
   }
 
+  /** Only called in a game with a deck. */
   private shareCtx(pos: number): ShareCtx {
-    return { rootId: this.root.id, deckId: this.deckId, pos };
+    return { rootId: this.root.id, deckId: this.deckId as string, pos };
   }
 
   /**
@@ -1141,6 +1171,10 @@ export class GameSession {
     return changed ? 'accepted' : 'nothing-new';
   }
 
+  /**
+   * Set the module up in view mode once the shuffle is complete, and start the deal; a deckless game, which has
+   * no deal, starts in play at once (D045).
+   */
   private startDeal(): void {
     const r = this.module.setup({
       rules: this.rules,
@@ -1151,7 +1185,7 @@ export class GameSession {
     // validateRoot accepted these rules and this seat count, so setup cannot fail for a sound module.
     if (!r.ok) throw new Error(`module setup failed: ${r.error.message}`);
     this.state = deepFreeze(r.value);
-    this.phase = 'deal';
+    this.phase = this.hasDeck() ? 'deal' : 'play';
   }
 
   /**
@@ -1184,7 +1218,7 @@ export class GameSession {
    * moves stay pooled, and the step links again if it is acknowledged later.
    */
   private cutIneligible(): boolean {
-    const top = Math.min(this.seats, this.chain.length);
+    const top = Math.min(this.shuffleSteps, this.chain.length);
     for (let j = 0; j < top; j++) {
       if (this.shuffleEligible(this.chain[j] as ParsedMove)) continue;
       this.truncate(j);
@@ -1441,6 +1475,7 @@ export class GameSession {
     this.learned.clear();
     for (const pos of snap.learned) this.learned.add(pos);
     this.shares = new ShareStore(this.seats);
+    if (!this.hasDeck()) return;
     if (this.finalDeck() === null) {
       // The shares were checked against a final deck that is gone: they all wait again, as if never folded.
       if (this.sharesSeen.size > 0) this.sharesVersion++;
@@ -1542,7 +1577,8 @@ export class GameSession {
     }
     // Trial folds only need validity and length: no audit and no private learns.
     if (this.trialDepth > 0) return progressed;
-    if (this.phase === 'end' && this.secrets.size === this.seats) {
+    // A deckless game has no secrets: its audit runs as soon as it is over (D045).
+    if (this.phase === 'end' && (!this.hasDeck() || this.secrets.size === this.seats)) {
       this.auditResult = this.cachedAudit();
       this.phase = 'done';
       progressed = true;
@@ -1562,14 +1598,14 @@ export class GameSession {
     return audit;
   }
 
-  /** The R6 audit over this session's log, with every seat's verified secret. */
+  /** The R6 audit over this session's log, with every seat's verified secret (none in a deckless game). */
   private runAudit(): SessionAudit {
     return auditGame({
       module: this.module,
       rules: this.rules,
       seats: this.seats,
       deckId: this.deckId,
-      deck: this.finalDeck() as Ciphertext[],
+      deck: this.finalDeck() ?? [],
       secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log: this.actionLog,
@@ -1694,7 +1730,8 @@ export class GameSession {
       case 'play':
         return this.stalledInPlay(all);
       case 'end':
-        return all.filter((k) => !this.secrets.has(k));
+        // A deckless game owes no secrets; it is in this phase only inside a trial fold.
+        return this.hasDeck() ? all.filter((k) => !this.secrets.has(k)) : [];
       default:
         return [];
     }
@@ -1728,6 +1765,7 @@ export class GameSession {
       phase: status.phase,
       rootId: this.root.id,
       seats: this.seats,
+      shuffleSteps: this.shuffleSteps,
       mySeat: this.me?.seat ?? null,
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
@@ -1781,7 +1819,7 @@ export class GameSession {
    *   is adjusted with them (and any equivocator) last; the audit is `{fail: forfeits, reason: 'withheld secret'}`.
    */
   private timeoutStatus(stalled: readonly number[]): Status {
-    const actions = this.chain.length > this.seats;
+    const actions = this.chain.length > this.shuffleSteps;
     const forfeits = ascending([...stalled, ...this.flagged]);
     if (this.phase === 'shuffle' || this.phase === 'deal' || (this.phase === 'play' && !actions)) {
       return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits };
@@ -1832,7 +1870,8 @@ export class GameSession {
       return [{ kind: 'deal' }];
     }
     if (this.decides(me)) return [{ kind: 'decide' }];
-    if (live && this.phase === 'end' && !this.secrets.has(me.seat)) return [{ kind: 'secret' }];
+    if (live && this.phase === 'end' && this.hasDeck() && !this.secrets.has(me.seat))
+      return [{ kind: 'secret' }];
     // Attesting is a SHOULD (PROTOCOL §7): the duty is advisory.
     if (this.attestContent() !== null && !this.attested().includes(me.seat)) return [{ kind: 'attest' }];
     return [];
