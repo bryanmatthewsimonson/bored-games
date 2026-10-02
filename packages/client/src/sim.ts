@@ -21,7 +21,7 @@ import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.t
  * `GameSession`, a spectator follows along, and nobody coordinates. Each round one random client syncs at the
  * simulated clock: it queries the relay for every event of the game and receives, in its own shuffled order, the
  * ones it has not received yet (some of them twice) plus a few it has, at random places (`fullSync`: all of them
- * again). Then it does what an honest client does: its duties (shuffle, deal, decide through a policy, secret,
+ * again). Then it does what an honest client does: its duties (shuffle, deal, share, decide through a policy, secret,
  * attest) and a timeout claim when `timeoutTarget` names a seat. Every event it builds goes to a per-client outbox
  * first, keyed by the decision it answers, so it never builds twice for one decision (as the web controller
  * does). The clock then advances by 1 to 3600 s.
@@ -174,7 +174,10 @@ interface Client {
   npubSk: Uint8Array | null;
   rng: Rng;
   rnd: RandomBytes;
-  /** Built events by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest:<result>`, `timeout:<seat>:<head>`. */
+  /**
+   * Built events by slot: `move:<seq>:<prev>`, `deal`, `shares:<positions>`, `secret`, `attest:<result>`,
+   * `timeout:<seat>:<head>`.
+   */
   outbox: Map<string, NostrEvent>;
   /** Ids of the events this client has received. */
   delivered: Set<Hex>;
@@ -390,6 +393,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return `move:${v.head.seq + 1}:${v.head.id}`;
       case 'attest':
         return `attest:${canonicalJson({ audit: v.audit, logHash: v.logHash, outcome: v.outcome })}`;
+      case 'share':
+        return `shares:${duty.positions.join(',')}`;
       default:
         return duty.kind;
     }
@@ -408,6 +413,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return s.buildShuffle(c.rnd, clock);
       case 'deal':
         return s.buildDeal(c.rnd, clock);
+      case 'share':
+        return s.buildShares(c.rnd, clock);
       case 'decide':
         return s.buildAction(choose(c), c.rnd, clock);
       case 'secret':

@@ -29,6 +29,7 @@ import {
   T0,
   type TestGame,
   trust,
+  unshared,
 } from './helpers.ts';
 
 /*
@@ -373,6 +374,15 @@ describe('timeouts during play and at the end', () => {
     );
   };
 
+  it('owes no share duty in the end phase, though drawn tiles are not all shared: the secrets reveal them', () => {
+    const v = spectator.view();
+    expect(v.phase).toBe('end');
+    const state = v.state as ChainReactionState;
+    const owing = [0, 1, 2].filter((k) => unshared(game, [...setup, ...moves], state, k).length > 0);
+    expect(owing.length).toBeGreaterThan(0);
+    for (const s of players) expect(s.duties()).toEqual([{ kind: 'secret' }]);
+  });
+
   it('cancels the game for a stall before the first game action', () => {
     const watcher = catchUp(game, null, setup, undefined, T1);
     const first = (watcher.view().pending as { seat: number }).seat;
@@ -667,8 +677,13 @@ describe('timeouts: a pending seat that waits for other seats’ shares', () => 
     const [k1, k2] = [0, 1, 2].filter((k) => k !== first) as [number, number];
     const view = (k: number): SessionView => (players[k] as GameSession).view();
     expect(view(first).phase).toBe('play');
-    // The first player cannot decide: one of its tiles is still hidden from it.
-    expect(f.duties()).toEqual([]);
+    // Every seat owes its shares of the others' first tiles (D039); the first player cannot decide, since one of
+    // its tiles is still hidden from it.
+    const owes = (k: number) => ({
+      kind: 'share',
+      positions: [0, 1, 2].filter((j) => j !== k).map((j) => SEATS + j * HAND),
+    });
+    for (const k of [0, 1, 2]) expect(players[k]?.duties()).toEqual([owes(k)]);
     expect(f.timeoutTarget(LATE)).toBe(k1);
     // The seats it waits for are stalled themselves, so they cannot claim.
     expect(players[k1]?.timeoutTarget(LATE)).toBeNull();
@@ -682,14 +697,15 @@ describe('timeouts: a pending seat that waits for other seats’ shares', () => 
     // Each Shares event removes a seat from the stall set: progress (Ruling 11).
     deliver(players, [firstSlotShares(k1, T0)], undefined, NOW + 100);
     expect(view(first).pendingSince).toBe(NOW + 100);
-    expect(f.duties()).toEqual([]);
+    expect(f.duties()).toEqual([owes(first)]);
+    expect(players[k1]?.duties()).toEqual([]);
     expect(f.timeoutTarget(LATE)).toBe(k2);
     expect(players[k1]?.timeoutTarget(LATE)).toBe(k2);
     expect(players[k2]?.timeoutTarget(LATE)).toBeNull();
 
     deliver(players, [firstSlotShares(k2, T0)], undefined, NOW + 200);
     expect(view(first).pendingSince).toBe(NOW + 200);
-    expect(f.duties()).toEqual([{ kind: 'decide' }]);
+    expect(f.duties()).toEqual([owes(first), { kind: 'decide' }]);
     expect(f.timeoutTarget(LATE)).toBeNull();
     expect(players[k1]?.timeoutTarget(NOW + 200 + D - 1)).toBeNull();
     expect(players[k1]?.timeoutTarget(NOW + 200 + D)).toBe(first);
