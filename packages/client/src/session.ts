@@ -868,9 +868,12 @@ export class GameSession {
    * (D052). A seat has one secret, so which event brought it does not matter. `final` once a timeout, or a resign
    * with every secret in, has fixed the result (the fold no longer changes); `known` when the seat's secret is in
    * already; otherwise it is folded in, as progress when it unstalls a seat, and the claims are judged again.
+   * After a resign cancelled a game with a deck the secrets are still taken (they are owed, harmlessly), but they
+   * change nothing: no audit runs and no claim counts.
    */
   private takeSecret(seat: number, x: bigint, id: Hex): 'final' | 'known' | 'new' {
-    if (this.timedOut !== null || (this.resignedBy !== null && !this.awaitingSecrets())) return 'final';
+    if (this.timedOut !== null) return 'final';
+    if (this.resignedBy !== null && !this.awaitingSecrets() && !this.cancelSecrets()) return 'final';
     if (this.secrets.has(seat)) return 'known';
     const before = this.stallMark();
     this.secrets.set(seat, x);
@@ -1006,6 +1009,24 @@ export class GameSession {
     return this.resignedBy !== null && !this.resignedBy.cancels && this.hasDeck();
   }
 
+  /**
+   * A counted resign cancelled a game with a deck (D052): every seat still owes its secret, so that a client that
+   * cancelled and one that ended the game the other way owe the same; nothing depends on them.
+   */
+  private cancelSecrets(): boolean {
+    return this.resignedBy?.cancels === true && this.hasDeck();
+  }
+
+  /**
+   * Whether a seat may resign this game (D052): never in a 2-seat game with a deck (the resigner's published secret
+   * and the other seat's own key would open the whole deck), nor when the module opts out (`resignAllowed`).
+   * Fixed by the game, so order-independent.
+   */
+  private resignAllowed(): boolean {
+    if (this.hasDeck() && this.seats === 2) return false;
+    return this.module.resignAllowed?.(this.rules, this.seats) ?? true;
+  }
+
   /** `resignEnd`, with a secret still missing and no timeout accepted: claims about it still count. */
   private awaitingSecrets(): boolean {
     return this.resignEnd() && this.timedOut === null && this.secrets.size < this.seats;
@@ -1035,6 +1056,10 @@ export class GameSession {
     if (r.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const seat = this.seatOf.get(r.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
+    if (!this.resignAllowed()) {
+      this.see(r.id, now);
+      return this.rejectEvent(r.id, 'resigning is not allowed in this game');
+    }
     if (r.secret !== null && !this.secretMatches(seat, r.secret)) {
       this.see(r.id, now);
       return this.rejectEvent(r.id, `the resign's deck secret does not match seat ${seat}'s deck key`);
@@ -1073,15 +1098,21 @@ export class GameSession {
   }
 
   /**
-   * End the game for this client with `r`: final from now on (PROTOCOL §8.3). It cancels the game when the chain
-   * holds no game action (the head it names is then the root or a shuffle step). Otherwise, in a game with a deck,
-   * the other seats' secrets are owed from now on (D052): the resign is progress, so their deadline runs from it,
-   * and the secret it carries is the resigning seat's.
+   * End the game for this client with `r`: final from now on (PROTOCOL §8.3). It cancels the game when the head it
+   * names comes before the first game action (the root, or a shuffle step) and this client's chain holds no game
+   * action by the resigning seat (D052). So a resign raced by another seat's first action cancels on every client,
+   * while a stale resign by a seat that has played is a loss wherever one of its actions is held: the only order
+   * dependence left is on the resigner's own events, as with the head gate. Otherwise, in a game with a deck, the
+   * other seats' secrets are owed from now on: the resign is progress, so their deadline runs from it, and the
+   * secret it carries is the resigning seat's.
    */
   private countResign(r: ParsedResign, seat: number): void {
-    const cancels = this.chain.length <= this.shuffleSteps;
+    const at = r.headId === this.root.id ? 0 : this.chain.findIndex((m) => m.id === r.headId) + 1;
+    const played = this.chain.slice(this.shuffleSteps).some((m) => this.seatOf.get(m.pubkey) === seat);
+    const cancels = at <= this.shuffleSteps && !played;
     this.resignedBy = { id: r.id, seat, cancels };
     this.pendingResigns.clear();
+    if (this.cancelSecrets() && r.secret !== null) this.takeSecret(seat, r.secret, r.id);
     if (!this.resignEnd()) return;
     this.stallProgress = Math.max(this.stallProgress, this.seenOf(r.id));
     if (r.secret !== null) this.takeSecret(seat, r.secret, r.id);
@@ -2081,7 +2112,9 @@ export class GameSession {
    */
   private resignOutcome(seat: number, forfeits: readonly number[]): Outcome {
     const ranked = rankWithForfeits(this.module.standings(this.state), forfeits, null);
-    const outcome: Outcome = { ...ranked, reason: 'resign' };
+    // The resigning seat is strictly last, below every other forfeiting seat (which share the place above it).
+    const places = ranked.places.map((p, k) => (k === seat ? this.seats : p));
+    const outcome: Outcome = { places, reason: 'resign', scores: ranked.scores };
     if (this.seats < 3) return outcome;
     return { ...outcome, unrated: true, endedBy: { type: 'resign', seat } };
   }
@@ -2157,7 +2190,12 @@ export class GameSession {
     if (this.decides(me)) return [{ kind: 'decide' }];
     if (live && this.phase === 'end' && this.hasDeck() && !this.secrets.has(me.seat))
       return [{ kind: 'secret' }];
-    if (this.awaitingSecrets() && !this.secrets.has(me.seat)) return [{ kind: 'secret' }];
+    if (
+      (this.awaitingSecrets() || this.cancelSecrets()) &&
+      this.timedOut === null &&
+      !this.secrets.has(me.seat)
+    )
+      return [{ kind: 'secret' }];
     // Attesting is a SHOULD (PROTOCOL §7): the duty is advisory.
     if (this.attestContent() !== null && !this.attested().includes(me.seat)) return [{ kind: 'attest' }];
     return [];
@@ -2311,7 +2349,7 @@ export class GameSession {
    * (no timeout accepted, no resign, the chain not over). Any game, any seat count, on its turn or not.
    */
   canResign(): boolean {
-    return this.me !== null && !this.final();
+    return this.me !== null && this.resignAllowed() && !this.final();
   }
 
   /**
@@ -2321,7 +2359,8 @@ export class GameSession {
    */
   buildResign(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireMe();
-    if (!this.canResign()) throw new ClientError('the game is over');
+    if (!this.canResign())
+      throw new ClientError('resigning is not allowed in this game, or the game is over');
     const secret = this.hasDeck() ? me.deckSecret : null;
     const t = resignTemplate({ rootId: this.root.id, headId: this.headId(), secret }, createdAt);
     return finalizeEvent(t, me.sessionSk, rnd);

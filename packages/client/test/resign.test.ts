@@ -326,19 +326,27 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     expect(blind.view()).toMatchObject({ phase: 'play', resigned: [] });
   });
 
-  it('a resign and an equivocation: both seats forfeit and share the last place', () => {
+  it('a resign and an equivocation: both seats forfeit, and the resigning seat is strictly last (D052)', () => {
     const t = chessTable('resign-equivocate');
     const white = t.players[0] as GameSession;
+    const black = t.players[1] as GameSession;
     const a = white.buildAction(move(0, 'e2e4'), t.game.rnd, NOW);
     const b = white.buildAction(move(0, 'd2d4'), t.game.rnd, NOW);
     deliver(t.all, [a, b]);
-    deliver(t.all, [resignEvent(t.game, 1, t.game.rootId)]);
+    // A stale resign naming the root by a seat that has not moved yet cancels (a raced first move, D052).
+    const early = newSession(t.game, null);
+    deliver([early], [a, b, resignEvent(t.game, 1, t.game.rootId)]);
+    expect(early.view()).toMatchObject({ phase: 'cancelled', resigned: [1], forfeits: [0, 1] });
+    // Black moves on the chain, then resigns: both forfeit, Black below White.
+    const legal = black.legalActions()[0];
+    deliver(t.all, [black.buildAction(legal, t.game.rnd, NOW)]);
+    deliver(t.all, [black.buildResign(t.game.rnd, T0 + 600)]);
     for (const s of t.all)
       expect(s.view()).toMatchObject({
         phase: 'done',
         resigned: [1],
         forfeits: [0, 1],
-        outcome: { places: [1, 1] },
+        outcome: { places: [1, 2] },
       });
   });
 

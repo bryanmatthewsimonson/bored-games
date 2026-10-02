@@ -8,6 +8,7 @@ import {
   type NostrEvent,
   resignTemplate,
   secretTemplate,
+  timeoutTemplate,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { GameSession } from '../src/session.ts';
@@ -369,15 +370,27 @@ describe('what a deck-game Resign must carry', () => {
   });
 });
 
-describe('a deck-game resign before any game action cancels the game, with no secret owed', () => {
+describe('a deck-game resign before any game action cancels the game; the secrets are still owed, harmlessly', () => {
   it('at the root, during the shuffle', () => {
     const players = range(SEATS).map((seat) => newSession(fx.game, seat));
     const resign = (players[2] as GameSession).buildResign(fx.game.rnd, T0 + 50);
     deliver(players, [resign]);
     for (const s of players) {
       expect(s.view()).toMatchObject({ phase: 'cancelled', outcome: null, resigned: [2], forfeits: [2] });
-      expect(s.duties()).toEqual([]);
+      // Every seat but the resigner owes its secret (D052, belt and braces), yet nobody can be claimed against.
+      expect(s.duties()).toEqual(s.view().mySeat === 2 ? [] : [{ kind: 'secret' }]);
       expect(s.timeoutTarget(LATE)).toBeNull();
+    }
+    const secrets = others([2]).map((seat) => (players[seat] as GameSession).buildSecret(fx.game.rnd, NOW));
+    const claim = finalizeEvent(
+      timeoutTemplate({ rootId: fx.game.rootId, headId: fx.game.rootId, seat: 3 }, LATE),
+      identity(0).sessionSk,
+      fx.game.rnd,
+    );
+    deliver(players, [claim, ...secrets], undefined, LATE);
+    for (const s of players) {
+      expect(s.duties()).toEqual([]);
+      expect(s.view()).toMatchObject({ phase: 'cancelled', outcome: null, audit: 'pending', forfeits: [2] });
     }
   });
 
@@ -437,9 +450,9 @@ describe('after a deck-game resign', () => {
         audit: { fail: forfeits, reason: 'resign; withheld secret' },
         outcome: { reason: 'resign', unrated: true, endedBy: { type: 'resign', seat: r } },
       });
-      // The two forfeiting seats share the last place.
+      // The resigning seat is strictly last, the withholding one just above it.
       const places = s.view().outcome?.places as number[];
-      expect(places[r]).toBe(SEATS - 1);
+      expect(places[r]).toBe(SEATS);
       expect(places[w]).toBe(SEATS - 1);
     }
     // A late secret changes nothing: the result is final.
@@ -476,6 +489,7 @@ describe('after a deck-game resign', () => {
           outcome: { reason: 'resign', unrated: true, endedBy: { type: 'resign', seat: r } },
         });
         expect(c.view().outcome?.places[f]).toBe(SEATS - 1);
+        expect(c.view().outcome?.places[r]).toBe(SEATS);
       }
     },
     LONG,
@@ -530,5 +544,184 @@ describe('after a deck-game resign', () => {
       reason: 'the game is already over',
     });
     expect(s.view()).toMatchObject({ phase: 'cancelled', resigned: [3] });
+  });
+});
+
+/** A fresh session for `seat` (null: a spectator) fed `events` in order, the shuffle steps trusted. */
+function fed(seat: number | null, events: readonly NostrEvent[], now = NOW): GameSession {
+  const s = newSession(fx.game, seat);
+  trust([s], fx.steps);
+  deliver([s], events, undefined, now);
+  return s;
+}
+
+/** `events` in an order drawn from `seed`. */
+const shuffled = (events: readonly NostrEvent[], seed: string): NostrEvent[] =>
+  shuffle(range(events.length), createRng(seed)).map((i) => events[i] as NostrEvent);
+
+describe('races and stale resigns (D052): what every client agrees on', () => {
+  it(
+    'a resign naming the last shuffle step, raced by another seat’s first action, cancels on every client',
+    () => {
+      const p0 = pendingSeat(0);
+      const r = (p0 + 1) % SEATS;
+      const j = (p0 + 2) % SEATS;
+      const base = [...fx.steps, ...fx.deals];
+      const resign = client(r, base).buildResign(fx.game.rnd, T0 + 300);
+      const a1 = fx.moves[0] as NostrEvent;
+      const orders = [
+        [...base, resign, a1],
+        [...base, a1, resign],
+        // A fresh device: everything in first-seen order, resigns last (as the web controller feeds a batch).
+        [...shuffled([...base, a1], 'probe-fresh'), resign],
+        shuffled([...base, a1, resign], 'probe-any'),
+      ];
+      const views = orders.flatMap((order) => [fed(null, order), fed(j, order), fed(p0, order)]);
+      // A cancelled game has no log to attest: whether A1 linked before the fold stopped is not part of it.
+      const result = (s: GameSession): string => {
+        const { head: _head, logHash: _log, ...rest } = JSON.parse(summary(s)) as Record<string, unknown>;
+        return canonicalJson(rest);
+      };
+      const want = result(views[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({
+        phase: 'cancelled',
+        outcome: null,
+        resigned: [r],
+        forfeits: [r],
+      });
+      for (const s of views) {
+        expect(result(s)).toBe(want);
+        // Every seated client owes its secret, the same everywhere, and nobody can be claimed against.
+        expect(s.duties()).toEqual(s.view().mySeat === null ? [] : [{ kind: 'secret' }]);
+        expect(s.timeoutTarget(LATE)).toBeNull();
+      }
+      // Residual (PROTOCOL §8.3): a resigner that is itself pending can play its first action and also resign
+      // naming the step before it; clients then differ on its own two events, as with the head gate.
+      const own = resignEvent(p0, (fx.steps.at(-1) as NostrEvent).id);
+      const before = fed(j, [...base, own, a1]);
+      const after = fed(j, [...base, a1, own]);
+      expect(before.view().phase).toBe('cancelled');
+      expect(after.view()).toMatchObject({ phase: 'end', resigned: [p0] });
+      // Either way seat j owes the same secret, so no client can forfeit it for withholding one.
+      expect(before.duties()).toEqual(after.duties());
+    },
+    LONG,
+  );
+
+  it(
+    'a stale resign naming the root mid-game is a loss wherever the client holds one of the resigner’s actions',
+    () => {
+      const k = 10;
+      const r = pendingSeat(0);
+      const j = (r + 1) % SEATS;
+      const resign = resignEvent(r, fx.game.rootId);
+      // Resign last, whatever the order before it: the same result everywhere.
+      const lasts = ['a', 'b', 'c'].map((seed) => fed(j, [...shuffled(prefix(k), `stale-${seed}`), resign]));
+      const want = summary(lasts[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({ phase: 'end', resigned: [r], head: { seq: SEATS + k } });
+      for (const s of lasts) {
+        expect(summary(s)).toBe(want);
+        expect(s.duties()).toEqual([{ kind: 'secret' }]);
+      }
+      // Residual: a fresh client that counts it before holding any of the resigner's actions cancels the game.
+      // It still owes the same secret, so no seat can be forfeited over the split.
+      const early = fed(j, [resign, ...prefix(k)]);
+      expect(early.view()).toMatchObject({ phase: 'cancelled', resigned: [r] });
+      expect(early.duties()).toEqual([{ kind: 'secret' }]);
+      expect(early.timeoutTarget(LATE)).toBeNull();
+    },
+    LONG,
+  );
+
+  it('two seats resigning at once: each client keeps the first it counted, and owes the same secrets', () => {
+    const k = 9;
+    const a = pendingSeat(k);
+    const b = (a + 1) % SEATS;
+    const j = (a + 2) % SEATS;
+    const head = (fx.moves[k - 1] as NostrEvent).id;
+    const ra = resignEvent(a, head);
+    const rb = resignEvent(b, head);
+    const x = fed(j, [...prefix(k), ra, rb]);
+    const y = fed(j, [...prefix(k), rb, ra]);
+    expect(x.view()).toMatchObject({ phase: 'end', resigned: [a] });
+    expect(y.view()).toMatchObject({ phase: 'end', resigned: [b] });
+    // Both resigns' secrets count on both clients: only the other two seats owe theirs.
+    for (const s of [x, y]) expect(s.duties()).toEqual([{ kind: 'secret' }]);
+    const secrets = others([a, b]).map((seat) => secretOf(seat));
+    deliver([x, y], secrets);
+    expect(x.view()).toMatchObject({ phase: 'done', resigned: [a], audit: { fail: [a], reason: 'resign' } });
+    expect(y.view()).toMatchObject({ phase: 'done', resigned: [b], audit: { fail: [b], reason: 'resign' } });
+    // The race residual (PROTOCOL §11): who ended the game depends on the order.
+    expect(x.view().outcome?.places[a]).toBe(SEATS);
+    expect(y.view().outcome?.places[b]).toBe(SEATS);
+  });
+
+  it(
+    'a resign racing a merger decision: the head differs by order, and a fresh device agrees with its order',
+    () => {
+      const k = findMove((p) => p.type === 'player' && ['orderDefunct', 'dispose'].includes(p.decision));
+      const p = pendingSeat(k);
+      const r = (p + 1) % SEATS;
+      const j = (p + 2) % SEATS;
+      const resign = resignEvent(r, (fx.moves[k - 1] as NostrEvent).id);
+      const move = fx.moves[k] as NostrEvent;
+      const first = fed(j, [...prefix(k), resign, move]);
+      const second = fed(j, [...prefix(k), move, resign]);
+      const fresh = fed(j, [...shuffled([...prefix(k), move], 'merger-fresh'), resign]);
+      expect(first.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + k } });
+      expect(second.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + k + 1 } });
+      expect(summary(fresh)).toBe(summary(second));
+      for (const s of [first, second, fresh]) expect(s.duties()).toEqual([{ kind: 'secret' }]);
+      deliver(
+        [first, second, fresh],
+        others([r]).map((seat) => secretOf(seat)),
+      );
+      for (const s of [first, second, fresh]) {
+        expect(s.view()).toMatchObject({ phase: 'done', audit: { fail: [r], reason: 'resign' } });
+        expect(s.view().outcome?.places[r]).toBe(SEATS);
+      }
+      expect(summary(fresh)).toBe(summary(second));
+    },
+    LONG,
+  );
+});
+
+describe('where Resign is not allowed (D052)', () => {
+  it('a 2-seat game with a deck rejects every Resign: the secret would open the whole deck', () => {
+    const twoSeats = { ...chainReaction, seatRange: () => ({ min: 2, max: 6 }) };
+    const g = makeGame(2, 'resign-two-deck');
+    const game = { ...g, modules: new Map([[chainReaction.id, twoSeats]]) } as unknown as TestGame;
+    const s = newSession(game, 0);
+    expect(s.canResign()).toBe(false);
+    expect(() => s.buildResign(game.rnd, T0 + 50)).toThrow(/not allowed/);
+    const id = game.ids[1] as Identity;
+    const ev = finalizeEvent(
+      resignTemplate({ rootId: game.rootId, headId: game.rootId, secret: id.deckSecret }, T0 + 50),
+      id.sessionSk,
+      game.rnd,
+    );
+    const reason = 'resigning is not allowed in this game';
+    expect(s.receive(ev, NOW)).toEqual({ status: 'rejected', reason });
+    expect(s.receive(ev, NOW)).toEqual({ status: 'rejected', reason });
+    expect(s.view()).toMatchObject({ phase: 'shuffle', resigned: [] });
+  });
+
+  it('a module can opt out of Resign (a co-op game, or one where a seat cannot see its own cards)', () => {
+    const coop = { ...chainReaction, resignAllowed: () => false };
+    const g = makeGame(3, 'resign-opt-out');
+    const game = { ...g, modules: new Map([[chainReaction.id, coop]]) } as unknown as TestGame;
+    const s = newSession(game, 1);
+    expect(s.canResign()).toBe(false);
+    const id = game.ids[2] as Identity;
+    const ev = finalizeEvent(
+      resignTemplate({ rootId: game.rootId, headId: game.rootId, secret: id.deckSecret }, T0 + 50),
+      id.sessionSk,
+      game.rnd,
+    );
+    expect(s.receive(ev, NOW)).toEqual({
+      status: 'rejected',
+      reason: 'resigning is not allowed in this game',
+    });
+    expect(newSession(makeGame(3, 'resign-opt-in'), 1).canResign()).toBe(true);
   });
 });
