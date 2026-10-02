@@ -6,6 +6,8 @@
  * - Every client shuffles and deals automatically; all of them reach the play screen.
  * - Then whoever holds the decision answers it with the first legal option, for at least 2 full rounds.
  * - At the end every context shows the same board, turn number and state seq.
+ * - Then c resigns (D052): every context shows "Ended early: … resigned · unrated", the same final places with c
+ *   last, the results table, and the result signed by every player (unless E2E_FINISH plays to the end instead).
  *
  * Run it with `pnpm e2e` (apps/web/e2e/run.ts), which provides E2E_BASE_URL and E2E_RELAY. Options:
  * - E2E_SEATS: the number of players, 3 to 6 (default 3). The shuffle and deal, and the time allowed for them,
@@ -291,6 +293,42 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
     log(`game over after ${moves} decisions; every player sees the same results and a passed audit`);
     if (SHOTS !== undefined && SHOTS !== '')
       await a.page.screenshot({ path: `${SHOTS}/e2e-a-results.png`, fullPage: true });
+  }
+
+  if (!FINISH) {
+    // c resigns (D052): the game ends for everyone, ranked as if it ended now, with c last, and unrated.
+    const quitter = players[2] as Player;
+    await quitter.page.getByRole('button', { name: 'Resign' }).click();
+    await expect(quitter.page.getByText(/Resigning ends the game for everyone\./)).toBeVisible();
+    await expect(quitter.page.getByText(/won't count toward ratings/)).toBeVisible();
+    await quitter.page.getByRole('button', { name: 'Yes, resign' }).click();
+    log(`${quitter.name} resigned`);
+    const line = (p: Player): Locator => p.page.locator('.game-resigned');
+    for (const p of players) {
+      // The others publish their end-of-game secrets, the partial audit runs, then the places are known.
+      await expect(line(p)).toHaveText(/^Ended early: .+ resigned · unrated\. Final places: 1\. /, {
+        timeout: MOVE_MS,
+      });
+      await expect(p.page.getByRole('heading', { name: 'Final results' })).toBeVisible();
+      await expect(p.page.getByText(/game ended early: final cash/)).toBeVisible();
+      await expect(p.page.getByText(`Result confirmed: signed by all ${SEATS} players.`)).toBeVisible({
+        timeout: MOVE_MS,
+      });
+    }
+    const lines = await Promise.all(players.map((p) => line(p).innerText()));
+    for (const l of lines) expect(l).toBe(lines[0]);
+    const m = /^Ended early: (.+) resigned · unrated\. Final places: (.+)\.$/.exec(lines[0] ?? '');
+    expect(m).not.toBeNull();
+    // The resigning player is last, alone.
+    expect(m?.[2]?.endsWith(`, ${SEATS}. ${m?.[1]}`)).toBe(true);
+    const tables = await Promise.all(players.map((p) => p.page.locator('.cr-results table').innerText()));
+    for (const t of tables) expect(t).toBe(tables[0]);
+    const lastRow = a.page.locator('.cr-results tbody tr').last();
+    await expect(lastRow.locator('td').first()).toHaveText(String(SEATS));
+    await expect(a.page.locator('.cr-results tbody tr')).toHaveCount(SEATS);
+    log(`every player sees the unrated result: ${lines[0]}`);
+    if (SHOTS !== undefined && SHOTS !== '')
+      await a.page.screenshot({ path: `${SHOTS}/e2e-a-resigned.png`, fullPage: true });
   }
 
   // a's Home lists the game.

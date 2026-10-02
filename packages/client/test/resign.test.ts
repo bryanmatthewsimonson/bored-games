@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { chess } from '@bored-games/chess';
-import { createRng } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   type Hex,
@@ -17,20 +16,19 @@ import {
   deliver,
   LATE,
   MODULES,
-  makeGame,
   makeModuleGame,
   NOW,
   newSession,
-  shuffleAll,
   statuses,
   T0,
   type TestGame,
 } from './helpers.ts';
 
 /*
- * Resign (PROTOCOL §4.9, §8.3, D045): allowed only in 2-seat games without a deck. A Resign counts as soon as it
- * is received, whatever head it names, and like an accepted timeout it is final for the client that received it:
- * later moves, claims and resigns change nothing. A resign received after the result is final changes nothing.
+ * Resign (PROTOCOL §4.9, §8.3, D045) in a 2-seat game without a deck (Chess); games with a deck or more seats are in
+ * resign-deck.test.ts (D052). A Resign counts once the head it names is on the chain, and like an accepted timeout
+ * it is final for the client that received it: later moves, claims and resigns change nothing. A resign received
+ * after the result is final changes nothing.
  */
 
 /** A 64-hex id nobody holds. */
@@ -196,7 +194,7 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     }
   });
 
-  it('is final: a move received after it is stored and changes nothing (each client keeps its first result)', () => {
+  it('is final, yet a move raced against it still links: every client scores at the same head (D052)', () => {
     const t = chessTable('resign-final');
     const m1 = play(t, 0, 'e2e4');
     const m2 = play(t, 1, 'e7e5');
@@ -206,46 +204,74 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     const a = newSession(t.game, null);
     const b = newSession(t.game, null);
     deliver([a], [m1, m2, r]);
-    expect(a.receive(m3, NOW)).toEqual({ status: 'stored' });
+    expect(a.view()).toMatchObject({ phase: 'done', head: { seq: 2 }, resigned: [1] });
+    // The fold goes on after a resign (D052): the raced move links, but nobody owes a decision any more.
+    expect(a.receive(m3, NOW)).toEqual({ status: 'accepted' });
+    expect(a.duties()).toEqual([]);
     deliver([b], [m1, m2, m3, r]);
-    // Same winner and reason; the logs differ by the raced move (the claim-race residual, PROTOCOL §11).
     expect(summary(a)).toMatchObject({
-      phase: 'done',
-      head: { seq: 2 },
-      resigned: [1],
-      outcome: { places: [1, 2] },
-    });
-    expect(summary(b)).toMatchObject({
       phase: 'done',
       head: { seq: 3 },
       resigned: [1],
       outcome: { places: [1, 2] },
     });
+    expect(summary(b)).toEqual(summary(a));
   });
 
-  it('a resign received after the chain is over changes nothing; a mate received after a resign is stored', () => {
+  it('a mate raced against a resign is the rules result on every client, rated, whichever came first', () => {
     const t = chessTable('resign-mate');
     const pre = [play(t, 0, 'f2f3'), play(t, 1, 'e7e5'), play(t, 0, 'g2g4')];
-    // White resigns while Black mates.
+    // White resigns while Black mates: Black's honest raced turn is scored, and it ends the game by the rules.
     const r = resignEvent(t.game, 0, (pre[2] as NostrEvent).id);
     const mate = (t.players[1] as GameSession).buildAction(move(1, 'd8h4'), t.game.rnd, NOW);
     const a = newSession(t.game, null);
     const b = newSession(t.game, null);
     deliver([a], [...pre, mate]);
     expect(a.receive(r, NOW)).toEqual({ status: 'rejected', reason: 'the game is already over' });
-    expect(summary(a)).toMatchObject({
+    deliver([b], [...pre, r]);
+    expect(b.view()).toMatchObject({ phase: 'done', resigned: [0] });
+    expect(b.receive(mate, NOW)).toEqual({ status: 'accepted' });
+    const want = {
       phase: 'done',
+      head: { seq: 4 },
       resigned: [],
       audit: 'pass',
       outcome: { places: [2, 1], reason: 'checkmate', scores: [0, 2] },
+    };
+    expect(summary(a)).toMatchObject(want);
+    expect(summary(b)).toEqual(summary(a));
+    expect(b.view().resignOverridden).toEqual([0]);
+    expect(a.view().resignOverridden).toEqual([]);
+  });
+
+  it('a seat that resigns and then plays mate: the rules result stands, places and scores agreeing (D052)', () => {
+    const t = chessTable('resign-then-mate');
+    const pre = [play(t, 0, 'f2f3'), play(t, 1, 'e7e5'), play(t, 0, 'g2g4')];
+    const black = t.players[1] as GameSession;
+    // Black, to move, resigns, then (its client patched, or a race) signs the mate anyway.
+    const mate = black.buildAction(move(1, 'd8h4'), t.game.rnd, NOW);
+    const r = resignEvent(t.game, 1, (pre[2] as NostrEvent).id);
+    const orders = [
+      [...pre, r, mate],
+      [...pre, mate, r],
+      [r, mate, ...pre],
+      [mate, ...pre, r],
+    ];
+    const results = orders.map((order) => {
+      const s = newSession(t.game, 0);
+      deliver([s], order);
+      return s;
     });
-    deliver([b], [...pre, r]);
-    expect(b.receive(mate, NOW)).toEqual({ status: 'stored' });
-    expect(summary(b)).toMatchObject({
-      phase: 'done',
-      resigned: [0],
-      outcome: { places: [2, 1], reason: 'resign' },
-    });
+    for (const s of results) {
+      expect(summary(s)).toMatchObject({
+        phase: 'done',
+        resigned: [],
+        audit: 'pass',
+        outcome: { places: [2, 1], reason: 'checkmate', scores: [0, 2] },
+      });
+      expect(summary(s)).toEqual(summary(results[0] as GameSession));
+      expect(s.attestTemplate(NOW).content).toBe((results[0] as GameSession).attestTemplate(NOW).content);
+    }
   });
 
   it('a resign before the first move cancels the game', () => {
@@ -328,19 +354,27 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     expect(blind.view()).toMatchObject({ phase: 'play', resigned: [] });
   });
 
-  it('a resign and an equivocation: both seats forfeit and share the last place', () => {
+  it('a resign and an equivocation: both seats forfeit, and the resigning seat is strictly last (D052)', () => {
     const t = chessTable('resign-equivocate');
     const white = t.players[0] as GameSession;
+    const black = t.players[1] as GameSession;
     const a = white.buildAction(move(0, 'e2e4'), t.game.rnd, NOW);
     const b = white.buildAction(move(0, 'd2d4'), t.game.rnd, NOW);
     deliver(t.all, [a, b]);
-    deliver(t.all, [resignEvent(t.game, 1, t.game.rootId)]);
+    // A stale resign naming the root by a seat that has not moved yet cancels (a raced first move, D052).
+    const early = newSession(t.game, null);
+    deliver([early], [a, b, resignEvent(t.game, 1, t.game.rootId)]);
+    expect(early.view()).toMatchObject({ phase: 'cancelled', resigned: [1], forfeits: [0, 1] });
+    // Black moves on the chain, then resigns: both forfeit, Black below White.
+    const legal = black.legalActions()[0];
+    deliver(t.all, [black.buildAction(legal, t.game.rnd, NOW)]);
+    deliver(t.all, [black.buildResign(t.game.rnd, T0 + 600)]);
     for (const s of t.all)
       expect(s.view()).toMatchObject({
         phase: 'done',
         resigned: [1],
         forfeits: [0, 1],
-        outcome: { places: [1, 1] },
+        outcome: { places: [1, 2] },
       });
   });
 
@@ -381,28 +415,33 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
   });
 });
 
-describe('resign elsewhere is not allowed (D045: until the owner decides)', () => {
-  it('a 3-seat Chain Reaction game rejects every Resign, in any order, and plays on', () => {
-    const game = makeGame(3, 'resign-cr');
-    const players = [0, 1, 2].map((seat) => newSession(game, seat));
-    const spectator = newSession(game, null);
-    const all = [...players, spectator];
-    shuffleAll(game, players, [spectator]);
-    const deals = players.map((s, k) => s.buildDeal(game.rnd, T0 + 200 + k));
-    deliver(all, deals);
-    const rng = createRng('resign-cr-policy');
-    for (let i = 0; i < 3; i++) {
-      const p = spectator.view().pending;
-      if (p.type !== 'player') throw new Error('no decision pending');
-      const s = players[p.seat] as GameSession;
-      deliver(all, [s.buildAction(rng.pick(s.legalActions()), game.rnd, T0 + 1000 + i)]);
+describe('2-seat Chess resigns are unchanged by D052', () => {
+  it('the Resign event and every attestation are byte for byte what they were before D052', () => {
+    const t = chessTable('resign-pin');
+    play(t, 0, 'e2e4');
+    play(t, 1, 'e7e5');
+    const r = (t.players[1] as GameSession).buildResign(t.game.rnd, T0 + 500);
+    expect(r.content).toBe('{"type":"resign"}');
+    expect(r.tags).toEqual([
+      ['e', t.game.rootId, '', 'root'],
+      ['e', t.spectator.view().head.id, '', 'head'],
+      ['proto', '1'],
+    ]);
+    deliver(t.all, [r]);
+    // Rated: no `unrated`, no `endedBy`. Pinned from the code before D052.
+    const pinned =
+      '{"audit":{"fail":[1],"reason":"resign"},"logHash":"921463230ba8f7c60d4559b0103b06cf9887fac34bbb3871c9e37f32f4667a25","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]}}';
+    for (const s of t.players) {
+      expect(s.attestTemplate(NOW)).toEqual({
+        kind: 7456,
+        created_at: NOW,
+        tags: [
+          ['e', t.game.rootId, '', 'root'],
+          ['proto', '1'],
+        ],
+        content: pinned,
+      });
     }
-    for (const s of all) expect(s.canResign()).toBe(false);
-    expect(() => (players[1] as GameSession).buildResign(game.rnd, T0 + 2000)).toThrow(/not allowed/);
-    const r = resignEvent(game, 1, spectator.view().head.id);
-    const reason = 'resigning is allowed only in 2-seat games without a deck';
-    expect(deliver(all, [r, r]).flat()).toEqual(Array(8).fill({ status: 'rejected', reason }));
-    for (const s of all) expect(s.view()).toMatchObject({ phase: 'play', resigned: [] });
-    expect(players.some((s) => s.duties().some((d) => d.kind === 'decide'))).toBe(true);
+    expect(t.game.rootId).toBe('eb9cd01af4a2aa47c1681ab90fbd21019035675f0d89c32dc64acb0c8974e0c5');
   });
 });

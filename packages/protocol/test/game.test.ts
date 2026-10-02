@@ -367,23 +367,26 @@ describe('Timeout claim (7454)', () => {
 
 describe('Resign (7457)', () => {
   const tpl = resignTemplate({ rootId: ROOT, headId: HEAD }, T0);
-  const parse = (t: EventTemplate) => parseResign(sign(t));
+  const parse = (t: EventTemplate) => parseResign(sign(t), false);
 
-  it('has root and head tags and the resign content', () => {
+  it('has root and head tags and, without a deck, the bare resign content', () => {
     expect(tpl.kind).toBe(KIND.resign);
     expect(KIND.resign).toBe(7457);
     expect(tpl.tags).toEqual([rootTag, ['e', HEAD, '', 'head'], ['proto', '1']]);
     expect(tpl.content).toBe('{"type":"resign"}');
+    // A null secret is the deckless form too, byte for byte.
+    expect(resignTemplate({ rootId: ROOT, headId: HEAD, secret: null }, T0)).toEqual(tpl);
   });
 
   it('round-trips, the root itself being a valid head', () => {
     const ev = sign(tpl);
-    expect(parseResign(ev)).toEqual({
+    expect(parseResign(ev, false)).toEqual({
       id: ev.id,
       pubkey: SESSION,
       createdAt: T0,
       rootId: ROOT,
       headId: HEAD,
+      secret: null,
     });
     expect(parse(resignTemplate({ rootId: ROOT, headId: ROOT }, T0)).headId).toBe(ROOT);
   });
@@ -404,6 +407,54 @@ describe('Resign (7457)', () => {
     expect(code(() => parse({ ...tpl, content: '{"seat":0,"type":"resign"}' }))).toBe('bad-content');
     expect(code(() => parse({ ...tpl, content: '{ "type":"resign"}' }))).toBe('bad-content');
     expect(code(() => parse({ ...tpl, content: '' }))).toBe('bad-content');
+  });
+
+  describe('with a deck (D052): the content carries the deck secret', () => {
+    const x = fx.secrets[0];
+    const deckTpl = resignTemplate({ rootId: ROOT, headId: HEAD, secret: x }, T0);
+    const parseDeck = (t: EventTemplate) => parseResign(sign(t), true);
+    const put = (c: unknown) => ({ ...deckTpl, content: canonicalJson(c) });
+
+    it('writes the secret as an encoded scalar, keys sorted', () => {
+      expect(deckTpl.tags).toEqual(tpl.tags);
+      expect(deckTpl.content).toBe(`{"secret":"${encodeScalar(x)}","type":"resign"}`);
+    });
+
+    it('round-trips the secret, which still matches its public key', () => {
+      const ev = sign(deckTpl);
+      const r = parseResign(ev, true);
+      expect(r).toEqual({
+        id: ev.id,
+        pubkey: SESSION,
+        createdAt: T0,
+        rootId: ROOT,
+        headId: HEAD,
+        secret: x,
+      });
+      expect(G.multiply(r.secret as bigint).equals(G.multiply(x))).toBe(true);
+    });
+
+    it('accepts exactly one form per game: a secret is required with a deck and forbidden without', () => {
+      expect(code(() => parseDeck(tpl))).toBe('bad-content');
+      expect(code(() => parse(deckTpl))).toBe('bad-content');
+    });
+
+    it('rejects a scalar at or above the group order, junk, a non-canonical encoding and extra keys', () => {
+      expect(code(() => parseDeck(put({ secret: encodeScalar(5n), type: 'resign' })))).toBe('accepted');
+      expect(code(() => parseDeck(put({ secret: '_'.repeat(43), type: 'resign' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ secret: 5, type: 'resign' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ secret: null, type: 'resign' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ secret: 'short', type: 'resign' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ secret: `${encodeScalar(x)}=`, type: 'resign' })))).toBe(
+        'bad-content',
+      );
+      expect(code(() => parseDeck(put({ secret: encodeScalar(x), type: 'forfeit' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ deckSecret: encodeScalar(x), type: 'resign' })))).toBe('bad-content');
+      expect(code(() => parseDeck(put({ extra: 1, secret: encodeScalar(x), type: 'resign' })))).toBe(
+        'bad-content',
+      );
+      expect(code(() => parseDeck({ ...deckTpl, content: ` ${deckTpl.content}` }))).toBe('bad-content');
+    });
   });
 });
 
@@ -496,6 +547,48 @@ describe('Result attestation (7456)', () => {
   it('rejects a bad logHash', () => {
     for (const h of ['', 'AB'.repeat(32), spec.logHash.slice(1), 5, null])
       expect(code(() => parse(withContent({ ...body, logHash: h })))).toBe('bad-content');
+  });
+
+  it('round-trips an unrated outcome that records who ended the game (D052)', () => {
+    const o = { ...spec.outcome, unrated: true as const, endedBy: { type: 'resign' as const, seat: 2 } };
+    const t = attestTemplate({ ...spec, outcome: o }, T0);
+    expect(t.content).toBe(
+      canonicalJson({
+        audit: 'pass',
+        logHash: spec.logHash,
+        outcome: {
+          endedBy: { seat: 2, type: 'resign' },
+          places: o.places,
+          reason: o.reason,
+          scores: o.scores,
+          unrated: true,
+        },
+      }),
+    );
+    expect(parse(t).outcome).toEqual(o);
+    // Without the fields, the content is exactly the old three keys.
+    expect(JSON.parse(tpl.content).outcome).toEqual(spec.outcome);
+    expect(Object.keys(parse(tpl).outcome)).toEqual(['places', 'reason', 'scores']);
+  });
+
+  it('rejects malformed unrated and endedBy fields, and either one alone', () => {
+    const rejected = (o: Record<string, unknown>) =>
+      expect(code(() => parse(outcome(o)))).toBe('bad-content');
+    const by = { type: 'resign', seat: 1 };
+    expect(code(() => parse(outcome({ unrated: true, endedBy: by })))).toBe('accepted');
+    rejected({ unrated: true });
+    rejected({ endedBy: by });
+    rejected({ unrated: false, endedBy: by });
+    rejected({ unrated: 1, endedBy: by });
+    rejected({ unrated: true, endedBy: null });
+    rejected({ unrated: true, endedBy: { type: 'timeout', seat: 1 } });
+    rejected({ unrated: true, endedBy: { type: 'resign', seat: 3 } });
+    rejected({ unrated: true, endedBy: { type: 'resign', seat: -1 } });
+    rejected({ unrated: true, endedBy: { type: 'resign', seat: 0.5 } });
+    rejected({ unrated: true, endedBy: { type: 'resign', seat: '1' } });
+    rejected({ unrated: true, endedBy: { type: 'resign' } });
+    rejected({ unrated: true, endedBy: { ...by, extra: 1 } });
+    rejected({ unrated: true, endedBy: by, extra: 1 });
   });
 
   it('rejects bad outcomes', () => {

@@ -27,7 +27,7 @@ interface Profile {
   deps: ControllerDeps;
 }
 
-function profile(name: string): Profile {
+function profile(name: string, extraRelays: readonly string[] = []): Profile {
   const sk = rnd(32);
   const signer: Signer = {
     kind: 'local',
@@ -43,7 +43,7 @@ function profile(name: string): Profile {
       signer,
       storage: memoryStorage(),
       profile: name,
-      relays: () => [relay.url],
+      relays: () => [relay.url, ...extraRelays],
       rnd,
       now,
       modules: MODULES,
@@ -77,7 +77,11 @@ async function waitFor<T>(what: string, get: () => T | null | undefined | false,
 }
 
 function query(...filters: Filter[]): Promise<NostrEvent[]> {
-  const p = new RelayPool([relay.url], { WebSocket });
+  return queryAt(relay.url, ...filters);
+}
+
+function queryAt(url: string, ...filters: Filter[]): Promise<NostrEvent[]> {
+  const p = new RelayPool([url], { WebSocket });
   pools.push(p);
   return new Promise((resolve) => {
     const got: NostrEvent[] = [];
@@ -94,8 +98,10 @@ function query(...filters: Filter[]): Promise<NostrEvent[]> {
 }
 
 /** A started 2-seat Chess game: the creator (White) and the joiner (Black), each with a game controller. */
-async function startChess(): Promise<{ rootId: string; white: GameController; black: GameController }> {
-  const a = profile('a');
+async function startChess(
+  whiteRelays: readonly string[] = [],
+): Promise<{ rootId: string; white: GameController; black: GameController }> {
+  const a = profile('a', whiteRelays);
   const b = profile('b');
   const la = lobby(a);
   const lb = lobby(b);
@@ -154,6 +160,24 @@ describe('GameController with a deckless game (Chess)', () => {
       await waitFor('done', () => c.status.value === 'done');
       expect(c.canResign.value).toBe(false);
     }
+  }, 60_000);
+
+  it('republishes a Resign that counted to its own relays too (D052, review M-b)', async () => {
+    const other = await startDevRelay({ port: 0 });
+    disposers.push(() => void other.close());
+    const { rootId, white, black } = await startChess([other.url]);
+    await play(white, 0, 'e2e4', 1);
+    await waitFor("Black's turn", () => black.status.value === 'your-turn');
+    // Black publishes only to the game's relay; White, which counts it, echoes it to its other relay.
+    await black.resign();
+    await waitFor('the resignation at White', () => white.view.value?.phase === 'done');
+    expect(white.view.value?.resignId).not.toBeNull();
+    let found: NostrEvent[] = [];
+    for (let i = 0; i < 80 && found.length === 0; i++) {
+      found = await queryAt(other.url, { kinds: [KIND.resign], '#e': [rootId] });
+      if (found.length === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(found.map((e) => e.id)).toEqual([white.view.value?.resignId]);
   }, 60_000);
 
   it('resigns once: the game ends with the resigning seat last, and both attest', async () => {

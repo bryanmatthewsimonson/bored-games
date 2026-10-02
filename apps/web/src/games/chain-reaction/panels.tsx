@@ -221,10 +221,15 @@ export function ResultsView(props: {
   names: readonly string[];
   /** Per seat, drawn beside the names. */
   avatars?: readonly ComponentChildren[] | undefined;
+  /** The game ended early (a resign or a timeout): the cash is worked out as if it ended now. */
+  early?: boolean | undefined;
 }) {
   return (
-    <section class="cr-panel cr-results" aria-labelledby="cr-results-h">
+    <section class="cr-panel cr-results" aria-labelledby="cr-results-h" data-testid="cr-results">
       <h2 id="cr-results-h">Final results</h2>
+      {props.early === true && (
+        <p class="cr-hint">The game ended early: final cash is worked out as if it ended now.</p>
+      )}
       <table class="cr-table">
         <thead>
           <tr>

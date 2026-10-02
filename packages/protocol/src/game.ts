@@ -75,9 +75,19 @@ export interface ResignSpec {
   rootId: Hex;
   /** The head the resigning seat saw when it resigned (PROTOCOL §4.9). */
   headId: Hex;
+  /**
+   * The resigning seat's deck secret `x_k` in a game with a deck (PROTOCOL §4.9, D052), so it owes nothing after
+   * the resign; null (or absent) in a deckless game, where the content carries none.
+   */
+  secret?: bigint | null;
 }
 
-export type ParsedResign = Parsed & ResignSpec;
+export type ParsedResign = Parsed & {
+  rootId: Hex;
+  headId: Hex;
+  /** The seat's deck secret, a scalar in [0, q), when the game has a deck; null in a deckless game. */
+  secret: bigint | null;
+};
 
 export interface SecretSpec {
   rootId: Hex;
@@ -89,10 +99,23 @@ export type ParsedSecret = Parsed & SecretSpec;
 
 export type Audit = 'pass' | { fail: number[]; reason: string };
 
+/** Who ended a game outside its rules (PROTOCOL §7, §8.3, D052): for now only a Resign in a game of 3+ seats. */
+export interface EndedBy {
+  type: 'resign';
+  seat: number;
+}
+
+/**
+ * A result. `unrated` and `endedBy` are present only when a Resign ended a game of 3 or more seats (D052): such a
+ * result does not count toward ratings, and records the seat that ended it. Absent everywhere else, so every other
+ * result (and its attestation) is unchanged.
+ */
 export interface Outcome {
   places: number[];
   reason: string;
   scores: number[];
+  unrated?: true;
+  endedBy?: EndedBy;
 }
 
 export interface AttestSpec {
@@ -288,20 +311,42 @@ export function parseTimeout(ev: unknown): ParsedTimeout {
 
 /* ------------------------------------------------------------------------------------------ resign */
 
-/** The Resign event (kind 7457), unsigned: root and head; content `{"type":"resign"}` (PROTOCOL §4.9, D045). */
+/**
+ * The Resign event (kind 7457), unsigned: root and head (PROTOCOL §4.9). The content is `{"type":"resign"}` in a
+ * deckless game (D045) and `{"secret":"<scalar>","type":"resign"}`, carrying the seat's deck secret, in a game
+ * with a deck (D052).
+ */
 export function resignTemplate(r: ResignSpec, createdAt: number): EventTemplate {
-  return template(KIND.resign, createdAt, [rootTag(r.rootId), ['e', r.headId, '', 'head']], {
-    type: 'resign',
-  });
+  const secret = r.secret ?? null;
+  return template(
+    KIND.resign,
+    createdAt,
+    [rootTag(r.rootId), ['e', r.headId, '', 'head']],
+    secret === null ? { type: 'resign' } : { secret: encodeScalar(secret), type: 'resign' },
+  );
 }
 
-/** Parse a Resign event. Whether its signer holds a seat, and what it ends, is for the session engine. */
-export function parseResign(ev: unknown): ParsedResign {
+/**
+ * Parse a Resign event for a game with a deck (`deck` true) or without one. Exactly one content form is accepted
+ * for each: with a deck the content must carry the seat's deck secret, a canonical base64url scalar below the group
+ * order; without one it must not. Whether its signer holds a seat, whether the secret matches the seat's deck key
+ * (`x·G = X_k`) and what the resign ends are for the session engine.
+ */
+export function parseResign(ev: unknown, deck: boolean): ParsedResign {
   return parseEvent(ev, KIND.resign, (e) => {
     const ids = markedIds(e.tags, ['root', 'head']);
-    const c = record(canonicalContent(e.content), 'content', ['type']);
+    const c = record(canonicalContent(e.content), 'content', deck ? ['secret', 'type'] : ['type']);
     if (c.type !== 'resign') badContent('type must be "resign"');
-    return { ...parsedOf(e), rootId: ids.root as Hex, headId: ids.head as Hex };
+    let secret: bigint | null = null;
+    if (deck) {
+      if (typeof c.secret !== 'string') badContent('secret: expected a base64url scalar');
+      try {
+        secret = decodeScalar(c.secret as string);
+      } catch {
+        return badContent('secret: expected a canonical base64url scalar below the group order');
+      }
+    }
+    return { ...parsedOf(e), rootId: ids.root as Hex, headId: ids.head as Hex, secret };
   });
 }
 
@@ -336,8 +381,19 @@ export function attestTemplate(a: AttestSpec, createdAt: number): EventTemplate 
   return template(KIND.attest, createdAt, [rootTag(a.rootId)], {
     audit: a.audit,
     logHash: a.logHash,
-    outcome: { places: a.outcome.places, reason: a.outcome.reason, scores: a.outcome.scores },
+    outcome: outcomeContent(a.outcome),
   });
+}
+
+/**
+ * An outcome's attested JSON: `places`, `reason` and `scores`, plus `unrated` and `endedBy` only when present
+ * (D052), so every result without them is attested byte for byte as before.
+ */
+function outcomeContent(o: Outcome): Record<string, unknown> {
+  const out: Record<string, unknown> = { places: o.places, reason: o.reason, scores: o.scores };
+  if (o.unrated !== undefined) out.unrated = o.unrated;
+  if (o.endedBy !== undefined) out.endedBy = { seat: o.endedBy.seat, type: o.endedBy.type };
+  return out;
 }
 
 function auditOf(v: unknown): Audit {
@@ -360,8 +416,19 @@ function auditOf(v: unknown): Audit {
   return { fail: fail as number[], reason: reason as string };
 }
 
+/**
+ * The optional outcome keys (D052) present in `v`, which must be an object: `unrated` and `endedBy` are accepted
+ * only together, each in its one encoding.
+ */
+function extraKeys(v: unknown): string[] {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return [];
+  const has = (k: string): boolean => Object.hasOwn(v, k);
+  return has('unrated') || has('endedBy') ? ['endedBy', 'unrated'] : [];
+}
+
 function outcomeOf(v: unknown): Outcome {
-  const o = record(v, 'outcome', ['places', 'reason', 'scores']);
+  const extra = extraKeys(v);
+  const o = record(v, 'outcome', ['places', 'reason', 'scores', ...extra]);
   const places = list(o.places, 'outcome.places');
   const scores = list(o.scores, 'outcome.scores');
   if (places.length !== scores.length) badContent('outcome: places and scores differ in length');
@@ -375,7 +442,19 @@ function outcomeOf(v: unknown): Outcome {
       badContent(`outcome.scores[${i}]: expected an integer`);
   });
   if (typeof o.reason !== 'string') badContent('outcome.reason: expected a string');
-  return { places: places as number[], reason: o.reason as string, scores: scores as number[] };
+  const out: Outcome = { places: places as number[], reason: o.reason as string, scores: scores as number[] };
+  if (extra.length === 0) return out;
+  if (o.unrated !== true) badContent('outcome.unrated: expected true');
+  const by = record(o.endedBy, 'outcome.endedBy', ['seat', 'type']);
+  if (by.type !== 'resign') badContent('outcome.endedBy.type: expected "resign"');
+  if (
+    typeof by.seat !== 'number' ||
+    !Number.isSafeInteger(by.seat) ||
+    by.seat < 0 ||
+    by.seat >= places.length
+  )
+    badContent('outcome.endedBy.seat: expected a seat number');
+  return { ...out, unrated: true, endedBy: { type: 'resign', seat: by.seat as number } };
 }
 
 /** Parse a Result attestation: shapes only. Whether it matches the audit is for the client. */

@@ -169,9 +169,10 @@ export function badShuffle(seat: number): Adversary {
 
 /**
  * `resign`: the seat plays honestly until the chain reaches `atSeq` moves, then resigns on its own decision
- * (PROTOCOL §4.9, D045; 2-seat games without a deck only) and only attests from then on. On its own turn no move
- * can race the resign, and every client counts it at the head it names, so every client must agree. Not a cheat: the resign is labelled so the report shows how
- * every client received it.
+ * (PROTOCOL §4.9, D045, D052; in a game with a deck the Resign carries its deck secret, and the others then publish
+ * theirs) and only attests from then on. On its own turn no move can race the resign, and every client counts it at
+ * the head it names, so every client must agree. Not a cheat: the resign is labelled so the report shows how every
+ * client received it.
  */
 export function resignAt(seat: number, atSeq: number): Adversary {
   let done = false;
@@ -327,6 +328,14 @@ export function unexpected(report: SimReport, seat: number): string[] {
         want(report.outcome?.reason === 'resign', `outcome reason ${report.outcome?.reason}`);
         want(lastAlone(places, seat), `places ${places}`);
         want(same(report.audit, { fail: [seat], reason: 'resign' }), `audit ${audit}`);
+        // With 3 or more seats the result is unrated and records who ended it (D052); with 2 it is a plain loss.
+        if (report.seats >= 3) {
+          want(report.outcome?.unrated === true, 'the result is not unrated');
+          want(same(report.outcome?.endedBy ?? null, { type: 'resign', seat }), 'endedBy is not the seat');
+        } else {
+          want(report.outcome !== null && !('unrated' in report.outcome), 'a 2-seat result is unrated');
+          want(report.outcome !== null && !('endedBy' in report.outcome), 'a 2-seat result has endedBy');
+        }
       }
       break;
     default:

@@ -208,6 +208,10 @@ export class GameController {
   /** The seats' session keys and npubs, once the root is known: only their game events are taken. */
   #sessionKeys = new Set<string>();
   #npubs = new Set<string>();
+  /** Resign events received, by id, so a counted one can be republished (D052, review M-b). */
+  readonly #resigns = new Map<string, NostrEvent>();
+  /** Counted Resigns this controller has republished. */
+  readonly #echoed = new Set<string>();
   /** Ids of the game events received, for paging. */
   readonly #got = new Set<string>();
   /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
@@ -354,6 +358,7 @@ export class GameController {
     // Relays are not trusted to filter: only seated keys' game events are taken (PROTOCOL §11).
     if (!this.#seated(ev)) return;
     this.#got.add(ev.id);
+    if (ev.kind === KIND.resign) this.#resigns.set(ev.id, ev);
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
     if (entry !== undefined) this.#confirm(entry[0]);
     // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
@@ -672,8 +677,26 @@ export class GameController {
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
     this.status.value = this.#statusOf(v, duties);
+    this.#echoResign(v);
     this.#cacheStatus(v.head.seq, this.status.value, now);
     this.#maybePrune(v, duties);
+  }
+
+  /**
+   * Republish the Resign that counted on this client to the root's relays and this player's (D052, review M-b),
+   * once per load, as other final evidence: a resigner that sent its Resign to only some relays cannot leave the
+   * players who never saw it to be timed out while the game looks live to them.
+   */
+  #echoResign(v: SessionView): void {
+    const id = v.resignId;
+    const root = this.#root;
+    if (!this.#synced || id === null || root === null || this.#echoed.has(id) || this.#disposed) return;
+    const ev = this.#resigns.get(id);
+    if (ev === undefined) return;
+    this.#echoed.add(id);
+    void this.#d.pool.publish(ev, unionRelays(root.relays, this.#d.relays())).catch(() => {
+      // Best effort: the resign is held here either way.
+    });
   }
 
   /**
