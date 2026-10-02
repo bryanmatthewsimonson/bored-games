@@ -398,7 +398,7 @@ describe('Resign (7457)', () => {
 
   it('rejects the wrong kind, a missing proto tag and any other content', () => {
     expect(code(() => parse({ ...tpl, kind: KIND.timeout }))).toBe('wrong-kind');
-    expect(code(() => parse(withTags(tpl, (t) => t.filter((x) => x[0] !== 'proto'))))).not.toBe('accepted');
+    expect(code(() => parse(withTags(tpl, (t) => t.filter((x) => x[0] !== 'proto'))))).toBe('bad-proto');
     expect(code(() => parse({ ...tpl, content: '{}' }))).toBe('bad-content');
     expect(code(() => parse({ ...tpl, content: '{"type":"forfeit"}' }))).toBe('bad-content');
     expect(code(() => parse({ ...tpl, content: '{"seat":0,"type":"resign"}' }))).toBe('bad-content');
