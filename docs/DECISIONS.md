@@ -680,7 +680,7 @@ The owner, on the public site: *"You could show the link and say something like 
   - **Guard.** `licensedPackStrings` collects only names and text (title, tagline, summary, aliases, chain names), skipping the pack's top-level `id` and `looks` only (the same keys deeper down are scanned); scanning for those would ban single letters and colors everywhere. A guard test checks the collected set is exactly the pack's names and text, and the control build still holds every one of them.
   - **Test locally** with `VITE_LICENSED_BRANDS=1 pnpm dev`: switching Settings → Game names changes the colors and labels live (TESTING.md).
 - **No new dependencies.**
-- **Alternatives.** Allowing the bare title on the public site (would let every other use through too); linking to the reference game's BoardGameGeek page under its slug (the slug is the name); a separate allowlist for the note (the note's title comes from the same entry at run time, so it needs no literal).
+- **Alternatives.** Allowing the bare title on the public site (would let every other use through too); linking to the reference game's BoardGameGeek page under its slug (the slug is the name); a separate allowlist for the note (the note's title comes from the same entry at run time, so it needs no literal); for the looks, keeping the safe looks under the original names (the owner ruled that out) or a separate looks pack (a second switch for one choice).
 
 ## D054: Hanabi rules spec; build blocked on Phase K (owner, 2026-10-02, Phase J0)
 `docs/games/hanabi/RULES.md` is the source of truth for a future Hanabi engine (Antoine Bauza, 2010; Cocktail Games and R&R Games), with a 56-entry edge-case catalog (C01–C56). Only the spec is written: no engine, UI, fuzz target or package.
@@ -692,5 +692,3 @@ The owner, on the public site: *"You could show the link and say something like 
 - **Catalog meta-test.** `tests/catalog.test.ts` skips games listed in `SPEC_ONLY` (today `hanabi`) with an explicit test per game: the catalog must be well formed with unique ids. A separate test fails once `packages/games/<id>` exists, so the entry cannot rot: removing it makes the normal rule apply (every `Cnn` needs an `it('Cnn …')` test).
 - **No new dependencies.**
 - **D049–D053 and D055 are reserved** for parallel work and left unused here.
-
-- **Alternatives.** Allowing the bare title on the public site (would let every other use through too); linking to the reference game's BoardGameGeek page under its slug (the slug is the name); a separate allowlist for the note (the note's title comes from the same entry at run time, so it needs no literal); for the looks, keeping the safe looks under the original names (the owner ruled that out) or a separate looks pack (a second switch for one choice).
