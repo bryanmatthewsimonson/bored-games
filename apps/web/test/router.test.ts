@@ -36,6 +36,7 @@ describe('parseRoute', () => {
       game: 'chain-reaction',
       section: null,
     });
+    expect(parseRoute('#/rules/chess')).toEqual({ name: 'rules', game: 'chess', section: null });
     expect(parseRoute('#/rules/chess/special')).toEqual({ name: 'rules', game: 'chess', section: 'special' });
     expect(parseRoute('#/rules/chain-reaction/mergers')).toEqual({
       name: 'rules',

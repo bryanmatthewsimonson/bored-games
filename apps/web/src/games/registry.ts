@@ -6,6 +6,9 @@
 import { CHAIN_REACTION_META } from './chain-reaction/meta.ts';
 import { RulesPage as ChainReactionRulesPage } from './chain-reaction/rules-page.tsx';
 import { ChainReactionScreen } from './chain-reaction/screen.tsx';
+import { ChessGame } from './chess/game.tsx';
+import { CHESS_META } from './chess/meta.ts';
+import { ChessRulesPage } from './chess/rules-page.tsx';
 import { GAME_IDS } from './ids.ts';
 import type { WebGame } from './types.ts';
 
@@ -16,6 +19,12 @@ export const GAMES: readonly WebGame[] = [
     RulesPage: ChainReactionRulesPage,
     setupCopy: (hasDeck) =>
       hasDeck ? { shuffling: 'Shuffling the deck', dealing: 'Dealing the tiles…' } : null,
+  },
+  {
+    ...CHESS_META,
+    Component: ChessGame,
+    RulesPage: ChessRulesPage,
+    setupCopy: () => null,
   },
 ];
 

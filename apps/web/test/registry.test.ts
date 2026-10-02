@@ -2,6 +2,7 @@
  * The web game registry (D045): every hosted game has a rules module, a registry entry and an id, and they agree.
  */
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import { CHESS_THEME } from '@bored-games/chess/theme';
 import { describe, expect, it } from 'vitest';
 import { pickableGames } from '../src/components/new-table-form.tsx';
 import { GAME_METAS, gameTitle } from '../src/game-names.ts';
@@ -30,6 +31,7 @@ describe('game registry', () => {
 
   it('takes titles from the themes', () => {
     expect(gameTitle('chain-reaction')).toBe(CHAIN_REACTION_THEME.title);
+    expect(gameTitle('chess')).toBe(CHESS_THEME.title);
     expect(gameTitle('unknown-game')).toBe('unknown-game');
   });
 
@@ -39,7 +41,9 @@ describe('game registry', () => {
       dealing: 'Dealing the tiles…',
     });
     expect(webGame('chain-reaction')?.setupCopy(false)).toBeNull();
-    // The module agrees: Chain Reaction has one deck.
+    expect(webGame('chess')?.setupCopy(false)).toBeNull();
+    // The module agrees: Chess is deckless, Chain Reaction has one deck.
+    expect(MODULES.get('chess')?.decks(MODULES.get('chess')?.defaultRules())).toEqual([]);
     expect(MODULES.get('chain-reaction')?.decks(MODULES.get('chain-reaction')?.defaultRules())).toHaveLength(
       1,
     );
@@ -47,7 +51,7 @@ describe('game registry', () => {
 
   it('offers in the picker only the games this client has a module for', () => {
     expect(pickableGames(MODULES)).toEqual([...GAME_IDS]);
-    expect(pickableGames(new Map([['go', null]]))).toEqual([]);
+    expect(pickableGames(new Map([['chess', null]]))).toEqual(['chess']);
   });
 
   it("points the header's Rules link at the rules page's game, the open game's, or the default", () => {

@@ -4,6 +4,7 @@
  * so tests run them in Node against the dev relay with local signers and a memory store.
  */
 import { chainReaction } from '@bored-games/chain-reaction';
+import { chess } from '@bored-games/chess';
 import type { GameModule } from '@bored-games/game-kit';
 import type { NostrEvent } from '@bored-games/protocol';
 import {
@@ -26,7 +27,10 @@ type AnyModule = GameModule<any, any, any>;
 export type ModuleRegistry = ReadonlyMap<string, AnyModule>;
 
 /** The games this client can play, by module id; each also has a web registry entry (games/registry.ts). */
-export const MODULES: ModuleRegistry = new Map<string, AnyModule>([[chainReaction.id, chainReaction]]);
+export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
+  [chainReaction.id, chainReaction],
+  [chess.id, chess],
+]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */
 export interface PoolLike {
