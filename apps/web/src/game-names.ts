@@ -1,3 +1,4 @@
+import { gameNames } from './brands.ts';
 import { CHAIN_REACTION_META } from './games/chain-reaction/meta.ts';
 import { CHESS_META } from './games/chess/meta.ts';
 import type { GameMeta } from './games/types.ts';
@@ -8,7 +9,10 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [CHESS_META.id, CHESS_META],
 ]);
 
-/** The player-facing title of a game module id. Unknown ids are shown as they are. */
+/**
+ * The player-facing title of a game module id, under the names in effect (D046). Unknown ids are shown as they
+ * are. Reads the branding: a component calling it re-renders when the names change.
+ */
 export function gameTitle(moduleId: string): string {
-  return GAME_METAS.get(moduleId)?.title() ?? moduleId;
+  return gameNames(moduleId)?.gameTitle ?? GAME_METAS.get(moduleId)?.title() ?? moduleId;
 }

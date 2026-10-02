@@ -144,8 +144,10 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   const started = Date.now();
   const log = (msg: string) => console.log(`[${((Date.now() - started) / 1000).toFixed(1)}s] ${msg}`);
 
-  // a creates a table: herself plus the other seats, open.
+  // a creates a table from the game's page in the catalog: herself plus the other seats, open.
   const a = await open(browser, 'a', appUrl('a'));
+  await a.page.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
+  await expect(a.page).toHaveURL(/#\/games\/chain-reaction$/);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
   await a.page.getByLabel('Players', { exact: true }).selectOption(String(SEATS));
   await expect(a.page.getByText(`${SEATS - 1} open seats`)).toBeVisible();

@@ -6,6 +6,7 @@ import { DEFAULT_GAME, GAME_IDS } from './games/ids.ts';
  *   #/                          Home
  *   #/t/<creatorHex>/<tableId>  a Table (lobby)
  *   #/g/<rootId>                a Game
+ *   #/games/<gameId>            a game's page in the catalog: about it, a New table form and its tables
  *   #/rules/<gameId>[/<section>] a game's rules, optionally scrolled to one section
  *   #/rules[/<section>]         the old form: Chain Reaction's rules (DEFAULT_GAME)
  *   #/credits                   third-party art and its licenses
@@ -15,6 +16,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'table'; creator: string; tableId: string }
   | { name: 'game'; rootId: string }
+  | { name: 'game-page'; game: string }
   | { name: 'rules'; game: string; section: string | null }
   | { name: 'credits' }
   | { name: 'dev'; page: string; scene: string | null }
@@ -22,6 +24,7 @@ export type Route =
 
 const TABLE = /^\/t\/([0-9a-f]{64})\/([A-Za-z0-9._-]{1,64})\/?$/;
 const GAME = /^\/g\/([0-9a-f]{64})\/?$/;
+const GAME_PAGE = /^\/games\/([a-z0-9-]{1,32})\/?$/;
 const RULES = /^\/rules(?:\/([a-z0-9-]{1,32}))?(?:\/([a-z0-9-]{1,32}))?\/?$/;
 const DEV = /^\/dev\/([a-z0-9-]{1,32})(?:\/([a-z0-9-]{1,32}))?\/?$/;
 
@@ -33,6 +36,8 @@ export function parseRoute(hash: string): Route {
   if (t) return { name: 'table', creator: t[1] as string, tableId: t[2] as string };
   const g = GAME.exec(path);
   if (g) return { name: 'game', rootId: g[1] as string };
+  const p = GAME_PAGE.exec(path);
+  if (p) return { name: 'game-page', game: p[1] as string };
   const r = RULES.exec(path);
   if (r) {
     const [first, second] = [r[1] ?? null, r[2] ?? null];
@@ -52,6 +57,8 @@ export const homeHref = (): string => '#/';
 export const tableHref = (creator: string, tableId: string): string => `#/t/${creator}/${tableId}`;
 export const gameHref = (rootId: string): string => `#/g/${rootId}`;
 export const creditsHref = (): string => '#/credits';
+/** A game's page in the catalog. */
+export const gamePageHref = (game: string): string => `#/games/${game}`;
 /** A game's rules page, optionally at one section. */
 export const rulesHref = (game: string, section?: string): string =>
   section ? `#/rules/${game}/${section}` : `#/rules/${game}`;

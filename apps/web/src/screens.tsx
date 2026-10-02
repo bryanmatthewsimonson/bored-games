@@ -5,6 +5,7 @@ import { webGame } from './games/registry.ts';
 import { homeHref, type Route } from './router.ts';
 import { CreditsScreen } from './screens/credits.tsx';
 import { GameScreen } from './screens/game.tsx';
+import { GamePage } from './screens/game-page.tsx';
 import { HomeScreen } from './screens/home.tsx';
 import { TableScreen } from './screens/table.tsx';
 
@@ -39,6 +40,8 @@ export function Screen(props: { route: Route }) {
       return <TableScreen creator={r.creator} tableId={r.tableId} />;
     case 'game':
       return <GameScreen rootId={r.rootId} />;
+    case 'game-page':
+      return <GamePage game={r.game} />;
     case 'rules': {
       const game = webGame(r.game);
       return game === undefined ? <NotFoundScreen /> : <game.RulesPage section={r.section} />;

@@ -70,8 +70,12 @@ async function shoot(p: Player, file: string): Promise<void> {
 /** a creates a Chess table, b joins it, a starts it; both end up on the board. */
 async function startChess(a: Player, b: Player, shot?: string): Promise<void> {
   await a.page.goto(appUrl('a'));
+  // Find Chess in the catalog by searching, and open its page.
+  await a.page.getByLabel('Search games').fill('chess');
+  await expect(a.page.locator('.catalog-count')).toHaveText(/^1 of \d+ games$/);
+  await a.page.getByRole('link', { name: 'Chess', exact: true }).click();
+  await expect(a.page).toHaveURL(/#\/games\/chess$/);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
-  await a.page.getByLabel('Game', { exact: true }).selectOption('chess');
   await expect(a.page.getByLabel('Players', { exact: true })).toHaveValue('2');
   await expect(a.page.getByText('1 open seat')).toBeVisible();
   await expect(a.page.getByRole('link', { name: 'How to play' })).toHaveAttribute('href', '#/rules/chess');

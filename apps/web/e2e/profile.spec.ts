@@ -210,6 +210,7 @@ test('players set a name and picture, and see each other’s on the table seats'
   await expect(a.locator('.identity')).toContainText('Ann Example');
   await expect(a.getByText('Add your name and picture so friends recognize you.')).toHaveCount(0);
 
+  await a.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
   await a.getByRole('button', { name: 'Create table' }).click();
   await expect(a).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.getByLabel('Table link').inputValue();
