@@ -9,7 +9,7 @@ The public name is "Hanabi" (owner's choice, D054). There is no trademark-safe b
 ## Sources and interpretations
 
 **Sources.**
-- The Hanabi rulebook (Antoine Bauza; Cocktail Games / R&R Games). The rulebook PDF could **not** be fetched in the writing session (HTTP 403), so the rules below come from the author's knowledge of it, cross-checked against the secondary sources that could be read: the Wikipedia article "Hanabi (card game)", the Zatu "How to play Hanabi" page, the officialgamerules.org summary and web-search summaries of the rulebook. Rules checked against at least two of those are marked **verified** in the table; rules known only from the rulebook as remembered are marked **recalled**.
+- The Hanabi rulebook (Antoine Bauza; Cocktail Games / R&R Games). The rulebook PDF could **not** be fetched in the writing session (HTTP 403), so the rules below come from the author's knowledge of it, cross-checked against the secondary sources that could be read: the Wikipedia article "Hanabi (card game)", the Zatu "How to play Hanabi" page, the officialgamerules.org summary and web-search summaries of the rulebook. Rules checked against at least two of those, or confirmed by the J0 review against the official rules summary and Wikipedia, are marked **verified** in the table; the one rule that is only the author's reading is marked **recalled**.
 - `docs/GAME-SYSTEMS.md` §4.1 (grant model, sealed shares, prompt and piggybacked duties) and §4.7 (co-op outcome, honour rules).
 
 **Rules decisions and open points.**
@@ -21,17 +21,18 @@ The public name is "Hanabi" (owner's choice, D054). There is no trademark-safe b
 | Seeing cards | Each player holds their hand facing away: every player sees every other hand, nobody sees their own. | **verified** |
 | Actions | On a turn a player takes exactly one of: give a clue, discard a card, play a card. | **verified** |
 | Clue | Costs 1 clue token. Names one other player and **one** colour or **one** rank, never both. It must be complete (every card of that colour or rank in the target's hand is pointed at) and correct. | **verified** (complete and correct, one colour or number, not to oneself, costs a token) |
-| Clue touching nothing | A clue must touch at least one card: "you have no 3s" is not allowed. | **recalled** (the rulebook requires information that points at cards) |
+| Clue touching nothing | A clue must touch at least one card: "you have no 3s" is not allowed. | **verified** (confirmed in the J0 review) |
 | Clue at 0 tokens | Not allowed. | **verified** |
-| Discard | Regains 1 clue token. Not allowed while all 8 clue tokens are available. | token regain **verified**; the ban at 8 **recalled** |
+| Redundant clue | A clue that repeats known information is legal if it touches a card and a token is available. | **recalled** (no rule forbids it; the sources read are silent) |
+| Discard | Regains 1 clue token. Not allowed while all 8 clue tokens are available. | token regain **verified**; the ban at 8 **verified** (J0 review) |
 | Play | The card must be the next rank of its colour (a 1 starts a firework). A 5 completes a firework and regains 1 clue token if fewer than 8 are available. A card that is not the next rank is a misplay: it is discarded face up and a fuse token is lost. | **verified** |
 | Draw | After a play or discard the player draws the top card of the deck, if any. Clues never draw. | **verified** |
-| Third fuse | The game ends at once and is lost: the display "goes up in flames". The score is **0**. | the end is **verified**; **score 0** is **recalled** from the rulebook's scoring section (the sources read did not state it). Keeping the points is a rules option, **OPEN** (`fuseLoss: 'keep'`) |
+| Third fuse | The game ends at once and is lost: the display "goes up in flames". The score is **0**. | the end is **verified**; **score 0** is **verified** (J0 review, against the official rules summary and Wikipedia). Keeping the points is a rules option, **OPEN** (`fuseLoss: 'keep'`) |
 | All fireworks complete | At 25 points the game ends at once, a perfect win. | **verified** |
 | Deck runs out | When the last card is drawn, each player takes **one more turn**, including the player who drew it. No one draws during these turns. | **verified** ("everyone, including the player that took that last card, gets one more turn") |
 | Score | The sum, over the five colours, of the highest rank played on each firework. 0–25. | **verified** |
 | Score bands | The rulebook gives a spoken verdict per band: 0–5, 6–10, 11–15, 16–20, 21–24, 25. Display text only, no rule effect; the wording is our own and is **OPEN** (final text in `theme.ts`). | bands **verified** (Zatu) |
-| First player | The rulebook picks the first player by a table custom (whoever last saw fireworks). **Platform decision:** seat 0. | custom **recalled**; seat 0 is ours |
+| First player | The rulebook picks the first player by a table custom (whoever last saw fireworks). **Platform decision:** seat 0. | custom **verified** (J0 review); seat 0 is ours |
 | Order of cards in hand | At a table, players keep their cards in any order. **Platform decision:** the log has one canonical slot order (see "The hand and its slots"); a viewer-side reorder is a UI matter. | **OPEN** (what the rulebook says about rearranging was not verified) |
 | Clue memory | At a table players must remember clues. **Platform decision** below: the log is the memory, and a client may show the clue marks on each card. | **OPEN** whether a strict "no marks" option is wanted |
 | Talk | The rulebook forbids any hint beyond clues: no comments, faces, pauses or reordering that carries information. | **verified** in spirit (Zatu: "you're not supposed to run your hand over your cards") |
@@ -53,9 +54,12 @@ On its turn the acting seat takes exactly one of three actions. Then the turn pa
 ### Give a clue
 - The actor names **another seat** (the target) and **one** colour or **one** rank.
 - It costs one clue token, so it is illegal at 0 tokens.
-- The clue **touches every card** in the target's hand of that colour, or of that rank. The touched slots are derived from the hand and are never chosen by the actor.
-- A clue that touches no card is illegal.
-- A clue has no other effect: no draw, no change to the fireworks or the deck. Everyone sees it, and it is recorded in the public log.
+- The clue **must touch every card** in the target's hand of that colour, or of that rank, and **at least one card**. Nothing else may be touched.
+- **The touched slots are the giver's claim.** The giver sees the target's hand and the target does not, so the public fold cannot compute which slots a clue touches: the fold must not depend on any one viewer's view (GAME-SYSTEMS §2.4, §2.5). The clue action therefore carries the list of touched slots. This is a hidden claim checked at the audit, like Chain Reaction's `skipPlace` (GAME-SYSTEMS §4.1.7).
+- **What the fold checks.** Only that the claim is well formed: a non-empty list of distinct slots in ascending order, each in range for the target's hand (the hand size is public). It accepts any such claim.
+- **What the audit checks.** The end-of-game audit knows every card. It rejects a claim that is not **exactly** the set of the target's slots holding that colour or rank, which includes a clue that touches nothing, a slot left out, and a slot added. A wrong claim fails the giver (the audit names the giving seat as the cheater).
+- **Early warning, not a rule.** Every seat other than the target can check the claim at once against its own view and may warn the table. The fold never depends on it, because views differ.
+- A clue has no other effect: no draw, no change to the fireworks or the deck. Everyone sees it, with its claimed touched slots, and it is recorded in the public log.
 
 ### Discard a card
 - The actor discards one card from its own hand, by slot, face up onto the discard pile.
@@ -74,7 +78,7 @@ After a play (successful or not) or a discard, the actor draws the top card of t
 ### The hand and its slots
 - A hand is an ordered list. **Slot 0 is the oldest card.** A new card goes to the **last** slot. When a card leaves the hand, the cards after it move down by one. This is the engine's canonical order, and every action and every clue refers to it.
 - A client may let a player move its own cards around on screen. That is a view matter and never appears in the log, so the log's slot numbers stay canonical. **OPEN:** the rulebook leaves hand order to the table.
-- Clue marks: the public log says, for every card, which clues touched it and which clues were given while it was in the hand without touching it. A client may show these as marks (for example "red", "not 3") on the holder's cards. This is public information derived from the log, and it replaces the memory a player has at a table.
+- Clue marks: the public log says, for every card, which clues claimed it and which clues were given while it was in the hand without claiming it (claims are checked at the audit, see "Give a clue"). A client may show these as marks (for example "red", "not 3") on the holder's cards. This is public information derived from the log, and it replaces the memory a player has at a table.
 
 ## End of game
 
@@ -86,7 +90,7 @@ The game ends at the first of these, checked after every action:
 | Perfect | All five fireworks are at 5 | 25 | `perfect` |
 | Deck | The last card has been drawn and every seat has taken one more turn | the sum of the fireworks | `deck` |
 
-- **Immediate ends.** A third fuse or a 25th point ends the game on the spot, with no more turns. If both could happen the same turn, the fuse is checked first (a misplay cannot complete a firework, so in practice they never coincide).
+- **Immediate ends.** A third fuse or a 25th point ends the game on the spot, with no more turns. The checks run in this order: **fuses**, then **perfect**, then **deck**. A third fuse and a perfect score cannot coincide (a misplay completes nothing). But the 25th point can be played on the last final turn, when `perfect` and `deck` both apply: `perfect` wins, so the reason is `perfect`, the same 25 either way.
 - **The final round.** The draw that takes the deck to 0 cards starts it. Let Q be the seat that drew. The seats Q+1, Q+2, …, up to and including Q each take **one** more turn, so there are exactly as many final turns as seats, and Q's is the last. A seat that gets a final turn may give a clue (if tokens allow), discard (if below 8) or play. Nobody draws. After the final turn the game ends and the score is the sum of the fireworks.
 - **No stall rule needed.** A game always ends: a clue costs a token that only a discard or a completed firework returns, and each of those uses a card from the deck, so the deck and the final round bound the game. A game that does not end is a bug in the engine or the fuzz policies (D015, D016).
 - **Scoring.** Score = the sum of the five fireworks' top ranks (0–25), or 0 after the third fuse.
@@ -105,8 +109,9 @@ Hanabi is **cooperative**: there is one shared result.
 - **Viewer sets.** A card in seat Q's hand is visible to **every seat except Q**. The deck is visible to nobody. Fireworks and the discard pile are public. In grant terms (GAME-SYSTEMS §4.1.3): a dealt card's viewer set is all seats but its holder.
 - **`view(state, viewer)`.** A seat sees every other hand exactly and its own hand as hidden cards (with the public clue marks). The deck shows only its size. A spectator (`viewer: null`) sees no hand while the game runs (a spectator has no seat, so no sealed share), and everything once the game has ended and the cards are revealed.
 - **Reveal on play or discard.** A played or discarded card becomes public, the holder included. It turns on a platform reveal, and the engine learns the card from the reveal, never from the holder.
-- **Cryptography.** Privacy comes from the deck protocol, never from the UI alone (GAME-SYSTEMS §2.1). With two seats the viewer set has one member, so today's shares are nearly enough. With three or more seats the cards need **sealed shares** between the viewers, and the draw and reveal timing needs a **prompt-reveal protocol**: the seat after the drawer must see the new card before it acts, which turn-piggybacked shares cannot give (see "Hanabi design note" in GAME-SYSTEMS §4.1).
+- **Cryptography.** Privacy comes from the deck protocol, never from the UI alone (GAME-SYSTEMS §2.1). With three or more seats the cards need **sealed shares** between the viewers, and the draw and reveal timing needs a **prompt-reveal protocol**: the seat after the drawer must see the new card before it acts, which turn-piggybacked shares cannot give. **Two players are not solved by today's mechanisms either:** the next seat needs the drawer's share of the new card, which PROTOCOL §6.2 attaches to the drawer's next move (one round late), and reveal-on-play is circular (the other seat's share would ride on a move whose parent state is waiting for that very reveal). Both the draw timing and the reveal-on-play circularity are Phase K questions (see "Hanabi design note" in GAME-SYSTEMS §4.1).
 - **Dependency: build blocked on Phase K.** Do not start the engine's package, UI, fuzz target or e2e until the sealed-share crypto and the cheat-proof prompt-reveal protocol are approved (owner instruction, J0, D054).
+- **OPEN: proving a clue's claim at the time.** A clue's touched slots are a hidden claim, caught only at the audit (see "Give a clue"). Proving the claim when the clue is given is impossible without zero-knowledge machinery (a proof about the target's hidden cards that the target itself cannot check), so detection happens at the audit. Every seat other than the target can check at once with its own view and may warn.
 - **The initial deal** also needs the viewers' shares before the first turn, so seat 0 can see the other hands. That is a setup round of sealed shares, part of the same dependency.
 - **At the end** every card is revealed and audited, as in every deck game.
 
@@ -121,10 +126,10 @@ Hanabi is **cooperative**: there is one shared result.
 
 ## Actions on the wire (prose)
 
-- **Clue.** An action of type `clue` with the actor (an integer seat), the `target` (an integer seat, not the actor), a `kind` (`colour` or `rank`) and a `value`: a colour id for `colour`, an integer 1 to 5 for `rank`. The touched slots are not part of the action: they are derived. A move that carries them is rejected.
+- **Clue.** An action of type `clue` with the actor (an integer seat), the `target` (an integer seat, not the actor), a `kind` (`colour` or `rank`) and a `value`: a colour id for `colour`, an integer 1 to 5 for `rank`. The `touched` list: the giver's claim of the target's slots the clue touches, strictly ascending integers, non-empty, each from 0 to the target's hand size minus 1. A clue without it, with an empty, unsorted or repeating list, or with a slot out of range is rejected. The list is not checked against the cards until the audit.
 - **Play.** An action of type `play` with the actor and the `slot`, an integer from 0 to the hand's size minus 1.
 - **Discard.** An action of type `discard` with the actor and the `slot`, in the same way.
-- **Rejected as non-canonical:** unknown or extra keys, a missing key, strings in place of integers, `value` that does not match `kind` (a rank with `colour`, a colour not in the deck, rank 0 or 6), a slot out of range or not an integer, an unknown action type, an actor who is not the seat to move, and any action after the game ended.
+- **Rejected as non-canonical:** unknown or extra keys, a missing key, strings in place of integers, `value` that does not match `kind` (a rank with `colour`, a colour not in the deck, rank 0 or 6), a slot out of range or not an integer, an unknown action type, an action `play` or `discard` that carries `touched`, an actor who is not the seat to move, and any action after the game ended.
 - **Revealed cards.** The card a play or discard turns public is not written by the actor: it comes from the platform reveal, so a player cannot choose or misreport it.
 
 ## Variants (OPEN rules options for later, not base rules)
@@ -179,7 +184,7 @@ Seat 0 gets the first hand-size positions, seat 1 the next, and the first draw t
 An action by any other seat is rejected, and so is every action once the game is over.
 
 #### C09 Non-canonical encodings are rejected
-Extra or missing keys, string numbers, rank 0 or 6, an unknown colour, a clue without a target, a clue that carries its touched slots and an unknown action type are all rejected.
+Extra or missing keys, string numbers, rank 0 or 6, an unknown colour, a clue without a target, a clue without its `touched` list, with an empty, repeating, unsorted or out-of-range one, a `play` that carries `touched`, and an unknown action type are all rejected.
 
 #### C10 A slot must be an integer inside the hand
 A slot below 0, at or above the hand size, or not an integer is rejected for play and discard.
@@ -204,11 +209,11 @@ The target must be another seat.
 #### C16 A clue names one colour or one rank, never both
 The action has one kind and one value, and a clue about "red 3" cannot be given.
 
-#### C17 A clue touches every card of that colour or rank in the target's hand
-The touched slots are derived, so a clue of rank 1 touches all of the target's 1s and cannot pick only some.
+#### C17 A clue must touch every card of that colour or rank in the target's hand, and the giver's `touched` list is a claim the fold accepts and the audit checks
+A rank 1 clue claiming only some of the target's 1s is accepted by the fold if well formed, and the audit rejects it and fails the giver.
 
-#### C18 A clue that would touch no card is rejected
-A colour or rank that the target does not hold cannot be named, so "no cards" is never information.
+#### C18 A clue must touch at least one card: an empty claim is rejected by the fold, and a false non-empty claim is rejected by the audit
+A colour or rank the target does not hold cannot be claimed, so "no cards" is never information.
 
 #### C19 A clue that adds nothing new is still legal if it touches a card
 Giving the same clue twice, or clueing a card that is already known, costs a token and is accepted.
@@ -216,8 +221,8 @@ Giving the same clue twice, or clueing a card that is already known, costs a tok
 #### C20 A clue draws nothing and changes neither the fireworks nor the deck
 Only the tokens and the public record of clues change.
 
-#### C21 Everyone sees a clue, and the target learns which slots it touched and did not touch
-Slots that were not touched are known not to be that colour or rank.
+#### C21 Everyone sees a clue and its claimed slots, and the target learns which slots were claimed touched and not touched
+Slots that were not claimed are taken to be neither that colour nor that rank, and a false claim is caught at the audit, not at play.
 
 #### C22 A clue at 8 tokens is legal
 Clues are limited only by the token count, and 8 tokens is the most there can be.
@@ -303,28 +308,31 @@ The misplay in the last turn loses everything, as at any time.
 #### C47 Completing the fireworks in the final round ends the game at once
 The remaining final turns are not played.
 
-#### C48 After the last final turn the score is the sum of the five tops
+#### C48 The 25th point on the last final turn ends the game as `perfect`, not `deck`
+Both ends apply, `perfect` is checked first, and the score is 25 either way.
+
+#### C49 After the last final turn the score is the sum of the five tops
 Fireworks at 5, 3, 0, 4 and 2 give 14.
 
-#### C49 A legal action always exists until the game ends
+#### C50 A legal action always exists until the game ends
 At 8 tokens a clue or a play is legal, at 0 tokens a discard or a play is, and hands are never empty before the end.
 
-#### C50 Every game ends after finitely many turns
+#### C51 Every game ends after finitely many turns
 Clues need tokens that only discards and completed fireworks return, and each of those uses a card from the deck, so the deck and the final round end the game.
 
 ### Results and views
 
-#### C51 The outcome is shared: every seat has place 1 and the same score
+#### C52 The outcome is shared: every seat has place 1 and the same score
 `standings` is the same for every seat and equals the fireworks' score, and during play it equals the current sum.
 
-#### C52 A timeout or resign ends the game as a co-op loss for everyone
+#### C53 A timeout or resign ends the game as a co-op loss for everyone
 The platform ends it, and the engine is not asked.
 
-#### C53 Each seat's view hides its own hand and shows every other hand
+#### C54 Each seat's view hides its own hand and shows every other hand
 A seat's own cards are hidden, the others' are exact, the deck shows only its size, and the fireworks and the discard pile are public.
 
-#### C54 A spectator sees no hand during play and everything after the end
+#### C55 A spectator sees no hand during play and everything after the end
 A spectator has no seat and so no sealed share.
 
-#### C55 Clue marks are derived from the public log
-For each card in a hand, the clues that touched it and the clues given while it was there that did not touch it are known to everyone.
+#### C56 Clue marks are derived from the public log
+For each card in a hand, the clues that claimed it and the clues given while it was there that did not are known to everyone, and they are claims until the audit.
