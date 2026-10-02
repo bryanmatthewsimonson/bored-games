@@ -1270,3 +1270,16 @@ input[type="search"] {
 .game-page .facts {
   margin: 0;
 }
+
+/* Settings: Game names (D046) */
+.names-choice {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+}
+
+.names-choice .radio > span {
+  display: grid;
+}

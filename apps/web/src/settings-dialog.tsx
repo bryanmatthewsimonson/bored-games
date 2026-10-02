@@ -241,13 +241,14 @@ export function GameNamesSection() {
   return (
     <section aria-labelledby="names-h">
       <h3 id="names-h">Game names</h3>
-      <fieldset class="field">
+      <p class="muted">The names of the games and their pieces, as you see them.</p>
+      <fieldset class="names-choice">
         <legend class="sr-only">Game names</legend>
         <label class="radio">
           <input type="radio" name="branding" checked={current === 'safe'} onChange={() => choose('safe')} />
           <span>
             Trademark-safe names
-            <span class="hint"> ({games.map((g) => packExample(g.safe)).join('; ')})</span>
+            <span class="hint">{games.map((g) => packExample(g.safe)).join('; ')}</span>
           </span>
         </label>
         <label class="radio">
@@ -259,7 +260,7 @@ export function GameNamesSection() {
           />
           <span>
             Original names (licensed)
-            <span class="hint"> ({games.map((g) => packExample(g.original)).join('; ')})</span>
+            <span class="hint">{games.map((g) => packExample(g.original)).join('; ')}</span>
           </span>
         </label>
       </fieldset>
