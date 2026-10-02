@@ -50,7 +50,8 @@ Chess as defined by the FIDE Laws of Chess (Basic Rules of Play, Articles 1–5,
 | The same position for the third time | Draw | `repetition` |
 | 100 halfmoves (50 by each side) with no capture and no pawn move | Draw | `fifty-move` |
 | A draw offer accepted | Draw | `agreement` |
-| Resignation or timeout | The platform ranks the resigning or absent seat last | (platform: `forfeit`) |
+| Resignation (platform event, PROTOCOL §8.3) | The platform ranks the resigning seat last | (platform: `resign`) |
+| Timeout (PROTOCOL §8.2) | The platform ranks the absent seat last | (platform: `forfeit`) |
 
 **Halfmove clock.** A capture or a pawn move resets it to 0; every other move adds 1, castling included. Losing castling rights does not reset it.
 

@@ -5,7 +5,7 @@
 This document specifies how players run a turn-based multiplayer board game with hidden cards over NOSTR. It uses **no trusted server, dealer or referee**: only the players' clients and relays.
 
 - Games are asynchronous. A player is never required to be online outside their own turn.
-- The design was approved by the owner on 2026-10-01; decisions D018–D022 in `docs/DECISIONS.md` record it. The game-session rulings of Phase 2d (D030) amend §6–§8 and §11.
+- The design was approved by the owner on 2026-10-01; decisions D018–D022 in `docs/DECISIONS.md` record it. The game-session rulings of Phase 2d (D030) amend §6–§8 and §11. D045 adds deckless games (§6.1, §10) and Resign (§4.9, §8.3).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -20,7 +20,8 @@ A game is a pure rules module implementing `GameModule` (`packages/game-kit`). C
 | Hidden cards | Mental poker: ElGamal on secp256k1 with a joint key, one shuffle by every seat with a **zero-knowledge proof of shuffle**, and decryption shares with **DLEQ proofs**. |
 | Async dealing | Each seat attaches decryption shares for other seats' new cards to its own next event. Every other seat acts between a player's draw and that player's next turn. |
 | Result | Every client replays the log. At the end, each seat reveals its deck secret, and every client re-plays the whole game with all cards visible to audit every hidden claim. Players then sign attestations. |
-| Abandonment | Per-game move deadline (1, 3 or 7 days), measured on each client's own clock. After it, a timeout claim makes every stalled seat forfeit. |
+| Abandonment | Per-game move deadline (1, 3 or 7 days), measured on each client's own clock. After it, a timeout claim makes every stalled seat forfeit. Any seat may also resign at any time (§4.9, §8.3). |
+| Games without hidden cards | A module with no deck (Chess) skips the shuffle, the deal, the shares and the secrets: play starts with move 1 (§6.1). |
 
 ## 2. Notation and encoding
 
@@ -80,6 +81,7 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 | 7454 | Timeout claim | regular | session key |
 | 7455 | Secret reveal | regular | session key |
 | 7456 | Result attestation | regular | player npub |
+| 7457 | Resign | regular | session key |
 | 30078 | Key backup (NIP-78) | addressable | player npub |
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
@@ -184,7 +186,7 @@ The hash-chained log.
 
 **Content** is one of the following.
 
-**Shuffle step.** Moves 1..N; move `k+1` is seat `k`'s shuffle.
+**Shuffle step.** Moves 1..N, where N is the number of shuffle steps (§6.1); move `k+1` is seat `k`'s shuffle.
 ```json
 {"deck":[["<a>","<b>"], …],"proof":{…},"type":"shuffle"}
 ```
@@ -230,7 +232,16 @@ After the game ends.
 
 `logHash` is the SHA-256 of the move event ids in `seq` order, joined with `\n`.
 
-The attestation is signed by the player's npub (§7). After a timeout ending, `audit` records the forfeits with reason `timeout` or `withheld secret` (§8.2).
+The attestation is signed by the player's npub (§7). After a timeout ending, `audit` records the forfeits with reason `timeout` or `withheld secret` (§8.2); after a resign ending, with reason `resign` (§8.3).
+
+### 4.9 Resign (7457)
+A seat gives up the game (D045). Any seat may publish one at any time while the game is live, on its turn or not. Its effect is in §8.3.
+
+**Tags:** `["e", <rootId>, "", "root"]`, `["e", <headId>, "", "head"]`: the head the resigning seat saw (the root before the first move).
+
+**Content:** `{"type":"resign"}`.
+
+A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
 
 ## 5. Deck cryptography
 
@@ -321,6 +332,8 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 ## 6. Game flow
 
 ### 6.1 Phases
+**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). Game actions are moves N+1 onward.
+
 1. **Table:** Table, Joins, then Game root.
 2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order.
 3. **Deal:** every seat publishes one Shares event (7453) covering every position that is either:
@@ -329,7 +342,9 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 4. **Play:** game-action moves, `seq` N+1 onward.
 5. **End:** the module reaches `over`. Then come Secret reveals (7455), the audit (§7) and Result attestations (7456).
 
-A timeout claim can end the game at any phase (§8): it is **cancelled** before the first game action and ends by forfeit after it.
+**Deckless games (D045).** With N = 0 there is no Shuffle and no Deal: the client sets the module up in view mode when it loads the root, and play starts with move 1. There are no decryption shares and no deck secrets: a Shares event (7453) or a Secret reveal (7455) for a deckless game is invalid, and so is a game action whose `reveals` or `shares` is not empty. When the module reaches `over` the audit runs at once (§7), with no Secret phase. Joins and the root still carry deck keys and their proofs (§4.2), unchanged.
+
+A timeout claim (§8) or a Resign (§8.3) can end the game at any phase: it is **cancelled** before the first game action and ends by forfeit after it.
 
 **Hands at setup.** The deal round needs every seat's hand positions to be assigned in the public state before any card is revealed. Chain Reaction therefore assigns hands **at setup, in seat order** (D022, engine 0.3.0):
 - seat 0 gets the 6 positions right after the setup tiles, seat 1 the next 6, and so on
@@ -392,7 +407,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
   A late rival on an old `prev` is shorter than the chain and never displaces it, and a finished game cannot be reopened by a branch that does not finish it. Moves on losing branches stay pooled; a branch switch replays the fold from the fork point.
 
 ## 7. End of game and audit
-1. **Secrets.** When the module reaches `over`, each seat MUST publish its Secret reveal (7455). Clients accept a secret only if `x_k·G = X_k` for the signer's seat. A secret that arrives before the end is kept and counts once the game is over.
+1. **Secrets.** When the module reaches `over`, each seat MUST publish its Secret reveal (7455). Clients accept a secret only if `x_k·G = X_k` for the signer's seat. A secret that arrives before the end is kept and counts once the game is over. A deckless game has no secrets: its audit runs as soon as the module reaches `over`, and its full-mode setup gets `deckOrders: {}`.
 2. **Audit.** Once every seat's secret is known, any client:
    - decrypts every final-deck position with all the secrets (`decryptWithSecrets`, then `cardOf`), which gives the full deck order
    - sets the module up in **full mode** with that order
@@ -457,19 +472,30 @@ A seat forfeits by any of: being stalled when a client accepts a timeout claim, 
 
 **Forfeits found at a normal end** (a failed audit or equivocation): the declared final ranking is adjusted the same way. The forfeiting seats share the last places, the others keep their relative order, the declared scores are kept, and the reason is `forfeit`.
 
-**Finality.** Accepting a claim is final for the client. From then on, every later move, Shares event and Secret reveal of the game is stored but changes nothing, fork choice stops, and the client's result no longer changes. Attestations are still accepted. Clients can still disagree if a stalled seat acts while some have accepted and others have not (§11).
+**Finality.** Accepting a claim is final for the client. From then on, every later move, Shares event and Secret reveal of the game is stored but changes nothing, fork choice stops, and the client's result no longer changes, except that a Resign still counts (§8.3). Attestations are still accepted. Clients can still disagree if a stalled seat acts while some have accepted and others have not (§11).
+
+### 8.3 Resign
+A Resign (§4.9) is a voluntary forfeit (D045). Unlike a timeout claim, its effect depends only on the events a client holds, never on their arrival order or on any clock:
+- **Which resigns count.** A Resign counts once it is signed by a seated session key and its `head` is a held event of the game: the root or any well-formed Move, on the chain or not. **A Resign naming an older head is still a resign.** One whose head is not held yet is kept and counts once the head arrives. A client keeps at most the 8 lowest-id Resigns per seat; one that counts is enough.
+- **Moves keep linking.** Resigns never change fork choice or move validity. A move that raced the Resign links as usual, so the result is computed from the chain as it stands, whatever the arrival order.
+- **A finished game stands.** If the chain reaches the module's `over` (a move that raced the Resign ended the game), the game ends as the module says, the Secret phase and the audit follow as usual, and the Resigns change nothing. A finished game is never reopened.
+- **Otherwise the Resign ends the game.** The resigning seats forfeit, and any equivocators with them:
+  - before the first game action (the chain holds no game-action move), the game is **cancelled**, as in §8.2;
+  - otherwise the game is **done** at once: the forfeiting seats share the last places, the others are ranked by the module's `standings` at the head (as after a timeout during play), the scores are the standings, and the outcome reason is `resign`. The audit cannot run (the deck is not decrypted), so it records the forfeits: `{fail: [forfeiting seats], reason: "resign"}`. The result is attested as usual.
+- **No more duties.** Once a Resign ends the game, no decision, share or secret is owed, no seat is stalled, and no timeout claim can be accepted. A Resign also outranks a timeout claim accepted during play: a client that accepted one reports the Resign's result once it holds the Resign.
+- **Residual.** A seat that is pending when another seat resigns can still publish moves until an honest seat would be pending, since honest clients stop deciding once they hold the Resign; those moves link and change the standings. They are ordinary legal moves of that seat's own turn, and every client that holds them computes the same result.
 
 ## 9. Relays
 - **Publishing.** Clients publish to every relay in the root's `relay` tags plus their own configured relays, and deduplicate by event id. Clients SHOULD also publish to their NIP-65 write relays (kind 10002); this client does not implement that yet.
 - **Retries.** On failure, clients rebroadcast the same signed event; they never re-sign.
-- **Subscribing.** Clients subscribe with `{"kinds":[7452,7453,7454,7455],"authors":[the seats' session keys],"#e":[rootId]}` and `{"kinds":[7456],"authors":[the seats' npubs],"#e":[rootId]}`, so strangers' events cannot crowd a relay's capped answer, and they still drop any event from another key. Stored events are paged: while a page brings an event not seen before, clients ask again with `until` set to that page's oldest `created_at`.
+- **Subscribing.** Clients subscribe with `{"kinds":[7452,7453,7454,7455,7457],"authors":[the seats' session keys],"#e":[rootId]}` and `{"kinds":[7456],"authors":[the seats' npubs],"#e":[rootId]}`, so strangers' events cannot crowd a relay's capped answer, and they still drop any event from another key. Stored events are paged: while a page brings an event not seen before, clients ask again with `until` set to that page's oldest `created_at`.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`. The session supports exactly one deck.
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no shares and no secrets (§6.1). Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4).
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
-- `learn`, `knownTo`, `view` and `outcome`
+- `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)
 - **`standings(state)`**, the scores as if the game ended now, from public data only, so every view agrees (§8.2)
 - **`dealt(state)`**, append-only and identical in full mode and in every view (§6.2)
 - **`revealsOf(state, action)`**, the cards an action shows from its actor's hand; clients trust it only for actions `apply` accepts (§6.5)
@@ -491,6 +517,7 @@ It MUST also meet these contract rules, which the session relies on:
 - **Postponement by fresh shares (closed by Ruling 11).** Only events that change the stalled set count as progress (§8.1), so a stalled seat cannot restart its own deadline by publishing shares it was not stalled on.
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` first, so a finished game cannot be reopened. When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never rewind or cancel a game (§6.6): they flag the signer, who forfeits at the end.
+- **Resigns never rewind a game** (§8.3). A Resign naming an old head ends the game where the chain stands, not at that head, so a resigning seat cannot roll the game back to a position that favours another seat, and a finished game stands whatever Resigns arrive later.
 - **Cross-game replay.** Every proof and challenge binds the root id, the position or seat, and the deck. Moves are bound to the root and the parent.
 - **Denial of service.** Clients MUST cap accepted event size (256 KB) and MUST ignore events from keys that are not seated. They also bound the work a seat can cause:
   - An event whose id is already held is a duplicate, found before it is parsed or verified.

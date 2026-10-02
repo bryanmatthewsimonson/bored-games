@@ -50,13 +50,13 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 | Lobby and seats | Table 37450, Join 7451, Root 7450; `foldLobby`, explicit seat order | exists | `packages/protocol/src/lobby.ts`, `packages/client/src/lobby.ts`, D021 | `seatRange` per game; 2 seats already allowed by the protocol |
 | Move chain | Move 7452, hash chain, fork choice, equivocation | exists | `packages/client/src/session.ts`, D030 | unchanged; D042 adds a finality rule for prompt duties |
 | Turn order | `pending()` names one seat or a public reveal | partial | `game-kit/types.ts` | simultaneous phases: §4.4, §4.8 |
-| Deckless sessions | games with `decks(rules) = []` (Chess) | planned (C1) | `packages/client` | `shuffleSteps = decks ? seats : 0`, replacing `seats` at `session.ts:673`, `968`, `1116`, `1187`, `1784` |
-| Timeouts and forfeit | Timeout 7454, local-clock deadlines, `rankWithForfeits` | exists | D020, D030, PROTOCOL §8 | deckless fix in C1 (`session.ts:1784` treats chain length ≤ seats as "before the first action") |
-| Resign | voluntary forfeit at any time | planned (C2) | new kind **7457** `{type:'resign'}`, signed by the session key, naming the head | `buildResign(createdAt)`; the resigner ranks last via `rankWithForfeits` |
-| Audit and attestation | Secret 7455, full-mode replay, Attest 7456 | exists (one deck) | `packages/client/src/audit.ts` | deckless audit (C1); audit modes (§4.1.7) |
+| Deckless sessions | games with `decks(rules) = []` (Chess) | exists (D045) | `packages/client` | `shuffleSteps = decks ? seats : 0` (`SessionView.shuffleSteps`); deckless audit with `deckOrders: {}` |
+| Timeouts and forfeit | Timeout 7454, local-clock deadlines, `rankWithForfeits` | exists | D020, D030, PROTOCOL §8 | a deckless game forfeits after its first move (D045) |
+| Resign | voluntary forfeit at any time | exists (D045) | kind **7457** `{type:'resign'}`, signed by the session key, naming the head; PROTOCOL §4.9, §8.3 | `canResign()`, `buildResign(rnd, createdAt)`; order-independent; the resigner ranks last via `rankWithForfeits` |
+| Audit and attestation | Secret 7455, full-mode replay, Attest 7456 | exists (one deck or none) | `packages/client/src/audit.ts` | audit modes (§4.1.7) |
 | Results and ratings | attested outcomes; ratings in Phase 4 | partial | D012 | team and co-op outcomes: §4.7 |
-| Game registry (web) | per-game component, rules page, setup copy, log lines | planned (C3) | `apps/web/src/games/registry.ts` | `{id, catalog, brands, Component, rulesPage, logLines?, setupCopy}` |
-| Rules pages | `#/rules/<gameId>` | partial (C3) | `apps/web/src/games/<id>/rules-page.tsx` | registry entry |
+| Game registry (web) | per-game component, rules page, setup copy | exists (D045) | `apps/web/src/games/registry.ts` | `{id, title, tagline, Component, RulesPage, setupCopy}`; catalog and brands come in Phase E |
+| Rules pages | `#/rules/<gameId>` | exists (D045) | `apps/web/src/games/<id>/rules-page.tsx` | registry entry |
 | Catalog | browse and filter games | planned (E1, E2) | `packages/games/<id>/src/catalog.ts`, `apps/web` | `CatalogEntry` (§4.12) |
 | Branding | platform name, per-game brand packs | partial (E3) | `packages/brand`, `packages/games/<id>/src/theme.ts`, `licensed/` | §4.12 |
 | Spectators | view as `viewer: null` | exists | session, `game-controller.ts` | §4.11 |
@@ -87,7 +87,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 | Item | Where | Notes |
 |---|---|---|
 | Rules engine | `packages/games/<id>/src` | pure; implements `GameModule`; uses shared systems through their pure APIs |
-| Rules source of truth | `docs/games/<id>/RULES.md` | every `#### Cnn` has a catalog test (generalized to every game in C4) |
+| Rules source of truth | `docs/games/<id>/RULES.md` | every `#### Cnn` has a catalog test (`tests/catalog.test.ts`, every game, D045) |
 | Fuzz policies and deck orders | `tools/fuzz/src/<id>` | registered in `tools/fuzz/src/index.ts` |
 | UI components | `apps/web/src/games/<id>/` | props-driven, as D032; registered in the web registry (C3) |
 | Rules page, log lines, setup copy | `apps/web/src/games/<id>/` | through the registry |
@@ -265,7 +265,7 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 | Variable order, extra turns | Patchwork (the player behind moves), doubles | exists for games without private draws | with private draws, check the liveness rule (§4.1.8) |
 | Response windows | "any player may challenge" (Coup) | missing | each other seat answers in seat order (S − 1 async steps), or a prompt duty under D042 |
 | Simultaneous phase | sealed bids, drafting, rock-paper-scissors | missing | §4.4 |
-| Resign at any time | every game | planned (C2) | kind 7457 outside the turn order |
+| Resign at any time | every game | exists (D045) | kind 7457 outside the turn order; order-independent (PROTOCOL §8.3) |
 | Real time | action games | not supported | against D004; out of scope |
 
 ### 4.9 Timers and clocks
@@ -276,7 +276,7 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 ### 4.10 Rules options and variants
 - **Exists:** `defaultRules`, `validateRules` and the Join's `rules-hash` (PROTOCOL §4.2) bind every option; every OPEN rule is an option (CLAUDE.md).
 - **Variants** are named presets of options (`variant: 'standard' | 'chess960'`), shown in the New table form and listed in the catalog entry; the async adaptations of §4.1.8 and §4.3 (draw ahead, snapshot reshuffle, no doubling cube) are variants, never silent rules changes.
-- **The New table form** renders each game's options from a small schema in its registry entry (C3).
+- **The New table form** will render each game's options from a small schema in its registry entry (the registry exists since D045; it has no options schema yet).
 
 ### 4.11 Spectators and replays
 - **Spectators** fold the public log with `viewer: null` (exists) and never see a private card: the cryptography, not the UI, hides it (§2.1), so a player gains nothing by also watching.
@@ -315,7 +315,7 @@ Ordered by value and by how much each step unblocks; each step names the game th
 
 | # | Build | Layer | Validating game | Depends on |
 |---|---|---|---|---|
-| 1 | Deckless sessions, resign (7457), 2 players, web registry, generic fuzz and catalog tests | platform | Chess (Phase D) | Phase C |
+| 1 | Deckless sessions, resign (7457), 2 players, web registry, generic fuzz and catalog tests | platform | Chess (Phase D) | Phase C (done, D045) |
 | 2 | Square-grid board kit (inside Chess first) | shared | Chess; extracted with Checkers or Go | 1 |
 | 3 | Catalog and brand packs | platform | Chess and Chain Reaction | Phase E |
 | 4 | Several decks per session, deck epochs, background shuffle for multi-hand games | shared (deck, session) | a trick-taking game: Spades (no pass) or Hearts with passing off | 1 |

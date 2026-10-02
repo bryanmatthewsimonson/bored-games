@@ -17,12 +17,12 @@ There are no AI players and no local pass-and-play. A random-move **fuzzer** exi
 ## Layers
 
 ```
-apps/web (Phase 3)           platform shell, lobby and game controllers, per-game UI modules
+apps/web (Phase 3)           platform shell, lobby and game controllers, the game registry, per-game UI modules
 packages/relay (Phase 2e)    relay pool over WebSockets (not pure)
 packages/client (Phase 2d)   lobby fold and game sessions: ordering, fork choice, validation, shares, timeouts, audit
 packages/protocol (Phase 2c) NOSTR event schemas, encoding, validation
 packages/deck (Phase 2b)     mental-poker deck: ElGamal, shuffle proofs, decryption shares, wire codecs
-packages/games/*             pure rules modules (Chain Reaction today)
+packages/games/*             pure rules modules (Chain Reaction; Chess, deckless)
 packages/game-kit            GameModule contract, canonical JSON, hashing, PRNG, replay, fuzzer
 ```
 
@@ -40,7 +40,7 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 |---|---|
 | `id`, `version` | Permanent internal id; engine semver. A game is pinned to the version it started on. |
 | `defaultRules`, `validateRules`, `seatRange` | Rule configuration; every OPEN rule is an option. |
-| `decks(rules)` | The shuffled decks the game needs (Chain Reaction: one deck of 108 tiles). |
+| `decks(rules)` | The shuffled decks the game needs: one (Chain Reaction: 108 tiles) or none (Chess). A deckless game has no shuffle, deal, shares or secrets (PROTOCOL §6.1, D045). |
 | `setup({rules, seats, mode})` | **Full mode:** deck orders known (tests, fuzzing, post-game audit). **View mode:** a live client for one seat, or a spectator. |
 | `pending(state)` | Who must act: a seat with a named decision, a public `reveal` of deck positions, or `over`. |
 | `legalActions(state, seat)` | Exact whenever the seat's hidden cards are known; otherwise `[]` whenever legality depends on cards the seat has not learned, so a non-empty list is always exact (D030). |
@@ -109,13 +109,14 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 - **Relays.** A configurable list: the owner's nostr-rs-relay plus public relays.
   - Publish to all of them and dedupe by event id.
   - On retry, rebroadcast the same signed event; never re-sign.
+- **Resign.** Any seat may resign at any time with a Resign event (kind 7457) naming the head it saw. Its effect depends only on the events held, never on their order: moves keep linking, a chain that reaches the module's end stands, and otherwise the game ends with the resigning seat last and the others ranked by `standings` (PROTOCOL §8.3, D045).
 - **Timeouts.** NOSTR `created_at` is self-reported, so it is never used for deadlines. Each client measures the deadline (set in the game root) on its own clock, from the time it first saw the game's last progress. A player may then publish a timeout claim, and each client accepts it once its own deadline has passed: every stalled seat forfeits (D020, D030), and acceptance is final for that client. A stall before the first game action (during the shuffle or the deal) instead cancels the game, with no result. A stalled seat that acts while some clients have accepted and others have not can split them; this race is documented and accepted.
 
 ## Ratifying results
 
 - There is no authority.
 - Final scoring in Chain Reaction uses only public data, and every client computes the same outcome by replaying the log. After the audit, each player's client publishes a **result attestation** signed by the player's npub: game root, final log hash, outcome, and audit verdict.
-- A game ended by a timeout cannot be audited, since secrets are missing. Its attestation records the forfeiting seats in place of the audit verdict.
+- A game ended by a timeout or a resign is not audited, since the deck is not decrypted. Its attestation records the forfeiting seats in place of the audit verdict. A deckless game (Chess) has nothing to decrypt: its audit replays the log as soon as the game is over.
 - A result is **valid** if its log verifies. It is **finalized** when every player attests.
 - Stats and ratings use only valid results.
 
@@ -132,6 +133,12 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 | Moderation | NIP-56 reports | 5 |
 
 Event kinds are chosen in Phase 2 after checking the NIPs registry, avoiding 30050–30055 and 30100–30105 (used by the owner's other projects).
+
+## More than one game (D045)
+
+- **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the seat count with a deck, else 0) marks where game actions start.
+- **Web registry.** `apps/web/src/games/registry.ts` lists every hosted game: names (`meta.ts`, from the game's theme), the in-game component (`GameViewProps`), the rules page (`#/rules/<gameId>`) and the setup copy. `screens/game.tsx` is generic: the setup progress, the chrome every game shares (notices, final places, attestations, Resign) and the table's game component. Home offers a game picker until the catalog (Phase E).
+- **Tools.** The fuzzer and the sim take `--game`; one meta-test checks the rules catalog of every `docs/games/*/RULES.md`.
 
 ## Names and branding
 
