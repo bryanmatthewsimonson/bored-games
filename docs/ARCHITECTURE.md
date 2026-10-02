@@ -75,7 +75,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 
 **Decryption shares.**
 - Card *j* = `(R_j, C_j)` needs `D_kj = x_k·R_j` from every player except Q. Each share carries a Chaum–Pedersen DLEQ proof that it used the same `x_k` as `X_k`.
-- As soon as a client sees a card dealt to another seat, it publishes its shares in a small Shares event, so Q reads a drawn card within seconds while the others are online (D039). The web client does this quietly, without a "working" state.
+- As soon as a client sees a card dealt to another seat, it publishes its shares in a small Shares event, so Q reads a drawn card within seconds while the others have the game open and in view (D039). The event must reach the table's relays: Q's peers hold the sharer's next move back until they have it. The web client does this quietly, without a "working" state.
 - A client that was offline attaches the shares it still owes to its next action of any kind.
 - Between Q's draw at the end of Q's turn and Q's next turn, every other seat acts. So Q always has all the shares in time, and **nobody is ever needed online outside their own turn.**
 - Shares are public; Q's own share keeps the card hidden.

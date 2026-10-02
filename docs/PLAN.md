@@ -18,6 +18,8 @@
    - **Rival shuffle steps (D030, Ruling 12).** The arrival-order split in the old rival-shuffle cap is fixed: two well-formed steps by one seat on a chain prev flag it without proofs, and past 3 steps per prev only steps another seat acknowledged are fork-choice candidates. Owner to confirm the residuals: colluders can acknowledge junk, and the last shuffler can withdraw its step (stalling and flagging itself) until another seat moves.
    - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 
+10. **Prompt shares and tile exposure (D039).** A drawn tile now shows within seconds because the other seats share it at once. The cost: one seat can sign two rival turns on purpose and so learn the next player's tile, or make it public to everyone (PROTOCOL §11). It is always detected, and the seat is ranked last. Accept this trade-off, or ask for a mitigation (sharing only once the drawer's turn is over, or a fork tie-break change)?
+
 ## Status
 
 | Phase | State |
