@@ -5,8 +5,9 @@
  *
  * The trademark guard (tests/restricted-names.ts) allows exactly this phrase, case-sensitive, and nothing else:
  * the title alone, in another case or inside another word still fails it. So the phrase is ONE string literal,
- * here, and the title is cut from it at run time, never written on its own (a minifier cannot fold a regular
- * expression replace into a separate literal).
+ * here, and the title is cut from it at run time, never written on its own. A regular-expression replace is used
+ * because the minifier does not fold it into a literal (it could fold a `slice`); were that to change, the public
+ * build scan would fail on the bare title.
  */
 
 /** The allowed phrase, whole. */

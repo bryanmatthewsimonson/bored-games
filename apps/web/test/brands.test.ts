@@ -71,7 +71,11 @@ describe('brand packs', () => {
     expect(CHAIN_REACTION_META.title()).toBe(ORIGINAL_BRAND.gameTitle);
     expect(activeTheme.value.brand).toBe('original');
     expect(activeTheme.value.chains.b1.name).toBe(ORIGINAL_BRAND.chains.b1.name);
-    expect(activeTheme.value.chains.b1.label).toBe(CHAIN_REACTION_THEME.chains.b1.label);
+    // The original looks come with the original names (D053); the fill pattern stays the safe one.
+    expect(activeTheme.value.chains.b1.label).toBe(ORIGINAL_BRAND.looks?.b1?.label);
+    expect(activeTheme.value.chains.b1.color).toBe(ORIGINAL_BRAND.looks?.b1?.color);
+    expect(activeTheme.value.chains.b1.label).not.toBe(CHAIN_REACTION_THEME.chains.b1.label);
+    expect(activeTheme.value.chains.b1.pattern).toBe(CHAIN_REACTION_THEME.chains.b1.pattern);
     // A game without a licensed pack keeps its names.
     expect(gameNames('chess')).toBe(CHESS_BRAND);
     chooseBranding('safe');
