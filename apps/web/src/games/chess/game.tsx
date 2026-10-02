@@ -21,6 +21,8 @@ import {
   capturedText,
   colorName,
   drawNotice,
+  isLegal,
+  liveAnnouncement,
   type MoveCell,
   materialViews,
   moveAction,
@@ -73,7 +75,7 @@ export function BoardGrid(props: BoardGridProps) {
   return (
     <fieldset class="chess-board-set">
       <legend class="sr-only">Board</legend>
-      <div class="chess-board">
+      <div class={props.interactive ? 'chess-board' : 'chess-board locked'}>
         {props.squares.map((sq) => {
           const cls = [
             'chess-sq',
@@ -94,7 +96,6 @@ export function BoardGrid(props: BoardGridProps) {
               class={cls}
               aria-label={sq.label}
               aria-pressed={sq.selected}
-              aria-disabled={!props.interactive}
               tabIndex={sq.square === props.tabSquare ? 0 : -1}
               data-square={sq.square}
               onClick={() => props.onSquare(sq.square)}
@@ -210,6 +211,8 @@ export function ChessBoard(props: {
       props.onEscape();
       return;
     }
+    // Leave modified keys (Alt+Left is "back", Cmd/Ctrl+arrows scroll or switch) to the browser.
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     const next = stepSquare(square, e.key, props.flipped);
     if (next === null) return;
     e.preventDefault();
@@ -337,6 +340,8 @@ export function ChessGame(props: GameViewProps) {
   const draw = drawNotice(state, names, mySeat);
 
   const send = (action: ChessAction) => {
+    // Only an action the controller lists as legal is sent, in case the view and the list ever drift apart.
+    if (!isLegal(legal, action)) return;
     setSentAt(seq);
     props.onAct(action).catch(() => setSentAt(null));
   };
@@ -399,6 +404,10 @@ export function ChessGame(props: GameViewProps) {
         />
         <PlayerBar seat={1 - top} {...props} />
       </section>
+      {/* One live region for the life of the screen: the opponent's moves, check and the result. */}
+      <p class="sr-only" aria-live="polite" data-testid="chess-live">
+        {liveAnnouncement(state, names, mySeat, result)}
+      </p>
       <div class="chess-side">
         {result !== null ? (
           <section class="panel chess-result" aria-labelledby="chess-result-h">
@@ -407,14 +416,12 @@ export function ChessGame(props: GameViewProps) {
               <span class="sr-only">Score: </span>
               <span>{result.score}</span>
             </p>
-            <p class="chess-result-text" role="status">
-              {result.headline}
-            </p>
+            <p class="chess-result-text">{result.headline}</p>
             {result.detail !== '' && <p class="muted chess-result-detail">{result.detail}</p>}
           </section>
         ) : (
           <section class="panel chess-status" aria-label="Status">
-            <p class={myTurn ? 'chess-status-line mine' : 'chess-status-line'} role="status">
+            <p class={myTurn ? 'chess-status-line mine' : 'chess-status-line'}>
               {statusLine(state, names, mySeat)}
             </p>
             {props.deadline !== undefined && <p class="muted chess-deadline">{props.deadline}</p>}
@@ -503,10 +510,13 @@ function MoveList(props: { history: ChessState['history'] }) {
       >
         {c.san}
         {c.offer && (
-          <abbr class="chess-offer-mark" title="draw offered">
-            {' '}
-            (=)
-          </abbr>
+          <>
+            <span class="sr-only">, draw offered</span>
+            <span class="chess-offer-mark" aria-hidden="true">
+              {' '}
+              (=)
+            </span>
+          </>
         )}
       </span>
     );

@@ -11,11 +11,14 @@ import {
   capturedText,
   drawNotice,
   isDark,
+  isLegal,
+  liveAnnouncement,
   materialViews,
   moveAction,
   moveRows,
   resultView,
   scoreText,
+  spokenMove,
   squareLabel,
   squareViews,
   statusLine,
@@ -96,7 +99,7 @@ describe('chess board model', () => {
         .sort(),
     ).toEqual(['f3', 'h3']);
     expect(v.find((x) => x.square === 'g1')?.selected).toBe(true);
-    expect(v.find((x) => x.square === 'g1')?.label).toBe('g1, white knight, selected');
+    expect(v.find((x) => x.square === 'g1')?.label).toBe('g1, white knight');
     expect(v.find((x) => x.square === 'f3')?.label).toBe('f3, empty, legal move');
     expect(v.find((x) => x.square === 'f3')?.target).toBe('move');
     // Edge coordinates: ranks down the left column, files along the bottom row.
@@ -245,11 +248,91 @@ describe('chess board model', () => {
     expect(resultView(fakeEnd('stalemate'), draw, NAMES, [], [])?.detail).toBe(
       'Bo (Black) has no legal move but is not in check.',
     );
-    for (const reason of ['repetition', 'fifty-move', 'material'] as const) {
-      const v = resultView(fakeEnd(reason), draw, NAMES, [], []);
-      expect(v?.headline).toMatch(/^Draw by /);
-      expect(v?.detail).not.toBe('');
-    }
+    expect(resultView(fakeEnd('stalemate'), draw, NAMES, [], [])?.headline).toBe('Draw by stalemate');
+    expect(resultView(fakeEnd('repetition'), draw, NAMES, [], [])).toEqual({
+      score: '½–½',
+      headline: 'Draw by threefold repetition',
+      detail: 'The same position occurred for the third time.',
+    });
+    expect(resultView(fakeEnd('fifty-move'), draw, NAMES, [], [])).toEqual({
+      score: '½–½',
+      headline: 'Draw by the fifty-move rule',
+      detail: 'Each side made fifty moves without a capture or a pawn move.',
+    });
+    expect(resultView(fakeEnd('material'), draw, NAMES, [], [])).toEqual({
+      score: '½–½',
+      headline: 'Draw by insufficient material',
+      detail: 'Neither side has enough pieces left to checkmate.',
+    });
+    const scholars = play(start(), 'e2e4', 'e7e5', 'f1c4', 'b8c6', 'd1h5', 'g8f6', 'h5f7');
+    const whiteWins = { places: [1, 2], reason: 'checkmate', scores: [2, 0] };
+    expect(resultView(scholars, whiteWins, NAMES, [], [])).toEqual({
+      score: '1–0',
+      headline: 'Checkmate: Ann (White) wins',
+      detail: 'Bo (Black) is in check and has no legal move.',
+    });
+    // An equivocation found at the end puts the mating seat last whatever the board says.
+    const forfeit = { places: [2, 1], reason: 'forfeit', scores: [2, 0] };
+    expect(resultView(scholars, forfeit, NAMES, [], [0])).toEqual({
+      score: '0–1',
+      headline: 'Checkmate: Ann (White) wins; after the forfeit, Bo (Black) wins',
+      detail: 'Bo (Black) is in check and has no legal move.',
+    });
+  });
+});
+
+describe('chess announcements', () => {
+  it('speaks moves: quiet, capture, castling, promotion, check and mate', () => {
+    const s = play(start(), 'e2e4', 'd7d5', 'e4d5', 'g8f6', 'f1b5');
+    const words = s.history.map(spokenMove);
+    expect(words).toEqual([
+      'pawn to e4',
+      'pawn to d5',
+      'pawn takes pawn on d5',
+      'knight to f6',
+      'bishop to b5, check',
+    ]);
+    const castled = play(start(), 'e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1c4', 'g8f6', 'e1g1');
+    expect(spokenMove(castled.history.at(-1) as (typeof castled.history)[number])).toBe('castles kingside');
+    const mate = play(start(), 'f2f3', 'e7e5', 'g2g4', 'd8h4');
+    expect(spokenMove(mate.history.at(-1) as (typeof mate.history)[number])).toBe('queen to h4, checkmate');
+    const promo = fromFen('1n6/P7/8/8/8/8/k7/4K3 w - - 0 1', chess.defaultRules());
+    if (!promo.ok) throw new Error(promo.error.message);
+    const promoted = play(promo.value, 'a7b8n');
+    expect(spokenMove(promoted.history.at(-1) as (typeof promoted.history)[number])).toBe(
+      'pawn takes knight on b8, promotes to knight',
+    );
+  });
+
+  it("announces the opponent's move with its draw offer, then the result, but not the viewer's own move", () => {
+    const s = play(start(), 'e2e4');
+    expect(liveAnnouncement(s, NAMES, 1, null)).toBe('Ann (White) played pawn to e4.');
+    expect(liveAnnouncement(s, NAMES, 0, null)).toBe('');
+    expect(liveAnnouncement(s, NAMES, null, null)).toBe('Ann (White) played pawn to e4.');
+    const offered = applyAction(s, { type: 'move', actor: 1, uci: 'g8f6', offerDraw: true });
+    if (!offered.ok) throw new Error('offer');
+    expect(liveAnnouncement(offered.state, NAMES, 0, null)).toBe(
+      'Bo (Black) played knight to f6, and offers a draw.',
+    );
+    const mate = play(start(), 'f2f3', 'e7e5', 'g2g4', 'd8h4');
+    const outcome = { places: [2, 1], reason: 'checkmate', scores: [0, 2] };
+    expect(liveAnnouncement(mate, NAMES, 0, resultView(mate, outcome, NAMES, [], []))).toBe(
+      'Bo (Black) played queen to h4, checkmate. Game over, 0–1: Checkmate: Bo (Black) wins.',
+    );
+    expect(liveAnnouncement(start(), NAMES, 0, null)).toBe('');
+  });
+
+  it('sends only actions the controller lists as legal', () => {
+    const legal = [
+      { type: 'move', actor: 0, uci: 'e2e4' },
+      { type: 'move', actor: 0, uci: 'e2e4', offerDraw: true },
+    ];
+    expect(isLegal(legal, { type: 'move', actor: 0, uci: 'e2e4' })).toBe(true);
+    expect(isLegal(legal, { type: 'move', actor: 0, uci: 'e2e4', offerDraw: true })).toBe(true);
+    expect(isLegal(legal, { type: 'move', actor: 1, uci: 'e2e4' })).toBe(false);
+    expect(isLegal(legal, { type: 'move', actor: 0, uci: 'd2d4' })).toBe(false);
+    expect(isLegal(legal, { type: 'acceptDraw', actor: 0 })).toBe(false);
+    expect(isLegal([{ type: 'acceptDraw', actor: 0 }], { type: 'acceptDraw', actor: 0 })).toBe(true);
   });
 });
 

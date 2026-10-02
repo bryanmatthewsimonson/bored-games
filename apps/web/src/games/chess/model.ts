@@ -71,7 +71,7 @@ export interface SquareView {
   square: string;
   piece: Piece | null;
   dark: boolean;
-  /** "e4, white knight", then the square's state: "selected", "capture", "last move", "in check". */
+  /** "e4, white knight", then the square's state: "legal move" or "capture", "last move", "in check". */
   label: string;
   /** Part of the last move (from or to). */
   last: boolean;
@@ -117,8 +117,8 @@ export function squareViews(state: ChessState, flipped: boolean, selected: strin
     const isLast = lastSquares.includes(square);
     const isCheck = square === check;
     const isSelected = square === selected;
+    // "Selected" is the button's pressed state (aria-pressed), so the label leaves it out.
     const notes = [
-      isSelected ? 'selected' : '',
       target === 'capture' ? 'capture' : target === 'move' ? 'legal move' : '',
       isLast ? 'last move' : '',
       isCheck ? 'in check' : '',
@@ -371,4 +371,61 @@ export function resultView(
   if (outcome.reason === 'forfeit' && winner >= 0)
     return { score, headline: `${board}; after the forfeit, ${wins}`, detail: details[r.reason] };
   return { score, headline: board, detail: details[r.reason] };
+}
+
+const pieceWord = (p: Piece): string =>
+  CHESS_THEME.pieces[p.toLowerCase() as keyof typeof CHESS_THEME.pieces];
+
+/**
+ * A played move in words, for screen readers: "knight to c6", "pawn takes bishop on b7, promotes to queen",
+ * "castles kingside", then ", check" or ", checkmate".
+ */
+export function spokenMove(m: MoveRecord): string {
+  const to = m.uci.slice(2, 4);
+  let words: string;
+  if (m.san.startsWith('O-O-O')) words = 'castles queenside';
+  else if (m.san.startsWith('O-O')) words = 'castles kingside';
+  else {
+    const piece = pieceWord(m.piece);
+    words = m.captured === null ? `${piece} to ${to}` : `${piece} takes ${pieceWord(m.captured)} on ${to}`;
+    const promo = m.uci[4] as PromotionLetter | undefined;
+    if (promo !== undefined) words += `, promotes to ${CHESS_THEME.pieces[promo]}`;
+  }
+  if (m.san.endsWith('#')) words += ', checkmate';
+  else if (m.san.endsWith('+')) words += ', check';
+  return words;
+}
+
+/**
+ * What the screen's live region says: the opponent's last move ("Bo (Black) played knight to c6, check, and
+ * offers a draw."), then the result once the game is over. The viewer's own moves are not read back. Empty when
+ * there is nothing to say.
+ */
+export function liveAnnouncement(
+  state: ChessState,
+  names: readonly string[],
+  mySeat: number | null,
+  result: ResultView | null,
+): string {
+  const parts: string[] = [];
+  const last = lastMove(state);
+  if (last !== null && last.seat !== mySeat) {
+    const offer = last.drawOffered ? ', and offers a draw' : '';
+    parts.push(`${seatName(names, last.seat)} played ${spokenMove(last)}${offer}.`);
+  }
+  if (result !== null) parts.push(`Game over, ${result.score}: ${result.headline}.`);
+  return parts.join(' ');
+}
+
+/** Whether `action` is one of the viewer's legal actions (the controller's list), compared field by field. */
+export function isLegal(legal: readonly unknown[], action: ChessAction): boolean {
+  return (legal as readonly ChessAction[]).some(
+    (a) =>
+      a.type === action.type &&
+      a.actor === action.actor &&
+      (a.type !== 'move' ||
+        (action.type === 'move' &&
+          a.uci === action.uci &&
+          (a.offerDraw ?? false) === (action.offerDraw ?? false))),
+  );
 }

@@ -13,7 +13,7 @@ main:has(.chess-game) {
   --chess-last: rgb(205 210 106 / 0.75);
   --chess-last-edge: rgb(120 110 20 / 0.55);
   --chess-check: rgb(220 40 40);
-  --chess-mark: rgb(20 30 50 / 0.3);
+  --chess-mark: rgb(20 30 50 / 0.42);
   --chess-board-max: min(100%, calc(100dvh - 190px), 720px);
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(260px, 340px);
@@ -173,11 +173,11 @@ main:has(.chess-game) {
 }
 
 .chess-sq.light .chess-coord {
-  color: var(--chess-dark);
+  color: #6f4a2a;
 }
 
 .chess-sq.dark .chess-coord {
-  color: var(--chess-light);
+  color: #fff7e6;
 }
 
 .chess-coord.rank {
