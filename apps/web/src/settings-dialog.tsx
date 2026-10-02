@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { npubEncode } from './bech32.ts';
+import { type Branding, licensedPack, licensedPacksLoaded } from './brands.ts';
 import { useApp } from './context.ts';
+import { CATALOG } from './games/catalog.ts';
+import { GAME_IDS } from './games/ids.ts';
 import { CopyButton } from './header.tsx';
 import { claimTablesFor, exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
 import { parseRelayInput } from './settings.ts';
@@ -205,6 +208,75 @@ function IdentitySection() {
   );
 }
 
+/** "Chain Reaction (Jade, Lapis …)": a pack's game title, with its first chain names when it has any. */
+function packExample(names: {
+  gameTitle: string;
+  chains?: Readonly<Record<string, { name: string }>>;
+}): string {
+  const chains = names.chains === undefined ? [] : Object.values(names.chains).map((c) => c.name);
+  return chains.length === 0 ? names.gameTitle : `${names.gameTitle}: ${chains.slice(0, 3).join(', ')}…`;
+}
+
+/**
+ * "Game names" (D046): the trademark-safe names or the licensed original ones, in a build that carries licensed
+ * packs. Public builds carry none, and say so in one line.
+ */
+export function GameNamesSection() {
+  const { settings } = useApp();
+  const [saved, setSaved] = useState<'no' | 'yes' | 'failed'>('no');
+  if (!licensedPacksLoaded())
+    return (
+      <section aria-labelledby="names-h">
+        <h3 id="names-h">Game names</h3>
+        <p class="muted">Only the trademark-safe names are available on this site.</p>
+      </section>
+    );
+  const games = GAME_IDS.flatMap((id) => {
+    const original = licensedPack(id);
+    const safe = CATALOG.get(id)?.safe;
+    return original === undefined || safe === undefined ? [] : [{ id, safe, original }];
+  });
+  const choose = (b: Branding) => setSaved(settings.setBranding(b) ? 'yes' : 'failed');
+  const current = settings.branding.value;
+  return (
+    <section aria-labelledby="names-h">
+      <h3 id="names-h">Game names</h3>
+      <fieldset class="field">
+        <legend class="sr-only">Game names</legend>
+        <label class="radio">
+          <input type="radio" name="branding" checked={current === 'safe'} onChange={() => choose('safe')} />
+          <span>
+            Trademark-safe names
+            <span class="hint"> ({games.map((g) => packExample(g.safe)).join('; ')})</span>
+          </span>
+        </label>
+        <label class="radio">
+          <input
+            type="radio"
+            name="branding"
+            checked={current === 'original'}
+            onChange={() => choose('original')}
+          />
+          <span>
+            Original names (licensed)
+            <span class="hint"> ({games.map((g) => packExample(g.original)).join('; ')})</span>
+          </span>
+        </label>
+      </fieldset>
+      <p class="hint">
+        Only what you see changes: other players keep their own choice, and games are not affected.
+      </p>
+      <span role="status" class={saved === 'failed' ? 'error' : 'muted'}>
+        {saved === 'yes'
+          ? 'Saved.'
+          : saved === 'failed'
+            ? 'Applied for this visit only: this browser would not save it.'
+            : ''}
+      </span>
+    </section>
+  );
+}
+
 export function SettingsDialog() {
   const { settingsOpen } = useApp();
   const ref = useRef<HTMLDialogElement>(null);
@@ -237,6 +309,7 @@ export function SettingsDialog() {
             </button>
           </div>
           <ProfileSection />
+          <GameNamesSection />
           <RelaySection />
           <IdentitySection />
         </div>

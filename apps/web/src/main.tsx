@@ -2,6 +2,7 @@ import { BRAND } from '@bored-games/brand';
 import { signal } from '@preact/signals';
 import { render } from 'preact';
 import { App, IdentityError } from './app.tsx';
+import { followBranding } from './brands.ts';
 import { nowSeconds, platformTimers } from './clock.ts';
 import {
   DEFAULT_PROFILE,
@@ -12,6 +13,7 @@ import {
   waitForNostr,
   writeSignerChoice,
 } from './identity.ts';
+import { loadLicensedBrands } from './licensed-brands.ts';
 import { appPool, MODULES } from './net.ts';
 import { randomBytes } from './random.ts';
 import { startRouter } from './router.ts';
@@ -53,6 +55,9 @@ async function main(): Promise<void> {
   }
 
   const settings = createSettings(profile, store, import.meta.env.DEV);
+  // The game names this profile chose (D046); licensed packs load only in a build made with them.
+  followBranding(settings.branding);
+  await loadLicensedBrands();
   // `?relays=` with only local relays replaces this profile's relay list (saved, as if edited in Settings), in a
   // dev server or a build for the e2e test only. Anything else is refused, with a notice: a shared link must not
   // choose a player's relays.
