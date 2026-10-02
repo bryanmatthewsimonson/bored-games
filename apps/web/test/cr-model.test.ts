@@ -289,7 +289,12 @@ describe('chainRows', () => {
   it('takes names, labels, colors and patterns from the theme', () => {
     const s = get('place').state;
     for (const r of chainRows(s, null)) {
-      const t = (CHAIN_REACTION_THEME.chains as Record<string, Record<string, string>>)[r.chain.id];
+      const t = (
+        CHAIN_REACTION_THEME.chains as Record<
+          string,
+          { name: string; label: string; color: string; pattern: string }
+        >
+      )[r.chain.id];
       expect([r.chain.name, r.chain.label, r.chain.color, r.chain.pattern]).toEqual([
         t?.name,
         t?.label,
