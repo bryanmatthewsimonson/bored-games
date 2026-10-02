@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { ORIGINAL_BRAND } from '../packages/games/chain-reaction/licensed/original.ts';
+import { RESTRICTED, restrictedIn } from './restricted-names.ts';
 
 const root = join(import.meta.dirname, '..');
 
@@ -13,16 +15,23 @@ function files(dir: string, ext = /\.(ts|tsx|js|mjs|svelte|vue|html|css|json)$/)
   });
 }
 
-/** Every `src` directory of every workspace package (packages/*, packages/games/*, apps/*, services/*, tools/*). */
-function srcDirs(): string[] {
+/** Every workspace package directory (packages/*, packages/games/*, apps/*, services/*, tools/*). */
+function packageDirs(): string[] {
   const groups = ['packages', 'packages/games', 'apps', 'services', 'tools'];
   return groups.flatMap((g) => {
     const dir = join(root, g);
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
-      .map((name) => join(dir, name, 'src'))
-      .filter((p) => existsSync(p));
+      .map((name) => join(dir, name))
+      .filter((p) => existsSync(join(p, 'package.json')));
   });
+}
+
+/** Every `src` directory of every workspace package. */
+function srcDirs(): string[] {
+  return packageDirs()
+    .map((p) => join(p, 'src'))
+    .filter((p) => existsSync(p));
 }
 
 function stripComments(code: string): string {
@@ -82,18 +91,86 @@ describe('web app impurity', () => {
 });
 
 describe('branding', () => {
-  it('scans the web app source', () => {
+  /** Directories never scanned: dependencies, build output and test reports. */
+  const SKIP = new Set(['node_modules', 'dist', 'dist-e2e', 'test-results', 'playwright-report', 'coverage']);
+  /** The only directories that may hold restricted names: licensed brand packs (D046). */
+  const LICENSED = 'licensed';
+  const TEXT = /\.(ts|tsx|js|mjs|cjs|svelte|vue|html|css|json|md|txt|webmanifest|svg)$/;
+
+  /** Every text file of every workspace package and of scripts/, outside licensed/ and the skipped dirs. */
+  function shippedFiles(): string[] {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const p = join(dir, name);
+        if (SKIP.has(name) || name === LICENSED) return [];
+        return statSync(p).isDirectory() ? walk(p) : TEXT.test(name) ? [p] : [];
+      });
+    return [...packageDirs(), join(root, 'scripts')].filter((d) => existsSync(d)).flatMap(walk);
+  }
+
+  /** Every `licensed/` directory under a workspace package. */
+  function licensedDirs(): string[] {
+    const find = (dir: string): string[] =>
+      readdirSync(dir).flatMap((name) => {
+        const p = join(dir, name);
+        if (SKIP.has(name) || !statSync(p).isDirectory()) return [];
+        return name === LICENSED ? [p] : find(p);
+      });
+    return packageDirs().flatMap(find);
+  }
+
+  it('scans every package, its tests and e2e included', () => {
     expect(srcDirs().map((d) => relative(root, d))).toContain('apps/web/src');
+    const scanned = shippedFiles().map((f) => relative(root, f));
+    for (const f of [
+      'apps/web/src/main.tsx',
+      'apps/web/test/brands.test.ts',
+      'apps/web/e2e/play.spec.ts',
+      'packages/games/chain-reaction/src/theme.ts',
+      'packages/games/chain-reaction/package.json',
+      'scripts/dev.ts',
+    ])
+      expect(scanned).toContain(f);
+    expect(scanned.some((f) => f.split('/').includes(LICENSED))).toBe(false);
   });
 
-  // The reference game's name and its published editions' chain names must never appear in shipped code.
-  const forbidden =
-    /\b(Acquire|Sackson|Tower|Luxor|American|Worldwide|Festival|Imperial|Continental|Zeta|Hydra|Fusion|America|Quantum|Phoenix)\b/;
-  it('no product source mentions the reference game or its chain names', () => {
+  // The reference game's name and its published editions' chain names never appear outside licensed/.
+  it('no file outside licensed/ mentions the reference game or its chain names', () => {
+    const offenders = shippedFiles()
+      .filter((f) => RESTRICTED.test(readFileSync(f, 'utf8')))
+      .map((f) => `${relative(root, f)}: ${restrictedIn(readFileSync(f, 'utf8')).join(', ')}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it('exempts only licensed/ directories, and the licensed pack is covered by the list', () => {
+    expect(licensedDirs().map((d) => relative(root, d))).toEqual(['packages/games/chain-reaction/licensed']);
+    const pack = [ORIGINAL_BRAND.gameTitle, ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name)];
+    for (const name of pack) expect(restrictedIn(name), name).toEqual([name]);
+  });
+
+  it('no source file imports a licensed/ pack statically', () => {
+    const staticImport =
+      /\b(?:import|export)\b[^;'"]*?\bfrom\s*['"][^'"]*\blicensed\/|\bimport\s*['"][^'"]*\blicensed\//;
     const offenders = srcDirs()
       .flatMap((d) => files(d))
-      .filter((f) => forbidden.test(readFileSync(f, 'utf8')))
+      .filter((f) => staticImport.test(stripComments(readFileSync(f, 'utf8'))))
       .map((f) => relative(root, f));
     expect(offenders).toEqual([]);
+  });
+
+  it('loads a licensed/ pack only behind the build flag', () => {
+    const dynamicImport = /\bimport\(\s*['"][^'"]*\blicensed\//;
+    const loaders = srcDirs()
+      .flatMap((d) => files(d))
+      .filter((f) => dynamicImport.test(stripComments(readFileSync(f, 'utf8'))));
+    expect(loaders.map((f) => relative(root, f))).toEqual(['apps/web/src/licensed-brands.ts']);
+    for (const f of loaders) {
+      const code = stripComments(readFileSync(f, 'utf8'));
+      // The import sits inside the flag check, which Vite replaces with a constant at build time.
+      // The block's lines are indented deeper than the `if`, up to the import.
+      const guarded =
+        /( *)if \(import\.meta\.env\.VITE_LICENSED_BRANDS === '1'\) \{\n(?:\1 {2,}.*\n)*?\1 {2,}.*\bimport\(/;
+      expect(guarded.test(code), relative(root, f)).toBe(true);
+    }
   });
 });
