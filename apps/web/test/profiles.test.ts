@@ -8,11 +8,12 @@ import { type EoseInfo, type Filter, type PublishResult, RelayPool } from '@bore
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Timers } from '../src/clock.ts';
 import { platformTimers } from '../src/clock.ts';
-import type { Signer } from '../src/identity.ts';
+import { hexToBytes } from '../src/hex.ts';
+import { importSecretKey, isImportedKey, type Signer } from '../src/identity.ts';
 import type { PoolLike } from '../src/net.ts';
 import { PROFILE_CACHE_TTL_S } from '../src/profile-model.ts';
 import { NO_RELAY_ACCEPTED_PROFILE, ProfileStore } from '../src/profiles.ts';
-import { memoryStorage, storageKey } from '../src/storage.ts';
+import { type KeyValueStore, memoryStorage, storageKey } from '../src/storage.ts';
 
 const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
 
@@ -28,6 +29,20 @@ function kind0(
   tags: string[][] = [],
 ): NostrEvent {
   return finalizeEvent({ kind: 0, created_at, tags, content: JSON.stringify(content) }, s.sk, rnd);
+}
+
+/** A store that counts as persistent (like localStorage), unlike `memoryStorage()`. */
+function diskStore(): KeyValueStore {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => {
+      m.set(k, v);
+    },
+    removeItem: (k) => {
+      m.delete(k);
+    },
+  };
 }
 
 /** Timers run by hand: `tick()` fires everything due. */
@@ -87,9 +102,7 @@ const ANSWERED: EoseInfo = { eose: 1, relays: 1, timedOut: false };
 /** Every relay failed to connect. */
 const NO_ANSWER: EoseInfo = { eose: 0, relays: 1, timedOut: false };
 
-function store(
-  opts: { pool?: PoolLike; storage?: ReturnType<typeof memoryStorage>; now?: () => number } = {},
-) {
+function store(opts: { pool?: PoolLike; storage?: KeyValueStore; now?: () => number } = {}) {
   const t = manualTimers();
   const fp = fakePool();
   const s = new ProfileStore({
@@ -237,6 +250,45 @@ describe('ProfileStore with a fake pool', () => {
     expect(ev.created_at).toBe(NOW + 101);
     expect(JSON.parse(ev.content)).toEqual({ display_name: 'Old', lud16: 'ann@ln', about: 'Hi' });
     t.tick();
+  });
+
+  it('says when the wait ran out while some relays had answered', async () => {
+    const { s, fp } = store();
+    const saving = s.save(signer(), ['wss://r.example'], { name: 'Ann' });
+    fp.live()[0]?.onEose?.({ eose: 1, relays: 2, timedOut: true });
+    expect(await saving).toEqual({ status: 'unconfirmed', reason: 'timeout' });
+    expect(fp.published).toHaveLength(0);
+  });
+
+  it('asks before creating a profile for an extension or imported key that has none here, not for a generated key (R1)', async () => {
+    const storage = diskStore();
+    const { s, fp } = store({ storage });
+    const found = async (me: Signer) => {
+      const saving = s.save(me, ['wss://r.example'], { name: 'Ann' });
+      fp.live().at(-1)?.onEose?.(ANSWERED);
+      return saving;
+    };
+    // An extension key: its profile may live on the extension user's own relays.
+    expect(await found(signer('nip07'))).toEqual({ status: 'unconfirmed', reason: 'none-found' });
+    // An imported key: the same.
+    const sk = '44'.repeat(32);
+    expect(importSecretKey('a', storage, sk, { current: 'ee'.repeat(32), now: NOW }).ok).toBe(true);
+    const imported: Signer = {
+      kind: 'local',
+      pubkey: getPublicKey(hexToBytes(sk)),
+      sign: async (t) => finalizeEvent(t, hexToBytes(sk), rnd),
+    };
+    expect(isImportedKey('a', storage, imported.pubkey)).toBe(true);
+    expect(await found(imported)).toEqual({ status: 'unconfirmed', reason: 'none-found' });
+    expect(fp.published).toHaveLength(0);
+    // A key this app generated never had a profile anywhere: no question.
+    const generated = signer();
+    expect(isImportedKey('a', storage, generated.pubkey)).toBe(false);
+    expect((await found(generated)).status).toBe('saved');
+    // Confirmed, the imported key saves.
+    const forced = s.save(imported, ['wss://r.example'], { name: 'Ann' }, { overwrite: true });
+    fp.live().at(-1)?.onEose?.(ANSWERED);
+    expect((await forced).status).toBe('saved');
   });
 
   it('marks pubkeys loaded only when a relay actually answered', () => {

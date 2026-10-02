@@ -67,6 +67,8 @@ describe('safeImageUrl', () => {
       'https://user:pw@example.com/a.png',
       'https://example.com:8443/a.png',
       'https://printer.local/a.png',
+      'https://nas.localdomain/a.png',
+      'https://box.localnet/a.png',
       'https://foo.internal/a.png',
       'https://nas.lan/a.png',
       'https://router.home/a.png',

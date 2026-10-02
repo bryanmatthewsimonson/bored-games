@@ -38,6 +38,8 @@ export const OVERWRITE_TEXT: Record<UnconfirmedReason, string> = {
     'None of your relays answered, so your current profile could not be loaded. Saving now may replace a profile you set up in another app, with its about text and other details.',
   timeout:
     'Not every relay answered in time, so your newest profile may not have loaded. Saving now may replace details set in another app.',
+  'none-found':
+    'No profile for this key was found on your relays. If you set one up in another app, add that app\u2019s relays in Settings first: saving now creates a new profile that other apps may show instead of that one.',
   'newer-known':
     'This browser has seen a newer version of your profile than your relays returned, perhaps on a relay you no longer use. Saving now replaces it, and details only it holds are lost.',
 };
@@ -79,7 +81,7 @@ export function ProfileSection() {
     setPicture(info.picture ?? '');
   }, [info, touched]);
 
-  // Move focus into the confirm step when it appears, so keyboard and screen-reader users meet it.
+  // Move focus into the confirm step when it appears, onto Cancel, so Enter never overwrites by accident.
   useEffect(() => {
     if (confirming !== null) confirmRef.current?.focus();
   }, [confirming]);
@@ -356,10 +358,10 @@ export function ProfileSection() {
           <h4 id="overwrite-h">Replace your profile?</h4>
           <p id="overwrite-p">{OVERWRITE_TEXT[confirming]}</p>
           <div class="row">
-            <button ref={confirmRef} type="button" class="btn btn-primary" onClick={() => void save(true)}>
+            <button type="button" class="btn btn-primary" onClick={() => void save(true)}>
               Save anyway
             </button>
-            <button type="button" class="btn" onClick={() => setConfirming(null)}>
+            <button ref={confirmRef} type="button" class="btn" onClick={() => setConfirming(null)}>
               Cancel
             </button>
           </div>

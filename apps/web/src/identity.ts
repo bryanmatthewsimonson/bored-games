@@ -339,6 +339,7 @@ export function importSecretKey(
   const error = replaceKey(profile, store, input.hex, ctx);
   if (error !== null) return { ok: false, error };
   const pubkey = getPublicKey(hexToBytes(input.hex));
+  addToPubkeySet(store, importedKey(profile), pubkey);
   markBackedUp(profile, store, pubkey);
   return { ok: true, pubkey };
 }
@@ -381,9 +382,10 @@ export function gamesInProgress(profile: string, store: KeyValueStore, pubkey: H
 }
 
 const backupKey = (profile: string): string => storageKey(profile, 'backup');
+const importedKey = (profile: string): string => storageKey(profile, 'imported');
 
-function backedUpKeys(profile: string, store: KeyValueStore): Hex[] {
-  const raw = readItem(store, backupKey(profile));
+function pubkeySet(store: KeyValueStore, key: string): Hex[] {
+  const raw = readItem(store, key);
   if (raw === null) return [];
   if (isHex64(raw)) return [raw]; // an older version kept one pubkey
   try {
@@ -395,14 +397,26 @@ function backedUpKeys(profile: string, store: KeyValueStore): Hex[] {
 }
 
 /** Record that the player saved the secret key of `pubkey` (copied it, said so, or imported it). */
-export function markBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
-  const list = backedUpKeys(profile, store);
+function addToPubkeySet(store: KeyValueStore, key: string, pubkey: Hex): boolean {
+  const list = pubkeySet(store, key);
   if (list.includes(pubkey)) return true;
-  return writeItem(store, backupKey(profile), JSON.stringify([...list, pubkey]));
+  return writeItem(store, key, JSON.stringify([...list, pubkey]));
+}
+
+export function markBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
+  return addToPubkeySet(store, backupKey(profile), pubkey);
 }
 
 export function isBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
-  return backedUpKeys(profile, store).includes(pubkey);
+  return pubkeySet(store, backupKey(profile)).includes(pubkey);
+}
+
+/**
+ * True for a key imported into this profile (`bg:<profile>:imported`), as opposed to one this app generated:
+ * an imported key may already have a profile on relays this app does not use.
+ */
+export function isImportedKey(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
+  return pubkeySet(store, importedKey(profile)).includes(pubkey);
 }
 
 /** The Home backup reminder: a local key with at least one table of its own, until the key is backed up. */

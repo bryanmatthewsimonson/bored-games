@@ -73,6 +73,8 @@ const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 const PRIVATE_SUFFIXES = [
   'localhost',
   'local',
+  'localdomain',
+  'localnet',
   'internal',
   'lan',
   'home',

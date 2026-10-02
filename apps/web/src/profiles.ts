@@ -7,7 +7,7 @@ import type { Hex, NostrEvent } from '@bored-games/protocol';
 import { type ReadonlySignal, type Signal, signal } from '@preact/signals';
 import { useEffect } from 'preact/hooks';
 import { useApp } from './context.ts';
-import type { Signer } from './identity.ts';
+import { isImportedKey, type Signer } from './identity.ts';
 import type { ControllerDeps } from './net.ts';
 import {
   type CachedProfile,
@@ -35,7 +35,7 @@ export const FETCH_LATEST_MS = 5000;
 const AUTHORS_PER_FILTER = 100;
 
 /** Why a save stopped to ask before overwriting. */
-export type UnconfirmedReason = 'no-answer' | 'timeout' | 'newer-known';
+export type UnconfirmedReason = 'no-answer' | 'timeout' | 'newer-known' | 'none-found';
 
 export type SaveResult =
   | { status: 'saved'; event: NostrEvent }
@@ -166,14 +166,16 @@ export class ProfileStore {
         const newestKnown = Math.max(event?.created_at ?? -1, cached?.createdAt ?? -1);
         resolve({ event, answered, complete, knownNewer, newestKnown: newestKnown < 0 ? null : newestKnown });
       };
-      cancel = this.#d.timers.later(ms, () => finish(false, 0));
+      // The pool's own deadline reports how many relays answered by then; this timer is only a backstop for
+      // a pool that never calls back.
+      cancel = this.#d.timers.later(ms + 2000, () => finish(false, 0));
       unsub = this.#d.pool.subscribe(
         [{ kinds: [0], authors: [pubkey] }],
         (ev) => {
           if (ev.kind === 0 && ev.pubkey === pubkey) this.offer(ev);
         },
         (info) => finish(!info.timedOut, info.eose),
-        { eoseTimeoutMs: ms + 2000 },
+        { eoseTimeoutMs: ms },
       );
       if (done) unsub();
     });
@@ -183,8 +185,9 @@ export class ProfileStore {
    * Publish the player's edited profile: fetch the newest version, merge the edits into it (untouched and
    * unknown fields and tags kept), sign, and publish to `relays`; at least one relay must accept it. Unless
    * `overwrite`, it returns `unconfirmed` instead when the merge could lose data: no relay answered, the wait
-   * ran out, or this browser knows a newer version than the relays returned. `created_at` is always above the
-   * newest version known.
+   * ran out, this browser knows a newer version than the relays returned, or nothing was found for a key that
+   * did not start here (an extension's or an imported key, which may have a profile on other relays).
+   * `created_at` is always above the newest version known.
    */
   async save(
     signer: Signer,
@@ -201,7 +204,9 @@ export class ProfileStore {
             ? 'newer-known'
             : !latest.complete
               ? 'timeout'
-              : null;
+              : latest.event === null && this.#fromElsewhere(signer)
+                ? 'none-found'
+                : null;
       if (reason !== null) return { status: 'unconfirmed', reason };
     }
     const ev = await signer.sign(profileTemplate(latest.event, changes, this.#d.now(), latest.newestKnown));
@@ -209,6 +214,11 @@ export class ProfileStore {
     if (!results.some((r) => r.ok)) throw new Error(NO_RELAY_ACCEPTED_PROFILE);
     this.offer(ev);
     return { status: 'saved', event: ev };
+  }
+
+  /** A key that may have a profile made in another app: the extension's, or one imported into this profile. */
+  #fromElsewhere(signer: Signer): boolean {
+    return signer.kind === 'nip07' || isImportedKey(this.#d.profile, this.#d.storage, signer.pubkey);
   }
 
   dispose(): void {

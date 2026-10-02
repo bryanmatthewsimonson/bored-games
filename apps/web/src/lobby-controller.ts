@@ -75,7 +75,7 @@ export interface NewTable {
 
 /** Why a join is refused for a table this profile joined or created with another player key. */
 export const OTHER_KEY_TABLE =
-  'You are at this table with another key. Switch to that key in Settings → Identity to play here.';
+  'You are at this table with another key. Switch to that key in Settings → Identity to play here, or ask the creator for a new table.';
 
 /** How many recent tables the open list asks each relay for. */
 export const OPEN_TABLES_LIMIT = 200;

@@ -109,15 +109,22 @@ function RelaySection() {
 function IdentitySection() {
   const { profile, store, signer, nostr, persistent } = useApp();
   const [reveal, setReveal] = useState(false);
+  const [switchError, setSwitchError] = useState('');
   const npub = npubEncode(signer.pubkey);
   const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
   // Reveal reads the key back from storage; when storage is blocked there is nothing to show.
   const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 
   const useExtension = (on: boolean) => {
-    // The tables listed so far belong to the key in use: record that before the key changes (D041).
-    claimTablesFor(profile, store, signer.pubkey);
-    writeSignerChoice(profile, store, on ? 'nip07' : 'local');
+    // The tables listed so far belong to the key in use: record that before the key changes (D041). If that
+    // cannot be saved, the other key could later take these tables for its own, so do not switch.
+    if (
+      !claimTablesFor(profile, store, signer.pubkey) ||
+      !writeSignerChoice(profile, store, on ? 'nip07' : 'local')
+    ) {
+      setSwitchError('Could not switch: this browser would not save the change.');
+      return;
+    }
     // A different signer is a different player: start clean rather than patch live state.
     window.location.reload();
   };
@@ -140,6 +147,11 @@ function IdentitySection() {
           />
           Use browser extension (NIP-07)
         </label>
+      )}
+      {switchError !== '' && (
+        <p class="error" role="alert">
+          {switchError}
+        </p>
       )}
       {signer.kind === 'nip07' ? (
         <p class="muted">Your key is held by the browser extension, so there is nothing to export here.</p>
