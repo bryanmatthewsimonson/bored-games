@@ -222,6 +222,8 @@ After the game ends.
 
 **Content:** `{"deckSecret":"<scalar x_k>"}`. Clients MUST check that `x_k·G = X_k`.
 
+A valid Resign in a game with a deck carries the same secret (§4.9) and counts as the seat's Secret reveal: a seat whose secret is in, by either event, owes no Secret reveal (D052).
+
 ### 4.8 Result attestation (7456)
 **Tags:** `["e", <rootId>, "", "root"]`.
 
@@ -232,14 +234,20 @@ After the game ends.
 
 `logHash` is the SHA-256 of the move event ids in `seq` order, joined with `\n`.
 
-The attestation is signed by the player's npub (§7). After a timeout ending, `audit` records the forfeits with reason `timeout` or `withheld secret` (§8.2); after a resign ending, with reason `resign` (§8.3).
+**Unrated results (D052).** When a Resign ended a game of 3 or more seats (§8.3), `outcome` carries two more keys, both or neither: `"unrated":true` and `"endedBy":{"seat":<k>,"type":"resign"}`, `k` the resigning seat. Every other outcome has exactly `places`, `reason` and `scores`, so its attestation is unchanged. Each key has one accepted encoding: `unrated` is only `true`, and `endedBy` has exactly those two keys, with `seat` a seat of the game.
+
+The attestation is signed by the player's npub (§7). After a timeout ending, `audit` records the forfeits with reason `timeout` or `withheld secret` (§8.2); after a resign ending, with reason `resign`, or `resign; <reason>` when the partial audit or a withheld secret adds forfeits (§8.3).
 
 ### 4.9 Resign (7457)
-A seat gives up the game (D045). **Allowed only in 2-seat games without a deck** (Chess) until the owner decides how other games handle it (§8.3, "Open"); in any other game every Resign is invalid. There, either seat may publish one at any time while the game is live, on its turn or not. Its effect is in §8.3.
+A seat gives up the game (D045, D052). **Allowed in every game,** whatever its number of seats and whether or not it has a deck. Any seat may publish one at any time while the game is live, on its turn or not. Its effect is in §8.3.
 
 **Tags:** `["e", <rootId>, "", "root"]`, `["e", <headId>, "", "head"]`: the head the resigning seat saw (the root before the first move). A Resign counts only once that head is on the receiving client's chain (§8.3).
 
-**Content:** `{"type":"resign"}`.
+**Content:** one accepted form per game:
+- **Deckless game:** `{"type":"resign"}`.
+- **Game with a deck:** `{"secret":"<scalar x_k>","type":"resign"}`, the seat's deck secret, encoded as in the Secret reveal (§4.7). Clients MUST check that `x_k·G = X_k` for the signer's seat.
+
+A Resign that lacks the secret in a game with a deck, carries one in a deckless game, or carries a secret that does not match its seat's deck key is **invalid**, and clients reject it. The secret in a valid Resign is the seat's Secret reveal (§4.7), whether or not the Resign counts: the resigning seat owes nothing afterwards, and the remaining seats owe their secrets (§8.3). The secret is public from the moment the Resign is; §8.3 ("The early secret") explains what that reveals.
 
 A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
 
@@ -344,7 +352,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 
 **Deckless games (D045).** With N = 0 there is no Shuffle and no Deal: the client sets the module up in view mode when it loads the root, and play starts with move 1. There are no decryption shares and no deck secrets: a Shares event (7453) or a Secret reveal (7455) for a deckless game is invalid, and so is a game action whose `reveals` or `shares` is not empty. When the module reaches `over` the audit runs at once (§7), with no Secret phase. Joins and the root still carry deck keys and their proofs (§4.2), unchanged.
 
-A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before the module is over: it is **cancelled** before the first game action and ends by forfeit after it.
+A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before the module is over: it is **cancelled** before the first game action and ends by forfeit after it. After a Resign in a game with a deck, the End phase still follows: the remaining Secret reveals, a partial audit and the attestations (§8.3).
 
 **Hands at setup.** The deal round needs every seat's hand positions to be assigned in the public state before any card is revealed. Chain Reaction therefore assigns hands **at setup, in seat order** (D022, engine 0.3.0):
 - seat 0 gets the 6 positions right after the setup tiles, seat 1 the next 6, and so on
@@ -430,6 +438,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
    - **Forfeit endings are attested too.** When a timeout ends the game the audit cannot run, so the `audit` field records the forfeits: `{fail: [forfeiting seats ascending], reason: "timeout"}` during play, or `reason: "withheld secret"` at the end (§8.2). A cancelled game has no result and is not attested.
    - A result is **valid** once the log, the reveals and the audit verify. It is **finalized** once every seat has attested.
    - Stats and ratings count valid results, and anyone can recompute one.
+   - **Ratings exclude unrated results (D052).** An outcome with `"unrated":true` (a Resign ended a game of 3 or more seats, §8.3) counts toward no rating, ranking, completion or win statistic. Its `endedBy` records the seat that ended the game, for anti-griefing tracking: a client or a future rating service SHOULD count, per player, the games they ended this way. A 2-seat Resign is an ordinary loss and is rated.
 
 ## 8. Deadlines, timeouts and forfeits
 
@@ -459,7 +468,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 - **Claim limits.** A client keeps at most the 4 lowest-id claims per signer per head, evicting higher ids, and at most 8 claims per signer naming heads it has not linked. Further claims are ignored.
 
 ### 8.2 Forfeit outcome
-A seat forfeits by any of: being stalled when a client accepts a timeout claim, equivocation, a failed audit, or a withheld deck secret (being stalled at the end when a claim is accepted).
+A seat forfeits by any of: being stalled when a client accepts a timeout claim, equivocation, a failed audit (the partial one after a Resign included), a withheld deck secret (being stalled at the end when a claim is accepted), or a Resign (§8.3).
 
 **Accepting a claim.** Every seat stalled at the head forfeits, whichever claim was accepted and whichever seat it names. Seats flagged for equivocation (§6.6) forfeit with them. Then:
 - **Before the first game action** (the chain holds no game-action move: during Shuffle, Deal, or play before the first action): the game is **cancelled**. There is no result, no attestation and no rating change, and the forfeiting seats are flagged.
@@ -475,22 +484,32 @@ A seat forfeits by any of: being stalled when a client accepts a timeout claim, 
 **Finality.** Accepting a claim is final for the client. From then on, every later move, Shares event, Secret reveal and Resign of the game is stored but changes nothing, fork choice stops, and the client's result no longer changes. Attestations are still accepted. A Resign is final in the same way (§8.3). Clients can still disagree if a stalled seat acts while some have accepted and others have not, or if a Resign races a claim or a move (§11).
 
 ### 8.3 Resign
-A Resign (§4.9) is a voluntary forfeit (D045), allowed only in 2-seat games without a deck.
-- **Validity.** A well-formed Resign with this game's root, signed by a seated session key. In any other game, a Resign is invalid and rejected. A client keeps the lowest-id Resign per seat for the record.
+A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
+- **Validity.** A well-formed Resign with this game's root, signed by a seated session key, in the content form of its game (§4.9): with a deck, its secret must match the seat's deck key. An invalid Resign is rejected and recorded. A client keeps the lowest-id Resign per seat for the record, and the secret of every valid Resign it keeps counts as that seat's Secret reveal.
 - **It counts once its head is on the chain.** A Resign counts when the head it names is on the receiving client's chain: the root, or a linked Move. Until then it waits, so a Resign that arrives before the resigner's own last move waits for that move, and every client ends the game at least at the resigner's head. A client keeps at most 8 waiting Resigns per seat, the lowest ids, and rejects the others; waiting Resigns do not count, so the cap never retracts anything.
-- **It is final for the client, like an accepted claim (§8.2 "Finality").** If the client's result is not final yet (no claim accepted, no Resign counted, the module not over), the first Resign to count ends the game at the client's head then:
-  - **cancelled** (no result) only when it names the root and the chain holds no game action;
-  - otherwise **done**, even if this client's chain holds no game action yet: the resigning seat (and any equivocator) last, the other seat first by `standings`, and the outcome reason `resign`. The audit does not run; it records the forfeits, `{fail: [forfeiting seats], reason: "resign"}`, and the result is attested as usual.
+- **It is final for the client, like an accepted claim (§8.2 "Finality").** If the client's result is not final yet (no claim accepted, no Resign counted, the module not over), the first Resign to count ends the game for every seat, at the client's head then:
+  - **Cancelled** (no result, no secret owed, no audit) when the chain holds no game action. The head it names is then the root, or in a game with a deck a shuffle step (during the Shuffle or the Deal, or in play before the first action).
+  - **Otherwise** the resigning seat (and any equivocator) forfeits and is ranked last; the others are ranked by the module's `standings(state)` at the head, the scores **as if the game ended now** (for Chain Reaction: bonuses paid and every share sold, even mid-merger). Ties share places, the scores are the standings, and the outcome reason is `resign`, even if this client's chain holds no game action yet.
+    - **Deckless game:** done at once. Nothing is hidden, so no audit runs: the audit field records the forfeits, `{fail: [forfeiting seats], reason: "resign"}`, and the result is attested as usual.
+    - **Game with a deck: the End phase follows.** Every seat whose secret is not in yet owes its Secret reveal (§4.7); the resigning seat's came with its Resign. The counted Resign is progress (§8.1): the deadline for the secrets runs from its first-seen time, and a claim against a missing secret is judged as at the end (the seats whose secret is not in are the stalled seats; a claimant must have published its own). Once every secret is in, the client runs the **partial audit**: it decrypts every final-deck position with all the secrets, sets the module up in full mode, and replays the interleaved action log of its chain as it stood when the Resign counted, exactly as in §7 step 2. The verdicts of §7 step 3 apply (the first game action the replay rejects fails its actor; a rejected derived reveal, an undecryptable position or a refused setup fails every seat), but **no outcome is compared**, since the game did not end by its rules. The seats it fails forfeit too, and share the last places with the resigning seat. The audit field is `{fail: [forfeiting seats], reason: "resign"}` when it passes, or `reason: "resign; <the audit's reason>"` (cut to 500 code points) when it fails. If a claim is accepted for a withheld secret instead, the seats stalled then forfeit too and the audit field is `{fail: [forfeiting seats], reason: "resign; withheld secret"}`; the audit cannot run without every secret. Attestations wait for this result, as at a normal end.
+  - **Unrated with 3 or more seats.** The outcome then also carries `"unrated":true` and `"endedBy":{"seat":<k>,"type":"resign"}` (§4.8), and both are attested. Ratings exclude the result, and `endedBy` records who ended it (§7 step 4). A 2-seat Resign is an ordinary loss: its outcome carries neither key, and it is rated.
 
-  From then on, every later move, Shares event, Secret reveal, Timeout claim and Resign is stored but changes nothing: no decision, share or secret is owed, and no seat is stalled. A counted Resign is never evicted or undone.
-- **A Resign that counts after the result is final changes nothing,** whether the result came from the module's own end (a mate that raced the Resign stands), an accepted claim, or an earlier Resign.
-- **Races (the claim-race residual, §11).** The head gate settles the honest case: the resigner's own last move. What remains is a true race, an event the opponent sent at the same head before it received the Resign; which comes first then depends on each client's arrival order, and clients can disagree:
-  - an ordinary raced move: same winner, different logs (the attestations of the two sides do not match each other);
-  - **a raced game-ending move: different outcomes.** For example, Black offers a draw with its move, then resigns while White sends `acceptDraw`: a client that counts the Resign first records a White win, one that folds the acceptance first a draw. A mate, a stalemating move or a capture that leaves insufficient material race the same way.
-- **Residuals.** A seat that floods more than 8 waiting Resigns naming heads nobody holds, and gets them to a client before its real Resign and before the head that Resign names, makes that client drop its real Resign (its own flood fills the cap); the client then still shows the game in play. It cannot undo a Resign that counted on the players' clients, whose attestations record the loss. The web client folds a loaded batch's other events before its Resigns, so its real Resign meets a held head and counts at once, outside the cap.
-- **Open (owner decisions, D045).** Resign is limited to 2-seat games without a deck until these are decided:
-  - **Multi-seat games:** should a Resign end the game for everyone, or only retire the seat while the others play on (`docs/GAME-SYSTEMS.md` §7, retiring seats)? Ending the game lets a seat that is out of contention pick the moment that fixes everyone else's ranking (kingmaking by timing), at no cost to itself.
-  - **Deck games:** ending by Resign skips the end-of-game reveal, so hidden-card cheats made before it (a forged `skipPlace`, a kept dead tile) would never be audited, and an ally could resign right after a profitable cheat. Options: a Secret phase and a partial audit after a Resign, or a Resign that **carries the resigner's deck secret**, so at least the resigner's own hidden claims stay checkable.
+  From then on, every later move, Shares event, Timeout claim and Resign is stored but changes nothing, except the Secret reveals and claims the End phase above still needs; once every secret is in (or a claim is accepted) those change nothing either. A counted Resign is never evicted or undone.
+- **A Resign that counts after the result is final changes nothing,** whether the result came from the module's own end (a mate or a declared end that raced the Resign stands), an accepted claim, or an earlier Resign. Its secret still counts as the seat's Secret reveal where the End phase needs one, so a seat whose own client counted its Resign first, and so publishes no Secret, is not timed out by the clients where the game ended otherwise.
+- **Races (the claim-race residual, §11).** The head gate settles the honest case: the resigner's own last move. What remains is a true race, an event another seat sent at the same head before it received the Resign; which comes first then depends on each client's arrival order, and clients can disagree:
+  - an ordinary raced move: different logs; with 2 seats the same winner, with 3 or more the standings are taken at different heads, so the others' places can differ (the result is unrated either way);
+  - **a raced game-ending move: different outcomes.** For example, Black offers a draw with its move, then resigns while White sends `acceptDraw`: a client that counts the Resign first records a White win, one that folds the acceptance first a draw. A mate, a stalemating move, a capture that leaves insufficient material or a declared end race the same way;
+  - **a raced timeout claim:** a client that accepts the claim first ends the game by forfeit (rated, the stalled seats last) and rejects the Resign; one that counts the Resign first ends it by the Resign, and the claim then fails, since its claimant now owes a secret, or there is no stalled seat.
+- **Residuals.** A seat that floods more than 8 waiting Resigns naming heads nobody holds, and gets them to a client before its real Resign and before the head that Resign names, makes that client drop its real Resign (its own flood fills the cap); the client then still shows the game in play. It cannot undo a Resign that counted on the players' clients, whose attestations record the loss. The web client folds a loaded batch's other events before its Resigns, so its real Resign meets a held head and counts at once, outside the cap. A seat that withholds its secret after a Resign blocks the partial audit, as at a normal end: it forfeits for the withheld secret, but the hidden claims of the others go unchecked. **A Resign while the module pends a public reveal** (§6.3) ends the game before or after the derived reveals, depending on whether the client held their shares when the Resign counted, so clients could rank on different states. Chain Reaction pends public reveals only at setup, before the first game action, where a Resign cancels; a future game with public reveals during play needs a rule here (for example: complete the pending reveals from the secrets before ranking).
+- **Kingmaking by timing (moot).** A seat out of contention can end a game of 3 or more seats at a moment it picks, fixing the others' ranking at no cost to itself. Such a result is unrated and records who ended it, so it moves no rating, and a player who does this often is visible (§7 step 4).
+- **The early secret.** A Resign in a game with a deck publishes the resigner's deck secret `x_r` at once, including to clients where the Resign still waits for its head, or never counts (its head lost a fork, or the resigner's own flood dropped it). `x_r` removes the resigner's layer from every position, and nothing else:
+  - **The resigner's own cards** become public: every other seat's share of a position dealt to the resigner is already published (§6.2), so with `x_r` anyone can decrypt the resigner's hand, and on a branch where play goes on, every card the resigner draws later. This harms only the resigner, who chose to publish it, and it could always show its hand off the protocol.
+  - **Another seat's cards** stay hidden: a position dealt to seat `j` still needs `j`'s own layer, which `j` never shares; the resigner's share of it was published already, so `x_r` adds nothing.
+  - **Undealt positions** (the draw pile) still need the layer of every other seat, so they stay hidden while one of those seats is honest. Collusion with the resigner gains nothing new: it could always pass `x_r` privately.
+  - A seat that sees the resigner's hand while the Resign waits for its head can use it for at most a move raced against the Resign (above), in a game that is ending, unrated.
+
+  So the secret need not be hidden until the Resign counts, and the protocol does not try (it could not: an event is public once published).
+- **Escaping the audit.** A seat cannot use a Resign to dodge the audit of its own hidden claims: the Resign carries its secret, so the partial audit decrypts every position once the others publish theirs, and replays every action up to the head, the resigner's included. An ally that resigns right after another seat's profitable cheat triggers that audit, which catches the cheat. Only withholding a secret blocks it, and that forfeits (Residuals, above).
 
 ## 9. Relays
 - **Publishing.** Clients publish to every relay in the root's `relay` tags plus their own configured relays, and deduplicate by event id. Clients SHOULD also publish to their NIP-65 write relays (kind 10002); this client does not implement that yet.
@@ -525,7 +544,8 @@ It MUST also meet these contract rules, which the session relies on:
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` first, so a finished game cannot be reopened. When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never rewind or cancel a game (§6.6): they flag the signer, who forfeits at the end.
 - **Resigns never rewind a game** (§8.3). A Resign ends the game where the client's chain stands, whatever head it names, and it cannot be retracted. A finished game stands whatever Resigns arrive later.
-- **The resign race.** A Resign counts once its named head is held and is then final, so a client that receives it before a move, claim or game-ending move the opponent sent at the same moment ends the game earlier than one that receives them the other way round. This is the same class as the claim race above and is accepted for the same reason. With an ordinary raced move only the log differs; with a raced game-ending move (an accepted draw, a mate) the outcome differs too (§8.3).
+- **The resign race.** A Resign counts once its named head is held and is then final, so a client that receives it before a move, claim or game-ending move another seat sent at the same moment ends the game earlier than one that receives them the other way round. This is the same class as the claim race above and is accepted for the same reason. With an ordinary raced move the log differs (and, with 3 or more seats, possibly the others' places); with a raced game-ending move (an accepted draw, a mate) or a raced claim the outcome differs too (§8.3).
+- **A Resign's deck secret** is public as soon as the Resign is, before it counts anywhere. It reveals only the resigner's own cards; every other hidden card still needs another seat's layer (§8.3, "The early secret").
 - **Cross-game replay.** Every proof and challenge binds the root id, the position or seat, and the deck. Moves are bound to the root and the parent.
 - **Denial of service.** Clients MUST cap accepted event size (256 KB) and MUST ignore events from keys that are not seated. They also bound the work a seat can cause:
   - An event whose id is already held is a duplicate, found before it is parsed or verified.
