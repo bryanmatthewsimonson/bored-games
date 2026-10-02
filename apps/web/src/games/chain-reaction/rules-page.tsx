@@ -397,9 +397,10 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
             six. Every player needs the game open for it to finish.
           </li>
           <li>
-            <strong>A new tile can show "?" for a while.</strong> Each other player's next move carries what
-            you need to read it, so it shows "?" until every other player has moved once. It is always known
-            before you need it.
+            <strong>A new tile shows "?" for a while.</strong> The tile is yours as soon as you draw it, but
+            it stays hidden until every other player has made their next move: each move carries that player's
+            part of the reveal, so no one, not even the app, can see your tile without you. It is always
+            revealed before your next turn. In the game, hover over or tap the "?" for this explanation.
           </li>
           <li>
             <strong>Merger decisions can come to you out of turn.</strong> When a chain you hold shares in is

@@ -333,6 +333,49 @@ main:has(.cr-game) {
   border-style: dashed;
 }
 
+/*
+ * The "?" tile and its popover. The popover is placed against the hand, not the tile, so it never leaves the
+ * panel: under its tile when there is room (`--i` is the tile's index), else flush with the hand's right edge.
+ */
+.cr-hand-panel .cr-hand {
+  position: relative;
+}
+
+button.cr-tile-unknown {
+  cursor: help;
+}
+
+.cr-tile-unknown[aria-expanded="true"] {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.cr-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: clamp(0px, calc(var(--i, 0) * 58px), calc(100% - min(22rem, 100%)));
+  z-index: 5;
+  width: min(22rem, 100%);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.18);
+}
+
+.cr-tip[hidden] {
+  display: none;
+}
+
+.cr-hidden-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
 /* Decisions */
 .cr-fieldset {
   margin: 0;

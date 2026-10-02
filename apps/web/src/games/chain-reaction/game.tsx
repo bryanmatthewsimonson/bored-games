@@ -1,11 +1,11 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useReducer, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
 import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
-import { Hand } from './hand.tsx';
+import { Hand, TIP_CLOSED, type TipEvent, tipReducer } from './hand.tsx';
 import { isLocked, submitUnderLock } from './lock.ts';
 import {
   boardCells,
@@ -52,6 +52,8 @@ export interface ChainReactionGameProps {
   onClaimTimeout?: (() => void) | undefined;
   /** What the claim does (who forfeits), for the confirm step. */
   timeoutExplanation?: string | undefined;
+  /** True once the game has ended outside the rules (a timeout): a hidden tile will never be revealed. */
+  ended?: boolean | undefined;
 }
 
 export function ChainReactionGame(props: ChainReactionGameProps) {
@@ -62,6 +64,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   // controller reports the publish finished, so a double click can never send two moves.
   const [sentAt, setSentAt] = useState<number | null>(null);
   const [priceCardOpen, setPriceCardOpen] = useState(false);
+  const [tip, onTip] = useReducer<typeof TIP_CLOSED, TipEvent>(tipReducer, TIP_CLOSED);
 
   useEffect(() => {
     if (!props.busy) setSentAt(null);
@@ -69,7 +72,26 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   useEffect(() => {
     setSelected(null);
     setPreview(null);
+    onTip({ type: 'close' });
   }, [state.seq]);
+  // An open "?" popover closes on Escape wherever the focus is (a hover popover too, WCAG 1.4.13), and a pinned
+  // one on a tap or click anywhere else (touch browsers may not move the focus on a tap).
+  const tipOpen = tip.pos !== null;
+  useEffect(() => {
+    if (!tipOpen) return;
+    const away = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest('.cr-unknown'))) onTip({ type: 'close' });
+    };
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onTip({ type: 'close' });
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', onEscape);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', onEscape);
+    };
+  }, [tipOpen]);
 
   const cells = useMemo(() => boardCells(state, props.lastTile ?? null), [state, props.lastTile]);
   const hand = useMemo(() => (mySeat === null ? [] : handTiles(state, mySeat)), [state, mySeat]);
@@ -124,6 +146,9 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
               disabled={locked}
               onSelect={setSelected}
               onPreview={setPreview}
+              ended={props.ended === true}
+              tip={tip}
+              onTip={onTip}
             />
           </section>
         )}

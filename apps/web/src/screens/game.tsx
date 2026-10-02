@@ -229,6 +229,7 @@ export function GameScreen(props: { rootId: string }) {
         deadline={view.phase === 'play' ? formatDeadline(deadlineLeft) : undefined}
         onClaimTimeout={claim?.onClaim}
         timeoutExplanation={claim?.explanation}
+        ended={view.phase !== 'play'}
       />
     </>
   );
