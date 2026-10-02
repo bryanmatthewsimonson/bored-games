@@ -10,23 +10,26 @@ import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
 /*
  * Whole games between independent clients over the in-memory relay (Phase 2d Task 7). A 3-seat game takes a
  * minute or two of CPU even with a policy that declares the end as soon as it may, so only the games that end
- * during the shuffle and the deal run by default; `pnpm test:sim` runs them all, and `pnpm sim` plays more.
+ * during the shuffle and the deal run by default; `pnpm test:sim` (SIM=1) runs them all, and `pnpm sim` plays more.
+ * The seat count is a parameter: the 3-seat games are the full set, 4 and 6 seats add an honest whole game each
+ * (about 100 s and 227 s of CPU) under SIM=1, and one cheap 6-seat game that ends in the shuffle runs by default.
  */
 
 const SIM = process.env.SIM !== undefined && process.env.SIM !== '';
+/** The seat count of the full set of games. */
 const SEATS = 3;
 /** The cheating seat. */
 const CHEAT = 1;
 const LONG = 900_000;
 
-function sim(seed: string, name: AdversaryName | null, vanishAt = SEATS): SimReport {
+function sim(seed: string, name: AdversaryName | null, vanishAt = SEATS, seats = SEATS): SimReport {
   return simulateGame({
-    seats: SEATS,
+    seats,
     seed,
     modules: MODULES,
     game: chainReaction.id,
     policy: quickPolicy,
-    ...(name === null ? {} : { adversary: adversary(name, CHEAT, SEATS, vanishAt) }),
+    ...(name === null ? {} : { adversary: adversary(name, CHEAT, seats, vanishAt) }),
   });
 }
 
@@ -139,6 +142,20 @@ describe('simulated games that end before play', () => {
   );
 
   it(
+    'with 6 seats, seat 1 vanishing before its shuffle step cancels the game with that seat forfeiting',
+    () => {
+      // The chain is 1 move long (seat 0's shuffle step) when seat 1 is due, so it vanishes at atSeq 1.
+      const r = sim('sim-vanish-shuffle-6', 'vanish', 1, 6);
+      expect(r.failures).toEqual([]);
+      expect(unexpected(r, CHEAT)).toEqual([]);
+      expect(r).toMatchObject({ seats: 6, phase: 'cancelled', outcome: null, forfeits: [CHEAT], actions: 0 });
+      expect(r.moves).toBe(1);
+      expect(r.claims).toBeGreaterThan(0);
+    },
+    LONG,
+  );
+
+  it(
     'a shuffle step proven against the wrong input is rejected by everyone, then a timeout cancels the game',
     () => {
       const r = sim('sim-bad-shuffle', 'badShuffle');
@@ -156,6 +173,27 @@ describe('simulated games that end before play', () => {
 });
 
 describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
+  // The same honest game at more seats: the shuffle, the deal and the secrets all scale with the table.
+  it.each([4, 6])(
+    'an honest %i-seat game ends done, the audit passes and every seat attests',
+    (seats) => {
+      const r = sim(`sim-honest-${seats}`, null, seats, seats);
+      expect(r.failures).toEqual([]);
+      expect(r).toMatchObject({
+        seats,
+        phase: 'done',
+        audit: 'pass',
+        forfeits: [],
+        equivocators: [],
+        claims: 0,
+      });
+      expect(r.outcome?.reason).toBe('declared');
+      expect(r.attested).toEqual(Array.from({ length: seats }, (_, i) => i));
+      expect(r.actions).toBeGreaterThan(0);
+    },
+    LONG,
+  );
+
   it(
     'an honest 3-seat game ends done, the audit passes, everyone agrees and every attestation is accepted',
     () => {

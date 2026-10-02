@@ -392,8 +392,9 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
           </li>
           <li>
             <strong>The shuffle and deal take a moment.</strong> When the game starts, every player's browser
-            shuffles the tiles, proves its shuffle, and then deals. With three players this takes about 15–30
-            seconds, and every player needs the game open for it to finish.
+            shuffles the tiles, proves its shuffle, and then deals. The players shuffle one after another, so
+            it takes longer with more players: about 15–30 seconds with three players and about a minute with
+            six. Every player needs the game open for it to finish.
           </li>
           <li>
             <strong>A new tile can show "?" for a while.</strong> Each other player's next move carries what

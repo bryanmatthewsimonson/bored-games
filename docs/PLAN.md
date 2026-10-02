@@ -31,7 +31,7 @@
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
-**Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`.
+**Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`. Request 3 (4 to 6 players) added 3: a 6-seat cancel in the shuffle (in `pnpm check`) and honest 4- and 6-seat whole games (`pnpm test:sim` only); all 14 pass in about 8 minutes, the 4- and 6-seat games taking about 72 s and 162 s.
 
 **Last verified (2026-10-01, Phase 2d final review fixes):** `pnpm check` passes (typecheck, Biome, 1039 tests in 53 files, 5 skipped, about 5.5 minutes). `pnpm test:sim` passes its 11 tests in about 4 minutes. `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
 
@@ -117,6 +117,7 @@
   - **Status (2026-10-01):** met.
   - **Hidden holdings (D037, 2026-10-01):** done. The UI shows other players' holdings as chains only and their cash as "has cash" / "no cash", and the log keeps their numbers for the last two turns; engine and protocol unchanged.
   - **Player rules and price card (2026-10-01):** done. `#/rules` explains the game to players (numbers from `DEFAULT_RULES`, names from the theme), and a Price card dialog in the game marks each chain's current price row. The default relay is relay.primal.net (D038).
+  - **4 to 6 players (2026-10-01):** supported and tested. The New table form offers 3 to 6; `E2E_SEATS=4|5|6 pnpm e2e` plays through the UI, and the sim tests cover 6 seats (a cancel in the shuffle, always) and whole 4- and 6-seat games (`pnpm test:sim`). Setup grows with the seats because each player shuffles in turn: measured from the start to the first move with all windows on one 4-core machine, about 11 s (3 players), 16 s (4), 28 s (5) and 43 s (6). The player copy says so.
   - **Owner to-do:** Pages is enabled with the source "GitHub Actions"; keep `main` the default branch, then follow `docs/TESTING.md` §2.
 
 ### Phase 4: Records
