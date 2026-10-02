@@ -161,6 +161,9 @@ importers:
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../../packages/games/chain-reaction
+      '@bored-games/chess':
+        specifier: workspace:*
+        version: link:../../packages/games/chess
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
