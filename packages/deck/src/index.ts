@@ -27,19 +27,35 @@ export {
 export { G, generators, h2c, q } from './group.ts';
 export { type PokProof, provePok, verifyPok } from './pok.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
+// Sealed shares: reference implementation, not used by the session or the protocol yet (D055).
+export {
+  openSealedShare,
+  proveOpening,
+  type SealedOpening,
+  type SealedShare,
+  sealShare,
+  verifyOpening,
+  verifySealedShare,
+} from './sealed.ts';
 export { proveShuffle, type ShuffleCtx, type ShuffleProof, shuffleDeck, verifyShuffle } from './shuffle.ts';
 export {
   type DeckWire,
   DeckWireError,
   decodeDeck,
   decodePok,
+  decodeSealedOpening,
+  decodeSealedShare,
   decodeShare,
   decodeShuffleProof,
   encodeDeck,
   encodePok,
+  encodeSealedOpening,
+  encodeSealedShare,
   encodeShare,
   encodeShuffleProof,
   type PokWire,
+  type SealedOpeningWire,
+  type SealedShareWire,
   type ShareWire,
   type ShuffleProofWire,
 } from './wire.ts';
