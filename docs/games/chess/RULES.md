@@ -21,6 +21,7 @@ Chess as defined by the FIDE Laws of Chess (Basic Rules of Play, Articles 1–5,
 | Draw offers | A draw offer rides on a move (`offerDraw: true`). It stands until the opponent's next action: the opponent accepts with `acceptDraw`, or declines by moving. | FIDE 9.1.2 (an offer is made after a move, before pressing the clock); asynchronous play needs it on the move itself |
 | Resignation | **Not a module action.** The platform adds a generic resign event (any seat, at any time), handled like a forfeit (`rankWithForfeits`). | Resignation is platform-wide (PLAN Phase C2) |
 | Time control | None in the engine. The platform's turn deadline and timeout forfeit apply. | PROTOCOL §8 |
+| Timeout against insufficient material | A timeout is a platform forfeit **whatever the material**: the absent seat loses even when the other side has a lone king and could never mate. | FIDE 6.9 scores a flag fall as a draw when the opponent cannot mate by any series of legal moves. The platform's forfeit (PROTOCOL §8.2) knows no chess, and an asynchronous deadline is a missed turn, not a clock. Following FIDE 6.9 is **OPEN** (it would need the platform to ask the module how a forfeit scores) |
 | Wire format | UCI long algebraic (`e2e4`, `e7e8q`). Castling is the king's move (`e1g1`). SAN is for display only. | Unambiguous, one encoding per move |
 | Scores | Win 2, loss 0, draw 1 each. | Integers for the platform's outcome (half points ×2) |
 
@@ -51,7 +52,7 @@ Chess as defined by the FIDE Laws of Chess (Basic Rules of Play, Articles 1–5,
 | 100 halfmoves (50 by each side) with no capture and no pawn move | Draw | `fifty-move` |
 | A draw offer accepted | Draw | `agreement` |
 | Resignation (platform event, PROTOCOL §8.3) | The platform ranks the resigning seat last | (platform: `resign`) |
-| Timeout (PROTOCOL §8.2) | The platform ranks the absent seat last | (platform: `forfeit`) |
+| Timeout (PROTOCOL §8.2) | The platform ranks the absent seat last, even against a lone king (FIDE 6.9 is OPEN, see above) | (platform: `forfeit`) |
 
 **Halfmove clock.** A capture or a pawn move resets it to 0; every other move adds 1, castling included. Losing castling rights does not reset it.
 
@@ -305,7 +306,7 @@ Each entry has a named test in `packages/games/chess/test/catalog/` whose title 
 
 #### C52 An offer on a game-ending move is void
 **Setup:** Fool's mate with `offerDraw: true` on `d8h4`.
-**Expected:** reason `checkmate`; `drawOffer` is null, no `drawOffered` event.
+**Expected:** reason `checkmate`; `drawOffer` is null, no `drawOffered` event, and the move's history record has `drawOffered: false` (the move list shows no offer).
 
 ### Results, views and resignation
 

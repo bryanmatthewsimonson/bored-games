@@ -149,7 +149,9 @@ function applyParsed(s: ChessState, raw: unknown): ApplyResult<ChessState, Chess
     promotion: promo ? (pieceLetter(promo).toLowerCase() as PromotionLetter) : null,
     check: inCheck(pos),
   });
-  if (a.offerDraw && !result) events.push({ type: 'drawOffered', seat });
+  // An offer on a game-ending move is void: not in the state, the events or the history (C52).
+  const offered = a.offerDraw && !result;
+  if (offered) events.push({ type: 'drawOffered', seat });
   if (result) events.push({ type: 'gameEnded', reason: result.reason, winner: result.winner });
 
   return {
@@ -164,11 +166,8 @@ function applyParsed(s: ChessState, raw: unknown): ApplyResult<ChessState, Chess
       halfmove: pos.halfmove,
       fullmove: pos.fullmove,
       positions,
-      drawOffer: a.offerDraw && !result ? seat : null,
-      history: [
-        ...s.history,
-        { seat, moveNumber, uci: a.uci, san, piece, captured, drawOffered: a.offerDraw },
-      ],
+      drawOffer: offered ? seat : null,
+      history: [...s.history, { seat, moveNumber, uci: a.uci, san, piece, captured, drawOffered: offered }],
       result,
     },
     events,

@@ -3,6 +3,7 @@ import type { ComponentType } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { webGame } from './games/registry.ts';
 import { homeHref, type Route } from './router.ts';
+import { CreditsScreen } from './screens/credits.tsx';
 import { GameScreen } from './screens/game.tsx';
 import { HomeScreen } from './screens/home.tsx';
 import { TableScreen } from './screens/table.tsx';
@@ -42,6 +43,8 @@ export function Screen(props: { route: Route }) {
       const game = webGame(r.game);
       return game === undefined ? <NotFoundScreen /> : <game.RulesPage section={r.section} />;
     }
+    case 'credits':
+      return <CreditsScreen />;
     case 'dev':
       return import.meta.env.DEV ? <DevScreen page={r.page} scene={r.scene} /> : <NotFoundScreen />;
     case 'not-found':

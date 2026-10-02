@@ -86,13 +86,17 @@ export function resignExplanation(view: SessionView): string {
   return 'You lose the game. This cannot be undone.';
 }
 
-/** "Result signed by 2 of 2 players", once the session has a result to attest; null before. */
+/**
+ * "Result confirmed: signed by both players" (two seats) or "… by all 3 players", or "Result signed by 1 of 2
+ * players so far", once the session has a result to attest; null before.
+ */
 export function attestLine(view: SessionView | null): string | null {
   if (view === null || view.phase !== 'done' || view.outcome === null) return null;
   const n = view.attested.length;
-  return n === view.seats
-    ? `Result confirmed: signed by all ${n} players.`
-    : `Result signed by ${n} of ${view.seats} players so far.`;
+  if (n !== view.seats) return `Result signed by ${n} of ${view.seats} players so far.`;
+  return n === 2
+    ? 'Result confirmed: signed by both players.'
+    : `Result confirmed: signed by all ${n} players.`;
 }
 
 /** The seats a timeout claim made forfeit, when one ended the game; empty otherwise. */

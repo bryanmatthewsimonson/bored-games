@@ -8,6 +8,7 @@ import { DEFAULT_GAME, GAME_IDS } from './games/ids.ts';
  *   #/g/<rootId>                a Game
  *   #/rules/<gameId>[/<section>] a game's rules, optionally scrolled to one section
  *   #/rules[/<section>]         the old form: Chain Reaction's rules (DEFAULT_GAME)
+ *   #/credits                   third-party art and its licenses
  *   #/dev/<page>[/<scene>]      a dev-only preview (rendered only when import.meta.env.DEV)
  */
 export type Route =
@@ -15,6 +16,7 @@ export type Route =
   | { name: 'table'; creator: string; tableId: string }
   | { name: 'game'; rootId: string }
   | { name: 'rules'; game: string; section: string | null }
+  | { name: 'credits' }
   | { name: 'dev'; page: string; scene: string | null }
   | { name: 'not-found'; hash: string };
 
@@ -26,6 +28,7 @@ const DEV = /^\/dev\/([a-z0-9-]{1,32})(?:\/([a-z0-9-]{1,32}))?\/?$/;
 export function parseRoute(hash: string): Route {
   const path = hash.startsWith('#') ? hash.slice(1) : hash;
   if (path === '' || path === '/') return { name: 'home' };
+  if (path === '/credits' || path === '/credits/') return { name: 'credits' };
   const t = TABLE.exec(path);
   if (t) return { name: 'table', creator: t[1] as string, tableId: t[2] as string };
   const g = GAME.exec(path);
@@ -48,6 +51,7 @@ export function parseRoute(hash: string): Route {
 export const homeHref = (): string => '#/';
 export const tableHref = (creator: string, tableId: string): string => `#/t/${creator}/${tableId}`;
 export const gameHref = (rootId: string): string => `#/g/${rootId}`;
+export const creditsHref = (): string => '#/credits';
 /** A game's rules page, optionally at one section. */
 export const rulesHref = (game: string, section?: string): string =>
   section ? `#/rules/${game}/${section}` : `#/rules/${game}`;
