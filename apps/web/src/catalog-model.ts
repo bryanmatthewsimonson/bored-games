@@ -2,7 +2,15 @@
  * The game catalog's filters and search (D046), pure: from the catalog entries and the names in effect to the
  * games the Home catalog lists, and the words its cards and the game page show.
  */
-import type { BrandNames, CatalogEntry, Genre, Mechanism, Mode } from '@bored-games/game-kit';
+import {
+  type BrandNames,
+  type CatalogEntry,
+  GENRES,
+  type Genre,
+  type Mechanism,
+  MODES,
+  type Mode,
+} from '@bored-games/game-kit';
 
 /** A game as the catalog lists it: its facts and the names it is shown under. */
 export interface CatalogItem {
@@ -81,6 +89,33 @@ export const NO_FILTERS: CatalogFilters = {
   length: null,
   complexity: null,
 };
+
+/** The longest search kept. */
+const MAX_QUERY = 100;
+
+/**
+ * Filters read back from storage: each field kept only when it is a valid value, else its "any" default, so a
+ * stale or edited value never breaks the catalog.
+ */
+export function parseFilters(raw: unknown): CatalogFilters {
+  if (typeof raw !== 'object' || raw === null) return NO_FILTERS;
+  const r = raw as Record<string, unknown>;
+  const pick = <T>(v: unknown, ok: readonly T[]): T | null => (ok.includes(v as T) ? (v as T) : null);
+  return {
+    query: typeof r.query === 'string' ? r.query.slice(0, MAX_QUERY) : '',
+    players: pick(r.players, PLAYER_CHIPS),
+    genre: pick(r.genre, GENRES),
+    mode: pick(r.mode, MODES),
+    length: pick(
+      r.length,
+      LENGTHS.map((l) => l.id),
+    ),
+    complexity: pick(
+      r.complexity,
+      COMPLEXITIES.map((c) => c.id),
+    ),
+  };
+}
 
 /** How many filters other than the search are set. */
 export function activeFilters(f: CatalogFilters): number {

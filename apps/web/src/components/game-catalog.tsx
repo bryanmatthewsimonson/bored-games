@@ -3,7 +3,7 @@
  * filtering is `catalog-model.ts`; the names are the brand packs in effect.
  */
 import { GENRES, type Genre, type Mode } from '@bored-games/game-kit';
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { gameNames } from '../brands.ts';
 import {
   activeFilters,
@@ -20,6 +20,7 @@ import {
   MODE_CHOICES,
   NO_FILTERS,
   PLAYER_CHIPS,
+  parseFilters,
   playerChipLabel,
   playersText,
   resultCountText,
@@ -27,8 +28,13 @@ import {
   tileInitials,
   timeText,
 } from '../catalog-model.ts';
+import { useApp } from '../context.ts';
 import { CATALOG } from '../games/catalog.ts';
 import { gamePageHref } from '../router.ts';
+import { readJson, sessionStore, storageKey, writeJson } from '../storage.ts';
+
+/** Storage name of the catalog's filters, kept for this tab (sessionStorage) so a game page and back keeps them. */
+export const CATALOG_FILTERS = 'catalog-filters';
 
 /** The hosted games with the names in effect, in catalog order. Reads the branding, so callers re-render. */
 export function catalogItems(): CatalogItem[] {
@@ -116,7 +122,15 @@ function Select<T extends string>(props: {
 }
 
 export function GameCatalog() {
-  const [f, setF] = useState<CatalogFilters>(NO_FILTERS);
+  const { profile } = useApp();
+  const [session] = useState(sessionStore);
+  const key = storageKey(profile, CATALOG_FILTERS);
+  const [f, setState] = useState<CatalogFilters>(() => parseFilters(readJson(session, key)));
+  const setF = (next: CatalogFilters) => {
+    setState(next);
+    writeJson(session, key, next);
+  };
+  const search = useRef<HTMLInputElement>(null);
   const items = catalogItems();
   const shown = filterCatalog(items, f);
   const set = <K extends keyof CatalogFilters>(k: K, v: CatalogFilters[K]) => setF({ ...f, [k]: v });
@@ -132,6 +146,7 @@ export function GameCatalog() {
             <label for="catalog-q">Search games</label>
             <input
               id="catalog-q"
+              ref={search}
               type="search"
               autocomplete="off"
               spellcheck={false}
@@ -192,7 +207,15 @@ export function GameCatalog() {
               {resultCountText(shown.length, items.length)}
             </p>
             {anyFilter && (
-              <button type="button" class="btn btn-small" onClick={() => setF(NO_FILTERS)}>
+              <button
+                type="button"
+                class="btn btn-small"
+                onClick={() => {
+                  // The button goes away with the filters: keep the focus in the form, on the search box.
+                  setF(NO_FILTERS);
+                  search.current?.focus();
+                }}
+              >
                 Clear filters
               </button>
             )}

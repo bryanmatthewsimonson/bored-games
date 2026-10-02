@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
-import { GAME_IDS } from '../games/ids.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
 import { tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
-
-/** The games this client can create tables for: the registered ids it has a rules module for, in picker order. */
-export function pickableGames(modules: ReadonlyMap<string, unknown>): string[] {
-  return GAME_IDS.filter((id) => modules.has(id));
-}
 
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for

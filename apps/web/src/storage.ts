@@ -1,5 +1,5 @@
 /*
- * Impure entry point 3 of 3 (with random.ts and clock.ts): `localStorage`. All other code takes a
+ * Impure entry point 3 of 3 (with random.ts and clock.ts): `localStorage` and `sessionStorage`. All other code takes a
  * `KeyValueStore`, so tests pass `memoryStorage()`. Every key is namespaced by profile: `bg:<profile>:<name>`,
  * which keeps two tabs with different `?profile=` values apart (they act as different players).
  */
@@ -37,6 +37,22 @@ export function memoryStorage(): KeyValueStore {
 export function browserStorage(): KeyValueStore {
   try {
     const s = globalThis.localStorage;
+    const probe = '__bg_probe__';
+    s.setItem(probe, '1');
+    s.removeItem(probe);
+    return s;
+  } catch {
+    return memoryStorage();
+  }
+}
+
+/**
+ * `sessionStorage` when it is usable, else a memory store: state for this tab only that survives moving between
+ * screens and a reload, such as the catalog's filters. Nothing that must last goes here.
+ */
+export function sessionStore(): KeyValueStore {
+  try {
+    const s = globalThis.sessionStorage;
     const probe = '__bg_probe__';
     s.setItem(probe, '1');
     s.removeItem(probe);

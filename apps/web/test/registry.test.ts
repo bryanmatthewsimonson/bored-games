@@ -4,7 +4,6 @@
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import { CHESS_THEME } from '@bored-games/chess/theme';
 import { describe, expect, it } from 'vitest';
-import { pickableGames } from '../src/components/new-table-form.tsx';
 import { GAME_METAS, gameTitle } from '../src/game-names.ts';
 import { DEFAULT_GAME, GAME_IDS } from '../src/games/ids.ts';
 import { GAMES, pickerGames, webGame } from '../src/games/registry.ts';
@@ -47,11 +46,6 @@ describe('game registry', () => {
     expect(MODULES.get('chain-reaction')?.decks(MODULES.get('chain-reaction')?.defaultRules())).toHaveLength(
       1,
     );
-  });
-
-  it('offers in the picker only the games this client has a module for', () => {
-    expect(pickableGames(MODULES)).toEqual([...GAME_IDS]);
-    expect(pickableGames(new Map([['chess', null]]))).toEqual(['chess']);
   });
 
   it("points the header's Rules link at the rules page's game, the open game's, or the default", () => {

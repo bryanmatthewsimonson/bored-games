@@ -6,9 +6,6 @@
  */
 import { setLicensedPacks } from './brands.ts';
 
-/** True in a build that carries licensed packs: Settings then offers "Game names". */
-export const LICENSED_BRANDS_IN_BUILD: boolean = import.meta.env.VITE_LICENSED_BRANDS === '1';
-
 /** Loads the licensed packs when this build carries them; does nothing otherwise. Never rejects. */
 export async function loadLicensedBrands(): Promise<void> {
   if (import.meta.env.VITE_LICENSED_BRANDS === '1') {

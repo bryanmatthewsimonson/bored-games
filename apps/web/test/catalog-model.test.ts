@@ -19,6 +19,7 @@ import {
   mechanismLabel,
   NO_FILTERS,
   normalize,
+  parseFilters,
   playerChipLabel,
   playersText,
   resultCountText,
@@ -156,5 +157,25 @@ describe('catalog words', () => {
     expect(tileHue('chess')).not.toBe(tileHue('chain-reaction'));
     expect(tileHue('chess')).toBeGreaterThanOrEqual(0);
     expect(tileHue('chess')).toBeLessThan(360);
+  });
+});
+
+describe('stored filters', () => {
+  it('round-trips valid filters and drops anything invalid', () => {
+    const f: CatalogFilters = {
+      query: 'chess',
+      players: 6,
+      genre: 'abstract',
+      mode: 'team',
+      length: 'over-120',
+      complexity: 'heavy',
+    };
+    expect(parseFilters(JSON.parse(JSON.stringify(f)))).toEqual(f);
+    expect(parseFilters(null)).toEqual(NO_FILTERS);
+    expect(parseFilters('x')).toEqual(NO_FILTERS);
+    expect(
+      parseFilters({ query: 7, players: 9, genre: 'sports', mode: 'co-op', length: '5', complexity: 'x' }),
+    ).toEqual(NO_FILTERS);
+    expect(parseFilters({ query: 'a'.repeat(500) }).query).toHaveLength(100);
   });
 });

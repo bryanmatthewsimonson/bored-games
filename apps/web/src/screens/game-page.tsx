@@ -30,12 +30,15 @@ export function GamePage(props: { game: string }) {
   const id = props.game;
   const entry = CATALOG.get(id)?.entry;
   const names = gameNames(id);
+  const known = CATALOG.has(id);
   useEffect(() => {
+    // An unknown id would point the header's Rules link at a missing page.
+    if (!known) return;
     activeGame.value = id;
     return () => {
       activeGame.value = null;
     };
-  }, [id]);
+  }, [id, known]);
 
   if (entry === undefined || names === undefined)
     return (

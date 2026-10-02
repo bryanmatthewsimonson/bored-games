@@ -22,7 +22,7 @@ import { catalogItems } from '../src/components/game-catalog.tsx';
 import { gameTitle } from '../src/game-names.ts';
 import { CHAIN_REACTION_META } from '../src/games/chain-reaction/meta.ts';
 import { activeTheme, isChainReactionBrand } from '../src/games/chain-reaction/theme.ts';
-import { LICENSED_BRANDS_IN_BUILD, loadLicensedBrands } from '../src/licensed-brands.ts';
+import { loadLicensedBrands } from '../src/licensed-brands.ts';
 import { createSettings } from '../src/settings.ts';
 import { memoryStorage } from '../src/storage.ts';
 
@@ -48,7 +48,7 @@ describe('brand packs', () => {
   });
 
   it('shows the safe names while no licensed pack is loaded, whatever the choice', () => {
-    expect(LICENSED_BRANDS_IN_BUILD).toBe(false);
+    expect(import.meta.env.VITE_LICENSED_BRANDS).not.toBe('1');
     expect(licensedPacksLoaded()).toBe(false);
     chooseBranding('original');
     expect(gameNames('chain-reaction')).toBe(SAFE_BRAND);
