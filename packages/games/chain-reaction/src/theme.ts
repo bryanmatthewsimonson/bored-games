@@ -3,10 +3,12 @@
  * look of each chain. Renaming the game or its chains is a change to this file only. Engine code never imports
  * it; ids on the left are permanent engine ids.
  *
- * A brand pack (D046) gives the game's names; the look (label letter, color, pattern) is the same under every
- * pack. Every chain is distinguished by a letter label and a fill pattern as well as a color, so color is never
- * the only cue. Label letters avoid A-I, which name the board's rows. A licensed pack lives outside `src`
- * (`licensed/`) and ships only in builds made with it.
+ * A brand pack (D046) gives the game's names, and may override each chain's label letter and color (`looks`,
+ * D053: the original pack brings the original colors and initials). Every chain is distinguished by a letter
+ * label and a fill pattern as well as a color, so color is never the only cue; a pack keeps the safe patterns.
+ * The safe label letters avoid A-I, which name the board's rows (the row letters sit on the board's edge, not in
+ * chain cells, so a pack's letters need not). A licensed pack lives outside `src` (`licensed/`) and ships only
+ * in builds made with it.
  */
 import type { BrandNames } from '@bored-games/game-kit';
 import type { Tier } from './rules.ts';
@@ -14,7 +16,7 @@ import type { Tier } from './rules.ts';
 /** The chain ids of the default rules, in price-tier order. */
 export type ChainSlot = 'b1' | 'b2' | 's1' | 's2' | 's3' | 'p1' | 'p2';
 
-/** How a chain looks: the same under every brand pack. */
+/** How a chain looks: the safe look, unless a brand pack overrides it (`ChainReactionBrand.looks`). */
 export interface ChainLook {
   readonly label: string;
   readonly color: string;
@@ -26,9 +28,11 @@ export interface ChainTheme extends ChainLook {
   readonly name: string;
 }
 
-/** Chain Reaction's names under one branding: the game's and one per chain slot. */
+/** Chain Reaction's names under one branding: the game's and one per chain slot, and optionally their looks. */
 export interface ChainReactionBrand extends BrandNames {
   readonly chains: Readonly<Record<ChainSlot, { readonly name: string }>>;
+  /** Looks that replace the safe ones, per slot (D053); a slot left out keeps its safe look. */
+  readonly looks?: Partial<Record<ChainSlot, ChainLook>>;
 }
 
 /** Everything the screens need to name and draw the game: a brand pack joined with the looks. */
@@ -76,10 +80,11 @@ export const CHAIN_SLOTS: readonly ChainSlot[] = ['b1', 'b2', 's1', 's2', 's3', 
 
 const TIERS: Readonly<Record<Tier, string>> = { budget: 'Budget', standard: 'Standard', premium: 'Premium' };
 
-/** The theme for `brand`: its names, with the chains' looks and the tier names. */
+/** The theme for `brand`: its names, with the chains' looks (the safe ones, under the pack's) and the tier names. */
 export function chainReactionTheme(brand: ChainReactionBrand): ChainReactionTheme {
   const chains = {} as Record<ChainSlot, ChainTheme>;
-  for (const slot of CHAIN_SLOTS) chains[slot] = { name: brand.chains[slot].name, ...LOOKS[slot] };
+  for (const slot of CHAIN_SLOTS)
+    chains[slot] = { name: brand.chains[slot].name, ...LOOKS[slot], ...brand.looks?.[slot] };
   return { brand: brand.id, title: brand.gameTitle, tagline: brand.tagline, chains, tiers: TIERS };
 }
 

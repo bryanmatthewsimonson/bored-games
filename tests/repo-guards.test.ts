@@ -243,6 +243,12 @@ describe('branding', () => {
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
     ];
     for (const value of pack) expect(strings, value).toContain(value);
+    // Only those: not the pack id, and not the looks (D053), whose label letters, colors and pattern words would
+    // otherwise be banned everywhere.
+    expect(strings).toEqual([...new Set(pack)].sort());
+    const looks = Object.values(ORIGINAL_BRAND.looks ?? {}).flatMap((l) => [l.label, l.color, l.pattern]);
+    expect(looks.length).toBe(21);
+    for (const value of [...looks, ORIGINAL_BRAND.id]) expect(strings, value).not.toContain(value);
     // The proper names (the title, capitalised aliases and the chains) are on the fixed list too, so they are
     // caught in any case and inside identifiers, not only as the pack spells them.
     const names = [

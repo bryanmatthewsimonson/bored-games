@@ -7,9 +7,10 @@
  * - the fixed list below (the reference game's name, its designer's, and its published editions' chain names),
  *   matched case-insensitively anywhere inside a word, so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught;
  *   a handful of ordinary words that contain one (Preact's `hydrate`) are allowed;
- * - every string value of every licensed pack (`licensedPackStrings`), whatever it is: title, aliases, tagline,
- *   summary and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is
- *   covered without touching this file.
+ * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
+ *   and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is covered
+ *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
+ *   names, and scanning for them would ban single letters and ordinary words.
  *
  * One exception (D053): the exact phrases in `ALLOWED_PHRASES` ("Compare to" the reference title, as a store brand
  * says it) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
@@ -110,17 +111,21 @@ export function licensedDirs(root: string): string[] {
     .flatMap(find);
 }
 
+/** The keys of a licensed pack whose values are not names: the pack id and the looks (D053). */
+const NOT_NAMES: ReadonlySet<string> = new Set(['id', 'looks']);
+
 function stringsOf(value: unknown, out: Set<string>): void {
   if (typeof value === 'string') {
-    if (value.trim() !== '' && !/^(original|safe)$/.test(value)) out.add(value.trim());
+    if (value.trim() !== '') out.add(value.trim());
   } else if (Array.isArray(value)) for (const v of value) stringsOf(v, out);
   else if (typeof value === 'object' && value !== null)
-    for (const v of Object.values(value)) stringsOf(v, out);
+    for (const [k, v] of Object.entries(value)) if (!NOT_NAMES.has(k)) stringsOf(v, out);
 }
 
 /**
- * Every string value exported by every licensed pack module (`licensed/*.ts`, tests excluded) under `root`: the
- * titles, aliases, taglines, summaries and chain names. Pack ids ('original') are left out: they are not names.
+ * Every name and text string exported by every licensed pack module (`licensed/*.ts`, tests excluded) under
+ * `root`: the titles, aliases, taglines, summaries and chain names. Pack ids ('original') and looks (label
+ * letters, colors, patterns) are left out: they are not names.
  */
 export async function licensedPackStrings(root: string): Promise<string[]> {
   const out = new Set<string>();
