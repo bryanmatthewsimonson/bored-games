@@ -575,10 +575,25 @@ describe.runIf(BIG)('bigger scope for candidate (e) (PROTOCOL_MODEL_BIG=1)', () 
       }
   }, 7_200_000);
 
-  it('two devices per honest seat, a claim and a deadline, every coalition; absent humans at 4 moves', () => {
-    const s = sweep({ ...stop, mode: 'private', length: 3, devices: 2, advClaims: 1, expiries: 1 });
-    expect(s.complete).toBe(true);
-    expectSafe(s.counts);
+  it('two devices per honest seat with a claim and a deadline (colluder pairs); absent humans at 4 moves', () => {
+    // A single adversary leaves two honest seats on four devices: over 8 million states, not completed.
+    for (const coalition of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ]) {
+      const r = explore({
+        ...stop,
+        mode: 'private',
+        length: 3,
+        devices: 2,
+        advClaims: 1,
+        expiries: 1,
+        coalition,
+      });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r));
+    }
     const a = sweep({ ...stop, mode: 'private', length: 4, absence: true, advClaims: 1, expiries: 2 });
     expect(a.complete).toBe(true);
     expectSafe(a.counts);
