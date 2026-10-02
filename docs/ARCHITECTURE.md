@@ -75,7 +75,8 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 
 **Decryption shares.**
 - Card *j* = `(R_j, C_j)` needs `D_kj = x_k·R_j` from every player except Q. Each share carries a Chaum–Pedersen DLEQ proof that it used the same `x_k` as `X_k`.
-- Each client automatically attaches, to its next action of any kind, the shares for every card dealt to *other* seats since its previous action.
+- As soon as a client sees a card dealt to another seat, it publishes its shares in a small Shares event, so Q reads a drawn card within seconds while the others have the game open and in view (D039). The event must reach the table's relays: Q's peers hold the sharer's next move back until they have it. The web client does this quietly, without a "working" state.
+- A client that was offline attaches the shares it still owes to its next action of any kind.
 - Between Q's draw at the end of Q's turn and Q's next turn, every other seat acts. So Q always has all the shares in time, and **nobody is ever needed online outside their own turn.**
 - Shares are public; Q's own share keeps the card hidden.
 - Q decrypts privately: `M = C_j − Σ_k D_kj`, then looks M up among the deck's points.
@@ -92,7 +93,7 @@ This is mental poker, with decryption shares that ride along with ordinary turns
 
 **Known limitations.**
 - Verifying a 108-card shuffle proof takes about 1 s, measured in the dev container (x64, Node 22), so each client spends several seconds at setup (D019). A phone may be several times slower.
-- A player making an out-of-turn decision, such as a Chain Reaction merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn. This is a minor information difference from tabletop play.
+- A player making an out-of-turn decision, such as a Chain Reaction merger disposal, may not yet have decrypted the tile drawn at the end of their previous turn, if some other player has had the game closed since that draw (D039). This is a minor information difference from tabletop play.
 
 **Alternatives rejected:**
 - A trusted dealer or referee: the owner ruled it out.

@@ -18,6 +18,8 @@
    - **Rival shuffle steps (D030, Ruling 12).** The arrival-order split in the old rival-shuffle cap is fixed: two well-formed steps by one seat on a chain prev flag it without proofs, and past 3 steps per prev only steps another seat acknowledged are fork-choice candidates. Owner to confirm the residuals: colluders can acknowledge junk, and the last shuffler can withdraw its step (stalling and flagging itself) until another seat moves.
    - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 
+10. **Prompt shares and tile exposure (D039).** A drawn tile now shows within seconds because the other seats share it at once. The cost: one seat can sign two rival turns on purpose and so learn the next player's tile, or make it public to everyone (PROTOCOL §11). It is always detected, and the seat is ranked last. Accept this trade-off, or ask for a mitigation (sharing only once the drawer's turn is over, or a fork tie-break change)?
+
 ## Status
 
 | Phase | State |
@@ -30,6 +32,8 @@
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
+
+**Prompt tile reveal (D039, 2026-10-02):** the client has a `share` duty in play: each seat publishes its owed decryption shares in a Shares event as soon as it sees a draw, and the web controller sends it quietly, so a drawn tile shows within seconds instead of after every other player's next move. The hand shows a tile being revealed as "…" with a "new" badge and a status note.
 
 **Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`. Request 3 (4 to 6 players) added 3: a 6-seat cancel in the shuffle (in `pnpm check`) and honest 4- and 6-seat whole games (`pnpm test:sim` only); all 14 pass in about 8 minutes, the 4- and 6-seat games taking about 72 s and 162 s.
 

@@ -1,4 +1,4 @@
-import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
+import { type ChainReactionRules, type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
 import { createRng, type GameModule } from '@bored-games/game-kit';
 import {
@@ -6,9 +6,12 @@ import {
   getPublicKey,
   type Hex,
   joinTemplate,
+  KIND,
   makeJoinPok,
   type NostrEvent,
   parseJoin,
+  parseMove,
+  parseShares,
   parseTable,
   rootTemplate,
   rulesHash,
@@ -16,6 +19,7 @@ import {
   tableTemplate,
 } from '@bored-games/protocol';
 import { GameSession } from '../src/session.ts';
+import { owedPositions } from '../src/shares.ts';
 import type { Identity, ReceiveResult } from '../src/types.ts';
 
 /** Deterministic byte source for tests, built on game-kit's seeded PRNG. */
@@ -225,4 +229,28 @@ export function catchUp(
   const results = statuses(deliver([s], events, undefined, now));
   if (results.some((r) => r !== 'accepted')) throw new Error(`catch-up: ${results.join(', ')}`);
   return s;
+}
+
+/**
+ * The positions `seat` owes as of `state` (any view of the game after `log`) that none of its events in `log`
+ * shares: the shares and reveals on its moves, and its Shares events (deals included). Counted from the events
+ * alone, so a test can check what the seat's `share` duty names without asking the session.
+ */
+export function unshared(
+  game: TestGame,
+  log: readonly NostrEvent[],
+  state: ChainReactionState,
+  seat: number,
+): number[] {
+  const key = getPublicKey((game.ids[seat] as Identity).sessionSk);
+  const deckSize = chainReaction.decks(state.rules)[0]?.size ?? 0;
+  const shared = new Set<number>();
+  for (const ev of log) {
+    if (ev.pubkey !== key) continue;
+    if (ev.kind === KIND.shares) for (const x of parseShares(ev).shares) shared.add(x.pos);
+    if (ev.kind !== KIND.move) continue;
+    const c = parseMove(ev, deckSize).content;
+    if (c.type === 'action') for (const x of [...c.shares, ...c.reveals]) shared.add(x.pos);
+  }
+  return owedPositions(chainReaction.dealt(state), seat).filter((pos) => !shared.has(pos));
 }

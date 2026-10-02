@@ -191,6 +191,31 @@ const savedMove = (p: Profile, rootId: string, seq: number) =>
 
 const boardOf = (c: GameController) => (c.view.value?.state as ChainReactionState | null)?.board ?? null;
 
+type Act = { type: string; buy?: unknown[]; declareEnd?: boolean; discard?: unknown[] };
+
+/**
+ * Play `mover`'s turn up to its end: place a tile (and found a chain if asked). Returns the End turn action that
+ * buys nothing, not yet sent.
+ */
+async function upToEndTurn(mover: GameController): Promise<Act> {
+  for (let i = 0; i < 5; i++) {
+    await waitFor('my decision', () => mover.status.value === 'your-turn' && mover.legal.value.length > 0);
+    const legal = mover.legal.value as Act[];
+    const end = legal.find((a) => a.type === 'endTurn' && a.buy?.length === 0 && !a.declareEnd);
+    if (end !== undefined) return end;
+    await mover.act(legal.find((a) => a.type === 'place') ?? legal[0]);
+  }
+  throw new Error('no End turn within 5 decisions');
+}
+
+/** How many of `seat`'s tiles its own controller cannot read yet. */
+const hiddenTiles = (c: GameController, seat: number): number =>
+  handTiles(c.view.value?.state as ChainReactionState, seat).filter((t) => t.tile === null).length;
+
+/** The `shares:` slots saved in `p`'s outbox for the game. */
+const sharesSlots = (p: Profile, rootId: string) =>
+  [...loadOutbox(p.deps.storage, p.name, rootId).entries()].filter(([slot]) => slot.startsWith('shares:'));
+
 beforeEach(async () => {
   relay = await startDevRelay({ port: 0 });
 });
@@ -624,6 +649,175 @@ describe('GameController', () => {
       [...loadOutbox(p.deps.storage, p.name, rootId).keys()].filter((k) => k.startsWith('move:')),
     ).toHaveLength(2);
   }, 180_000);
+
+  it('reveals a drawn tile within seconds: the other seats send their shares quietly, with no move (D039)', async () => {
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const mover = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const drawer = players.indexOf(mover);
+    const others = [1, 2].map((d) => (drawer + d) % 3);
+    const next = players[others[0] as number] as GameController;
+    const sharesOnRelay = async () => (await query({ kinds: [KIND.shares], '#e': [rootId] })).length;
+    const hidden = () => hiddenTiles(mover, drawer);
+    const end = await upToEndTurn(mover);
+    const before = await sharesOnRelay();
+    // Every status the other seats show from the end of the turn on.
+    const seen = others.map(() => [] as string[]);
+    for (const [i, k] of others.entries())
+      disposers.push((players[k] as GameController).status.subscribe((s) => seen[i]?.push(s)));
+
+    await mover.act(end);
+    // The new tile is hidden until both other seats have sent their shares; nobody acts meanwhile.
+    expect(hidden()).toBe(1);
+    await waitFor('the drawn tile revealed', () => hidden() === 0, 10_000);
+    expect(await sharesOnRelay()).toBe(before + 2);
+    // Each Shares event left the outbox once the relay confirmed it.
+    await waitFor(
+      'the shares slots pruned',
+      () => others.every((k) => sharesSlots(bySeat[k] as Profile, rootId).length === 0),
+      5_000,
+    );
+
+    // The quiet duty never showed "working" or "stuck": the next seat went straight to its turn.
+    await waitFor('the next turn', () => next.status.value === 'your-turn' && next.legal.value.length > 0);
+    for (const s of seen.flat()) expect(['waiting', 'your-turn']).toContain(s);
+    expect(seen[0]?.at(-1)).toBe('your-turn');
+    expect(seen[1]?.every((s) => s === 'waiting')).toBe(true);
+    expect(players.every((g) => g.error.value === null)).toBe(true);
+
+    // Its move carries no shares: they are already out.
+    const seq = (next.view.value?.head.seq ?? 0) + 1;
+    await next.act((next.legal.value as Act[]).find((a) => a.type === 'place') ?? next.legal.value[0]);
+    for (const g of players) await waitFor('the move everywhere', () => g.view.value?.head.seq === seq);
+    const p = bySeat[others[0] as number] as Profile;
+    const move = savedMove(p, rootId, seq)?.event;
+    expect(JSON.parse(move?.content ?? '{}').shares).toEqual([]);
+  }, 180_000);
+
+  it('a seat that was closed at the draw sends its shares when it is opened again, with no action (D039)', async () => {
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const mover = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const drawer = players.indexOf(mover);
+    const [next, closed] = [1, 2].map((d) => (drawer + d) % 3) as [number, number];
+    const end = await upToEndTurn(mover);
+    // The third seat closes its tab before the draw.
+    players[closed]?.dispose();
+    await mover.act(end);
+    await waitFor(
+      "the next seat's share sent",
+      () =>
+        (players[next]?.view.value?.head.seq ?? 0) === mover.view.value?.head.seq &&
+        sharesSlots(bySeat[next] as Profile, rootId).length === 0 &&
+        players[next]?.status.value === 'your-turn',
+    );
+    await new Promise((r) => setTimeout(r, 1000));
+    // One share is still missing: the tile stays hidden.
+    expect(hiddenTiles(mover, drawer)).toBe(1);
+
+    // The tab opens again: it loads the game and sends its share on its own.
+    const reopened = game(rootId, { ...(bySeat[closed] as Profile).deps, pool: newPool() });
+    await waitFor('the drawn tile revealed', () => hiddenTiles(mover, drawer) === 0, 60_000);
+    await waitFor(
+      'the slot pruned',
+      () => sharesSlots(bySeat[closed] as Profile, rootId).length === 0,
+      5_000,
+    );
+    expect(reopened.error.value).toBeNull();
+    expect(reopened.status.value).toBe('waiting');
+  }, 240_000);
+
+  it("keeps a Shares event until one of the game's relays accepts it, then drops it (D039)", async () => {
+    // A seat whose own relay list adds a relay the others do not read, and whose game relay refuses its Shares
+    // events for a while.
+    const personal = await startDevRelay({ port: 0 });
+    disposers.push(() => void personal.close());
+    const isolated = new Set<string>();
+    const down = { on: true };
+    const withPersonal = (p: Profile): Profile => {
+      const real = p.deps.pool;
+      const pool: PoolLike = {
+        subscribe: (...args) => real.subscribe(...args),
+        addRelays: (urls) => real.addRelays?.(urls),
+        publish: async (ev, urls) => {
+          if (!isolated.has(p.name) || !down.on || ev.kind !== KIND.shares) return real.publish(ev, urls);
+          const results = await real.publish(
+            ev,
+            (urls ?? []).filter((u) => u !== relay.url),
+          );
+          return [...results, { url: relay.url, ok: false, message: 'error: down' }];
+        },
+      };
+      return {
+        ...p,
+        deps: {
+          ...p.deps,
+          pool,
+          relays: () => (isolated.has(p.name) ? [relay.url, personal.url] : [relay.url]),
+        },
+      };
+    };
+    const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const seats = bySeat.map(withPersonal);
+    const players = seats.map((p) => game(rootId, p.deps));
+    const mover = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const drawer = players.indexOf(mover);
+    const [next, cut] = [1, 2].map((d) => (drawer + d) % 3) as [number, number];
+    const p = seats[cut] as Profile;
+    const g = players[cut] as GameController;
+    isolated.add(p.name);
+    const end = await upToEndTurn(mover);
+    await mover.act(end);
+
+    // Only the personal relay accepted the event: the slot stays, unconfirmed, and the tile stays hidden.
+    const [slot, entry] = await waitFor('the saved Shares event', () => sharesSlots(p, rootId)[0]);
+    const onPersonal = () =>
+      new Promise<string[]>((resolve) => {
+        const pool = new RelayPool([personal.url], { WebSocket });
+        pools.push(pool);
+        const got: string[] = [];
+        const stop = pool.subscribe(
+          [{ ids: [entry.event.id] }],
+          (ev) => got.push(ev.id),
+          () => {
+            stop();
+            resolve(got);
+          },
+        );
+      });
+    await waitFor('the notice', () => g.notice.value);
+    expect(g.notice.value).toBe("Not delivered to this game's relays yet; retrying.");
+    expect(await onPersonal()).toEqual([entry.event.id]);
+    expect(await query({ ids: [entry.event.id] })).toEqual([]);
+    await waitFor(
+      "the next seat's share sent",
+      () => sharesSlots(seats[next] as Profile, rootId).length === 0,
+    );
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(sharesSlots(p, rootId)).toEqual([[slot, { ...entry, confirmed: false, orphan: false }]]);
+    expect(hiddenTiles(mover, drawer)).toBe(1);
+    expect(g.status.value).toBe('waiting');
+
+    // The game relay is back: the next retry delivers the same event, and the slot goes.
+    down.on = false;
+    g.tick();
+    await waitFor('the drawn tile revealed', () => hiddenTiles(mover, drawer) === 0, 10_000);
+    await waitFor('the slot pruned', () => sharesSlots(p, rootId).length === 0, 5_000);
+    expect((await query({ ids: [entry.event.id] })).map((ev) => ev.id)).toEqual([entry.event.id]);
+    expect(g.notice.value).toBeNull();
+  }, 240_000);
 
   it('names a stalled seat once the deadline has passed, and a timeout claim ends the game', async () => {
     const { rootId, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
