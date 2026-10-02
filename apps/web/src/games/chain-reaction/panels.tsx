@@ -2,7 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { Swatch } from './board.tsx';
-import { type ChainRow, formatMoney, type PlayerRow, type ResultRow } from './model.ts';
+import { type ChainRow, formatMoney, type MyHoldings, type PlayerRow, type ResultRow } from './model.ts';
 
 export type Audit = 'pending' | 'pass' | { readonly fail: readonly number[]; readonly reason: string };
 
@@ -40,6 +40,74 @@ export function ChainsPanel(props: { rows: readonly ChainRow[]; spectator: boole
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+/**
+ * The viewer's own cash and shares, below their tiles (D043): the totals first, then one row per chain held,
+ * valued at its current price. Never rendered for a spectator.
+ */
+export function HoldingsPanel(props: { holdings: MyHoldings }) {
+  const h = props.holdings;
+  return (
+    <section class="cr-panel cr-mine" aria-labelledby="cr-mine-h">
+      <h2 id="cr-mine-h">Your cash and shares</h2>
+      <dl class="cr-mine-totals">
+        <div>
+          <dt>Cash</dt>
+          <dd>{formatMoney(h.cash)}</dd>
+        </div>
+        <div>
+          <dt>Shares</dt>
+          <dd>{formatMoney(h.shareValue)}</dd>
+        </div>
+        <div class="cr-mine-net">
+          <dt>Net worth</dt>
+          <dd>{formatMoney(h.netWorth)}</dd>
+        </div>
+      </dl>
+      {h.lines.length === 0 ? (
+        <p class="muted cr-mine-none">You hold no shares yet.</p>
+      ) : (
+        <table class="cr-table cr-mine-table">
+          <caption class="sr-only">Your shares at current prices</caption>
+          <thead>
+            <tr>
+              <th scope="col">Chain</th>
+              <th scope="col">Shares</th>
+              <th scope="col">Price</th>
+              <th scope="col">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {h.lines.map((l) => (
+              <tr key={l.chain.id} class={l.onBoard ? undefined : 'cr-inactive'}>
+                <th scope="row">
+                  <span class="cr-chain-name">
+                    <Swatch chain={l.chain} />
+                    {l.chain.name}
+                  </span>
+                </th>
+                <td>{l.count}</td>
+                {l.onBoard ? (
+                  <>
+                    <td>{formatMoney(l.price)}</td>
+                    <td>{formatMoney(l.value)}</td>
+                  </>
+                ) : (
+                  <td colSpan={2} class="cr-mine-off">
+                    not on the board, worth $0
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p class="cr-hint muted cr-mine-note">
+        Net worth is cash plus shares at today’s prices, before any bonuses.
+      </p>
     </section>
   );
 }

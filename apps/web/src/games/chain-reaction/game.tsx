@@ -13,11 +13,20 @@ import {
   decisionFor,
   type HandTile,
   handTiles,
+  myHoldings,
   playerRows,
   resultRows,
   statusLine,
 } from './model.ts';
-import { type Audit, ChainsPanel, EventLog, PlayersPanel, ResultsView, StatusBar } from './panels.tsx';
+import {
+  type Audit,
+  ChainsPanel,
+  EventLog,
+  HoldingsPanel,
+  PlayersPanel,
+  ResultsView,
+  StatusBar,
+} from './panels.tsx';
 import { PriceCardDialog } from './price-card.tsx';
 import './game.css';
 
@@ -100,6 +109,8 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   const players = playerRows(state, names, mySeat);
   const status = statusLine(state, names, mySeat);
   const over = state.phase.kind === 'over';
+  // Hidden for a spectator, and once the game is over: the results then give every player's final cash.
+  const holdings = over ? null : myHoldings(state, mySeat);
 
   const lock = { canAct: props.canAct, busy: props.busy, sentAt, seq: state.seq };
   const locked = isLocked(lock);
@@ -152,6 +163,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
             />
           </section>
         )}
+        {holdings !== null && <HoldingsPanel holdings={holdings} />}
         {over ? (
           <ResultsView
             rows={resultRows(state, names)}

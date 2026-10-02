@@ -367,6 +367,49 @@ export function playerRows(
   });
 }
 
+/** One chain the viewer holds shares in, valued at its current price. */
+export interface MyHolding {
+  readonly chain: ChainView;
+  readonly count: number;
+  /** False when the chain is not on the board: its shares have no price and are worth $0 for now. */
+  readonly onBoard: boolean;
+  /** The current share price; 0 when the chain is not on the board. */
+  readonly price: number;
+  /** `count × price`. */
+  readonly value: number;
+}
+
+/** The "Your cash and shares" panel: the viewer's own cash and shares, valued at today's prices. */
+export interface MyHoldings {
+  readonly cash: number;
+  /** One line per chain held, in chain order. */
+  readonly lines: readonly MyHolding[];
+  /** The sum of the lines' values. */
+  readonly shareValue: number;
+  /** Cash plus share value (majority and minority bonuses not included). */
+  readonly netWorth: number;
+}
+
+/**
+ * The viewer's own cash and shares (D043), built from their exact `playerRows` row and the `chainRows` prices,
+ * so it shows nothing the Players and Chains panels do not. Null for a spectator.
+ */
+export function myHoldings(s: ChainReactionState, mySeat: number | null): MyHoldings | null {
+  if (mySeat === null) return null;
+  const me = playerRows(s, [], mySeat).find((r) => r.me);
+  if (me === undefined || me.cash === null) return null;
+  const chains = chainRows(s, mySeat);
+  const lines = me.shares.map((h) => {
+    const row = chains[h.chain.index];
+    const count = h.count ?? 0;
+    const onBoard = row?.active === true;
+    const price = onBoard ? (row?.price ?? 0) : 0;
+    return { chain: h.chain, count, onBoard, price, value: count * price };
+  });
+  const shareValue = lines.reduce((sum, l) => sum + l.value, 0);
+  return { cash: me.cash, lines, shareValue, netWorth: me.cash + shareValue };
+}
+
 export interface ResultRow {
   readonly seat: number;
   readonly name: string;

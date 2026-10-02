@@ -376,6 +376,59 @@ button.cr-tile-unknown {
   color: var(--muted);
 }
 
+/* Your cash and shares: three totals, then one row per chain held. */
+.cr-mine-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.cr-mine-totals > div {
+  padding: 6px 10px;
+  background: #f3f5f8;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+.cr-mine-totals dt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.cr-mine-totals dd {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.cr-mine-totals .cr-mine-net {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.cr-mine-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.cr-mine-table .cr-mine-off {
+  font-style: italic;
+  white-space: normal;
+}
+
+.cr-mine-none {
+  margin: 0;
+}
+
+.cr-mine-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+}
+
 /* Decisions */
 .cr-fieldset {
   margin: 0;
@@ -747,6 +800,18 @@ button.cr-tile-unknown {
   .cr-safe {
     padding: 0 3px;
     font-size: 0.6rem;
+  }
+
+  .cr-mine-totals {
+    gap: 6px;
+  }
+
+  .cr-mine-totals > div {
+    padding: 5px 7px;
+  }
+
+  .cr-mine-totals dd {
+    font-size: 1.02rem;
   }
 }
 
