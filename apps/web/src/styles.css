@@ -1068,3 +1068,47 @@ textarea.prose {
 .game-chrome .claim-confirm {
   flex: 1 1 320px;
 }
+
+/* Credits page (#/credits) */
+.credits-page {
+  display: grid;
+  gap: 16px;
+}
+
+.credits-page p,
+.credits-page h3 {
+  max-width: 70ch;
+}
+
+.credits-sample {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 8px;
+}
+
+.credits-piece {
+  width: 40px;
+  height: 40px;
+}
+
+.credits-license {
+  padding: 12px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.credits-license p {
+  margin: 0 0 0.6em;
+}
+
+.credits-license p:last-child {
+  margin-bottom: 0;
+}
+
+.app-footer a {
+  color: var(--muted);
+}

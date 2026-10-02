@@ -2,7 +2,7 @@ import { BRAND } from '@bored-games/brand';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
 import { EXTENSION_MISSING_NOTICE } from './identity.ts';
-import { route } from './router.ts';
+import { creditsHref, route } from './router.ts';
 import { Screen } from './screens.tsx';
 import { IGNORED_RELAYS_NOTICE } from './settings.ts';
 import { SettingsDialog } from './settings-dialog.tsx';
@@ -18,7 +18,9 @@ export function App(props: { ctx: AppContext }) {
       <main id="main" tabIndex={-1}>
         <Screen route={route.value} />
       </main>
-      <footer class="app-footer">{BRAND.name}</footer>
+      <footer class="app-footer">
+        {BRAND.name} · <a href={creditsHref()}>Credits</a>
+      </footer>
       <SettingsDialog />
     </AppCtx.Provider>
   );
