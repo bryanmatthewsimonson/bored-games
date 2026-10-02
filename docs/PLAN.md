@@ -31,6 +31,8 @@
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
 
+**Prompt tile reveal (D039, 2026-10-02):** the client has a `share` duty in play: each seat publishes its owed decryption shares in a Shares event as soon as it sees a draw, and the web controller sends it quietly, so a drawn tile shows within seconds instead of after every other player's next move. The hand shows a tile being revealed as "…" with a "new" badge and a status note.
+
 **Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`. Request 3 (4 to 6 players) added 3: a 6-seat cancel in the shuffle (in `pnpm check`) and honest 4- and 6-seat whole games (`pnpm test:sim` only); all 14 pass in about 8 minutes, the 4- and 6-seat games taking about 72 s and 162 s.
 
 **Last verified (2026-10-01, Phase 2d final review fixes):** `pnpm check` passes (typecheck, Biome, 1039 tests in 53 files, 5 skipped, about 5.5 minutes). `pnpm test:sim` passes its 11 tests in about 4 minutes. `pnpm e2e` passes in about 1 minute. Three browser contexts create, join and start a table through the UI. They shuffle and deal in about 15 s, then play past two full rounds until a merger disposal, with one player reloading mid-game. They converge on the same board and turn. With `E2E_FINISH=1`, a whole game played to its declared end and a passed audit took about 2.5 minutes.
