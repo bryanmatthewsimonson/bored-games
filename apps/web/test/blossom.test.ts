@@ -133,6 +133,8 @@ describe('uploadBlob', () => {
       { ...good().body, size: 499 },
       { ...good().body, url: `http://blossom.primal.net/${SHA}.webp` },
       { ...good().body, url: 'https://127.0.0.1/x.webp' },
+      { ...good().body, url: `https://blossom.primal.net/${'ab'.repeat(32)}.webp` },
+      { ...good().body, url: `https://blossom.primal.net/${SHA}/other.webp` },
       'nope',
     ]) {
       const f = fakeFetch(() => ({ status: 200, body }));

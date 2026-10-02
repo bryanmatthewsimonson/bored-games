@@ -49,7 +49,7 @@ export interface Preset {
 }
 
 const svg = (bg: string, body: string): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/>${body}</svg>`;
+  `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/>${body}</svg>`;
 
 export const PRESETS: readonly Preset[] = [
   {

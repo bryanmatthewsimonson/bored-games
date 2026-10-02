@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { profileName as controllerProfileName } from '../src/game-controller.ts';
 import {
   type CachedProfile,
+  cleanText,
   loadProfileCache,
   MAX_ABOUT,
   mergeProfileContent,
   newerEvent,
   newerProfile,
+  otherAppHandle,
   PROFILE_CACHE_MAX,
   PROFILE_CACHE_TTL_S,
   parseProfile,
@@ -63,6 +65,22 @@ describe('safeImageUrl', () => {
       'https://intranet/a.png',
       'https://user:pw@example.com/a.png',
       'https://example.com:8443/a.png',
+      'https://printer.local/a.png',
+      'https://foo.internal/a.png',
+      'https://nas.lan/a.png',
+      'https://router.home/a.png',
+      'https://box.home.arpa/a.png',
+      'https://wiki.corp/a.png',
+      'https://x.intranet/a.png',
+      'https://a.test/a.png',
+      'https://a.invalid/a.png',
+      'https://a.example/a.png',
+      'https://abcdefghijklmnop.onion/a.png',
+      'https://a.localhost/a.png',
+      'https://0x7f.1/a.png',
+      'https://017700000001/a.png',
+      'https://0x7f000001/a.png',
+      'https://127.1/a.png',
       'https://2130706433/a.png',
       'https://example.com/a b.png',
       `https://example.com/${'a'.repeat(1100)}`,
@@ -152,6 +170,75 @@ describe('mergeProfileContent', () => {
       display_name: 'Cy',
       name: 'Cy',
     });
+  });
+});
+
+describe('saving only edited fields (I1)', () => {
+  const published = JSON.stringify({
+    display_name: 'A name that is much longer than thirty-two characters 👨‍👩‍👧',
+    about: `Line one\nLine two\n${'x'.repeat(300)}`,
+    picture: 'http://old.example.com:8080/me.png',
+    nip05: 'me@e.com',
+  });
+
+  it('leaves the content byte for byte when nothing was edited', () => {
+    const check = validateProfileForm({});
+    expect(check).toEqual({ ok: true, changes: {} });
+    if (check.ok) expect(mergeProfileContent(published, check.changes)).toBe(published);
+  });
+
+  it('changes only the edited field: a new picture keeps the long name, the long about and nip05', () => {
+    const check = validateProfileForm({ picture: 'https://blossom.primal.net/a.webp' });
+    expect(check.ok).toBe(true);
+    if (!check.ok) return;
+    expect(check.changes).toEqual({ picture: 'https://blossom.primal.net/a.webp' });
+    expect(JSON.parse(mergeProfileContent(published, check.changes))).toEqual({
+      ...JSON.parse(published),
+      picture: 'https://blossom.primal.net/a.webp',
+    });
+  });
+});
+
+describe('clearing the name (I6)', () => {
+  const shown = (content: string) => profileName(content);
+
+  it('removes display_name and the name this app wrote with it', () => {
+    const first = mergeProfileContent(null, { name: 'Bob' });
+    expect(JSON.parse(first)).toEqual({ display_name: 'Bob', name: 'Bob' });
+    const renamed = mergeProfileContent(first, { name: 'Robert' });
+    expect(JSON.parse(renamed)).toEqual({ display_name: 'Robert', name: 'Robert' });
+    const cleared = mergeProfileContent(renamed, { name: '' });
+    expect(JSON.parse(cleared)).toEqual({});
+    expect(shown(cleared)).toBeNull();
+  });
+
+  it('clears a name that was only in `name`, as shown in the field', () => {
+    const cleared = mergeProfileContent(JSON.stringify({ name: 'bob', nip05: 'b@e.com' }), { name: '' });
+    expect(JSON.parse(cleared)).toEqual({ nip05: 'b@e.com' });
+    expect(shown(cleared)).toBeNull();
+  });
+
+  it('keeps a different handle another app set, and says so', () => {
+    const prev = JSON.stringify({ display_name: 'Bob', name: 'bob_the_builder' });
+    expect(otherAppHandle(prev)).toBe('bob_the_builder');
+    expect(otherAppHandle(JSON.stringify({ display_name: 'Bob', name: 'Bob' }))).toBeNull();
+    expect(otherAppHandle(JSON.stringify({ name: 'bob' }))).toBeNull();
+    const cleared = mergeProfileContent(prev, { name: '' });
+    expect(JSON.parse(cleared)).toEqual({ name: 'bob_the_builder' });
+    // Renaming keeps the handle too, and the shown name follows display_name.
+    const renamed = mergeProfileContent(prev, { name: 'Robert' });
+    expect(JSON.parse(renamed)).toEqual({ display_name: 'Robert', name: 'bob_the_builder' });
+    expect(shown(renamed)).toBe('Robert');
+  });
+});
+
+describe('cleanText', () => {
+  it('keeps zero-width joiners inside emoji sequences and drops blank-looking letters', () => {
+    expect(cleanText('Ann 👨‍👩‍👧')).toBe('Ann 👨‍👩‍👧');
+    expect(cleanText('\u200dAnn\u200d')).toBe('Ann');
+    expect(cleanText('\u3164\u3164')).toBe('');
+    expect(cleanText('\u2800 \u115f\u1160 \uffa0')).toBe('');
+    expect(cleanText('A\u202eB\u200bC')).toBe('ABC');
   });
 });
 

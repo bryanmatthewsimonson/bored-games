@@ -12,13 +12,21 @@ export const MAX_ABOUT = 160;
 /** The longest picture URL accepted. */
 export const MAX_PICTURE_URL = 1024;
 
-/** Control and format characters (bidi overrides, zero-width characters) removed and whitespace collapsed. */
+/** Letters that render blank (Hangul fillers, the braille blank), so a name made of them would look empty. */
+const BLANK_LETTERS = /[\u115f\u1160\u3164\uffa0\u2800]/gu;
+
+/**
+ * Control and format characters (bidi overrides, zero-width characters) and blank-looking letters removed, and
+ * whitespace collapsed. The zero-width joiner is kept inside a word, so emoji sequences survive.
+ */
 export function cleanText(raw: string): string {
   return raw
     .replace(/\s/gu, ' ')
-    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')
+    .replace(/(?!\u200d)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')
+    .replace(BLANK_LETTERS, '')
+    .replace(/ *\u200d+ */gu, (m) => (m.startsWith(' ') || m.endsWith(' ') ? ' ' : '\u200d'))
     .replace(/ +/g, ' ')
-    .trim();
+    .replace(/^[ \u200d]+|[ \u200d]+$/gu, '');
 }
 
 /** The number of characters (code points) of `s`, as the counters show it. */
@@ -61,9 +69,26 @@ export function profileName(content: string): string | null {
 
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 
+/** Names that never belong to a public website: local networks, mDNS, reserved and Tor names. */
+const PRIVATE_SUFFIXES = [
+  'localhost',
+  'local',
+  'internal',
+  'lan',
+  'home',
+  'home.arpa',
+  'corp',
+  'intranet',
+  'test',
+  'invalid',
+  'example',
+  'onion',
+];
+
 /**
- * `raw` as an image URL that is safe to load: https only, no credentials, a public DNS name (no IP literal,
- * no localhost, no single-label host) and at most `MAX_PICTURE_URL` characters. Null otherwise.
+ * `raw` as an image URL that is safe to load: https only, no credentials, port 443, a public DNS name (no IP
+ * literal in any form, no single-label host, none of `PRIVATE_SUFFIXES`) and at most `MAX_PICTURE_URL`
+ * characters. Null otherwise. A public name that resolves to a private address cannot be caught here.
  */
 export function safeImageUrl(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
@@ -78,7 +103,7 @@ export function safeImageUrl(raw: unknown): string | null {
   if (url.protocol !== 'https:' || url.username !== '' || url.password !== '') return null;
   const host = url.hostname.toLowerCase().replace(/\.$/, '');
   if (host === '' || host.startsWith('[') || IPV4.test(host) || /^\d+$/.test(host)) return null;
-  if (host === 'localhost' || host.endsWith('.localhost') || !host.includes('.')) return null;
+  if (!host.includes('.') || PRIVATE_SUFFIXES.some((x) => host === x || host.endsWith(`.${x}`))) return null;
   if (url.port !== '' && url.port !== '443') return null;
   return url.href.length > MAX_PICTURE_URL ? null : url.href;
 }
@@ -133,17 +158,34 @@ export function newerEvent(a: NostrEvent | null, b: NostrEvent | null): NostrEve
   return n?.id === a.id ? a : b;
 }
 
-/** The player's edits. Empty strings and null clear a field. */
+/**
+ * The player's edits: only the fields they changed. An absent field is kept exactly as published; an empty
+ * string or null clears it.
+ */
 export interface ProfileChanges {
-  name: string;
-  about: string;
-  picture: string | null;
+  name?: string;
+  about?: string;
+  picture?: string | null;
 }
 
 /**
- * The new kind 0 content: the published JSON with the player's edits. Unknown fields (`nip05`, `lud16`,
- * `banner`…) are kept. The name goes to `display_name`, and to `name` only when `name` is absent (other apps
- * use `name` as a handle). A cleared field is removed.
+ * A handle in `name` that differs from `display_name`: another app set it, so clearing the name here keeps it
+ * (and it is then shown). Null when there is none.
+ */
+export function otherAppHandle(previous: string | null): string | null {
+  const meta = previous === null ? null : parseObject(previous);
+  if (meta === null || typeof meta.name !== 'string') return null;
+  const handle = cleanText(meta.name);
+  const shown = typeof meta.display_name === 'string' ? cleanText(meta.display_name) : '';
+  return handle !== '' && shown !== '' && handle !== shown ? cut(handle, MAX_PROFILE_NAME) : null;
+}
+
+/**
+ * The new kind 0 content: the published JSON with the player's edits. Fields the player did not change, and
+ * unknown fields (`nip05`, `lud16`, `banner`…), are kept byte for byte. The name goes to `display_name`, and
+ * to `name` when `name` is unset or equal to the old `display_name`; another app's handle is left alone. Clearing the name removes
+ * `display_name` and also `name`, unless `name` is a different handle another app set (`otherAppHandle`).
+ * A cleared about or picture is removed.
  */
 export function mergeProfileContent(previous: string | null, changes: ProfileChanges): string {
   const meta: Record<string, unknown> = { ...((previous === null ? null : parseObject(previous)) ?? {}) };
@@ -151,22 +193,37 @@ export function mergeProfileContent(previous: string | null, changes: ProfileCha
     if (value === null || value === '') delete meta[key];
     else meta[key] = value;
   };
-  set('display_name', changes.name);
-  if (changes.name !== '' && typeof meta.name !== 'string') meta.name = changes.name;
-  set('about', changes.about);
-  set('picture', changes.picture);
+  if (changes.name !== undefined) {
+    if (changes.name === '') {
+      if (otherAppHandle(previous) === null) delete meta.name;
+      delete meta.display_name;
+    } else {
+      // `name` follows when it is unset or was the same as `display_name` (this app wrote both), so a later
+      // clear removes both; a different handle is left alone.
+      const prevName = typeof meta.name === 'string' ? cleanText(meta.name) : '';
+      const prevShown = typeof meta.display_name === 'string' ? cleanText(meta.display_name) : '';
+      if (prevName === '' || prevName === prevShown) meta.name = changes.name;
+      meta.display_name = changes.name;
+    }
+  }
+  if (changes.about !== undefined) set('about', changes.about);
+  if (changes.picture !== undefined) set('picture', changes.picture);
   return JSON.stringify(meta);
 }
 
-/** The kind 0 template that replaces `previous` (tags kept), never older than it. */
+/**
+ * The kind 0 template that replaces `previous` (tags kept). It is never older than `previous`, nor than
+ * `newestKnown`, the newest `created_at` known for this author from any source (the cache, too).
+ */
 export function profileTemplate(
   previous: NostrEvent | null,
   changes: ProfileChanges,
   now: number,
+  newestKnown: number | null = null,
 ): EventTemplate {
   return {
     kind: 0,
-    created_at: previous === null ? now : Math.max(now, previous.created_at + 1),
+    created_at: Math.max(now, (previous?.created_at ?? -1) + 1, (newestKnown ?? -1) + 1),
     tags: previous === null ? [] : previous.tags.map((t) => [...t]),
     content: mergeProfileContent(previous?.content ?? null, changes),
   };
@@ -183,19 +240,30 @@ export type ProfileFormCheck =
   | { ok: true; changes: ProfileChanges }
   | { ok: false; errors: { name?: string; about?: string; picture?: string } };
 
-/** The form's values, cleaned, or what is wrong with them. */
-export function validateProfileForm(form: ProfileForm): ProfileFormCheck {
-  const name = cleanText(form.name);
-  const about = cleanText(form.about);
+/**
+ * The fields the player edited, cleaned, or what is wrong with them. Pass only edited fields: one left out
+ * is not checked, cleaned or saved, so what another app published stays as it is.
+ */
+export function validateProfileForm(form: Partial<ProfileForm>): ProfileFormCheck {
   const errors: { name?: string; about?: string; picture?: string } = {};
-  if (charCount(name) > MAX_PROFILE_NAME) errors.name = `Use at most ${MAX_PROFILE_NAME} characters.`;
-  if (charCount(about) > MAX_ABOUT) errors.about = `Use at most ${MAX_ABOUT} characters.`;
-  const raw = form.picture.trim();
-  const picture = raw === '' ? null : safeImageUrl(raw);
-  if (raw !== '' && picture === null)
-    errors.picture = 'Use an image link starting with https:// on a public website.';
+  const changes: ProfileChanges = {};
+  if (form.name !== undefined) {
+    changes.name = cleanText(form.name);
+    if (charCount(changes.name) > MAX_PROFILE_NAME)
+      errors.name = `Use at most ${MAX_PROFILE_NAME} characters.`;
+  }
+  if (form.about !== undefined) {
+    changes.about = cleanText(form.about);
+    if (charCount(changes.about) > MAX_ABOUT) errors.about = `Use at most ${MAX_ABOUT} characters.`;
+  }
+  if (form.picture !== undefined) {
+    const raw = form.picture.trim();
+    changes.picture = raw === '' ? null : safeImageUrl(raw);
+    if (raw !== '' && changes.picture === null)
+      errors.picture = 'Use an image link starting with https:// on a public website.';
+  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  return { ok: true, changes: { name, about, picture } };
+  return { ok: true, changes };
 }
 
 /* The profile cache: `bg:<profile>:profiles`, so a name shows at once on the next visit. */

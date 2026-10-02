@@ -112,7 +112,9 @@ export async function uploadBlob(req: UploadRequest): Promise<BlobDescriptor> {
   }
   const d = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
   const url = safeImageUrl(d.url);
-  if (d.sha256 !== sha256 || d.size !== req.bytes.length || url === null)
+  // BUD-01: the blob's URL ends in `<sha256>[.ext]`, so a server cannot point the profile at another image.
+  const last = url === null ? '' : (new URL(url).pathname.split('/').pop() ?? '');
+  if (d.sha256 !== sha256 || d.size !== req.bytes.length || url === null || !last.startsWith(sha256))
     throw new Error(UPLOAD_ERRORS.mismatch);
   return { url, sha256, size: req.bytes.length, type: typeof d.type === 'string' ? d.type : req.type };
 }

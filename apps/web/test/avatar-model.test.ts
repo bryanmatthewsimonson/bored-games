@@ -45,7 +45,9 @@ describe('PRESETS', () => {
     ]);
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(12);
     for (const p of PRESETS) {
-      expect(p.svg).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 64 64">.*<\/svg>$/);
+      expect(p.svg).toMatch(
+        /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="256" height="256" viewBox="0 0 64 64">.*<\/svg>$/,
+      );
       expect(p.svg).not.toMatch(/<script|href=|on\w+=/i);
       expect(presetDataUrl(p).startsWith('data:image/svg+xml,%3Csvg')).toBe(true);
     }
