@@ -21,7 +21,7 @@ import {
   tileId,
   tileIndex,
 } from '@bored-games/chain-reaction';
-import { CHAIN_REACTION_THEME, type ChainTheme } from '@bored-games/chain-reaction/theme';
+import type { ChainReactionTheme, ChainTheme } from '@bored-games/chain-reaction/theme';
 import { canonicalJson } from '@bored-games/game-kit';
 
 // ---------------------------------------------------------------- chains
@@ -38,11 +38,18 @@ export interface ChainView {
   readonly pattern: ChainPattern;
 }
 
-const THEMED: Readonly<Record<string, ChainTheme>> = CHAIN_REACTION_THEME.chains;
+/** The theme's chain of engine id `id`, if it names one. */
+function themed(theme: ChainReactionTheme, id: string): ChainTheme | undefined {
+  return (theme.chains as Readonly<Record<string, ChainTheme | undefined>>)[id];
+}
 
-export function chainView(rules: ChainReactionRules, index: number): ChainView {
+/**
+ * Chain `index` of `rules` as `theme` shows it. Every function here that names a chain takes the theme first:
+ * the names come from the brand pack in effect (D046), so nothing reads a theme of its own.
+ */
+export function chainView(theme: ChainReactionTheme, rules: ChainReactionRules, index: number): ChainView {
   const id = rules.chains[index]?.id ?? '?';
-  const t = THEMED[id];
+  const t = themed(theme, id);
   if (t) return { id, index, name: t.name, label: t.label, color: t.color, pattern: t.pattern };
   // A chain the theme does not name (custom rules): still labelled, never a bare color.
   return {
@@ -55,12 +62,13 @@ export function chainView(rules: ChainReactionRules, index: number): ChainView {
   };
 }
 
-function chainNamed(rules: ChainReactionRules, id: string): ChainView {
-  return chainView(rules, chainIndex(rules, id) ?? -1);
+function chainNamed(theme: ChainReactionTheme, rules: ChainReactionRules, id: string): ChainView {
+  return chainView(theme, rules, chainIndex(rules, id) ?? -1);
 }
 
-function nameOfChainId(id: string): string {
-  return THEMED[id]?.name ?? 'a chain';
+/** The theme's name for chain id `id`, or "a chain". */
+export function nameOfChainId(theme: ChainReactionTheme, id: string): string {
+  return themed(theme, id)?.name ?? 'a chain';
 }
 
 // ---------------------------------------------------------------- money and names
@@ -138,7 +146,11 @@ function pendingTile(s: ChainReactionState): number | null {
  * All 108 cells in reading order (1A, 2A … 12I). `lastTile` comes from the event log; while a placement is
  * still resolving, its pending tile is the last one regardless.
  */
-export function boardCells(s: ChainReactionState, lastTile: number | null = null): BoardCell[] {
+export function boardCells(
+  theme: ChainReactionTheme,
+  s: ChainReactionState,
+  lastTile: number | null = null,
+): BoardCell[] {
   const last = pendingTile(s) ?? lastTile;
   return s.board.map((v, index) => {
     const kind: CellKind =
@@ -147,7 +159,7 @@ export function boardCells(s: ChainReactionState, lastTile: number | null = null
       index,
       id: tileId(index),
       kind,
-      chain: kind === 'chain' ? chainView(s.rules, v as number) : null,
+      chain: kind === 'chain' ? chainView(theme, s.rules, v as number) : null,
       last: index === last,
     };
   });
@@ -172,16 +184,16 @@ export function badgeOf(cls: TileClass): HandBadge {
   return cls.kind === 'lone' || cls.kind === 'grow' ? 'playable' : cls.kind;
 }
 
-function previewOf(rules: ChainReactionRules, cls: TileClass): string {
+function previewOf(theme: ChainReactionTheme, rules: ChainReactionRules, cls: TileClass): string {
   switch (cls.kind) {
     case 'lone':
       return 'Stays unincorporated';
     case 'found':
       return 'Founds a new chain';
     case 'grow':
-      return `Grows ${chainView(rules, cls.chain).name}`;
+      return `Grows ${chainView(theme, rules, cls.chain).name}`;
     case 'merge':
-      return `Merges ${listText(cls.chains.map((c) => chainView(rules, c).name))}`;
+      return `Merges ${listText(cls.chains.map((c) => chainView(theme, rules, c).name))}`;
     case 'dead':
       return 'Dead: it would merge two safe chains';
     case 'blocked':
@@ -190,7 +202,7 @@ function previewOf(rules: ChainReactionRules, cls: TileClass): string {
 }
 
 /** The seat's hand in deck-position order, each known tile classified against the current board. */
-export function handTiles(s: ChainReactionState, seat: number): HandTile[] {
+export function handTiles(theme: ChainReactionTheme, s: ChainReactionState, seat: number): HandTile[] {
   return (s.players[seat]?.hand ?? []).map((h) => {
     if (h.tile === null)
       return { pos: h.pos, tile: null, id: null, cls: null, badge: null, preview: 'Hidden tile' };
@@ -201,7 +213,7 @@ export function handTiles(s: ChainReactionState, seat: number): HandTile[] {
       id: tileId(h.tile),
       cls,
       badge: badgeOf(cls),
-      preview: previewOf(s.rules, cls),
+      preview: previewOf(theme, s.rules, cls),
     };
   });
 }
@@ -221,12 +233,16 @@ export interface ChainRow {
   readonly mine: number | null;
 }
 
-export function chainRows(s: ChainReactionState, mySeat: number | null): ChainRow[] {
+export function chainRows(
+  theme: ChainReactionTheme,
+  s: ChainReactionState,
+  mySeat: number | null,
+): ChainRow[] {
   const sizes = chainSizes(s.board, s.rules.chains.length);
   return s.rules.chains.map((_, c) => {
     const size = sizes[c] ?? 0;
     return {
-      chain: chainView(s.rules, c),
+      chain: chainView(theme, s.rules, c),
       size,
       price: sharePrice(s.rules, c, size),
       safe: size >= s.rules.safeSize,
@@ -273,10 +289,10 @@ const TIER_ORDER: readonly Tier[] = ['budget', 'standard', 'premium'];
  * The stock price and bonus card for `rules`: one row per price bracket, one column group per tier that has a
  * chain. Prices come from `sharePrice`; bonuses are the rules' majority and minority multiples of the price.
  */
-export function priceCard(rules: ChainReactionRules): PriceCardModel {
+export function priceCard(theme: ChainReactionTheme, rules: ChainReactionRules): PriceCardModel {
   const tiers = TIER_ORDER.flatMap((tier) => {
-    const chains = rules.chains.flatMap((c, i) => (c.tier === tier ? [chainView(rules, i)] : []));
-    return chains.length === 0 ? [] : [{ tier, name: CHAIN_REACTION_THEME.tiers[tier], chains }];
+    const chains = rules.chains.flatMap((c, i) => (c.tier === tier ? [chainView(theme, rules, i)] : []));
+    return chains.length === 0 ? [] : [{ tier, name: theme.tiers[tier], chains }];
   });
   const b = rules.priceBrackets;
   const rows = b.map((min, i) => {
@@ -342,6 +358,7 @@ function actingSeat(s: ChainReactionState): number | null {
 
 /** The players panel's rows for `mySeat` (null for a spectator, who sees every row hidden). */
 export function playerRows(
+  theme: ChainReactionTheme,
   s: ChainReactionState,
   names: readonly string[],
   mySeat: number | null,
@@ -357,7 +374,7 @@ export function playerRows(
       cash: exact ? p.cash : null,
       hasCash: p.cash > 0,
       shares: p.shares.flatMap((n, c) =>
-        n > 0 ? [{ chain: chainView(s.rules, c), count: exact ? n : null }] : [],
+        n > 0 ? [{ chain: chainView(theme, s.rules, c), count: exact ? n : null }] : [],
       ),
       handSize: p.hand.length,
       turn: !over && s.turn?.seat === seat,
@@ -394,11 +411,15 @@ export interface MyHoldings {
  * The viewer's own cash and shares (D043), built from their exact `playerRows` row and the `chainRows` prices,
  * so it shows nothing the Players and Chains panels do not. Null for a spectator.
  */
-export function myHoldings(s: ChainReactionState, mySeat: number | null): MyHoldings | null {
+export function myHoldings(
+  theme: ChainReactionTheme,
+  s: ChainReactionState,
+  mySeat: number | null,
+): MyHoldings | null {
   if (mySeat === null) return null;
-  const me = playerRows(s, [], mySeat).find((r) => r.me);
+  const me = playerRows(theme, s, [], mySeat).find((r) => r.me);
   if (me === undefined || me.cash === null) return null;
-  const chains = chainRows(s, mySeat);
+  const chains = chainRows(theme, s, mySeat);
   const lines = me.shares.map((h) => {
     const row = chains[h.chain.index];
     const count = h.count ?? 0;
@@ -513,7 +534,11 @@ export function handBadgesShown(decision: Decision): boolean {
   return decision.kind === 'place' || decision.kind === 'skip';
 }
 
-export function decisionFor(s: ChainReactionState, legal: readonly ChainReactionAction[]): Decision {
+export function decisionFor(
+  theme: ChainReactionTheme,
+  s: ChainReactionState,
+  legal: readonly ChainReactionAction[],
+): Decision {
   const first = legal[0];
   if (!first) return { kind: 'wait' };
   const rules = s.rules;
@@ -531,16 +556,19 @@ export function decisionFor(s: ChainReactionState, legal: readonly ChainReaction
       return {
         kind: 'found',
         options: legal.flatMap((a) =>
-          a.type === 'foundChain' ? [{ chain: chainNamed(rules, a.chain), action: a }] : [],
+          a.type === 'foundChain' ? [{ chain: chainNamed(theme, rules, a.chain), action: a }] : [],
         ),
       };
     case 'chooseSurvivor': {
       const m = s.phase.kind === 'merger' ? s.phase.merger : null;
       return {
         kind: 'survivor',
-        involved: (m?.chains ?? []).map((c, i) => ({ chain: chainView(rules, c), size: m?.sizes[i] ?? 0 })),
+        involved: (m?.chains ?? []).map((c, i) => ({
+          chain: chainView(theme, rules, c),
+          size: m?.sizes[i] ?? 0,
+        })),
         options: legal.flatMap((a) =>
-          a.type === 'chooseSurvivor' ? [{ chain: chainNamed(rules, a.chain), action: a }] : [],
+          a.type === 'chooseSurvivor' ? [{ chain: chainNamed(theme, rules, a.chain), action: a }] : [],
         ),
       };
     }
@@ -549,7 +577,7 @@ export function decisionFor(s: ChainReactionState, legal: readonly ChainReaction
         kind: 'order',
         options: legal.flatMap((a) =>
           a.type === 'orderDefunct'
-            ? [{ chains: a.order.map((id) => chainNamed(rules, id)), action: a }]
+            ? [{ chains: a.order.map((id) => chainNamed(theme, rules, id)), action: a }]
             : [],
         ),
       };
@@ -560,8 +588,8 @@ export function decisionFor(s: ChainReactionState, legal: readonly ChainReaction
       return {
         kind: 'dispose',
         actor: first.actor,
-        chain: chainView(rules, c),
-        survivor: chainView(rules, m?.survivor ?? -1),
+        chain: chainView(theme, rules, c),
+        survivor: chainView(theme, rules, m?.survivor ?? -1),
         held: s.players[first.actor]?.shares[c] ?? 0,
         price: sharePrice(rules, c, preSize),
         maxTrade: Math.max(0, ...legal.map((a) => (a.type === 'dispose' ? a.trade : 0))),
@@ -580,7 +608,7 @@ export function decisionFor(s: ChainReactionState, legal: readonly ChainReaction
           ...legal.map((a) => (a.type === 'endTurn' ? a.buy.filter((x) => x === id).length : 0)),
         );
         chains.push({
-          chain: chainView(rules, c),
+          chain: chainView(theme, rules, c),
           price: sharePrice(rules, c, size),
           bank: s.bank[c] ?? 0,
           max,
@@ -636,7 +664,7 @@ export function buyCost(d: Extract<Decision, { kind: 'endTurn' }>, counts: reado
 
 // ---------------------------------------------------------------- status
 
-function decisionText(s: ChainReactionState, decision: string): string {
+function decisionText(theme: ChainReactionTheme, s: ChainReactionState, decision: string): string {
   switch (decision) {
     case 'place':
       return 'place a tile';
@@ -649,7 +677,7 @@ function decisionText(s: ChainReactionState, decision: string): string {
     case 'dispose': {
       const m = s.phase.kind === 'merger' ? s.phase.merger : null;
       const head = m?.defuncts?.[0];
-      return `sell, trade or keep ${head === undefined ? '' : `${chainView(s.rules, head).name} `}shares`;
+      return `sell, trade or keep ${head === undefined ? '' : `${chainView(theme, s.rules, head).name} `}shares`;
     }
     case 'endTurn':
       return 'buy shares and end the turn';
@@ -659,11 +687,16 @@ function decisionText(s: ChainReactionState, decision: string): string {
 }
 
 /** One line on whose decision it is. */
-export function statusLine(s: ChainReactionState, names: readonly string[], mySeat: number | null): string {
+export function statusLine(
+  theme: ChainReactionTheme,
+  s: ChainReactionState,
+  names: readonly string[],
+  mySeat: number | null,
+): string {
   const p = chainReaction.pending(s);
   if (p.type === 'over') return 'The game is over.';
   if (p.type === 'reveal') return 'Revealing setup tiles…';
-  const what = decisionText(s, p.decision);
+  const what = decisionText(theme, s, p.decision);
   if (p.seat === mySeat) return `Your move: ${what}.`;
   return `Waiting for ${seatName(names, p.seat)} to ${what}.`;
 }
@@ -683,7 +716,11 @@ const ROLE: Record<string, string> = {
  * amount, so it is never for display about other players: the log goes through `logLines`, which hides what the
  * viewer may not see (RULES "Assets").
  */
-export function describeEvent(e: ChainReactionEvent, names: readonly string[]): string {
+export function describeEvent(
+  theme: ChainReactionTheme,
+  e: ChainReactionEvent,
+  names: readonly string[],
+): string {
   const who = (seat: number): string => seatName(names, seat);
   switch (e.type) {
     case 'setupTileRevealed':
@@ -706,46 +743,46 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
     case 'placementSkipped':
       return `${who(e.seat)} had no playable tile and skipped placing.`;
     case 'chainFounded':
-      return `${who(e.seat)} founded ${nameOfChainId(e.chain)} with ${plural(e.size, 'tile')}${
+      return `${who(e.seat)} founded ${nameOfChainId(theme, e.chain)} with ${plural(e.size, 'tile')}${
         e.keptShares > 0 ? ` (${plural(e.keptShares, 'old share')} still held)` : ''
       }.`;
     case 'founderShare':
       return e.granted
-        ? `${who(e.seat)} received a free ${nameOfChainId(e.chain)} share.`
-        : `No ${nameOfChainId(e.chain)} share was left for the founder.`;
+        ? `${who(e.seat)} received a free ${nameOfChainId(theme, e.chain)} share.`
+        : `No ${nameOfChainId(theme, e.chain)} share was left for the founder.`;
     case 'chainGrew':
-      return `${nameOfChainId(e.chain)} grew to ${plural(e.size, 'tile')}${e.safe ? ' and is safe' : ''}.`;
+      return `${nameOfChainId(theme, e.chain)} grew to ${plural(e.size, 'tile')}${e.safe ? ' and is safe' : ''}.`;
     case 'mergerStarted':
       return `${who(e.seat)} merged ${listText(
-        e.chains.map((c, i) => `${nameOfChainId(c)} (${e.sizes[i] ?? 0})`),
+        e.chains.map((c, i) => `${nameOfChainId(theme, c)} (${e.sizes[i] ?? 0})`),
       )} at ${e.tile}.`;
     case 'survivorChosen':
-      return `${nameOfChainId(e.chain)} survives${e.tied ? ', chosen from a tie' : ''}.`;
+      return `${nameOfChainId(theme, e.chain)} survives${e.tied ? ', chosen from a tie' : ''}.`;
     case 'defunctOrder':
-      return `Defunct chains resolve in this order: ${e.order.map(nameOfChainId).join(', ')}.`;
+      return `Defunct chains resolve in this order: ${e.order.map((c) => nameOfChainId(theme, c)).join(', ')}.`;
     case 'bonusPaid':
       return `${who(e.seat)} received ${formatMoney(e.amount)}, ${ROLE[e.role] ?? 'a'} bonus${
         e.role === 'sole' ? 'es' : ''
-      } for ${nameOfChainId(e.chain)}${e.final ? ' at final scoring' : ''}.`;
+      } for ${nameOfChainId(theme, e.chain)}${e.final ? ' at final scoring' : ''}.`;
     case 'noBonus':
-      return `Nobody holds ${nameOfChainId(e.chain)}, so no bonus is paid.`;
+      return `Nobody holds ${nameOfChainId(theme, e.chain)}, so no bonus is paid.`;
     case 'sharesDisposed': {
       const parts = [
         e.sell > 0 ? `sold ${e.sell} for ${formatMoney(e.proceeds)}` : null,
         e.trade > 0 ? `traded ${e.trade}${e.tradeCapped ? ' (limited by the bank)' : ''}` : null,
         e.keep > 0 ? `kept ${e.keep}` : null,
       ].filter((x): x is string => x !== null);
-      return `${who(e.seat)} ${listText(parts) || 'kept nothing'} of ${nameOfChainId(e.chain)}.`;
+      return `${who(e.seat)} ${listText(parts) || 'kept nothing'} of ${nameOfChainId(theme, e.chain)}.`;
     }
     case 'chainDefunct':
-      return `${nameOfChainId(e.chain)} is defunct and can be founded again.`;
+      return `${nameOfChainId(theme, e.chain)} is defunct and can be founded again.`;
     case 'mergerCompleted':
-      return `The merger is complete: ${nameOfChainId(e.survivor)} has ${plural(e.size, 'tile')}.`;
+      return `The merger is complete: ${nameOfChainId(theme, e.survivor)} has ${plural(e.size, 'tile')}.`;
     case 'sharesBought': {
       if (e.shares.length === 0) return `${who(e.seat)} bought no shares.`;
       const counts = new Map<string, number>();
       for (const c of e.shares) counts.set(c, (counts.get(c) ?? 0) + 1);
-      const bought = [...counts].map(([c, n]) => `${n} ${nameOfChainId(c)}`);
+      const bought = [...counts].map(([c, n]) => `${n} ${nameOfChainId(theme, c)}`);
       return `${who(e.seat)} bought ${listText(bought)} for ${formatMoney(e.cost)}.`;
     }
     case 'endDeclared':
@@ -755,7 +792,7 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
     case 'tilesDiscarded':
       return `${who(e.seat)} discarded dead ${e.tiles.length === 1 ? 'tile' : 'tiles'} ${listText(e.tiles)}.`;
     case 'finalSale':
-      return `${who(e.seat)} sold ${plural(e.count, `${nameOfChainId(e.chain)} share`)} for ${formatMoney(e.amount)}.`;
+      return `${who(e.seat)} sold ${plural(e.count, `${nameOfChainId(theme, e.chain)} share`)} for ${formatMoney(e.amount)}.`;
     case 'gameEnded': {
       const winners = e.places.flatMap((p, seat) => (p === 1 ? [who(seat)] : []));
       return `The game is over. ${winners.length > 1 ? 'Winners' : 'Winner'}: ${listText(winners)}.`;
@@ -772,6 +809,7 @@ export function describeEvent(e: ChainReactionEvent, names: readonly string[]): 
  * they are always within the window or after the game is over.
  */
 function olderLine(
+  theme: ChainReactionTheme,
   e: ChainReactionEvent,
   names: readonly string[],
   survivor: string | null,
@@ -780,17 +818,17 @@ function olderLine(
   const who = (seat: number): string => seatName(names, seat);
   // The founding line's share total sums every player's holdings, so even the founder gets it without.
   if (e.type === 'chainFounded')
-    return `${who(e.seat)} founded ${nameOfChainId(e.chain)} with ${plural(e.size, 'tile')}.`;
+    return `${who(e.seat)} founded ${nameOfChainId(theme, e.chain)} with ${plural(e.size, 'tile')}.`;
   if (!('seat' in e) || e.seat === mySeat) return null;
   switch (e.type) {
     case 'sharesBought': {
       if (e.shares.length === 0) return null;
-      const chains = [...new Set(e.shares)].map(nameOfChainId);
+      const chains = [...new Set(e.shares)].map((c) => nameOfChainId(theme, c));
       return `${who(e.seat)} bought ${listText(chains)} shares.`;
     }
     case 'sharesDisposed': {
-      const chain = nameOfChainId(e.chain);
-      const forSurvivor = survivor === null ? '' : ` for ${nameOfChainId(survivor)}`;
+      const chain = nameOfChainId(theme, e.chain);
+      const forSurvivor = survivor === null ? '' : ` for ${nameOfChainId(theme, survivor)}`;
       const sold = e.sell > 0;
       const traded = e.trade > 0;
       const kept = e.keep > 0;
@@ -806,14 +844,18 @@ function olderLine(
       return `${who(e.seat)} ${listText(parts)} of their ${chain} shares.`;
     }
     case 'bonusPaid':
-      return `${who(e.seat)} received a bonus for ${nameOfChainId(e.chain)}.`;
+      return `${who(e.seat)} received a bonus for ${nameOfChainId(theme, e.chain)}.`;
     default:
       return null;
   }
 }
 
-/** Who reads the log: their seat (null for a spectator), whether the game is over, and the seat names. */
+/**
+ * Who reads the log: their seat (null for a spectator), whether the game is over, the seat names, and the theme
+ * that names the chains.
+ */
 export interface LogViewer {
+  readonly theme: ChainReactionTheme;
   readonly mySeat: number | null;
   readonly over: boolean;
   readonly names: readonly string[];
@@ -838,7 +880,7 @@ function isEvent(e: unknown): e is ChainReactionEvent {
  * `turnStarted` before it, so a merger's bonuses and disposals belong to the turn that caused the merger.
  */
 export function logLines(events: readonly unknown[], viewer: LogViewer, max = LOG_LINES): string[] {
-  const { mySeat, over, names } = viewer;
+  const { theme, mySeat, over, names } = viewer;
   const known = events.filter(isEvent);
   let current = 0;
   for (const e of known) if (e.type === 'turnStarted') current = e.turn;
@@ -849,7 +891,8 @@ export function logLines(events: readonly unknown[], viewer: LogViewer, max = LO
     if (e.type === 'turnStarted') turn = e.turn;
     if (e.type === 'survivorChosen') survivor = e.chain;
     const recent = over || turn >= current - 1;
-    const line = (recent ? null : olderLine(e, names, survivor, mySeat)) ?? describeEvent(e, names);
+    const line =
+      (recent ? null : olderLine(theme, e, names, survivor, mySeat)) ?? describeEvent(theme, e, names);
     if (typeof line === 'string') out.push(line);
   }
   return out.slice(Math.max(0, out.length - max));

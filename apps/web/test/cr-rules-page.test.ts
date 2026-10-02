@@ -13,7 +13,7 @@ import { classOf, type El, findAll, renderTree, spokenText } from './render-tree
 const THEME = CHAIN_REACTION_THEME.chains as Record<string, { name: string; label: string }>;
 
 describe('RulesContent', () => {
-  const tree = renderTree(h(RulesContent, { rules: DEFAULT_RULES }));
+  const tree = renderTree(h(RulesContent, { theme: CHAIN_REACTION_THEME, rules: DEFAULT_RULES }));
   const text = spokenText(tree);
 
   it('renders a title and every section heading, each the target of a contents link', () => {
@@ -101,7 +101,7 @@ describe('PriceCard', () => {
     findAll(tree, (el) => el.tag === 'tbody').flatMap((b) => findAll(b.children, (el) => el.tag === 'tr'));
 
   it('heads its rows and columns for screen readers', () => {
-    const tree = renderTree(h(PriceCard, { rules: DEFAULT_RULES }));
+    const tree = renderTree(h(PriceCard, { theme: CHAIN_REACTION_THEME, rules: DEFAULT_RULES }));
     const ths = findAll(tree, (el) => el.tag === 'th');
     expect(ths.every((th) => ['col', 'colgroup', 'row'].includes(String(th.attrs.scope)))).toBe(true);
     const groups = ths.filter((th) => th.attrs.scope === 'colgroup').map((th) => spokenText([th]));
@@ -144,7 +144,7 @@ describe('PriceCard', () => {
     sizes[idx('s3')] = 6;
     sizes[idx('p1')] = 45;
     sizes[idx('b1')] = 1; // not a chain on the board
-    const tree = renderTree(h(PriceCard, { rules: DEFAULT_RULES, sizes }));
+    const tree = renderTree(h(PriceCard, { theme: CHAIN_REACTION_THEME, rules: DEFAULT_RULES, sizes }));
     const rows = rowsOf(tree);
     const chipsIn = (row: number): string[] =>
       findAll([rows[row] as El], (el) => classOf(el).includes('cr-pc-chip')).map((c) => spokenText([c]));
@@ -183,7 +183,9 @@ describe('PriceCard', () => {
     const sizes = new Array<number>(DEFAULT_RULES.chains.length).fill(0);
     sizes[idx('s1')] = 7;
     sizes[idx('s2')] = 9;
-    const rows = rowsOf(renderTree(h(PriceCard, { rules: DEFAULT_RULES, sizes })));
+    const rows = rowsOf(
+      renderTree(h(PriceCard, { theme: CHAIN_REACTION_THEME, rules: DEFAULT_RULES, sizes })),
+    );
     const chips = findAll([rows[4] as El], (el) => classOf(el).includes('cr-pc-chip')).map((c) =>
       spokenText([c]),
     );

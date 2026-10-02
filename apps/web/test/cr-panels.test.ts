@@ -42,7 +42,9 @@ function midGame(): ChainReactionState {
 }
 
 function renderRows(s: ChainReactionState, mySeat: number | null): El[] {
-  const tree = renderTree(h(PlayersPanel, { rows: playerRows(s, NAMES, mySeat), avatars: AVATARS }));
+  const tree = renderTree(
+    h(PlayersPanel, { rows: playerRows(CHAIN_REACTION_THEME, s, NAMES, mySeat), avatars: AVATARS }),
+  );
   const rows = findAll(tree, (el) => el.tag === 'li' && classOf(el).includes('cr-player'));
   expect(rows).toHaveLength(s.seats);
   return rows;
@@ -117,7 +119,7 @@ describe('PlayersPanel', () => {
       expect(avatar.attrs['aria-hidden']).toBe('true');
       expect(spokenText([head])).toContain(NAMES[seat]);
     });
-    const bare = renderTree(h(PlayersPanel, { rows: playerRows(s, NAMES, 1) }));
+    const bare = renderTree(h(PlayersPanel, { rows: playerRows(CHAIN_REACTION_THEME, s, NAMES, 1) }));
     expect(findAll(bare, (el) => classOf(el).includes('avatar'))).toHaveLength(0);
   });
 });
@@ -143,7 +145,7 @@ describe('ResultsView', () => {
 describe('HoldingsPanel', () => {
   const s = midGame();
   const render = (state: ChainReactionState, seat: number) => {
-    const holdings = myHoldings(state, seat);
+    const holdings = myHoldings(CHAIN_REACTION_THEME, state, seat);
     if (holdings === null) throw new Error('no holdings');
     return { h: holdings, tree: renderTree(h(HoldingsPanel, { holdings })) };
   };

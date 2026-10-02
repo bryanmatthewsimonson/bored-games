@@ -1,9 +1,12 @@
-/* Chain Reaction's names for the platform (game picker, cards, titles); the theme is the only source. */
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+/* Chain Reaction's names for the platform (game picker, cards, titles), from the brand pack in effect (D046). */
+import { SAFE_BRAND } from '@bored-games/chain-reaction/theme';
+import { gameNames } from '../../brands.ts';
 import type { GameMeta } from '../types.ts';
 
+export const CHAIN_REACTION_ID = 'chain-reaction';
+
 export const CHAIN_REACTION_META: GameMeta = {
-  id: 'chain-reaction',
-  title: () => CHAIN_REACTION_THEME.title,
-  tagline: () => CHAIN_REACTION_THEME.tagline,
+  id: CHAIN_REACTION_ID,
+  title: () => (gameNames(CHAIN_REACTION_ID) ?? SAFE_BRAND).gameTitle,
+  tagline: () => (gameNames(CHAIN_REACTION_ID) ?? SAFE_BRAND).tagline,
 };

@@ -1,6 +1,7 @@
 /*
  * The player-facing rules (#/rules), section by section after docs/games/chain-reaction/RULES.md, the source of
- * truth. Every number comes from the engine's default rules and prices, and every chain name from the theme.
+ * truth. Every number comes from the engine's default rules and prices, and every name from the theme in effect
+ * (D046), which `RulesPage` reads and `RulesContent` takes as a prop.
  * `RulesContent` uses no hooks, so tests can expand it without a DOM; `RulesPage` adds the scrolling.
  */
 import {
@@ -13,7 +14,7 @@ import {
   TILE_COUNT,
   tileId,
 } from '@bored-games/chain-reaction';
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import type { ChainReactionTheme } from '@bored-games/chain-reaction/theme';
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
 import { DEADLINE_CHOICES } from '../../lobby-model.ts';
@@ -22,6 +23,7 @@ import { Swatch } from './board.tsx';
 import { CHAIN_REACTION_META } from './meta.ts';
 import { formatMoney, priceCard } from './model.ts';
 import { PriceCard } from './price-card.tsx';
+import { activeTheme } from './theme.ts';
 import './rules.css';
 
 /** The page's sections, in order: the contents list, the headings and the `#/rules/<id>` links. */
@@ -65,9 +67,10 @@ function payout(rules: ChainReactionRules, holdings: readonly number[], price: n
   return bonusPayouts(rules, holdings, price).find((p) => p.seat === seat)?.amount ?? 0;
 }
 
-export function RulesContent(props: { rules?: ChainReactionRules }) {
+export function RulesContent(props: { theme: ChainReactionTheme; rules?: ChainReactionRules }) {
+  const { theme } = props;
   const r = props.rules ?? DEFAULT_RULES;
-  const card = priceCard(r);
+  const card = priceCard(theme, r);
   const chainCount = r.chains.length;
   const firstTile = tileId(0);
   const lastTile = tileId(TILE_COUNT - 1);
@@ -93,8 +96,8 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
   return (
     <article class="rules-page">
       <header class="rules-head">
-        <h1>How to play {CHAIN_REACTION_THEME.title}</h1>
-        <p class="lede">{CHAIN_REACTION_THEME.tagline}</p>
+        <h1>How to play {theme.title}</h1>
+        <p class="lede">{theme.tagline}</p>
       </header>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
@@ -360,7 +363,7 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
           The share price depends on the chain's tier and its size in tiles. In a game, the{' '}
           <strong>Price card</strong> button shows this card with each chain on the board marked.
         </p>
-        <PriceCard rules={r} />
+        <PriceCard rules={r} theme={theme} />
       </Section>
 
       <Section id="seeing">
@@ -448,5 +451,6 @@ export function RulesPage(props: { section: string | null }) {
     h.scrollIntoView({ block: 'start' });
     h.focus({ preventScroll: true });
   }, [props.section]);
-  return <RulesContent />;
+  // Reading the signal re-renders the page when the player changes the names.
+  return <RulesContent theme={activeTheme.value} />;
 }
