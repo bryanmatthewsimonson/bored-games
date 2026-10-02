@@ -42,6 +42,7 @@ export function ChainReactionScreen(props: GameViewProps) {
       onClaimTimeout={props.onClaimTimeout}
       timeoutExplanation={props.timeoutExplanation}
       ended={props.ended}
+      outcome={props.view.outcome}
     />
   );
 }

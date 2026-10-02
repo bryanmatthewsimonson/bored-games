@@ -46,4 +46,5 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
   - `docs/games/<id>/RULES.md` with a `#### Cnn` catalog (`tests/catalog.test.ts` checks it);
   - a fuzz target in `tools/fuzz/src/index.ts` (the sim takes `--game <id>`);
   - the web app: the module in `MODULES` (`apps/web/src/net.ts`), the id in `apps/web/src/games/ids.ts`, and `apps/web/src/games/<id>/` with `meta.ts`, a component taking `GameViewProps` and a rules page, registered in `games/registry.ts`, `game-names.ts` and `games/catalog.ts`;
-  - an e2e spec in `apps/web/e2e/`.
+  - an e2e spec in `apps/web/e2e/`;
+  - **Resign (D052):** a game with a deck, and any co-op game or game where a seat cannot see its own cards (Hanabi), must redo the early-secret analysis of PROTOCOL §8.3 before Resign is enabled for it. Where it fails (a co-op game: the resigner's secret exposes others' cards), the module opts out with `resignAllowed(rules, seats) → false`. A game with public reveals during play needs a Resign rule for them first (`module-contract.test.ts`).

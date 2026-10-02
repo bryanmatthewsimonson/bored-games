@@ -6,9 +6,11 @@ import {
   attestLine,
   equivocatorsOf,
   formatDeadline,
+  placesText,
   playerNames,
   resignExplanation,
   resignedSeats,
+  resignLine,
   setupStep,
   statusNotice,
   timedOutSeats,
@@ -75,6 +77,20 @@ describe('game screen helpers', () => {
     ).toEqual([0, 2]);
     expect(timedOutSeats(viewOf({ phase: 'done', audit: { fail: [1], reason: 'bad shuffle' } }))).toEqual([]);
     expect(timedOutSeats(viewOf({ phase: 'play', audit: { fail: [1], reason: 'timeout' } }))).toEqual([]);
+    // After a resign (D052): the withheld secrets, not the resigning seat or an equivocator.
+    expect(
+      timedOutSeats(
+        viewOf({
+          phase: 'done',
+          resigned: [1],
+          equivocators: [3],
+          audit: { fail: [0, 1, 3], reason: 'resign; withheld secret' },
+        }),
+      ),
+    ).toEqual([0]);
+    expect(
+      timedOutSeats(viewOf({ phase: 'done', resigned: [1], audit: { fail: [1], reason: 'resign' } })),
+    ).toEqual([]);
   });
 });
 
@@ -91,6 +107,41 @@ describe('game chrome helpers (D045)', () => {
     expect(
       resignExplanation(viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 3 } })),
     ).toMatch(/You lose the game/);
+    // 3 or more players (D052): the game ends for everyone, unrated, and the resignation is recorded.
+    expect(
+      resignExplanation(viewOf({ phase: 'play', seats: 4, shuffleSteps: 4, head: { id: 'h', seq: 9 } })),
+    ).toBe(
+      "Resigning ends the game for everyone. Final places are worked out as if the game ended now; the game won't count toward ratings, and your resignation is recorded.",
+    );
+    expect(
+      resignExplanation(viewOf({ phase: 'play', seats: 4, shuffleSteps: 4, head: { id: 'h', seq: 4 } })),
+    ).toMatch(/cancels the game/);
+  });
+
+  it('says who ended the game early, unrated, and the places once they are known', () => {
+    const names = ['Ann', 'Bo', 'Cy'];
+    const outcome = {
+      places: [1, 3, 2],
+      reason: 'resign',
+      scores: [9000, 6000, 7000],
+      unrated: true as const,
+      endedBy: { type: 'resign' as const, seat: 1 },
+    };
+    expect(resignLine(null, names)).toBeNull();
+    expect(resignLine(viewOf({ phase: 'play', resigned: [] }), names)).toBeNull();
+    expect(resignLine(viewOf({ phase: 'cancelled', resigned: [1], outcome: null }), names)).toBeNull();
+    expect(resignLine(viewOf({ phase: 'end', resigned: [1], outcome: null }), names)).toBe(
+      "Ended early: Bo resigned · unrated. Checking the game: waiting for every player's end-of-game secret.",
+    );
+    expect(resignLine(viewOf({ phase: 'done', resigned: [1], outcome }), names)).toBe(
+      'Ended early: Bo resigned · unrated. Final places: 1. Ann, 2. Cy, 3. Bo.',
+    );
+    // Two players: a plain loss, as before.
+    const two = { places: [2, 1], reason: 'resign', scores: [1, 1] };
+    expect(resignLine(viewOf({ phase: 'done', seats: 2, resigned: [0], outcome: two }), names)).toBe(
+      'The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann.',
+    );
+    expect(placesText(viewOf({ outcome: null }), names)).toBe('');
   });
 
   it('counts the attestations once there is a result', () => {

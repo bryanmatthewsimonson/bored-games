@@ -72,6 +72,13 @@ export interface Outcome {
   readonly places: readonly number[];
   readonly scores: readonly number[];
   readonly reason: string;
+  /**
+   * Set only by the platform, never by a module: the result does not count toward ratings (a Resign ended a game of
+   * 3 or more seats, PROTOCOL §8.3, D052). Absent otherwise.
+   */
+  readonly unrated?: true;
+  /** Set only by the platform, with `unrated`: the seat whose Resign ended the game. Absent otherwise. */
+  readonly endedBy?: { readonly type: 'resign'; readonly seat: Seat };
 }
 
 export type SetupInput<R> =
@@ -143,6 +150,13 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   invariants(state: S): readonly string[];
   /** Optional rare-event tags used by the fuzzer's coverage report. */
   coverage?(state: S, events: readonly E[]): readonly string[];
+  /**
+   * Whether a seat may resign a game with these rules and seats (PROTOCOL §4.9, D052). Absent means yes. A game
+   * whose hidden cards the resigner's published deck secret would expose to others (a co-op game, or one where
+   * a seat cannot see its own cards, such as Hanabi) returns false: the platform then rejects every Resign. The
+   * platform also refuses Resign in every 2-seat game with a deck, whatever this says.
+   */
+  resignAllowed?(rules: R, seats: number): boolean;
 }
 
 export type LogEntry =

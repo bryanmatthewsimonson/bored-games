@@ -54,7 +54,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 | Turn order | `pending()` names one seat or a public reveal | partial | `game-kit/types.ts` | simultaneous phases: §4.4, §4.8 |
 | Deckless sessions | games with `decks(rules) = []` (Chess) | exists (D045) | `packages/client` | `shuffleSteps = decks ? seats : 0` (`SessionView.shuffleSteps`); deckless audit with `deckOrders: {}` |
 | Timeouts and forfeit | Timeout 7454, local-clock deadlines, `rankWithForfeits` | exists | D020, D030, PROTOCOL §8 | a deckless game forfeits after its first move (D045) |
-| Resign | voluntary forfeit at any time | partial (D045): 2-seat games without a deck only | kind **7457** `{type:'resign'}`, signed by the session key, naming the head; PROTOCOL §4.9, §8.3 | `canResign()`, `buildResign(rnd, createdAt)`; counts once the named head is on the chain, then is final for the client; the resigner ranks last. Owner (D049): with 3 or more seats a Resign ends the game, unrated, with the resigner recorded; in deck games the Resign carries the resigner's deck secret and a partial audit follows. Phase G builds it |
+| Resign | voluntary forfeit at any time | built (D045, D052): every game | kind **7457** `{type:'resign'}`, plus `secret` (the deck secret) in a game with a deck, signed by the session key, naming the head; PROTOCOL §4.9, §8.3 | `canResign()`, `buildResign(rnd, createdAt)`; counts once the named head is on the chain, then is final for the client; the game ends for everyone and the resigner ranks last. 3+ seats: unrated, `endedBy` recorded. Deck games: the others' secrets, then a partial audit (`auditPrefix`) |
 | Audit and attestation | Secret 7455, full-mode replay, Attest 7456 | exists (one deck or none) | `packages/client/src/audit.ts` | audit modes (§4.1.7) |
 | Results and ratings | attested outcomes; ratings in Phase 4 | partial | D012 | team and co-op outcomes: §4.7; unrated results (a multi-seat resign, D049) never count toward ratings, completions or wins |
 | Game registry (web) | per-game component, rules page, setup copy | exists (D045) | `apps/web/src/games/registry.ts` | `{id, title, tagline, Component, RulesPage, setupCopy}`; catalog and brands come in Phase E |
@@ -277,7 +277,7 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 | Variable order, extra turns | Patchwork (the player behind moves), doubles | exists for games without private draws | with private draws, check the liveness rule (§4.1.8) |
 | Response windows | "any player may challenge" (Coup) | missing | each other seat answers in seat order (S − 1 async steps); a prompt duty only after Phase K (D050) |
 | Simultaneous phase | sealed bids, drafting, rock-paper-scissors | missing | §4.4 |
-| Resign at any time | 2-seat games without a deck (D045); with 3+ seats it ends the game, unrated, resigner recorded (D049, Phase G) | partial | kind 7457 outside the turn order; final on receipt (PROTOCOL §8.3) |
+| Resign at any time | every game (D045, D052); unrated with 3+ seats | built | kind 7457 outside the turn order; final once its head is held (PROTOCOL §8.3) |
 | Real time | action games | not supported | against D004; later (owner, D049), not now |
 
 ### 4.9 Timers and clocks

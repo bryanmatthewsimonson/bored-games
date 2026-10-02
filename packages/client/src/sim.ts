@@ -516,7 +516,9 @@ export function simulateGame(opts: SimOptions): SimReport {
       forfeits: v.forfeits,
       equivocators: v.equivocators,
       attested: v.attested,
-      state: v.state === null ? null : module.view(v.state, null),
+      // A cancelled game has no result: its state is wherever each client's fold stopped (a resign can count
+      // before or after a client folded the setup reveals), so only a game with a result compares it.
+      state: v.state === null || v.phase === 'cancelled' ? null : module.view(v.state, null),
     });
   };
   const reference = summary(spectator);

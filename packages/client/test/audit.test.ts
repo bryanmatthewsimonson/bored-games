@@ -2,7 +2,14 @@ import { type ChainReactionState, chainReaction } from '@bored-games/chain-react
 import { type Ciphertext, cardTable, initialDeck } from '@bored-games/deck';
 import { createRng, type Outcome, range, shuffle } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
-import { type AuditInput, auditGame, type LoggedAction, rankWithForfeits } from '../src/audit.ts';
+import {
+  type AuditInput,
+  auditGame,
+  auditPrefix,
+  type LoggedAction,
+  type PrefixInput,
+  rankWithForfeits,
+} from '../src/audit.ts';
 
 describe('rankWithForfeits (D030 R5)', () => {
   it('ranks by score, descending, with ties sharing a place', () => {
@@ -127,5 +134,48 @@ describe('auditGame (D030 R6)', () => {
     );
     const r = auditGame({ ...input, log });
     expect(typeof r === 'object' && r.fail).toEqual([0, 1, 2]);
+  });
+});
+
+describe('auditPrefix (PROTOCOL §8.3, D052): the partial audit after a resign', () => {
+  const { input } = playedGame('client-audit-prefix');
+  const { outcome: _declared, ...full } = input;
+  /** The first `n` entries of the log, as a client whose chain stood there when the resign counted. */
+  const prefix = (n: number): PrefixInput => ({ ...full, log: input.log.slice(0, n) });
+
+  it('passes every honest prefix, the empty one included: no outcome is compared', () => {
+    for (const n of [0, 1, 5, Math.floor(input.log.length / 2), input.log.length - 1]) {
+      expect(auditPrefix(prefix(n))).toBe('pass');
+    }
+    // The whole log of a finished game passes too; a bogus declared outcome is not even read.
+    expect(auditPrefix(full)).toBe('pass');
+  });
+
+  it('fails the actor of a forged action in the prefix, and nobody for a forgery after it', () => {
+    const i = input.log.findIndex((e, n) => n > 10 && (e.action as { type: string }).type === 'place');
+    const entry = input.log[i] as LoggedAction;
+    const log = input.log.map((e, n) =>
+      n === i ? { ...e, action: { type: 'skipPlace', actor: entry.actor } } : e,
+    );
+    expect(auditPrefix({ ...full, log: log.slice(0, i + 1) })).toEqual({
+      fail: [entry.actor],
+      reason: `move ${entry.seq} by seat ${String(entry.actor)} fails: playable: you hold a playable tile`,
+    });
+    // The resign counted before the forged move: the prefix does not hold it.
+    expect(auditPrefix({ ...full, log: log.slice(0, i) })).toBe('pass');
+  });
+
+  it('fails every seat for a derived reveal that does not match the deck, or a position that is no card', () => {
+    const i = input.log.findIndex((e) => e.actor === 'deck');
+    const log = input.log.map((e, n) =>
+      n === i
+        ? { ...e, action: { ...(e.action as object), card: 107 - (e.action as { card: number }).card } }
+        : e,
+    );
+    const r = auditPrefix({ ...full, log: log.slice(0, i + 1) });
+    expect(typeof r === 'object' && r.fail).toEqual([0, 1, 2]);
+    const junk = { ...(input.deck[0] as Ciphertext), b: (input.deck[1] as Ciphertext).a };
+    const deck = [junk, ...input.deck.slice(1)];
+    expect(auditPrefix({ ...prefix(3), deck })).toMatchObject({ fail: [0, 1, 2] });
   });
 });

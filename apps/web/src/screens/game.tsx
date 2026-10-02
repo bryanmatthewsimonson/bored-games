@@ -77,13 +77,36 @@ export function resignedSeats(view: SessionView | null): readonly number[] {
 }
 
 /**
- * What resigning does, for the confirm step. Resigning exists only in 2-player games without a deck (D045; the
- * button shows only where the session allows it): you lose, or before the first move the game is cancelled.
+ * What resigning does, for the confirm step (D045, D052). Before the first move the game is cancelled. With 2
+ * players you lose. With 3 or more the game ends for everyone, ranked as if it ended now, unrated, and the
+ * resignation is recorded.
  */
 export function resignExplanation(view: SessionView): string {
   const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started) return 'No move has been played yet, so resigning cancels the game without a result.';
+  if (view.seats >= 3)
+    return "Resigning ends the game for everyone. Final places are worked out as if the game ended now; the game won't count toward ratings, and your resignation is recorded.";
   return 'You lose the game. This cannot be undone.';
+}
+
+/**
+ * The platform's line about a resignation that ended the game (PROTOCOL §8.3, D052), or null when none did:
+ * - 3 or more players: "Ended early: Ann resigned · unrated.", then the final places once every secret is in and
+ *   checked, or a note that the end-of-game check is under way;
+ * - 2 players: "The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann."
+ */
+export function resignLine(view: SessionView | null, names: readonly string[]): string | null {
+  const quit = resignedSeats(view);
+  if (view === null || quit.length === 0 || view.phase === 'cancelled') return null;
+  const who = quit.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ');
+  const places = placesText(view, names);
+  if (view.seats >= 3) {
+    const head = `Ended early: ${who} resigned · unrated.`;
+    if (view.outcome === null)
+      return `${head} Checking the game: waiting for every player's end-of-game secret.`;
+    return `${head} Final places: ${places}.`;
+  }
+  return `The game is over: ${who} ${quit.length === 1 ? 'has' : 'have'} resigned. Final places: ${places}.`;
 }
 
 /**
@@ -99,12 +122,17 @@ export function attestLine(view: SessionView | null): string | null {
     : `Result confirmed: signed by all ${n} players.`;
 }
 
-/** The seats a timeout claim made forfeit, when one ended the game; empty otherwise. */
+/**
+ * The seats a timeout claim made forfeit, when one ended the game; empty otherwise. After a resign (D052) a claim
+ * can only be for a withheld secret, and the resigning seat (and any equivocator) is not among them.
+ */
 export function timedOutSeats(view: SessionView | null): readonly number[] {
   const a = view?.phase === 'done' ? view.audit : null;
-  return typeof a === 'object' && a !== null && (a.reason === 'timeout' || a.reason === 'withheld secret')
-    ? a.fail
-    : [];
+  if (typeof a !== 'object' || a === null) return [];
+  if (a.reason === 'timeout' || a.reason === 'withheld secret') return a.fail;
+  if (a.reason !== 'resign; withheld secret') return [];
+  const not = new Set([...resignedSeats(view), ...equivocatorsOf(view)]);
+  return a.fail.filter((seat) => !not.has(seat));
 }
 
 /** Each seat's short npub, after its profile name when it has one: "Ann (npub1abcdef…uvwxyz)". */
@@ -207,7 +235,7 @@ export function ResignButton(props: { explanation: string; busy: boolean; onResi
 }
 
 /** Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign or a timeout). */
-function placesText(view: SessionView, names: readonly string[]): string {
+export function placesText(view: SessionView, names: readonly string[]): string {
   const o = view.outcome;
   if (o === null) return '';
   return o.places
@@ -296,7 +324,7 @@ export function GameScreen(props: { rootId: string }) {
   const audit: Audit | undefined = view.phase === 'end' || view.phase === 'done' ? view.audit : undefined;
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
-  const resigned = resignedSeats(view);
+  const resigned = resignLine(view, names);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
   const Component = game.Component;
@@ -319,10 +347,9 @@ export function GameScreen(props: { rootId: string }) {
           {timedOut.length === 1 ? 'forfeits' : 'forfeit'}. Final places: {placesText(view, names)}.
         </p>
       )}
-      {resigned.length > 0 && (
+      {resigned !== null && (
         <p class="warning game-resigned" role="status">
-          The game is over: {resigned.map(nameOf).join(', ')} {resigned.length === 1 ? 'has' : 'have'}{' '}
-          resigned. Final places: {placesText(view, names)}.
+          {resigned}
         </p>
       )}
       <Component
