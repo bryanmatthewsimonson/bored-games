@@ -114,7 +114,7 @@ export function auditGame(input: AuditInput): Audit {
 
 /**
  * The partial audit after a Resign ended a game with a deck (PROTOCOL §8.3, D052): the same decryption, full-mode
- * setup and replay as `auditGame`, over the log of the chain as it stood when the Resign counted, with the same
+ * setup and replay as `auditGame`, over the log of the client's canonical chain (scored there, PROTOCOL §8.3), with the same
  * verdicts for a rejected action (its actor fails), a rejected derived reveal, an undecryptable position or a
  * refused setup (every seat fails). The game did not end by its rules, so there is no outcome to compare: a log
  * that replays is a pass.

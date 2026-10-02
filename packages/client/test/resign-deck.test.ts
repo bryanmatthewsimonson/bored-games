@@ -248,7 +248,7 @@ describe('a counted resign in a 4-seat Chain Reaction game', () => {
     LONG,
   );
 
-  it('a seat that is not pending may resign; a move raced at the same head changes the log, not the loser', () => {
+  it('a seat that is not pending may resign; a move raced at the same head still links, the same everywhere', () => {
     const k = 20;
     const p = pendingSeat(k);
     const r = (p + 2) % SEATS;
@@ -263,19 +263,15 @@ describe('a counted resign in a 4-seat Chain Reaction game', () => {
       [a, b],
       others([r]).map((seat) => secretOf(seat)),
     );
-    for (const [s, seq] of [
-      [a, SEATS + k],
-      [b, SEATS + k + 1],
-    ] as const) {
-      expect(s.view()).toMatchObject({
-        phase: 'done',
-        head: { seq },
-        resigned: [r],
-        audit: { fail: [r], reason: 'resign' },
-        outcome: { unrated: true, endedBy: { type: 'resign', seat: r } },
-      });
-      expect(s.view().outcome?.places[r]).toBe(SEATS);
-    }
+    expect(a.view()).toMatchObject({
+      phase: 'done',
+      head: { seq: SEATS + k + 1 },
+      resigned: [r],
+      audit: { fail: [r], reason: 'resign' },
+      outcome: { unrated: true, endedBy: { type: 'resign', seat: r } },
+    });
+    expect(a.view().outcome?.places[r]).toBe(SEATS);
+    expect(summary(b)).toBe(summary(a));
   });
 
   it(
@@ -657,7 +653,7 @@ describe('races and stale resigns (D052): what every client agrees on', () => {
   });
 
   it(
-    'a resign racing a merger decision: the head differs by order, and a fresh device agrees with its order',
+    'a resign racing a merger decision: every order scores at the same head',
     () => {
       const k = findMove((p) => p.type === 'player' && ['orderDefunct', 'dispose'].includes(p.decision));
       const p = pendingSeat(k);
@@ -665,22 +661,82 @@ describe('races and stale resigns (D052): what every client agrees on', () => {
       const j = (p + 2) % SEATS;
       const resign = resignEvent(r, (fx.moves[k - 1] as NostrEvent).id);
       const move = fx.moves[k] as NostrEvent;
-      const first = fed(j, [...prefix(k), resign, move]);
-      const second = fed(j, [...prefix(k), move, resign]);
-      const fresh = fed(j, [...shuffled([...prefix(k), move], 'merger-fresh'), resign]);
-      expect(first.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + k } });
-      expect(second.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + k + 1 } });
-      expect(summary(fresh)).toBe(summary(second));
-      for (const s of [first, second, fresh]) expect(s.duties()).toEqual([{ kind: 'secret' }]);
+      const clients = [
+        fed(j, [...prefix(k), resign, move]),
+        fed(j, [...prefix(k), move, resign]),
+        fed(j, [...shuffled([...prefix(k), move], 'merger-fresh'), resign]),
+        fed(null, shuffled([...prefix(k), move, resign], 'merger-any')),
+      ];
+      for (const s of clients) {
+        expect(s.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + k + 1 }, resigned: [r] });
+        if (s.view().mySeat !== null) expect(s.duties()).toEqual([{ kind: 'secret' }]);
+      }
       deliver(
-        [first, second, fresh],
+        clients,
         others([r]).map((seat) => secretOf(seat)),
       );
-      for (const s of [first, second, fresh]) {
-        expect(s.view()).toMatchObject({ phase: 'done', audit: { fail: [r], reason: 'resign' } });
-        expect(s.view().outcome?.places[r]).toBe(SEATS);
+      const want = summary(clients[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({ phase: 'done', audit: { fail: [r], reason: 'resign' } });
+      for (const s of clients) expect(summary(s)).toBe(want);
+    },
+    LONG,
+  );
+});
+
+describe('a resign whose head an equivocation moved off the chain (review F8)', () => {
+  it(
+    'counts on every client, whichever branch it follows, so no honest seat is timed out',
+    () => {
+      const k = 12;
+      const e = pendingSeat(k);
+      const r = (e + 1) % SEATS;
+      const j = (e + 2) % SEATS;
+      // Seat e signs two valid moves on one prev; seat r resigns naming the higher id, which loses fork choice
+      // wherever the lower one is held.
+      const eq = at(k, e);
+      const [lo, hi] = [
+        eq.buildAction(eq.legalActions()[0], fx.game.rnd, NOW),
+        eq.buildAction(eq.legalActions()[0], fx.game.rnd, NOW + 1),
+      ].sort((x, y) => (x.id < y.id ? -1 : 1)) as [NostrEvent, NostrEvent];
+      expect(lo.id).not.toBe(hi.id);
+      const resign = resignEvent(r, hi.id);
+      const orders = {
+        // Counted on the higher branch before the rival came: final there.
+        first: [...prefix(k), hi, resign, lo],
+        // The rival first: the named head is a side move that lost fork choice.
+        rival: [...prefix(k), lo, hi, resign],
+        waits: [...prefix(k), lo, resign, hi],
+        fresh: [...shuffled([...prefix(k), lo, hi], 'f8-fresh'), resign],
+      };
+      const clients = Object.values(orders).flatMap((o) => [fed(j, o), fed(null, o)]);
+      for (const s of clients) {
+        expect(s.view()).toMatchObject({ phase: 'end', resigned: [r] });
+        // Nobody can be claimed against for a move; only secrets are owed.
+        if (s.view().mySeat !== null) expect(s.duties()).toEqual([{ kind: 'secret' }]);
       }
-      expect(summary(fresh)).toBe(summary(second));
+      deliver(
+        clients,
+        others([r]).map((seat) => secretOf(seat)),
+        undefined,
+        LATE,
+      );
+      for (const s of clients) {
+        const v = s.view();
+        expect(v.phase).toBe('done');
+        expect(v.outcome?.places[r]).toBe(SEATS);
+        // The forfeits are the resigner and the equivocator, never an honest seat.
+        for (const seat of v.forfeits) expect([r, e]).toContain(seat);
+        expect(s.timeoutTarget(LATE * 2)).toBeNull();
+      }
+      // Every order scores at the same head, the lower-id rival (fork choice still runs after the resign counted),
+      // with the equivocator flagged everywhere: identical results and attestations (review F8).
+      const want = summary(clients[0] as GameSession);
+      expect(JSON.parse(want)).toMatchObject({ head: { id: lo.id }, forfeits: [e, r].sort() });
+      for (const s of clients) expect(summary(s)).toBe(want);
+      const attests = clients
+        .filter((s) => s.view().mySeat !== null)
+        .map((s) => s.attestTemplate(LATE).content);
+      expect(new Set(attests).size).toBe(1);
     },
     LONG,
   );

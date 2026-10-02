@@ -101,16 +101,19 @@ import type {
  * good (the game is cancelled before the first game action, ends at once by forfeit during play, or ends with the
  * withheld secrets failed).
  *
- * Resigns (PROTOCOL §4.9, §8.3, D045, D052) are allowed in every game. A Resign counts once the head it names is on
- * this client's chain (the root, or a linked move); until then it is kept, at most `MAX_PENDING_RESIGNS` per seat
- * (the lowest ids). Once one counts it is final for this client, like an accepted timeout: the fold stops, and later
- * moves, claims and resigns change nothing. A resign that counts before any game action cancels the game; any other
- * ends it with the resigning seat last and the others ranked by `standings`, unrated in a game of 3 or more seats.
- * In a game with a deck the Resign carries the seat's deck secret: the other seats then owe theirs, a claim against
- * a withheld one still counts, and once every secret is in a partial audit replays the log as it stood
- * (`auditPrefix`). A resign received after this client's result is final (an accepted timeout, or the chain over)
- * changes nothing, though the secret it carries still counts. Clients that see a resign and a raced event in
- * different orders can disagree, as in the claim race (§11).
+ * Resigns (PROTOCOL §4.9, §8.3, D045, D052) are allowed in every game but 2-seat ones with a deck and those whose
+ * module opts out. A Resign counts once the head it names is held: the root, a move on this client's chain, or a
+ * valid move on a side branch that lost fork choice (an equivocation moved the chain off it); until then it is kept,
+ * at most `MAX_PENDING_RESIGNS` per seat (the lowest ids). Once one counts, the game's ending by it is final for this
+ * client: later claims and resigns change nothing. A resign that counts before any game action (by the cancel rule
+ * of `countResign`) cancels the game and stops the fold. Any other ends it with the resigning seat last and the
+ * others ranked by `standings`, unrated in a game of 3 or more seats, scored at the canonical head: the fold goes on
+ * (held and raced moves still link, fork choice still runs; nobody owes a decision), so every client holding the
+ * same events scores the same. In a game with a deck the Resign carries the seat's deck secret: the other seats
+ * then owe theirs, a claim against a withheld one still counts, and once every secret is in a partial audit
+ * replays the canonical log (`auditPrefix`). A resign received after this client's result is final (an accepted
+ * timeout, or the chain over) changes nothing, though the secret it carries still counts. Clients that see a resign
+ * and a raced claim, game-ending move or other resign in different orders can disagree, as in the claim race (§11).
  */
 
 type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
@@ -429,7 +432,10 @@ export class GameSession {
   private readonly resignIds = new Map<Hex, number>();
   /** Resigns waiting for the head they name, by id. */
   private readonly pendingResigns = new Map<Hex, PendingResign>();
-  /** The resign that ended the game for this client, or null. Once set it is final: the fold stops. */
+  /**
+   * The resign that ended the game for this client, or null. Once set it is final (never evicted); the fold stops
+   * only if it cancelled the game, otherwise it goes on to settle the head the resign is scored at.
+   */
   private resignedBy: Resigned | null = null;
   /**
    * The partial audit after a resign ended a game with a deck (D052), run once every secret is in; null until then,
@@ -812,8 +818,8 @@ export class GameSession {
     for (const { pos } of s.shares) {
       if (pos >= this.deckSize) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
-    if (this.timedOut !== null || this.resignedBy !== null) {
-      // A timeout or a resign ended the game: the fold no longer changes.
+    if (this.timedOut !== null || this.resignedBy?.cancels === true) {
+      // A timeout, or a resign that cancelled the game, stopped the fold.
       this.waitingShares.set(s.id, s);
       return { status: 'stored' };
     }
@@ -858,7 +864,7 @@ export class GameSession {
     const r = this.takeSecret(seat, s.deckSecret, s.id);
     if (r === 'final') return { status: 'stored' };
     if (r === 'known') return { status: 'duplicate' };
-    return this.phase === 'end' || this.phase === 'done' || this.resignEnd()
+    return this.phase === 'end' || this.phase === 'done' || this.resignEnd() || this.cancelSecrets()
       ? { status: 'accepted' }
       : { status: 'stored' };
   }
@@ -1064,7 +1070,7 @@ export class GameSession {
       this.see(r.id, now);
       return this.rejectEvent(r.id, `the resign's deck secret does not match seat ${seat}'s deck key`);
     }
-    if (!this.final() && !this.linked.has(r.headId)) {
+    if (!this.final() && !this.headHeld(r.headId)) {
       // It waits for its head: keep the lowest ids per seat. A waiting resign does not count yet.
       const mine = [...this.pendingResigns.values()]
         .filter((x) => x.seat === seat)
@@ -1088,7 +1094,7 @@ export class GameSession {
       if (r.secret !== null) this.takeSecret(seat, r.secret, r.id);
       return this.resignStatus(r.id, seat, true);
     }
-    if (this.linked.has(r.headId)) {
+    if (this.headHeld(r.headId)) {
       this.countResign(r, seat);
       return { status: 'accepted' };
     }
@@ -1099,16 +1105,18 @@ export class GameSession {
 
   /**
    * End the game for this client with `r`: final from now on (PROTOCOL §8.3). It cancels the game when the head it
-   * names comes before the first game action (the root, or a shuffle step) and this client's chain holds no game
-   * action by the resigning seat (D052). So a resign raced by another seat's first action cancels on every client,
+   * names comes before the first game action (the root, or a shuffle step) and this client holds no game action by
+   * the resigning seat, on its chain or below the named head on any branch (D052). So a resign raced by another seat's first action cancels on every client,
    * while a stale resign by a seat that has played is a loss wherever one of its actions is held: the only order
    * dependence left is on the resigner's own events, as with the head gate. Otherwise, in a game with a deck, the
    * other seats' secrets are owed from now on: the resign is progress, so their deadline runs from it, and the
    * secret it carries is the resigning seat's.
    */
   private countResign(r: ParsedResign, seat: number): void {
-    const at = r.headId === this.root.id ? 0 : this.chain.findIndex((m) => m.id === r.headId) + 1;
-    const played = this.chain.slice(this.shuffleSteps).some((m) => this.seatOf.get(m.pubkey) === seat);
+    const at = r.headId === this.root.id ? 0 : (this.candidateById.get(r.headId)?.m.seq ?? 0);
+    const played =
+      this.chain.slice(this.shuffleSteps).some((m) => this.seatOf.get(m.pubkey) === seat) ||
+      this.actsBelow(r.headId, seat);
     const cancels = at <= this.shuffleSteps && !played;
     this.resignedBy = { id: r.id, seat, cancels };
     this.pendingResigns.clear();
@@ -1120,13 +1128,52 @@ export class GameSession {
   }
 
   /**
-   * Count the lowest-id waiting resign whose head is now on the chain, if the result is not final yet. Run after
-   * every event, since a move that links may be the head a resign waits for.
+   * Whether the head a Resign names is held for the head gate (PROTOCOL §8.3, D052, review F8): the root or a move
+   * on this client's chain, or a move on a side branch that lost fork choice here, its first move valid at its fork
+   * point below the head. Without the second case, a seat's equivocation that moved fork choice off the named head
+   * (a lower-id rival) left the Resign waiting for ever on clients that got the rival first, while clients that
+   * counted it first had stopped, so the seat pending on the rival branch was timed out there. A move pooled on the
+   * head itself (an extension waiting for its shares) is not held: the resigner's own last move still gates its
+   * Resign (D045, R1-I1). A shuffle step that is not a fork-choice candidate is never verified for this.
+   */
+  private headHeld(id: Hex): boolean {
+    if (this.linked.has(id)) return true;
+    let at = this.pooledById.get(id);
+    for (let i = 0; at !== undefined && i < MAX_DEPTH; i++) {
+      if (this.linked.has(at.prevId)) {
+        if (at.prevId === this.headId() || !this.shuffleEligible(at)) return false;
+        return this.validAtPrev(at, this.seatOf.get(at.pubkey) as number) === 'valid';
+      }
+      at = this.pooledById.get(at.prevId);
+    }
+    return false;
+  }
+
+  /** Whether `seat` signed a held game action below `id`, on any branch (at most `MAX_DEPTH` moves down). */
+  private actsBelow(id: Hex, seat: number): boolean {
+    let level = [id];
+    for (let depth = 0; depth < MAX_DEPTH && level.length > 0; depth++) {
+      const next: Hex[] = [];
+      for (const at of level) {
+        for (const k of this.kidsOf.get(at) ?? []) {
+          const c = this.candidateById.get(k) as Candidate;
+          if (c.seat === seat && c.m.content.type === 'action') return true;
+          next.push(k);
+        }
+      }
+      level = next;
+    }
+    return false;
+  }
+
+  /**
+   * Count the lowest-id waiting resign whose head is now held (`headHeld`), if the result is not final yet. Run
+   * after every event, since a move that links, or a side move judged valid, may be the head a resign waits for.
    */
   private countPendingResigns(): void {
     if (this.pendingResigns.size === 0 || this.final()) return;
     const ready = byId([...this.pendingResigns.values()].map((x) => x.r)).find((r) =>
-      this.linked.has(r.headId),
+      this.headHeld(r.headId),
     );
     if (ready === undefined) return;
     this.countResign(ready, (this.pendingResigns.get(ready.id) as PendingResign).seat);
@@ -1415,11 +1462,11 @@ export class GameSession {
    * records any progress the event made, then calls `decideTimeouts`.
    */
   private settle(): void {
-    if (this.timedOut !== null) return;
-    if (this.resignedBy !== null) {
-      this.finishResign();
-      return;
-    }
+    // A timeout, or a resign that cancelled the game, stops the fold for good. A resign that ended the game does
+    // not (D052, review F8): the moves already held, and those that arrive later, still link and fork choice still
+    // runs, so the head the resign is scored at is a function of the events held, the same on every client that
+    // holds them. Nobody owes a decision any more, so only moves raced against the resign can still come.
+    if (this.timedOut !== null || this.resignedBy?.cancels === true) return;
     for (;;) {
       this.extend();
       if (this.cutIneligible()) continue;
@@ -1427,15 +1474,25 @@ export class GameSession {
     }
     this.judgeSides();
     this.flagged = this.equivocators();
+    if (this.resignedBy !== null) this.finishResign();
   }
 
   /**
-   * After a resign ended a game with a deck (D052): once every secret is in, run the partial audit over the log as
-   * it stood when the resign counted. The fold is frozen then, so it runs once.
+   * After a resign ended a game with a deck (D052): once every secret is in, the partial audit over the canonical
+   * chain's log, run once per log hash; null while a secret is missing.
    */
   private finishResign(): void {
-    if (!this.resignEnd() || this.resignAudit !== null || this.timedOut !== null) return;
-    if (this.secrets.size < this.seats) return;
+    if (!this.resignEnd() || this.timedOut !== null) return;
+    if (this.secrets.size < this.seats) {
+      this.resignAudit = null;
+      return;
+    }
+    const key = `prefix:${this.logHash()}`;
+    const known = this.auditCache.get(key);
+    if (known !== undefined) {
+      this.resignAudit = known as Exclude<SessionAudit, 'pending'>;
+      return;
+    }
     this.resignAudit = auditPrefix({
       module: this.module,
       rules: this.rules,
@@ -1446,6 +1503,8 @@ export class GameSession {
       cards: this.cards,
       log: this.actionLog,
     });
+    if (this.auditCache.size >= MAX_AUDITS) this.auditCache.clear();
+    this.auditCache.set(key, this.resignAudit);
   }
 
   /** `settle`, then judge the stored claims, for an event whose progress (if any) P already reflects. */
@@ -1820,7 +1879,12 @@ export class GameSession {
     // Trial folds only need validity and length: no audit and no private learns.
     if (this.trialDepth > 0) return progressed;
     // A deckless game has no secrets: its audit runs as soon as it is over (D045).
-    if (this.phase === 'end' && (!this.hasDeck() || this.secrets.size === this.seats)) {
+    // After a resign the result is the resign's (and its partial audit), even if a raced move ended the game.
+    if (
+      this.phase === 'end' &&
+      this.resignedBy === null &&
+      (!this.hasDeck() || this.secrets.size === this.seats)
+    ) {
       this.auditResult = this.cachedAudit();
       this.phase = 'done';
       progressed = true;
@@ -2062,7 +2126,7 @@ export class GameSession {
   }
 
   /**
-   * The result once a resign has ended the game (PROTOCOL §8.3, D045, D052), from the fold as it stood then; the
+   * The result once a resign has ended the game (PROTOCOL §8.3, D045, D052), at the canonical head; the
    * resigning seat (and any equivocator) forfeits:
    * - a resign that counted while the chain held no game action: `cancelled`, no outcome;
    * - in a deckless game: `done` at once, the forfeiting seats last and the others ranked by the module's

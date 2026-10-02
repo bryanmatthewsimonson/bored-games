@@ -5,10 +5,10 @@ import { MODULES } from './helpers.ts';
 /*
  * Contract checks the session relies on for every registered module with a deck (PROTOCOL §8.3, D052).
  *
- * A module pends a public reveal only before the first player action. A Resign that counted while a public reveal
- * was pending would rank on the state before or after the derived reveals, depending on whether the client held
- * their shares (PROTOCOL §8.3, Residuals). Before the first action a Resign cancels, so that is safe; a game with
- * public reveals during play must first give Resign a rule for them, and this test says so.
+ * A module pends a public reveal only before the first player action, where a Resign cancels. A Resign that
+ * counts while a public reveal is pending during play is scored once the derived reveals apply, which the fold
+ * does after a Resign too (PROTOCOL §8.3), so a game with public reveals during play should get a review of that
+ * path before it relaxes this test.
  */
 
 const GAMES = 12;

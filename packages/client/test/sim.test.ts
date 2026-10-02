@@ -273,6 +273,26 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
   );
 
   it(
+    'a seat that resigns at the first decision of the game cancels it; the others still publish their secrets',
+    () => {
+      // With this seed seat 2 holds the first decision (found with `pnpm sim --seed cancel-2`).
+      const r = simulateGame({
+        seats: 3,
+        seed: 'cancel-2#1',
+        modules: MODULES,
+        game: chainReaction.id,
+        policy: quickPolicy,
+        adversary: adversary('resign', 2, 3, 3),
+        fullSync: true,
+      });
+      expect(r.failures).toEqual([]);
+      expect(unexpected(r, 2)).toEqual([]);
+      expect(r).toMatchObject({ phase: 'cancelled', outcome: null, forfeits: [2], actions: 0, claims: 0 });
+    },
+    LONG,
+  );
+
+  it(
     'a resign in a 4-seat game with full syncs: every client agrees and every attestation is accepted',
     () => {
       const r = simulateGame({

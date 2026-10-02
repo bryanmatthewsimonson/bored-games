@@ -194,7 +194,7 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     }
   });
 
-  it('is final: a move received after it is stored and changes nothing (each client keeps its first result)', () => {
+  it('is final, yet a move raced against it still links: every client scores at the same head (D052)', () => {
     const t = chessTable('resign-final');
     const m1 = play(t, 0, 'e2e4');
     const m2 = play(t, 1, 'e7e5');
@@ -204,24 +204,21 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
     const a = newSession(t.game, null);
     const b = newSession(t.game, null);
     deliver([a], [m1, m2, r]);
-    expect(a.receive(m3, NOW)).toEqual({ status: 'stored' });
+    expect(a.view()).toMatchObject({ phase: 'done', head: { seq: 2 }, resigned: [1] });
+    // The fold goes on after a resign (D052): the raced move links, but nobody owes a decision any more.
+    expect(a.receive(m3, NOW)).toEqual({ status: 'accepted' });
+    expect(a.duties()).toEqual([]);
     deliver([b], [m1, m2, m3, r]);
-    // Same winner and reason; the logs differ by the raced move (the claim-race residual, PROTOCOL §11).
     expect(summary(a)).toMatchObject({
-      phase: 'done',
-      head: { seq: 2 },
-      resigned: [1],
-      outcome: { places: [1, 2] },
-    });
-    expect(summary(b)).toMatchObject({
       phase: 'done',
       head: { seq: 3 },
       resigned: [1],
       outcome: { places: [1, 2] },
     });
+    expect(summary(b)).toEqual(summary(a));
   });
 
-  it('a resign received after the chain is over changes nothing; a mate received after a resign is stored', () => {
+  it('a resign received after the chain is over changes nothing; a mate received after a resign links, but the resign stands', () => {
     const t = chessTable('resign-mate');
     const pre = [play(t, 0, 'f2f3'), play(t, 1, 'e7e5'), play(t, 0, 'g2g4')];
     // White resigns while Black mates.
@@ -238,9 +235,11 @@ describe('resign in a 2-seat game without a deck (Chess)', () => {
       outcome: { places: [2, 1], reason: 'checkmate', scores: [0, 2] },
     });
     deliver([b], [...pre, r]);
-    expect(b.receive(mate, NOW)).toEqual({ status: 'stored' });
+    expect(b.receive(mate, NOW)).toEqual({ status: 'accepted' });
+    // The raced game-ending move: the game ended by the resign there, scored at the mate (PROTOCOL §8.3, races).
     expect(summary(b)).toMatchObject({
       phase: 'done',
+      head: { seq: 4 },
       resigned: [0],
       outcome: { places: [2, 1], reason: 'resign' },
     });
