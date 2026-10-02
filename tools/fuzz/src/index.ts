@@ -1,10 +1,12 @@
 import { chainReaction } from '@bored-games/chain-reaction';
+import { chess } from '@bored-games/chess';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import {
   CHAIN_REACTION_EXPECTED_COVERAGE,
   CHAIN_REACTION_POLICIES,
   chainReactionDeckOrder,
 } from './chain-reaction.ts';
+import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
 export interface FuzzTarget {
@@ -27,6 +29,18 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: CHAIN_REACTION_EXPECTED_COVERAGE,
     defaultSeatCounts: [3, 4, 5, 6],
   },
+  chess: {
+    module: chess,
+    policies: CHESS_POLICIES,
+    expectedCoverage: CHESS_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2],
+  },
 };
 
-export { CHAIN_REACTION_EXPECTED_COVERAGE, CHAIN_REACTION_POLICIES, chainReactionDeckOrder };
+export {
+  CHAIN_REACTION_EXPECTED_COVERAGE,
+  CHAIN_REACTION_POLICIES,
+  CHESS_EXPECTED_COVERAGE,
+  CHESS_POLICIES,
+  chainReactionDeckOrder,
+};
