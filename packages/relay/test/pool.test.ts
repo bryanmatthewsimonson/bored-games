@@ -277,6 +277,35 @@ describe('RelayPool', () => {
     q.close();
   });
 
+  it('tells onEose how many relays actually sent EOSE', async () => {
+    const p = pool([A, B]);
+    latest(A).open();
+    const onEose = vi.fn();
+    p.subscribe([{}], () => {}, onEose);
+    latest(A).receive(['EOSE', 'bg-1']);
+    latest(B).drop();
+    await flush();
+    expect(onEose).toHaveBeenCalledWith({ eose: 1, relays: 2, timedOut: false });
+    p.close();
+
+    const q = pool([A]);
+    latest(A).drop();
+    const down = vi.fn();
+    q.subscribe([{}], () => {}, down);
+    await flush();
+    expect(down).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: false });
+    q.close();
+
+    const r = pool([A]);
+    latest(A).open();
+    const closed = vi.fn();
+    r.subscribe([{}], () => {}, closed);
+    latest(A).receive(['CLOSED', 'bg-1', 'blocked']);
+    await flush();
+    expect(closed).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: false });
+    r.close();
+  });
+
   it('counts a CLOSED subscription from a relay as answered', async () => {
     const p = pool([A]);
     latest(A).open();
@@ -342,6 +371,7 @@ describe('RelayPool', () => {
     unsub();
     await vi.advanceTimersByTimeAsync(500);
     expect(fast).toHaveBeenCalledTimes(1);
+    expect(fast).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: true });
     expect(gone).not.toHaveBeenCalled();
     p.close();
   });
