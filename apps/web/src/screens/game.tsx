@@ -55,6 +55,15 @@ export function equivocatorsOf(view: SessionView | null): readonly number[] {
 }
 
 /**
+ * The warning for seats flagged for signing two rival moves (D030 Ruling 5). With prompt shares (D039), other
+ * seats may have shared a tile dealt on the losing branch, so its holder there or every player may know it.
+ */
+export function equivocationWarning(who: readonly string[]): string {
+  const tiles = who.length === 1 ? 'A tile' : 'Tiles';
+  return `${who.join(', ')} signed two different moves for the same turn and will be ranked last. ${tiles} dealt around then may be known to other players.`;
+}
+
+/**
  * What claiming a timeout against `who` does (PROTOCOL §8.2, D030 R5), for the claim's confirm step. Before the
  * first game action (the shuffle, the deal, or play before any move after them) the game is cancelled instead.
  */
@@ -192,8 +201,7 @@ export function GameScreen(props: { rootId: string }) {
       )}
       {cheats.length > 0 && (
         <p class="warning" role="alert">
-          {cheats.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ')}{' '}
-          {cheats.length === 1 ? 'has' : 'have'} signed two rival moves for the same turn.
+          {equivocationWarning(cheats.map((seat) => names[seat] ?? `Seat ${seat + 1}`))}
         </p>
       )}
       {timedOut.length > 0 && (
@@ -218,6 +226,7 @@ export function GameScreen(props: { rootId: string }) {
         deadline={view.phase === 'play' ? formatDeadline(deadlineLeft) : undefined}
         onClaimTimeout={claim?.onClaim}
         timeoutExplanation={claim?.explanation}
+        ended={view.phase !== 'play'}
       />
     </>
   );

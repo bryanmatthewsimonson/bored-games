@@ -24,7 +24,7 @@ const drawn: HandTile = {
   preview: 'New tile, being revealed',
 };
 
-function render(tiles: readonly HandTile[]) {
+function render(tiles: readonly HandTile[], revealing = true) {
   return renderTree(
     h(Hand, {
       tiles,
@@ -34,6 +34,7 @@ function render(tiles: readonly HandTile[]) {
       disabled: false,
       onSelect: () => {},
       onPreview: () => {},
+      revealing,
     }),
   );
 }
@@ -57,10 +58,24 @@ describe('Hand', () => {
     const notes = findAll(tree, (el) => el.attrs.role === 'status');
     expect(notes).toHaveLength(1);
     expect(textOf(notes)).toBe(
-      'Your new tile is being revealed. It shows once every other player’s browser has sent its part, ' +
-        'usually within seconds while they have the game open.',
+      'Your new tile is being revealed. It shows once every other player’s browser has sent its part: within ' +
+        'seconds while they have the game open and in view, later if their tab is in the background or closed.',
     );
     expect(textOf(tree)).not.toContain('?');
+  });
+
+  it('shows a plain "?" with no note once the game has ended without the reveal (a timeout)', () => {
+    const tree = render([known, drawn], false);
+    const [unknown, ...rest] = findAll(tree, (el) => classOf(el).includes('cr-tile-unknown'));
+    expect(rest).toEqual([]);
+    expect(unknown?.attrs['aria-label']).toBe('Tile not revealed');
+    expect(unknown?.attrs.title).toBeUndefined();
+    expect(findAll([unknown as never], (el) => classOf(el).includes('cr-tile-id'))[0]?.children).toEqual([
+      '?',
+    ]);
+    expect(findAll([unknown as never], (el) => classOf(el).includes('cr-tile-badge'))).toEqual([]);
+    expect(findAll(tree, (el) => el.attrs.role === 'status')).toEqual([]);
+    expect(textOf(tree)).not.toContain('being revealed');
   });
 
   it('has no status note when every tile is known', () => {

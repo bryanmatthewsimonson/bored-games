@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
 import { MAX_PROFILE_NAME, profileName } from '../src/game-controller.ts';
 import {
+  equivocationWarning,
   equivocatorsOf,
   formatDeadline,
   playerNames,
@@ -35,6 +36,17 @@ describe('game screen helpers', () => {
     expect(equivocatorsOf(null)).toEqual([]);
     expect(equivocatorsOf({ phase: 'play' } as never)).toEqual([]);
     expect(equivocatorsOf({ equivocators: [2, 'x'] } as never)).toEqual([2]);
+  });
+
+  it('warns that a flagged seat is ranked last and that a tile dealt then may be known (D039)', () => {
+    expect(equivocationWarning(['Ann (npub1aaa…)'])).toBe(
+      'Ann (npub1aaa…) signed two different moves for the same turn and will be ranked last. A tile dealt ' +
+        'around then may be known to other players.',
+    );
+    expect(equivocationWarning(['Ann', 'Seat 3'])).toBe(
+      'Ann, Seat 3 signed two different moves for the same turn and will be ranked last. Tiles dealt around ' +
+        'then may be known to other players.',
+    );
   });
 
   it('explains what a timeout claim does: cancel before the first action, forfeit after', () => {
