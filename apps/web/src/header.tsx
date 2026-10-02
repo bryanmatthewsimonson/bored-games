@@ -8,7 +8,7 @@ import { DEFAULT_PROFILE } from './identity.ts';
 import { useProfile } from './profiles.ts';
 import { homeHref, route, rulesHref } from './router.ts';
 
-export function CopyButton(props: { text: string; label: string }) {
+export function CopyButton(props: { text: string; label: string; onCopied?: () => void }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const reset = () => setState('idle');
   return (
@@ -16,7 +16,11 @@ export function CopyButton(props: { text: string; label: string }) {
       <button
         type="button"
         class="btn btn-small"
-        onClick={async () => setState((await copyText(props.text)) ? 'copied' : 'failed')}
+        onClick={async () => {
+          const ok = await copyText(props.text);
+          setState(ok ? 'copied' : 'failed');
+          if (ok) props.onCopied?.();
+        }}
         onBlur={reset}
         onMouseLeave={reset}
       >

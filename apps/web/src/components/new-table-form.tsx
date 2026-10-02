@@ -5,10 +5,11 @@ import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
 import { rulesHref, tableHref } from '../router.ts';
+import { requestPersistenceOnce, storageManager } from '../storage.ts';
 
 /** The New table form: seats, deadline, invited players and the computed open seats. */
 export function NewTableForm() {
-  const { deps, signer } = useApp();
+  const { deps, signer, profile, store } = useApp();
   const lobby = useLobby();
   const game = [...deps.modules.keys()][0] ?? '';
   const module = deps.modules.get(game);
@@ -29,6 +30,7 @@ export function NewTableForm() {
   const submit = async (e: Event) => {
     e.preventDefault();
     if (!check.ok || busy || module === undefined) return;
+    requestPersistenceOnce(profile, store, storageManager());
     setBusy(true);
     setError('');
     try {

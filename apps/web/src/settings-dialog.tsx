@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { npubEncode } from './bech32.ts';
 import { useApp } from './context.ts';
 import { CopyButton } from './header.tsx';
-import { exportNsec, writeSignerChoice } from './identity.ts';
+import { exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
 import { parseRelayInput } from './settings.ts';
+import { KeyImport, StorageStatus } from './settings-key.tsx';
 import { ProfileSection } from './settings-profile.tsx';
 
 function RelaySection() {
@@ -106,7 +107,7 @@ function RelaySection() {
 }
 
 function IdentitySection() {
-  const { profile, store, signer, nostr } = useApp();
+  const { profile, store, signer, nostr, persistent } = useApp();
   const [reveal, setReveal] = useState(false);
   const npub = npubEncode(signer.pubkey);
   const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
@@ -171,7 +172,11 @@ function IdentitySection() {
                   autocomplete="off"
                   spellcheck={false}
                 />
-                <CopyButton text={nsec} label="Copy nsec" />
+                <CopyButton
+                  text={nsec}
+                  label="Copy nsec"
+                  onCopied={() => markBackedUp(profile, store, signer.pubkey)}
+                />
                 <button type="button" class="btn btn-small" onClick={() => setReveal(false)}>
                   Hide
                 </button>
@@ -180,6 +185,8 @@ function IdentitySection() {
           )}
         </>
       )}
+      {signer.kind === 'local' && persistent && <StorageStatus />}
+      <KeyImport />
     </section>
   );
 }

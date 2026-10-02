@@ -9,16 +9,52 @@ import { Avatar } from '../components/avatar.tsx';
 import { NewTableForm } from '../components/new-table-form.tsx';
 import { TableCard } from '../components/table-card.tsx';
 import { useApp } from '../context.ts';
+import { backupReminderVisible, markBackedUp } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
 import { profileNudgeVisible } from '../profile-model.ts';
 import { useProfile } from '../profiles.ts';
 import { gameHref, tableHref } from '../router.ts';
-import { readItem, storageKey, writeItem } from '../storage.ts';
+import { readItem, requestPersistenceOnce, storageKey, storageManager, writeItem } from '../storage.ts';
 
 /** Storage name of the dismissed profile nudge. */
 export const NUDGE_DISMISSED = 'nudge-profile';
+
+/** "Back up your key", for a local key with a table, until the nsec is copied or the player says it is saved. */
+function BackupReminder() {
+  const { signer, store, profile, settingsOpen } = useApp();
+  const lobby = useLobby();
+  const [, setSaved] = useState(false);
+  // Read so that a new table, or closing Settings after copying the key, renders this again.
+  void lobby.myTables.value;
+  void settingsOpen.value;
+  if (!backupReminderVisible(profile, store, signer)) return null;
+  return (
+    <section class="panel warning backup" aria-labelledby="backup-h">
+      <h2 id="backup-h">Back up your key</h2>
+      <p>
+        Your seats belong to a secret key kept only in this browser. If this site's data is cleared, or you
+        move to another device, you need the key to play your games. Copy it from Settings and keep it
+        somewhere safe, such as a password manager.
+      </p>
+      <div class="row">
+        <button type="button" class="btn btn-primary" onClick={() => (settingsOpen.value = true)}>
+          Open Settings to copy it
+        </button>
+        <label class="check">
+          <input
+            type="checkbox"
+            onChange={(e) => {
+              if (e.currentTarget.checked && markBackedUp(profile, store, signer.pubkey)) setSaved(true);
+            }}
+          />
+          I've saved it
+        </label>
+      </div>
+    </section>
+  );
+}
 
 /** "Add your name and picture", once the player's profile has loaded without a name. */
 function ProfileNudge() {
@@ -102,12 +138,14 @@ function MyTables(props: { tables: readonly MyTable[] }) {
 }
 
 function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
+  const { profile, store } = useApp();
   const lobby = useLobby();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ address: string; message: string } | null>(null);
 
   const join = async (t: TableEntry) => {
     if (busy !== null) return;
+    requestPersistenceOnce(profile, store, storageManager());
     setBusy(t.address);
     setError(null);
     try {
@@ -193,6 +231,7 @@ export function HomeScreen() {
         <p class="muted">{BRAND.tagline}</p>
       </section>
 
+      <BackupReminder />
       <ProfileNudge />
 
       <div class={mine.length > 0 ? 'home-grid lists-first' : 'home-grid'}>

@@ -7,10 +7,19 @@ import {
   type NostrEvent,
   verifyEvent,
 } from '@bored-games/protocol';
-import { nsecEncode } from './bech32.ts';
+import { decodeNostrKey, nsecEncode } from './bech32.ts';
 import { bytesToHex, hexToBytes } from './hex.ts';
 import type { RandomBytes } from './random.ts';
-import { isPersistentStore, type KeyValueStore, readItem, storageKey, writeItem } from './storage.ts';
+import {
+  isPersistentStore,
+  type KeyValueStore,
+  loadGameStatus,
+  loadSecrets,
+  loadTableList,
+  readItem,
+  storageKey,
+  writeItem,
+} from './storage.ts';
 
 export type SignerKind = 'nip07' | 'local';
 
@@ -172,4 +181,109 @@ export async function waitForNostr(
 export function exportNsec(profile: string, store: KeyValueStore): string | null {
   const hex = readItem(store, storageKey(profile, 'sk'));
   return validSecretKey(hex) === null || hex === null ? null : nsecEncode(hex);
+}
+
+/* Key import and backup (D041). */
+
+export type KeyInput = { ok: true; hex: string } | { ok: false; error: string };
+
+export const KEY_ERRORS = {
+  empty: 'Paste a secret key: it starts with nsec1.',
+  npub: 'That is a public key (npub), which anyone can see. Paste the secret key instead: it starts with nsec1.',
+  malformed: 'That is not a secret key. Paste a key that starts with nsec1, or 64 hexadecimal characters.',
+  invalid: 'That secret key is not valid.',
+  same: 'This profile already uses that key.',
+  notSaved: 'This browser would not save the key, so it was not imported.',
+} as const;
+
+/** A pasted secret key: `nsec1…` or 64 hex characters. An npub is refused with its own message. */
+export function parseSecretKeyInput(text: string): KeyInput {
+  const t = text.trim();
+  if (t === '') return { ok: false, error: KEY_ERRORS.empty };
+  const d = decodeNostrKey(t);
+  if (d?.type === 'npub') return { ok: false, error: KEY_ERRORS.npub };
+  const hex = d?.type === 'nsec' ? d.hex : /^[0-9a-fA-F]{64}$/.test(t) ? t.toLowerCase() : null;
+  if (hex === null) return { ok: false, error: KEY_ERRORS.malformed };
+  if (validSecretKey(hex) === null) return { ok: false, error: KEY_ERRORS.invalid };
+  return { ok: true, hex };
+}
+
+export type ImportResult = { ok: true; pubkey: Hex } | { ok: false; error: string };
+
+/**
+ * Make a pasted secret key this profile's key. The current local key is kept as `bg:<profile>:sk-previous` so
+ * the player can switch back, and the profile signs with the local key from now on (not the extension). The
+ * page must reload afterwards.
+ */
+export function importSecretKey(profile: string, store: KeyValueStore, text: string): ImportResult {
+  const input = parseSecretKeyInput(text);
+  if (!input.ok) return input;
+  const skKey = storageKey(profile, 'sk');
+  const current = readItem(store, skKey);
+  if (current === input.hex && readSignerChoice(profile, store) === 'local')
+    return { ok: false, error: KEY_ERRORS.same };
+  if (current !== input.hex && validSecretKey(current) !== null && current !== null)
+    if (!writeItem(store, storageKey(profile, 'sk-previous'), current))
+      return { ok: false, error: KEY_ERRORS.notSaved };
+  if (!writeItem(store, skKey, input.hex) || readItem(store, skKey) !== input.hex)
+    return { ok: false, error: KEY_ERRORS.notSaved };
+  writeSignerChoice(profile, store, 'local');
+  return { ok: true, pubkey: getPublicKey(hexToBytes(input.hex)) };
+}
+
+/** The public key of the key kept by the last import, or null. */
+export function previousKey(profile: string, store: KeyValueStore): Hex | null {
+  const sk = validSecretKey(readItem(store, storageKey(profile, 'sk-previous')));
+  return sk === null ? null : getPublicKey(sk);
+}
+
+/** Swap back to the key kept by the last import (the imported key becomes the previous one). */
+export function restorePreviousKey(profile: string, store: KeyValueStore): boolean {
+  const prevKey = storageKey(profile, 'sk-previous');
+  const skKey = storageKey(profile, 'sk');
+  const prev = readItem(store, prevKey);
+  const current = readItem(store, skKey);
+  if (prev === null || validSecretKey(prev) === null) return false;
+  if (!writeItem(store, skKey, prev)) return false;
+  if (current !== null && validSecretKey(current) !== null) writeItem(store, prevKey, current);
+  writeSignerChoice(profile, store, 'local');
+  return readItem(store, skKey) === prev;
+}
+
+/**
+ * How many of this profile's tables are still going (not done or cancelled, as far as the saved statuses
+ * say): their seats belong to the current key and stay with it when another key is imported.
+ */
+export function gamesInProgress(profile: string, store: KeyValueStore): number {
+  let n = 0;
+  for (const address of loadTableList(profile, store)) {
+    const rootId = loadSecrets(profile, store, address)?.rootId;
+    const status = rootId === undefined ? null : loadGameStatus(profile, store, rootId)?.status;
+    if (status !== 'done' && status !== 'cancelled') n++;
+  }
+  return n;
+}
+
+const backupKey = (profile: string): string => storageKey(profile, 'backup');
+
+/** Record that the player saved the secret key of `pubkey` (copied it, or said so). */
+export function markBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
+  return writeItem(store, backupKey(profile), pubkey);
+}
+
+export function isBackedUp(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
+  return readItem(store, backupKey(profile)) === pubkey;
+}
+
+/** The Home backup reminder: a local key with at least one table, until the key is backed up. */
+export function backupReminderVisible(
+  profile: string,
+  store: KeyValueStore,
+  signer: { kind: SignerKind; pubkey: Hex },
+): boolean {
+  return (
+    signer.kind === 'local' &&
+    loadTableList(profile, store).length > 0 &&
+    !isBackedUp(profile, store, signer.pubkey)
+  );
 }

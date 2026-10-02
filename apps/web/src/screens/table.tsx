@@ -27,6 +27,7 @@ import {
   tableChip,
 } from '../lobby-model.ts';
 import { gameHref, homeHref } from '../router.ts';
+import { requestPersistenceOnce, storageManager } from '../storage.ts';
 
 const KIND_LABEL = { creator: 'Creator', invited: 'Invited', open: 'Open seat' } as const;
 
@@ -91,7 +92,7 @@ function Picker(props: {
 }
 
 export function TableScreen(props: { creator: string; tableId: string }) {
-  const { deps, signer } = useApp();
+  const { deps, signer, profile, store } = useApp();
   const lobby = useLobby();
   const me = signer.pubkey;
   const address = `37450:${props.creator}:${props.tableId}`;
@@ -163,7 +164,10 @@ export function TableScreen(props: { creator: string; tableId: string }) {
     }
   };
 
-  const join = () => run(() => lobby.join(address), 'Could not join this table.');
+  const join = () => {
+    requestPersistenceOnce(profile, store, storageManager());
+    return run(() => lobby.join(address), 'Could not join this table.');
+  };
   const start = () =>
     run(async () => {
       const seats = picker ? seatListFor(view, chosen) : null;

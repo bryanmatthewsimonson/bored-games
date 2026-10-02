@@ -202,3 +202,57 @@ export function loadGameStatus(
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
   return { status: status as GameStatusName, seq, updatedAt };
 }
+
+/* Persistent storage (D041): ask the browser not to evict this site's data under storage pressure. */
+
+export type PersistState = 'persisted' | 'best-effort' | 'unsupported';
+
+/** The part of `navigator.storage` used here. */
+export interface StorageManagerLike {
+  persisted(): Promise<boolean>;
+  persist(): Promise<boolean>;
+}
+
+export function storageManager(): StorageManagerLike | null {
+  const m = (globalThis as { navigator?: { storage?: Partial<StorageManagerLike> } }).navigator?.storage;
+  return typeof m?.persist === 'function' && typeof m.persisted === 'function'
+    ? (m as StorageManagerLike)
+    : null;
+}
+
+export async function persistState(m: StorageManagerLike | null): Promise<PersistState> {
+  if (m === null) return 'unsupported';
+  try {
+    return (await m.persisted()) ? 'persisted' : 'best-effort';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/** Ask the browser to keep this site's data. Call it inside a click: Firefox shows a prompt. */
+export async function requestPersistence(m: StorageManagerLike | null): Promise<PersistState> {
+  if (m === null) return 'unsupported';
+  try {
+    return (await m.persist()) ? 'persisted' : 'best-effort';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+const persistAskedKey = (profile: string): string => storageKey(profile, 'persist-asked');
+
+/**
+ * On the first table created or joined, ask the browser to keep this site's data. Never on page load: some
+ * browsers prompt. Later calls do nothing (Settings can ask again). Call it inside the click handler, before
+ * any await.
+ */
+export function requestPersistenceOnce(
+  profile: string,
+  store: KeyValueStore,
+  m: StorageManagerLike | null,
+): boolean {
+  if (m === null || readItem(store, persistAskedKey(profile)) !== null) return false;
+  writeItem(store, persistAskedKey(profile), '1');
+  void requestPersistence(m);
+  return true;
+}

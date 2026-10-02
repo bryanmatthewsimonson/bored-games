@@ -962,3 +962,53 @@ textarea.prose {
 .identity .player-name {
   max-width: 12em;
 }
+
+.backup h2 {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+}
+
+.backup p {
+  margin: 0;
+}
+
+.backup .row {
+  margin-bottom: 0;
+}
+
+.storage-status {
+  font-size: 0.9rem;
+}
+
+.key-import {
+  margin-top: 12px;
+}
+
+.key-import .npub {
+  white-space: nowrap;
+}
+
+.key-import summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.key-import form {
+  margin-top: 8px;
+}
+
+.key-import .field > span {
+  font-weight: 600;
+}
+
+.key-import input[type="password"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  font: inherit;
+  font-family: var(--mono);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}

@@ -8,6 +8,9 @@ import {
   loadSecrets,
   loadTableList,
   memoryStorage,
+  persistState,
+  requestPersistence,
+  requestPersistenceOnce,
   saveGameStatus,
   saveRootId,
   saveSecrets,
@@ -138,5 +141,42 @@ describe('game status cache', () => {
       store.setItem(key, bad);
       expect(loadGameStatus('alice', store, ROOT)).toBeNull();
     }
+  });
+});
+
+describe('persistent storage (D041)', () => {
+  const manager = (granted: boolean) => {
+    const calls: string[] = [];
+    return {
+      calls,
+      m: {
+        persisted: async () => {
+          calls.push('persisted');
+          return granted;
+        },
+        persist: async () => {
+          calls.push('persist');
+          return granted;
+        },
+      },
+    };
+  };
+
+  it('reports the state, and unsupported without a storage manager', async () => {
+    expect(await persistState(manager(true).m)).toBe('persisted');
+    expect(await persistState(manager(false).m)).toBe('best-effort');
+    expect(await persistState(null)).toBe('unsupported');
+    expect(await requestPersistence(manager(true).m)).toBe('persisted');
+    expect(await requestPersistence(null)).toBe('unsupported');
+  });
+
+  it('asks once per profile', () => {
+    const store = memoryStorage();
+    const { m, calls } = manager(false);
+    expect(requestPersistenceOnce('p', store, m)).toBe(true);
+    expect(requestPersistenceOnce('p', store, m)).toBe(false);
+    expect(calls).toEqual(['persist']);
+    expect(requestPersistenceOnce('q', store, m)).toBe(true);
+    expect(requestPersistenceOnce('r', store, null)).toBe(false);
   });
 });

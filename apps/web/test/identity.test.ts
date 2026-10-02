@@ -1,19 +1,34 @@
 import { finalizeEvent, getPublicKey, verifyEvent } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
-import { decodeNostrKey } from '../src/bech32.ts';
+import { decodeNostrKey, npubEncode, nsecEncode } from '../src/bech32.ts';
 import { hexToBytes } from '../src/hex.ts';
 import {
+  backupReminderVisible,
   exportNsec,
+  gamesInProgress,
+  importSecretKey,
   invalidProfileName,
+  isBackedUp,
+  KEY_ERRORS,
   loadIdentity,
+  markBackedUp,
   type Nip07,
+  parseSecretKeyInput,
+  previousKey,
   profileFromLocation,
   readSignerChoice,
+  restorePreviousKey,
   waitForNostr,
   writeSignerChoice,
 } from '../src/identity.ts';
 import type { RandomBytes } from '../src/random.ts';
-import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
+import {
+  addToTableList,
+  type KeyValueStore,
+  memoryStorage,
+  saveGameStatus,
+  saveSecrets,
+} from '../src/storage.ts';
 
 /** Deterministic counter-based bytes, never zero in the first byte. */
 function seeded(start = 1): RandomBytes {
@@ -258,5 +273,83 @@ describe('persistence and profile notices', () => {
     expect(invalidProfileName({ search: '?profile=' })).toBe('');
     expect(invalidProfileName({ search: '?profile=bob' })).toBeNull();
     expect(invalidProfileName({ search: '' })).toBeNull();
+  });
+});
+
+describe('key import (D041)', () => {
+  const SK_A = '11'.repeat(32);
+  const SK_B = '22'.repeat(32);
+  const PK_B = getPublicKey(hexToBytes(SK_B));
+
+  it('parses an nsec or 64 hex characters, and refuses an npub with its own message', () => {
+    expect(parseSecretKeyInput(` ${nsecEncode(SK_B)} `)).toEqual({ ok: true, hex: SK_B });
+    expect(parseSecretKeyInput(SK_B.toUpperCase())).toEqual({ ok: true, hex: SK_B });
+    expect(parseSecretKeyInput(npubEncode(PK_B))).toEqual({ ok: false, error: KEY_ERRORS.npub });
+    expect(parseSecretKeyInput('')).toEqual({ ok: false, error: KEY_ERRORS.empty });
+    expect(parseSecretKeyInput('nsec1nope')).toEqual({ ok: false, error: KEY_ERRORS.malformed });
+    expect(parseSecretKeyInput('0'.repeat(64))).toEqual({ ok: false, error: KEY_ERRORS.invalid });
+    expect(parseSecretKeyInput('f'.repeat(64))).toEqual({ ok: false, error: KEY_ERRORS.invalid });
+  });
+
+  it('imports, keeps the old key as sk-previous, switches to the local signer, and switches back', async () => {
+    const store = memoryStorage();
+    store.setItem('bg:p:sk', SK_A);
+    writeSignerChoice('p', store, 'nip07');
+    expect(previousKey('p', store)).toBeNull();
+    expect(importSecretKey('p', store, nsecEncode(SK_B))).toEqual({ ok: true, pubkey: PK_B });
+    expect(store.getItem('bg:p:sk')).toBe(SK_B);
+    expect(store.getItem('bg:p:sk-previous')).toBe(SK_A);
+    expect(readSignerChoice('p', store)).toBe('local');
+    expect(previousKey('p', store)).toBe(getPublicKey(hexToBytes(SK_A)));
+    expect((await loadIdentity('p', store, seeded())).pubkey).toBe(PK_B);
+    expect(importSecretKey('p', store, SK_B)).toEqual({ ok: false, error: KEY_ERRORS.same });
+
+    expect(restorePreviousKey('p', store)).toBe(true);
+    expect(store.getItem('bg:p:sk')).toBe(SK_A);
+    expect(store.getItem('bg:p:sk-previous')).toBe(SK_B);
+    expect((await loadIdentity('p', store, seeded())).pubkey).toBe(getPublicKey(hexToBytes(SK_A)));
+  });
+
+  it('works without a previous key, and refuses to switch back to nothing', () => {
+    const store = memoryStorage();
+    expect(importSecretKey('p', store, SK_B).ok).toBe(true);
+    expect(store.getItem('bg:p:sk-previous')).toBeNull();
+    expect(restorePreviousKey('p', store)).toBe(false);
+    expect(importSecretKey('p', store, npubEncode(PK_B))).toEqual({ ok: false, error: KEY_ERRORS.npub });
+    expect(store.getItem('bg:p:sk')).toBe(SK_B);
+  });
+
+  it('counts the games still bound to the current key', () => {
+    const store = memoryStorage();
+    const secrets = (rootId?: string) => ({
+      sessionSk: new Uint8Array(32).fill(1),
+      deckSecret: new Uint8Array(32).fill(2),
+      ...(rootId === undefined ? {} : { rootId }),
+    });
+    expect(gamesInProgress('p', store)).toBe(0);
+    const tables = ['37450:a:1', '37450:a:2', '37450:a:3', '37450:a:4'];
+    for (const t of tables) addToTableList('p', store, t);
+    saveSecrets('p', store, tables[1] as string, secrets('aa'.repeat(32)));
+    saveSecrets('p', store, tables[2] as string, secrets('bb'.repeat(32)));
+    saveSecrets('p', store, tables[3] as string, secrets('cc'.repeat(32)));
+    saveGameStatus('p', store, 'bb'.repeat(32), { status: 'done', seq: 9, updatedAt: 1 });
+    saveGameStatus('p', store, 'cc'.repeat(32), { status: 'your-turn', seq: 3, updatedAt: 1 });
+    // Table 1 is still in its lobby, 2 has no saved status, 3 is over, 4 is going.
+    expect(gamesInProgress('p', store)).toBe(3);
+    expect(gamesInProgress('q', store)).toBe(0);
+  });
+
+  it('reminds a local key with a table to back up, until it is marked saved for that key', () => {
+    const store = memoryStorage();
+    const me = { kind: 'local' as const, pubkey: PK_B };
+    expect(backupReminderVisible('p', store, me)).toBe(false);
+    addToTableList('p', store, '37450:a:1');
+    expect(backupReminderVisible('p', store, me)).toBe(true);
+    expect(backupReminderVisible('p', store, { ...me, kind: 'nip07' })).toBe(false);
+    expect(markBackedUp('p', store, PK_B)).toBe(true);
+    expect(isBackedUp('p', store, PK_B)).toBe(true);
+    expect(backupReminderVisible('p', store, me)).toBe(false);
+    // Another key (after an import) needs its own backup.
+    expect(backupReminderVisible('p', store, { kind: 'local', pubkey: 'ab'.repeat(32) })).toBe(true);
   });
 });
