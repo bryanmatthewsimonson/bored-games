@@ -2,7 +2,7 @@
  * pnpm --filter @bored-games/deck vectors
  *
  * Writes test/vectors/sealed-v1.json: sealed shares and transferable openings (docs/proposals/prompt-reveal.md
- * §7) on a 3-seat, 5-card deck from a fixed seed, wire-encoded. Secrets are included on purpose: these are test
+ * §7, round 2: hedged nonces, openings bound to the ciphertext and the sealed proof) on a 3-seat, 5-card deck from a fixed seed, wire-encoded. Secrets are included on purpose: these are test
  * vectors. `test/sealed-vectors.test.ts` checks that regenerating gives the file byte for byte, and verifies every
  * proof and every decryption from the JSON alone. Reference only: the session does not use sealed shares yet.
  *
@@ -32,7 +32,7 @@ import {
   initialDeck,
   jointKey,
   makeShare,
-  openSealedShare,
+  openAndVerify,
   ownShare,
   type Point,
   proveOpening,
@@ -73,8 +73,8 @@ export function generateSealedVectors(): unknown {
     { from: 2, to: 1 },
   ].map(({ from, to }) => {
     const sealed = sealShare(sk(from), vct, pk(to), ctxOf(vp), rnd);
-    const opened = openSealedShare(sk(to), sealed);
-    const opening = proveOpening(sk(to), pk(from), sealed, ctxOf(vp), rnd);
+    const opened = openAndVerify(sk(to), pk(from), vct, sealed, ctxOf(vp)) as Point;
+    const opening = proveOpening(sk(to), pk(from), vct, sealed, ctxOf(vp), rnd);
     return { from, to, sealed, opened, opening };
   });
   const viewerCards = [1, 2].map((v) => {
@@ -88,10 +88,12 @@ export function generateSealedVectors(): unknown {
   const sct = deck[sp] as Ciphertext;
   const publicShares = [1, 2].map((k) => ({ seat: k, share: makeShare(sk(k), sct, ctxOf(sp), rnd) }));
   const shown = sealShare(sk(0), sct, pk(1), ctxOf(sp), rnd);
-  const shownD = openSealedShare(sk(1), shown);
+  const shownD = openAndVerify(sk(1), pk(0), sct, shown, ctxOf(sp)) as Point;
   const seat2 = publicShares[1]?.share.D as Point;
   const shownCard = cardOf(table, combine(sct, [shownD, seat2, ownShare(sk(1), sct)]));
 
+  if (sealedV.some((x) => x.opened === null) || shownD === null)
+    throw new Error('vectors: a sealed share does not open');
   if (viewerCards.some((m) => m === null) || shownCard === null)
     throw new Error('vectors: a flow does not decrypt to a card');
 

@@ -29,7 +29,7 @@ export { type PokProof, provePok, verifyPok } from './pok.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
 // Sealed shares: reference implementation, not used by the session or the protocol yet (D055).
 export {
-  openSealedShare,
+  openAndVerify,
   proveOpening,
   type SealedOpening,
   type SealedShare,

@@ -6,6 +6,7 @@ import { b64u, decodePoint, encodePoint, type Point } from '../src/encoding.ts';
 import { G, q } from '../src/group.ts';
 import { randomScalar } from '../src/random.ts';
 import {
+  openAndVerify,
   openSealedShare,
   proveOpening,
   type SealedOpening,
@@ -185,27 +186,27 @@ describe('sealed shares: tampering and misbinding are rejected', () => {
 });
 
 describe('transferable opening', () => {
-  const opening = proveOpening(xT, Xk, sealed, ctx, rnd);
+  const opening = proveOpening(xT, Xk, ct, sealed, ctx, rnd);
 
   it('lets anyone read the opened share without the recipient’s secret', () => {
-    const D = verifyOpening(Xk, XT, sealed, opening, ctx);
+    const D = verifyOpening(Xk, XT, ct, sealed, opening, ctx);
     expect(D?.equals(ct.a.multiply(xk))).toBe(true);
   });
 
   it('rejects every tampered field and every misbinding', () => {
     const cases: Record<string, () => Point | null> = {
-      'E + G': () => verifyOpening(Xk, XT, sealed, { ...opening, E: opening.E.add(G) }, ctx),
-      'c + 1': () => verifyOpening(Xk, XT, sealed, { ...opening, c: (opening.c + 1n) % q }, ctx),
-      's + 1': () => verifyOpening(Xk, XT, sealed, { ...opening, s: (opening.s + 1n) % q }, ctx),
-      'wrong recipient': () => verifyOpening(Xk, keys[0] as Point, sealed, opening, ctx),
-      'wrong sender': () => verifyOpening(keys[0] as Point, XT, sealed, opening, ctx),
-      'B + G': () => verifyOpening(Xk, XT, { ...sealed, B: sealed.B.add(G) }, opening, ctx),
-      'A + G': () => verifyOpening(Xk, XT, { ...sealed, A: sealed.A.add(G) }, opening, ctx),
-      pos: () => verifyOpening(Xk, XT, sealed, opening, { ...ctx, pos: 8 }),
-      deck: () => verifyOpening(Xk, XT, sealed, opening, { ...ctx, deckId: 'tiles' }),
-      root: () => verifyOpening(Xk, XT, sealed, opening, { ...ctx, rootId: 'root-2' }),
-      'c = q': () => verifyOpening(Xk, XT, sealed, { ...opening, c: q }, ctx),
-      'E identity': () => verifyOpening(Xk, XT, sealed, { ...opening, E: G.subtract(G) }, ctx),
+      'E + G': () => verifyOpening(Xk, XT, ct, sealed, { ...opening, E: opening.E.add(G) }, ctx),
+      'c + 1': () => verifyOpening(Xk, XT, ct, sealed, { ...opening, c: (opening.c + 1n) % q }, ctx),
+      's + 1': () => verifyOpening(Xk, XT, ct, sealed, { ...opening, s: (opening.s + 1n) % q }, ctx),
+      'wrong recipient': () => verifyOpening(Xk, keys[0] as Point, ct, sealed, opening, ctx),
+      'wrong sender': () => verifyOpening(keys[0] as Point, XT, ct, sealed, opening, ctx),
+      'B + G': () => verifyOpening(Xk, XT, ct, { ...sealed, B: sealed.B.add(G) }, opening, ctx),
+      'A + G': () => verifyOpening(Xk, XT, ct, { ...sealed, A: sealed.A.add(G) }, opening, ctx),
+      pos: () => verifyOpening(Xk, XT, ct, sealed, opening, { ...ctx, pos: 8 }),
+      deck: () => verifyOpening(Xk, XT, ct, sealed, opening, { ...ctx, deckId: 'tiles' }),
+      root: () => verifyOpening(Xk, XT, ct, sealed, opening, { ...ctx, rootId: 'root-2' }),
+      'c = q': () => verifyOpening(Xk, XT, ct, sealed, { ...opening, c: q }, ctx),
+      'E identity': () => verifyOpening(Xk, XT, ct, sealed, { ...opening, E: G.subtract(G) }, ctx),
     };
     for (const [name, run] of Object.entries(cases)) expect(run(), name).toBe(null);
   });
@@ -214,7 +215,7 @@ describe('transferable opening', () => {
     // The DLEQ of an ordinary share proves log_G X_T = log_A E under the "dleq" label; it fails as an opening.
     const share = makeShare(xT, { a: sealed.A, b: sealed.B }, ctx, rnd);
     const asOpening: SealedOpening = { E: share.D, c: share.c, s: share.s };
-    expect(verifyOpening(Xk, XT, sealed, asOpening, ctx)).toBe(null);
+    expect(verifyOpening(Xk, XT, ct, sealed, asOpening, ctx)).toBe(null);
   });
 });
 
@@ -228,11 +229,11 @@ describe('sealed share codecs', () => {
     expect(back.sealed.A.equals(sealed.A) && back.sealed.B.equals(sealed.B)).toBe(true);
     expect([back.sealed.c, back.sealed.s1, back.sealed.s2]).toEqual([sealed.c, sealed.s1, sealed.s2]);
     expect(verifySealedShare(Xk, ct, XT, back.sealed, ctx)).toBe(true);
-    const ow = encodeSealedOpening({ pos: 7, from: 1, opening: proveOpening(xT, Xk, sealed, ctx, rnd) });
+    const ow = encodeSealedOpening({ pos: 7, from: 1, opening: proveOpening(xT, Xk, ct, sealed, ctx, rnd) });
     const ob = decodeSealedOpening(JSON.parse(JSON.stringify(ow)));
     expect(ob.pos).toBe(7);
     expect(ob.from).toBe(1);
-    expect(verifyOpening(Xk, XT, sealed, ob.opening, ctx)?.equals(ct.a.multiply(xk))).toBe(true);
+    expect(verifyOpening(Xk, XT, ct, sealed, ob.opening, ctx)?.equals(ct.a.multiply(xk))).toBe(true);
   });
 
   it('accepts exactly one shape', () => {
@@ -263,5 +264,73 @@ describe('sealed share codecs', () => {
   it('points on the wire are the package’s canonical encodings', () => {
     expect(decodePoint(wire.a).equals(sealed.A)).toBe(true);
     expect(wire.b).toBe(encodePoint(sealed.B));
+  });
+});
+
+describe('round 2: openAndVerify, the guarded opening and hedged nonces', () => {
+  it('openAndVerify opens a verified share and returns null for anything else', () => {
+    expect(openAndVerify(xT, Xk, ct, sealed, ctx)?.equals(ct.a.multiply(xk))).toBe(true);
+    const bad: Record<string, Point | null> = {
+      'wrong recipient secret': openAndVerify(secrets[0] as bigint, Xk, ct, sealed, ctx),
+      'the sender opening its own': openAndVerify(xk, Xk, ct, sealed, ctx),
+      'wrong sender key': openAndVerify(xT, keys[0] as Point, ct, sealed, ctx),
+      'another ciphertext': openAndVerify(xT, Xk, other, sealed, ctx),
+      'another position': openAndVerify(xT, Xk, ct, sealed, { ...ctx, pos: 8 }),
+      'B + G': openAndVerify(xT, Xk, ct, { ...sealed, B: sealed.B.add(G) }, ctx),
+      's1 + 1': openAndVerify(xT, Xk, ct, { ...sealed, s1: (sealed.s1 + 1n) % q }, ctx),
+      'secret 0': openAndVerify(0n, Xk, ct, sealed, ctx),
+      'secret q': openAndVerify(q, Xk, ct, sealed, ctx),
+    };
+    for (const [name, D] of Object.entries(bad)) expect(D, name).toBe(null);
+  });
+
+  it('proveOpening refuses an unverified share, so it is not a decryption oracle', () => {
+    // A forger hands T a "sealed share" whose A is a deck position's a: opening it would publish x_T·a, T's own
+    // decryption share of that position.
+    const forged: SealedShare = { ...sealed, A: other.a };
+    expect(() => proveOpening(xT, Xk, ct, forged, ctx, rnd)).toThrow(/does not verify/);
+    expect(() => proveOpening(xT, Xk, other, sealed, ctx, rnd)).toThrow(/does not verify/);
+    expect(() => proveOpening(xT, keys[0] as Point, ct, sealed, ctx, rnd)).toThrow(/does not verify/);
+    expect(() => proveOpening(secrets[0] as bigint, Xk, ct, sealed, ctx, rnd)).toThrow(/does not verify/);
+    expect(() => proveOpening(0n, Xk, ct, sealed, ctx, rnd)).toThrow(RangeError);
+  });
+
+  it('an opening is bound to the ciphertext and to the sealed proof it opens', () => {
+    const opening = proveOpening(xT, Xk, ct, sealed, ctx, rnd);
+    // A second sealed share of the same position to the same recipient: same D, other pair, other challenge.
+    const twin = sealShare(xk, ct, XT, ctx, rnd);
+    expect(verifyOpening(Xk, XT, ct, twin, opening, ctx)).toBe(null);
+    // The same pair and proof under another ciphertext no longer verify at all.
+    expect(verifyOpening(Xk, XT, other, sealed, opening, ctx)).toBe(null);
+    expect(verifyOpening(Xk, XT, { a: ct.a, b: ct.b.add(G) }, sealed, opening, ctx)).toBe(null);
+    expect(verifyOpening(Xk, XT, ct, sealed, opening, ctx)?.equals(ct.a.multiply(xk))).toBe(true);
+  });
+
+  it('hedged nonces: a constant random source still gives distinct, valid proofs per statement and secret', () => {
+    const zero = (n: number): Uint8Array => new Uint8Array(n);
+    const a = sealShare(xk, ct, XT, ctx, zero);
+    const b = sealShare(xk, other, XT, { ...ctx, pos: 8 }, zero);
+    const c = sealShare(secrets[0] as bigint, ct, XT, ctx, zero);
+    const d = sealShare(xk, ct, keys[0] as Point, ctx, zero);
+    expect(verifySealedShare(Xk, ct, XT, a, ctx)).toBe(true);
+    expect(verifySealedShare(Xk, other, XT, b, { ...ctx, pos: 8 })).toBe(true);
+    // Same broken source, different statement or secret: different r (A) and different commitments (c).
+    const As = [a, b, c, d].map((x) => x.A.toHex());
+    expect(new Set(As).size).toBe(4);
+    expect(new Set([a, b, c, d].map((x) => x.c)).size).toBe(4);
+    // With a constant source the same statement repeats exactly: no second response under the same nonce.
+    const again = sealShare(xk, ct, XT, ctx, zero);
+    expect(again.c === a.c && again.s1 === a.s1 && again.s2 === a.s2).toBe(true);
+    const o1 = proveOpening(xT, Xk, ct, a, ctx, zero);
+    const o2 = proveOpening(xT, Xk, other, b, { ...ctx, pos: 8 }, zero);
+    expect(o1.c).not.toBe(o2.c);
+    expect(verifyOpening(Xk, XT, ct, a, o1, ctx)?.equals(ct.a.multiply(xk))).toBe(true);
+  });
+
+  it('hedged nonces still use the random source: two draws give different pairs', () => {
+    const x1 = sealShare(xk, ct, XT, ctx, seededRandom('h1'));
+    const x2 = sealShare(xk, ct, XT, ctx, seededRandom('h2'));
+    expect(x1.A.equals(x2.A)).toBe(false);
+    expect(() => sealShare(xk, ct, XT, ctx, () => new Uint8Array(31))).toThrow(/wrong number of bytes/);
   });
 });

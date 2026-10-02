@@ -111,7 +111,31 @@ describe('sealed-share vectors v1', () => {
         const o = decodeSealedOpening(entry.opening);
         expect(o.pos).toBe(pos);
         expect(o.from).toBe(entry.from);
-        expect(verifyOpening(key(entry.from), key(to), sealed, o.opening, ctxOf(pos))?.equals(D)).toBe(true);
+        expect(verifyOpening(key(entry.from), key(to), ct, sealed, o.opening, ctxOf(pos))?.equals(D)).toBe(
+          true,
+        );
+        // The opening's challenge, recomputed: it binds the ciphertext and the sealed proof's challenge too.
+        const oc = (q - o.opening.c) % q;
+        const O1 = msm([G, key(to)], [o.opening.s, oc]);
+        const O2 = msm([sealed.A, o.opening.E], [o.opening.s, oc]);
+        expect(
+          hs(
+            'sealed-open',
+            rootId,
+            deckId,
+            pos,
+            key(entry.from),
+            key(to),
+            ct.a,
+            ct.b,
+            sealed.A,
+            sealed.B,
+            sealed.c,
+            o.opening.E,
+            O1,
+            O2,
+          ),
+        ).toBe(o.opening.c);
       }
       return { to, D };
     };
