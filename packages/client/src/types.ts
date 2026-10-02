@@ -117,7 +117,13 @@ export interface SessionView {
    * `{fail: forfeits, reason: 'resign'}` (D045). A cancelled game stays `pending`.
    */
   audit: SessionAudit;
+  /**
+   * The hash of the canonical chain's move ids. After a Resign that ended the game the attested result covers the
+   * chain only up to the resign's scoring position (PROTOCOL §8.3, D052): see `resultLogHash`.
+   */
   logHash: Hex;
+  /** The log hash the result attests: `logHash`, or after a Resign the chain's up to its scoring position. */
+  resultLogHash: Hex;
   /** The game's move deadline in seconds, from the root. */
   deadline: number;
   /** The seats whose Result attestation matches this session's audit, logHash and outcome, ascending. */

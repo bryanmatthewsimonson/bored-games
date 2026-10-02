@@ -816,6 +816,55 @@ describe('where a resign is scored (D052, fix round 2)', () => {
   );
 
   it(
+    'moves past the scoring position are not progress: they cannot delay a claim for a withheld secret',
+    () => {
+      // As above: p pending at k, q's run, then c moves past the scoring position.
+      const k = findMove((_p, i) => {
+        if (i < 6) return false;
+        const p = signer(i);
+        let m = i;
+        while (m < fx.moves.length && signer(m) === p) m++;
+        let n = m;
+        while (n < fx.moves.length && signer(n) === signer(m)) n++;
+        return n < fx.moves.length - 1 && signer(n) !== p && m > i;
+      });
+      const p = signer(k);
+      let n = k;
+      while (signer(n) === p) n++;
+      const q = signer(n);
+      while (signer(n) === q) n++;
+      const c = signer(n);
+      const w = others([p, q, c])[0] as number;
+      const t1 = NOW + 1000;
+      const events = [
+        ...prefix(n),
+        resignEvent(p, headAfter(k)),
+        ...others([p, w]).map((seat) => secretOf(seat)),
+      ];
+      const claimant = fed(c, events, t1);
+      const observer = fed(null, events, t1);
+      expect(claimant.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + n } });
+      // c's move past S arrives just before the deadline: it links, but is not progress.
+      const past = fx.moves[n] as NostrEvent;
+      deliver([claimant, observer], [past], undefined, t1 + DEADLINE - 10);
+      expect(observer.view()).toMatchObject({ phase: 'end', head: { seq: SEATS + n + 1 } });
+      expect(observer.view().pendingSince).toBe(t1);
+      expect(claimant.timeoutTarget(t1 + DEADLINE)).toBe(w);
+      const claim = claimant.buildTimeout(w, fx.game.rnd, t1 + DEADLINE);
+      expect(observer.receive(claim, t1 + DEADLINE)).toEqual({ status: 'accepted' });
+      expect(observer.view()).toMatchObject({
+        phase: 'done',
+        forfeits: [p, w].sort(),
+        audit: { reason: 'resign; withheld secret' },
+      });
+      // The attested log stops at S; the view's chain hash covers c's move too.
+      expect(observer.view().resultLogHash).not.toBe(observer.view().logHash);
+      expect(observer.view().resultLogHash).toBe(at(n, null).view().logHash);
+    },
+    LONG,
+  );
+
+  it(
     'a stale resign naming an old head does not roll back the resigner’s own later moves',
     () => {
       const k = 30;

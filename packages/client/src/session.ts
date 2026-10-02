@@ -1260,7 +1260,7 @@ export class GameSession {
   private judgeClaim(c: Claim): Claimed {
     const t = c.t;
     if (!this.linked.has(t.headId)) return 'wait';
-    if (t.headId !== this.headId()) return reject('the claim names an old head');
+    if (t.headId !== this.claimHead()) return reject('the claim names an old head');
     const stalled = this.stalled();
     if (stalled.length === 0) return reject('no seat is stalled at the head');
     if (stalled.includes(c.claimant))
@@ -1276,7 +1276,7 @@ export class GameSession {
    */
   private decideTimeouts(): void {
     if (this.timedOut !== null || (this.ended() !== null && !this.awaitingSecrets())) return;
-    const head = this.headId();
+    const head = this.claimHead();
     const ids = this.claimsByHead.get(head);
     if (ids === undefined) return;
     for (const id of [...ids].sort()) {
@@ -2051,13 +2051,28 @@ export class GameSession {
    */
   private progress(): number {
     let out = Math.max(this.rootSeenAt, this.stallProgress);
-    for (const m of this.chain) out = Math.max(out, this.seenOf(m.id));
+    for (const m of this.chain.slice(0, this.scoredLength())) out = Math.max(out, this.seenOf(m.id));
     return out;
+  }
+
+  /**
+   * The chain length that counts for progress and claims: the whole chain, except after a resign that ended the
+   * game, where moves past its scoring position are not scored and so are not progress either (D052): they cannot
+   * delay a claim for a withheld secret.
+   */
+  private scoredLength(): number {
+    const by = this.ended();
+    return by === null || by.cancels ? this.chain.length : this.scorePoint();
+  }
+
+  /** The head a Timeout claim must name: the canonical head, or a resign's scoring position (D052). */
+  private claimHead(): Hex {
+    return this.idAt(this.scoredLength());
   }
 
   /** The head and the seats stalled there, before an event is folded, for `noteProgress`. */
   private stallMark(): { head: Hex; stalled: number[] } {
-    return { head: this.headId(), stalled: this.stalled() };
+    return { head: this.claimHead(), stalled: this.stalled() };
   }
 
   /**
@@ -2065,7 +2080,7 @@ export class GameSession {
    * set at the head, its first-seen time counts toward P (D030 Ruling 11).
    */
   private noteProgress(before: { head: Hex; stalled: number[] }, id: Hex): void {
-    const after = this.headId() === before.head ? this.stalled() : null;
+    const after = this.claimHead() === before.head ? this.stalled() : null;
     if (after !== null && before.stalled.every((k) => after.includes(k))) return;
     this.stallProgress = Math.max(this.stallProgress, this.seenOf(id));
   }
@@ -2146,6 +2161,7 @@ export class GameSession {
       equivocators: [...this.flagged],
       audit: status.audit,
       logHash: this.logHash(),
+      resultLogHash: this.resultLogHash(),
       deadline: this.root.deadline,
       attested: this.attested(),
       events: this.events,
@@ -2538,7 +2554,7 @@ export class GameSession {
     if (createdAt < this.progress() + this.root.deadline) {
       throw new ClientError(`the deadline for seat ${seat} has not passed`);
     }
-    const t = timeoutTemplate({ rootId: this.root.id, headId: this.headId(), seat }, createdAt);
+    const t = timeoutTemplate({ rootId: this.root.id, headId: this.claimHead(), seat }, createdAt);
     return finalizeEvent(t, me.sessionSk, rnd);
   }
 }
