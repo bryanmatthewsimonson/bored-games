@@ -513,15 +513,33 @@ The rules the session engine (`GameSession` in `packages/client`) implements. Th
 - **Alternatives.** A NIP-49 encrypted export (adds a password flow; copying the nsec already exists), and the NIP-78 relay backup of game secrets (PLAN, Phase 2e), which stays open.
 
 ## D042: Fast reveal must be cheat-proof (owner, 2026-10-02)
-- **Decision.** D039's prompt sharing is reverted (`git revert -m 1 fd7f346`): a drawn tile is again revealed by the decryption shares on each other seat's next move (PROTOCOL §6.2), so it can show "?" for hours in async play. A faster reveal may come back only if **no seat, alone or with colluders, can use it to expose another player's tile**; detection and ranking last, as D039 offered, are not enough.
+- **Decision.** D039's prompt sharing is reverted (`git revert -m 1 fd7f346`): a drawn tile is again revealed by the decryption shares on each other seat's next move (PROTOCOL §6.2), so it can show "?" for hours in async play. A faster reveal may come back only if **no seat, alone or with colluders, can use it to expose another player's tile or make an honest player forfeit**. Detection and ranking last, as D039 offered, are not enough.
 - **Explaining the wait instead.** The "?" tile is now a focusable button with a small popover (hover, tap, or Enter; Escape, a tap elsewhere or leaving closes it; `aria-expanded`, `aria-controls`, and `aria-describedby` so the text is read on focus): "Your new tile. It's yours already, but it stays hidden until every other player has made their next move: each move carries that player's part of the reveal, so no one, not even the app, can see your tile without you. It's always revealed before your next turn while the game goes on." A one-line note under the hand says the same while a tile is hidden. Once a timeout ends the game, a tile never revealed is a plain "?" with no popover, since the promise no longer holds. The popover state is a pure reducer (`tipReducer` in `hand.tsx`) held by the game component, so `Hand` and `UnknownTile` stay hook-free and are render-tested. The rules page and TESTING.md carry the same explanation.
-- **The cheat-proof design, for later: acknowledge, then share** (full write-up and analysis in `docs/proposals/fast-reveal.md`, status Proposal, not built).
-  - When a seat draws, every other seat publishes a small signed **Ack** of that move (a new event kind). An honest seat never acknowledges two conflicting moves, and persists that before publishing.
-  - A seat releases its share of the drawn position only once it holds Acks of the drawing move from **every seat other than the drawer**, and the move is still on its chain.
-  - A move acknowledged by every other seat is **final**: fork choice drops any branch that does not contain every final move. Finality depends only on the Acks held, and more events only add final moves, so the rule is monotone in the event set and every client holding the same events picks the same chain whatever the arrival order.
-  - **The D039 attack fails.** A rival published after the Acks lies below a final move and is never chosen. A rival published before them splits the honest Acks, so neither branch is final and no share is released early. Colluders cannot make an honest seat acknowledge both branches. A partitioned or offline seat means missing Acks, so play falls back to today's path: liveness, deadlines and the audit are unchanged.
-  - **Cost.** About 2(S−1) extra small events per drawing turn, one more relay round trip (about 1 s with everyone online), a new event kind, a finality filter in fork choice and a protocol version bump.
-  - **It must get an adversarial review** of the design and the code before it ships; the proposal lists the corners to attack first (an honest seat that acknowledged one branch and later signed another, ack consistency across devices, out-of-turn decisions).
+- **A candidate design for later: acknowledge, then share.** The full write-up and analysis are in `docs/proposals/fast-reveal.md`, with status Proposal, not built. **It is not yet cheat-proof**, and it does not ship until an adversarial review signs it off.
+  - When a seat draws, every other seat publishes a small signed **Ack** of that move (a new event kind). An honest seat never acknowledges two conflicting moves, and it persists that before publishing.
+  - A seat releases its share of the drawn position only when:
+    - it holds Acks of the drawing move from **every seat other than the drawer**;
+    - the move is on its chain;
+    - it holds no rival of the move.
+  - A move acknowledged by every other seat is **final**: fork choice drops any branch that does not contain every final move. Finality depends only on the Acks held and only grows with them (it is monotone), so clients holding the same events agree whatever the arrival order.
+  - **The base design alone is broken (review I1, the late-Ack attack).**
+    - An equivocator E publishes A, then a rival B. Its colluder k withholds its Ack of A, so the honest seats follow B and play on.
+    - k's late Ack then makes A final and reorganizes every client far back onto A.
+    - This forces honest seats to equivocate or time out, rewinds the head, and can mix their slow-path shares on B with the shares released on A, exposing a tile.
+  - **Recommended amendment: "ack implies lock".**
+    - A seat that acknowledged a move never builds on, nor shares on, a branch without it, unless a conflicting move is final.
+    - With the lock, finality can never pull an honest seat off a branch it built on. The late-Ack attack then fails: no honest seat moves on B, and A wins on length.
+    - Added with it: no early share while a rival is held, and acknowledging conflicting moves counts as evidence of cheating, like move equivocation.
+  - **Open: honest splits.**
+    - When honest seats acknowledge different rivals, neither can become final, and the locks must be released somehow.
+    - Every release rule found so far lets a colluder fake a split and recreate the late-Ack attack (though that colluder is then caught), or makes finality non-monotone.
+    - Until the review finds a sound rule, or the owner accepts that residual, the design is not cheat-proof.
+  - **When everyone is online** and nobody cheats, a tile shows in about a second (two relay round trips). A partitioned or offline seat means a missing Ack, so play falls back to today's path.
+  - **Cost.**
+    - About 2(S−1) extra small events per drawing turn.
+    - A new event kind.
+    - Locks and a finality filter in fork choice.
+    - A protocol version bump.
 - **Alternatives.** Keeping D039 with its residual risk (rejected by the owner); a grace delay before sharing (an attacker just waits); a fork tie-break that favors the earlier rival (no agreed notion of "earlier" without trusting `created_at`).
 
 ## D043: "Your cash and shares" panel (owner request, 2026-10-02)
