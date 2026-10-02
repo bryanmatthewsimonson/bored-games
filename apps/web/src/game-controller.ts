@@ -30,6 +30,7 @@ import type { Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
+import { profileName } from './profile-model.ts';
 import {
   type GameStatusName,
   loadSecrets,
@@ -171,35 +172,6 @@ export const STATUS_REFRESH_S = 300;
 
 /** The most seated game events kept while the session is still loading; past it, loading stops with an error. */
 const MAX_BUFFER = 100_000;
-
-/** The most characters of a profile name shown. */
-export const MAX_PROFILE_NAME = 32;
-
-/**
- * The name in kind 0 metadata: `display_name`, else `name`. Control and format characters (bidi overrides,
- * zero-width characters) are removed and whitespace collapsed, then it is cut to `MAX_PROFILE_NAME`
- * characters. Null when there is none.
- */
-export function profileName(content: string): string | null {
-  let meta: unknown;
-  try {
-    meta = JSON.parse(content);
-  } catch {
-    return null;
-  }
-  if (typeof meta !== 'object' || meta === null) return null;
-  const { display_name, name } = meta as Record<string, unknown>;
-  for (const raw of [display_name, name]) {
-    if (typeof raw !== 'string') continue;
-    const clean = raw
-      .replace(/\s/gu, ' ')
-      .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '')
-      .replace(/ +/g, ' ')
-      .trim();
-    if (clean !== '') return [...clean].slice(0, MAX_PROFILE_NAME).join('').trim();
-  }
-  return null;
-}
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

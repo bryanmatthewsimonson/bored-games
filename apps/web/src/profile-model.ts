@@ -58,9 +58,6 @@ function nameOf(meta: Record<string, unknown>): string | null {
 /**
  * The name in kind 0 metadata: `display_name`, else `name`, cleaned (`cleanText`) and cut to
  * `MAX_PROFILE_NAME` characters. Null when there is none.
- *
- * A copy of `profileName` in game-controller.ts, which keeps its own until the game screen reads names from
- * the ProfileStore.
  */
 export function profileName(content: string): string | null {
   const meta = parseObject(content);

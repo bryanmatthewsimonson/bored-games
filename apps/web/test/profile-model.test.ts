@@ -1,6 +1,5 @@
 import { finalizeEvent, type NostrEvent } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
-import { profileName as controllerProfileName } from '../src/game-controller.ts';
 import {
   type CachedProfile,
   cleanText,
@@ -30,21 +29,6 @@ const rnd = (n: number) => new Uint8Array(n).fill(1);
 function kind0(content: string, created_at = 1000, tags: string[][] = []): NostrEvent {
   return finalizeEvent({ kind: 0, created_at, tags, content }, SK, rnd);
 }
-
-describe('profileName', () => {
-  it('matches the game controller copy', () => {
-    for (const c of [
-      '{"display_name":"Ann","name":"ann"}',
-      '{"name":"  Bo  \\u202e "}',
-      '{"display_name":"","name":"Cy"}',
-      `{"name":"${'x'.repeat(40)}"}`,
-      '[]',
-      'nope',
-      '{"name":7}',
-    ])
-      expect(profileName(c), c).toBe(controllerProfileName(c));
-  });
-});
 
 describe('safeImageUrl', () => {
   it('accepts https URLs on public hosts', () => {
