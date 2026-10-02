@@ -55,6 +55,8 @@ describe('draw offers', () => {
     expect(mate.state.result?.reason).toBe('checkmate');
     expect(mate.state.drawOffer).toBeNull();
     expect(ofType(mate.events, 'drawOffered')).toEqual([]);
+    // The move list does not mark the void offer either (review M1).
+    expect(mate.state.history.at(-1)?.drawOffered).toBe(false);
   });
 });
 
