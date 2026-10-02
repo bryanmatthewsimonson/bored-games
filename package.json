@@ -18,7 +18,9 @@
     "relay": "node tools/dev-relay/src/main.ts",
     "dev": "node scripts/dev.ts",
     "build:web": "pnpm --filter @bored-games/web build",
-    "e2e": "pnpm --filter @bored-games/web e2e"
+    "e2e": "pnpm --filter @bored-games/web e2e",
+    "scan:build": "vitest run --project repo tests/public-build.test.ts",
+    "scan:dist": "node tests/scan-dist.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

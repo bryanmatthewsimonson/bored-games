@@ -1,26 +1,19 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
-import { GAME_IDS } from '../games/ids.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
-import { rulesHref, tableHref } from '../router.ts';
+import { tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
 
-/** The games the picker offers: the registered ids this client has a rules module for, in picker order. */
-export function pickableGames(modules: ReadonlyMap<string, unknown>): string[] {
-  return GAME_IDS.filter((id) => modules.has(id));
-}
-
 /**
- * The New table form: the game (until the catalog of Phase E, a simple select), seats, deadline, invited players
- * and the computed open seats. `game` is chosen by the parent (Home), which may show it elsewhere too.
+ * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
+ * the page's game.
  */
-export function NewTableForm(props: { game: string; onGame: (game: string) => void }) {
+export function NewTableForm(props: { game: string }) {
   const { deps, signer, profile, store } = useApp();
   const lobby = useLobby();
-  const games = pickableGames(deps.modules);
   const game = props.game;
   const module = deps.modules.get(game);
   const range = useMemo(
@@ -58,29 +51,8 @@ export function NewTableForm(props: { game: string; onGame: (game: string) => vo
 
   return (
     <form class="panel stack" onSubmit={submit} aria-labelledby="new-table-h" noValidate>
-      <div class="panel-head">
-        <h2 id="new-table-h">New table</h2>
-        <a href={rulesHref(game)}>How to play</a>
-      </div>
+      <h2 id="new-table-h">New table</h2>
       <p class="muted">A table for {gameTitle(game)}. Nothing is shared until you create it.</p>
-
-      {games.length > 1 && (
-        <div class="field">
-          <label for="game">Game</label>
-          <select
-            id="game"
-            value={game}
-            onChange={(e) => props.onGame(e.currentTarget.value)}
-            disabled={busy}
-          >
-            {games.map((id) => (
-              <option key={id} value={id}>
-                {gameTitle(id)}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div class="field">
         <label for="seats">Players</label>

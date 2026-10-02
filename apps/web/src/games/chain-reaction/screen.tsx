@@ -7,6 +7,7 @@ import { useMemo } from 'preact/hooks';
 import type { GameViewProps } from '../types.ts';
 import { ChainReactionGame } from './game.tsx';
 import { lastTileOf, logLines } from './model.ts';
+import { activeTheme } from './theme.ts';
 
 export function ChainReactionScreen(props: GameViewProps) {
   const state = props.view.state as ChainReactionState;
@@ -14,11 +15,17 @@ export function ChainReactionScreen(props: GameViewProps) {
   // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
   const events = props.view.events;
   const over = state.phase.kind === 'over';
-  const log = useMemo(() => logLines(events, { mySeat, over, names }), [events, mySeat, over, names]);
+  // The names in effect (D046): reading the signal re-renders this screen when the player changes them.
+  const theme = activeTheme.value;
+  const log = useMemo(
+    () => logLines(events, { theme, mySeat, over, names }),
+    [events, theme, mySeat, over, names],
+  );
   const lastTile = useMemo(() => lastTileOf(events), [events]);
   return (
     <ChainReactionGame
       state={state}
+      theme={theme}
       mySeat={mySeat}
       legal={props.legal as readonly ChainReactionAction[]}
       canAct={props.canAct}

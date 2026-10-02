@@ -177,7 +177,21 @@ test('players set a name and picture, and see each other’s on the table seats'
   // a: no profile yet, so Home nudges; then a photo with EXIF, and a name.
   const a = await open('a');
   await expect(a.getByText('Add your name and picture so friends recognize you.')).toBeVisible();
+  // An unknown game page says so, and the header's Rules link keeps pointing at a real game.
+  await a.evaluate(() => {
+    window.location.hash = '#/games/nope';
+  });
+  await expect(a.getByRole('heading', { name: 'Game not found' })).toBeVisible();
+  await expect(a.getByRole('link', { name: 'Rules', exact: true })).toHaveAttribute(
+    'href',
+    '#/rules/chain-reaction',
+  );
+  await a.evaluate(() => {
+    window.location.hash = '#/';
+  });
   const dialog = await openSettings(a);
+  // A public build carries no licensed names (D046).
+  await expect(dialog.getByText('Only the trademark-safe names are available on this site.')).toBeVisible();
   await dialog.getByLabel('Name', { exact: true }).fill('Ann Example');
   await dialog.locator('input[type="file"]').setInputFiles({
     name: 'photo.jpg',
@@ -210,6 +224,7 @@ test('players set a name and picture, and see each other’s on the table seats'
   await expect(a.locator('.identity')).toContainText('Ann Example');
   await expect(a.getByText('Add your name and picture so friends recognize you.')).toHaveCount(0);
 
+  await a.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
   await a.getByRole('button', { name: 'Create table' }).click();
   await expect(a).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.getByLabel('Table link').inputValue();

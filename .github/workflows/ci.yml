@@ -26,4 +26,5 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Includes the public build scan (tests/public-build.test.ts, D046): no licensed name in apps/web/dist.
       - run: pnpm check

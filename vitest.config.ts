@@ -8,7 +8,8 @@ export default defineConfig({
         test: {
           name: 'chain-reaction',
           root: 'packages/games/chain-reaction',
-          include: ['test/**/*.test.ts'],
+          // licensed/: the tests that name the licensed pack's contents (D046).
+          include: ['test/**/*.test.ts', 'licensed/**/*.test.ts'],
           testTimeout: 120_000,
         },
       },

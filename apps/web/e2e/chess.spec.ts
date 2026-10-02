@@ -70,8 +70,26 @@ async function shoot(p: Player, file: string): Promise<void> {
 /** a creates a Chess table, b joins it, a starts it; both end up on the board. */
 async function startChess(a: Player, b: Player, shot?: string): Promise<void> {
   await a.page.goto(appUrl('a'));
+  // Find Chess in the catalog by searching, and open its page.
+  const search = a.page.getByLabel('Search games');
+  const count = a.page.locator('.catalog-count');
+  await search.fill('no such game');
+  await expect(count).toHaveText('No game matches');
+  // Clear filters removes itself, and leaves the focus on the search box.
+  await a.page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(search).toBeFocused();
+  await expect(count).toHaveText(/^\d+ games$/);
+  await search.fill('chess');
+  await expect(count).toHaveText(/^1 of \d+ games$/);
+  await a.page.getByRole('link', { name: 'Chess', exact: true }).click();
+  await expect(a.page).toHaveURL(/#\/games\/chess$/);
+  // Back on Home, the catalog still has the search.
+  await a.page.goBack();
+  await expect(search).toHaveValue('chess');
+  await expect(count).toHaveText(/^1 of \d+ games$/);
+  await a.page.getByRole('link', { name: 'Chess', exact: true }).click();
+  await expect(a.page).toHaveURL(/#\/games\/chess$/);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
-  await a.page.getByLabel('Game', { exact: true }).selectOption('chess');
   await expect(a.page.getByLabel('Players', { exact: true })).toHaveValue('2');
   await expect(a.page.getByText('1 open seat')).toBeVisible();
   await expect(a.page.getByRole('link', { name: 'How to play' })).toHaveAttribute('href', '#/rules/chess');

@@ -38,7 +38,13 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # vite.config.ts sets base: './', so the build works under https://<owner>.github.io/<repo>/.
-      - run: pnpm build:web
+      # The licensed names stay off the public site until licensed (D046): the flag is off explicitly (a process
+      # variable wins over any .env file), and the scan fails the job before anything is uploaded, on a manual
+      # dispatch too.
+      - env:
+          VITE_LICENSED_BRANDS: '0'
+        run: pnpm build:web
+      - run: pnpm scan:dist
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

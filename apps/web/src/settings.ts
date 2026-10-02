@@ -1,6 +1,7 @@
 import { isRelayUrl } from '@bored-games/protocol';
 import { type Signal, signal } from '@preact/signals';
 import { DEFAULT_BLOSSOM, parseBlossomServer } from './blossom.ts';
+import { type Branding, isBranding } from './brands.ts';
 import { type KeyValueStore, readItem, removeItem, storageKey, writeItem } from './storage.ts';
 
 /** The owner's choice of default relay for everybody (D038). Players can add more in Settings. */
@@ -72,12 +73,22 @@ export interface Settings {
   blossom: Signal<string>;
   /** Saves a server URL; null or an invalid URL restores the default. Returns false when it was not saved. */
   setBlossom(url: string | null): boolean;
+  /**
+   * The game names the player chose (D046): 'safe', or 'original' for the licensed names where a build carries
+   * them. Stored even in a build without licensed packs, where the safe names show whatever it says.
+   */
+  branding: Signal<Branding>;
+  /** Saves the choice; 'safe' removes the stored value. Returns false when it was not saved. */
+  setBranding(b: Branding): boolean;
 }
 
-/** Settings persisted per profile under `bg:<profile>:relays` and `bg:<profile>:blossom`. */
+/** Settings persisted per profile under `bg:<profile>:relays`, `bg:<profile>:blossom` and `bg:<profile>:branding`. */
 export function createSettings(profile: string, store: KeyValueStore, dev: boolean): Settings {
   const key = storageKey(profile, 'relays');
   const blossomKey = storageKey(profile, 'blossom');
+  const brandingKey = storageKey(profile, 'branding');
+  const storedBranding = readItem(store, brandingKey);
+  const branding = signal<Branding>(isBranding(storedBranding) ? storedBranding : 'safe');
   const blossom = signal(parseBlossomServer(readItem(store, blossomKey) ?? '') ?? DEFAULT_BLOSSOM);
   const load = (): string[] => {
     const raw = readItem(store, key);
@@ -119,6 +130,15 @@ export function createSettings(profile: string, store: KeyValueStore, dev: boole
       }
       blossom.value = next;
       return writeItem(store, blossomKey, next);
+    },
+    branding,
+    setBranding(b) {
+      branding.value = b;
+      if (b === 'safe') {
+        removeItem(store, brandingKey);
+        return readItem(store, brandingKey) === null;
+      }
+      return writeItem(store, brandingKey, b);
     },
   };
 }

@@ -1,5 +1,5 @@
 import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import type { ChainReactionTheme } from '@bored-games/chain-reaction/theme';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useReducer, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
@@ -35,6 +35,8 @@ import './game.css';
 export interface ChainReactionGameProps {
   /** The viewer's state: a view for a player or spectator, or a full state in fixtures. */
   state: ChainReactionState;
+  /** The names and looks in effect (D046). */
+  theme: ChainReactionTheme;
   mySeat: number | null;
   /** The viewer's legal actions in `state` (empty when it is not their decision). */
   legal: readonly ChainReactionAction[];
@@ -68,7 +70,7 @@ export interface ChainReactionGameProps {
 }
 
 export function ChainReactionGame(props: ChainReactionGameProps) {
-  const { state, mySeat, names } = props;
+  const { state, theme, mySeat, names } = props;
   const [preview, setPreview] = useState<HandTile | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   // The state seq a move was submitted from: the controls stay locked until the state moves on or the
@@ -103,19 +105,25 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
     };
   }, [tipOpen]);
 
-  const cells = useMemo(() => boardCells(state, props.lastTile ?? null), [state, props.lastTile]);
-  const hand = useMemo(() => (mySeat === null ? [] : handTiles(state, mySeat)), [state, mySeat]);
-  const decision = useMemo(() => decisionFor(state, props.legal), [state, props.legal]);
+  const cells = useMemo(
+    () => boardCells(theme, state, props.lastTile ?? null),
+    [theme, state, props.lastTile],
+  );
+  const hand = useMemo(
+    () => (mySeat === null ? [] : handTiles(theme, state, mySeat)),
+    [theme, state, mySeat],
+  );
+  const decision = useMemo(() => decisionFor(theme, state, props.legal), [theme, state, props.legal]);
   // The "?" popover stays open while other seats move, and closes once its tile is revealed.
   useEffect(() => {
     if (tip.pos !== null && !hand.some((t) => t.pos === tip.pos && t.tile === null)) onTip({ type: 'close' });
   }, [hand, tip.pos]);
-  const chains = chainRows(state, mySeat);
-  const players = playerRows(state, names, mySeat);
-  const status = statusLine(state, names, mySeat);
+  const chains = chainRows(theme, state, mySeat);
+  const players = playerRows(theme, state, names, mySeat);
+  const status = statusLine(theme, state, names, mySeat);
   const over = state.phase.kind === 'over';
   // Hidden for a spectator, and once the game is over: the results then give every player's final cash.
-  const holdings = over ? null : myHoldings(state, mySeat);
+  const holdings = over ? null : myHoldings(theme, state, mySeat);
 
   const lock = { canAct: props.canAct, busy: props.busy, sentAt, seq: state.seq };
   const locked = isLocked(lock);
@@ -140,7 +148,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
       data-turn={state.turn?.number ?? 0}
       data-phase={state.phase.kind}
     >
-      <h1 class="sr-only">{CHAIN_REACTION_THEME.title}</h1>
+      <h1 class="sr-only">{theme.title}</h1>
       <StatusBar
         line={status}
         notice={props.notice}
@@ -216,6 +224,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
         open={priceCardOpen}
         onClose={() => setPriceCardOpen(false)}
         rules={state.rules}
+        theme={theme}
         sizes={chains.map((r) => r.size)}
       />
     </div>

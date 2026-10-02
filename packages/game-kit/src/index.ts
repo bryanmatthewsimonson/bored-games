@@ -1,5 +1,16 @@
 export { assertJsonSafe, canonicalJson, compareCodeUnits, jsonEqual } from './canonical.ts';
 export type {
+  BrandNames,
+  CatalogEntry,
+  CatalogStatus,
+  Genre,
+  Luck,
+  Mechanism,
+  Mode,
+  TurnStructure,
+} from './catalog.ts';
+export { catalogProblems, GENRES, MECHANISMS, MODES, STATUSES, TURNS } from './catalog.ts';
+export type {
   FuzzBatchOptions,
   FuzzBatchReport,
   FuzzFailure,

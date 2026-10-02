@@ -13,6 +13,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { Avatar } from '../components/avatar.tsx';
 import { firstLegal, playUntil, randomLegal, type ScriptedGame } from '../games/chain-reaction/fixture.ts';
 import { ChainReactionGame, logLines } from '../games/chain-reaction/index.ts';
+import { activeTheme } from '../games/chain-reaction/theme.ts';
 import { playerNames } from '../screens/game.tsx';
 
 /** Fixed seat keys, so the pattern avatars and short npubs are the same on every load. */
@@ -108,6 +109,7 @@ export function BoardPreview(props: { scene: string }) {
       <ChainReactionGame
         key={scene}
         state={hidden ? hideNewest(view, seat) : view}
+        theme={activeTheme.value}
         mySeat={seat}
         legal={legal}
         canAct={true}
@@ -115,7 +117,12 @@ export function BoardPreview(props: { scene: string }) {
         onAct={setSent}
         names={NAMES}
         avatars={AVATARS}
-        events={logLines(game.events, { mySeat: seat, over: game.state.phase.kind === 'over', names: NAMES })}
+        events={logLines(game.events, {
+          theme: activeTheme.value,
+          mySeat: seat,
+          over: game.state.phase.kind === 'over',
+          names: NAMES,
+        })}
         lastTile={game.lastTile}
         audit={scene === 'over' ? 'pass' : undefined}
         deadline="23h 59m left"

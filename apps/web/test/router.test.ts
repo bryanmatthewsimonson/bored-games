@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { gameHref, parseRoute, route, rulesHref, startRouter, tableHref } from '../src/router.ts';
+import {
+  gameHref,
+  gamePageHref,
+  parseRoute,
+  route,
+  rulesHref,
+  startRouter,
+  tableHref,
+} from '../src/router.ts';
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
@@ -19,6 +27,14 @@ describe('parseRoute', () => {
 
   it('parses a game', () => {
     expect(parseRoute(`#/g/${B}`)).toEqual({ name: 'game', rootId: B });
+  });
+
+  it("parses a game's catalog page (D046)", () => {
+    expect(parseRoute('#/games/chess')).toEqual({ name: 'game-page', game: 'chess' });
+    expect(parseRoute('#/games/chain-reaction/')).toEqual({ name: 'game-page', game: 'chain-reaction' });
+    expect(parseRoute(gamePageHref('chess'))).toEqual({ name: 'game-page', game: 'chess' });
+    expect(parseRoute('#/games/Chess').name).toBe('not-found');
+    expect(parseRoute('#/games').name).toBe('not-found');
   });
 
   it('ignores a trailing slash', () => {

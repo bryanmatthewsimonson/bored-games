@@ -3,6 +3,7 @@
  * WebSocket, local signers and memory stores, one per profile. Shuffle proofs make these tests slow.
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
+import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { SessionView } from '@bored-games/client';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import {
@@ -493,7 +494,7 @@ describe('GameController', () => {
       expect(v?.head).toEqual(head);
       expect(boardOf(g)).toEqual(boardOf(spectator));
       // Each player has learned exactly its own hand.
-      const hand = handTiles(v?.state as ChainReactionState, i);
+      const hand = handTiles(CHAIN_REACTION_THEME, v?.state as ChainReactionState, i);
       expect(hand).toHaveLength(6);
       expect(hand.every((t) => t.tile !== null)).toBe(true);
       await waitFor('a settled status', () => ['waiting', 'your-turn'].includes(g.status.value));
@@ -602,9 +603,11 @@ describe('GameController', () => {
     expect(gc2.view.value?.head).toEqual({ id: saved.event.id, seq: 3 });
     expect(boardOf(gc2)).toEqual(boardOf(ga));
     expect(gc2.view.value?.mySeat).toBe(2);
-    expect(handTiles(gc2.view.value?.state as ChainReactionState, 2).every((t) => t.tile !== null)).toBe(
-      true,
-    );
+    expect(
+      handTiles(CHAIN_REACTION_THEME, gc2.view.value?.state as ChainReactionState, 2).every(
+        (t) => t.tile !== null,
+      ),
+    ).toBe(true);
     await waitFor('the confirmed shuffle', () => savedMove(c, rootId, 3)?.confirmed);
     expect(savedMove(c, rootId, 3)?.event.id).toBe(saved.event.id);
   }, 240_000);

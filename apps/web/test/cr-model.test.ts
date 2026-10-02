@@ -66,7 +66,7 @@ function findDecision(kind: Kind): ScriptedGame {
     for (const seats of [3, 4, 6]) {
       const g = playUntil(`k${i}`, seats, randomLegal, (g) => {
         const legal = legalFor(g.state);
-        return legal.length > 0 && decisionFor(g.state, legal).kind === kind;
+        return legal.length > 0 && decisionFor(CHAIN_REACTION_THEME, g.state, legal).kind === kind;
       });
       if (g) return g;
     }
@@ -95,23 +95,23 @@ const get = (k: Kind): ScriptedGame => found.get(k) as ScriptedGame;
 describe('decisionFor', () => {
   it('is a wait when the seat has no legal action', () => {
     const g = get('place');
-    expect(decisionFor(g.state, []).kind).toBe('wait');
+    expect(decisionFor(CHAIN_REACTION_THEME, g.state, []).kind).toBe('wait');
   });
 
   for (const kind of KINDS) {
     it(`maps a real ${kind} decision, and its view-mode state, to the same kind`, () => {
       const g = get(kind);
       const legal = legalFor(g.state);
-      expect(decisionFor(g.state, legal).kind).toBe(kind);
+      expect(decisionFor(CHAIN_REACTION_THEME, g.state, legal).kind).toBe(kind);
       const seat = actor(g.state) as number;
-      expect(decisionFor(viewFor(g.state, seat), legal).kind).toBe(kind);
+      expect(decisionFor(CHAIN_REACTION_THEME, viewFor(g.state, seat), legal).kind).toBe(kind);
     });
   }
 
   it('place: one option per legal placement, each in legal', () => {
     const g = get('place');
     const legal = legalFor(g.state);
-    const d = decisionFor(g.state, legal);
+    const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
     if (d.kind !== 'place') throw new Error('not place');
     expect(d.options.length).toBe(legal.length);
     for (const o of d.options) {
@@ -123,7 +123,7 @@ describe('decisionFor', () => {
   it('skip: submits the legal skip', () => {
     const g = get('skip');
     const legal = legalFor(g.state);
-    const d = decisionFor(g.state, legal);
+    const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
     if (d.kind !== 'skip') throw new Error('not skip');
     expect(inLegal(legal, d.action)).toBe(true);
   });
@@ -132,7 +132,7 @@ describe('decisionFor', () => {
     it(`${kind}: one chain option per legal action, named from the theme`, () => {
       const g = get(kind);
       const legal = legalFor(g.state);
-      const d = decisionFor(g.state, legal);
+      const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
       if (d.kind !== kind) throw new Error(`not ${kind}`);
       expect(d.options.length).toBe(legal.length);
       for (const o of d.options) {
@@ -146,7 +146,7 @@ describe('decisionFor', () => {
   it('order: one option per legal defunct order', () => {
     const g = get('order');
     const legal = legalFor(g.state);
-    const d = decisionFor(g.state, legal);
+    const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
     if (d.kind !== 'order') throw new Error('not order');
     expect(d.options.length).toBe(legal.length);
     for (const o of d.options) {
@@ -158,7 +158,7 @@ describe('decisionFor', () => {
   it('dispose: every legal (sell, trade) is found exactly; anything else is not', () => {
     const g = get('dispose');
     const legal = legalFor(g.state);
-    const d = decisionFor(g.state, legal);
+    const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
     if (d.kind !== 'dispose') throw new Error('not dispose');
     const seat = actor(g.state) as number;
     const c = chainIndex(g.state.rules, d.chain.id) as number;
@@ -184,7 +184,7 @@ describe('decisionFor', () => {
     for (const seed of ['e1', 'e2', 'e3']) {
       for (const g of samples(seed, 4, 1, 300)) {
         const legal = legalFor(g.state);
-        const d = legal.length > 0 ? decisionFor(g.state, legal) : null;
+        const d = legal.length > 0 ? decisionFor(CHAIN_REACTION_THEME, g.state, legal) : null;
         if (d?.kind !== 'endTurn') continue;
         for (const a of legal) {
           if (a.type !== 'endTurn') throw new Error('not endTurn');
@@ -215,7 +215,7 @@ describe('decisionFor', () => {
   it('endTurn: a buy limited by cash or bank is reported per chain', () => {
     const g = get('endTurn');
     const legal = legalFor(g.state);
-    const d = decisionFor(g.state, legal);
+    const d = decisionFor(CHAIN_REACTION_THEME, g.state, legal);
     if (d.kind !== 'endTurn') throw new Error('not endTurn');
     for (const c of d.chains) {
       const most = Math.max(
@@ -235,7 +235,7 @@ describe('handTiles', () => {
     for (const g of [...samples('h1', 3), ...samples('h2', 5)]) {
       const s = g.state;
       for (let seat = 0; seat < s.seats; seat++) {
-        const hand = handTiles(s, seat);
+        const hand = handTiles(CHAIN_REACTION_THEME, s, seat);
         expect(hand.map((h) => h.pos)).toEqual(s.players[seat]?.hand.map((h) => h.pos));
         for (const h of hand) {
           if (h.tile === null) continue;
@@ -255,14 +255,14 @@ describe('handTiles', () => {
   it("shows another seat's hidden tiles as unknown in a view", () => {
     const g = get('endTurn');
     const view = viewFor(g.state, 0);
-    const other = handTiles(view, 1);
+    const other = handTiles(CHAIN_REACTION_THEME, view, 1);
     expect(other.length).toBe(g.state.players[1]?.hand.length);
     for (const h of other) {
       expect(h.tile).toBeNull();
       expect(h.id).toBeNull();
       expect(h.badge).toBeNull();
     }
-    expect(handTiles(view, 0).every((h) => h.tile !== null)).toBe(true);
+    expect(handTiles(CHAIN_REACTION_THEME, view, 0).every((h) => h.tile !== null)).toBe(true);
   });
 });
 
@@ -271,7 +271,7 @@ describe('chainRows', () => {
     for (const g of samples('c1', 4, 25)) {
       const s = g.state;
       const sizes = chainSizes(s.board, s.rules.chains.length);
-      const rows = chainRows(s, 2);
+      const rows = chainRows(CHAIN_REACTION_THEME, s, 2);
       expect(rows.length).toBe(s.rules.chains.length);
       rows.forEach((r, c) => {
         expect(r.chain.index).toBe(c);
@@ -282,14 +282,19 @@ describe('chainRows', () => {
         expect(r.bank).toBe(s.bank[c]);
         expect(r.mine).toBe(s.players[2]?.shares[c]);
       });
-      expect(chainRows(s, null).every((r) => r.mine === null)).toBe(true);
+      expect(chainRows(CHAIN_REACTION_THEME, s, null).every((r) => r.mine === null)).toBe(true);
     }
   });
 
   it('takes names, labels, colors and patterns from the theme', () => {
     const s = get('place').state;
-    for (const r of chainRows(s, null)) {
-      const t = (CHAIN_REACTION_THEME.chains as Record<string, Record<string, string>>)[r.chain.id];
+    for (const r of chainRows(CHAIN_REACTION_THEME, s, null)) {
+      const t = (
+        CHAIN_REACTION_THEME.chains as Record<
+          string,
+          { name: string; label: string; color: string; pattern: string }
+        >
+      )[r.chain.id];
       expect([r.chain.name, r.chain.label, r.chain.color, r.chain.pattern]).toEqual([
         t?.name,
         t?.label,
@@ -304,7 +309,7 @@ describe('boardCells', () => {
   it('describes all 108 cells by kind and chain, and marks the last placed tile', () => {
     const g = get('endTurn');
     const s = g.state;
-    const cells = boardCells(s, g.lastTile);
+    const cells = boardCells(CHAIN_REACTION_THEME, s, g.lastTile);
     expect(cells.length).toBe(108);
     cells.forEach((cell, i) => {
       expect(cell.index).toBe(i);
@@ -326,7 +331,7 @@ describe('boardCells', () => {
     const g = get('dispose');
     const p = g.state.phase;
     if (p.kind !== 'merger') throw new Error('not a merger');
-    const cells = boardCells(g.state, null);
+    const cells = boardCells(CHAIN_REACTION_THEME, g.state, null);
     expect(cells[p.merger.tile]?.kind).toBe('pending');
     expect(cells[p.merger.tile]?.last).toBe(true);
   });
@@ -346,7 +351,7 @@ describe('playerRows', () => {
   it('shows hand sizes, the turn and the acting seat', () => {
     const g = get('dispose');
     const s = g.state;
-    const rows = playerRows(s, NAMES, 1);
+    const rows = playerRows(CHAIN_REACTION_THEME, s, NAMES, 1);
     expect(rows.map((r) => r.name)).toEqual(NAMES.slice(0, s.seats));
     rows.forEach((r, seat) => {
       expect(r.handSize).toBe(s.players[seat]?.hand.length);
@@ -362,7 +367,7 @@ describe('playerRows', () => {
     let hiddenHoldings = 0;
     for (const s of states) {
       const mySeat = 1;
-      const rows = playerRows(viewFor(s, mySeat), NAMES, mySeat);
+      const rows = playerRows(CHAIN_REACTION_THEME, viewFor(s, mySeat), NAMES, mySeat);
       rows.forEach((r, seat) => {
         const p = s.players[seat];
         if (!p) throw new Error('no player');
@@ -385,7 +390,7 @@ describe('playerRows', () => {
 
   it('hides every row from a spectator', () => {
     for (const s of holdingStates()) {
-      for (const r of playerRows(s, NAMES, null)) {
+      for (const r of playerRows(CHAIN_REACTION_THEME, s, NAMES, null)) {
         expect(r.exact).toBe(false);
         expect(r.cash).toBeNull();
         expect(r.shares.every((h) => h.count === null)).toBe(true);
@@ -399,7 +404,7 @@ describe('playerRows', () => {
     if (!g) throw new Error('no finished game');
     const s = g.state;
     for (const mySeat of [null, 0, 2]) {
-      playerRows(s, NAMES, mySeat).forEach((r, seat) => {
+      playerRows(CHAIN_REACTION_THEME, s, NAMES, mySeat).forEach((r, seat) => {
         const p = s.players[seat];
         expect(r.exact).toBe(true);
         expect(r.cash).toBe(p?.cash);
@@ -409,7 +414,7 @@ describe('playerRows', () => {
   });
 
   it('falls back to a seat name when none is given', () => {
-    const rows = playerRows(get('place').state, [], null);
+    const rows = playerRows(CHAIN_REACTION_THEME, get('place').state, [], null);
     expect(rows[0]?.name).toBe('Seat 1');
   });
 });
@@ -422,7 +427,7 @@ describe('handBadgesShown', () => {
       const acting = actor(s);
       for (let seat = 0; seat < s.seats; seat++) {
         const legal = seat === acting ? legalFor(s) : [];
-        const d = decisionFor(s, legal);
+        const d = decisionFor(CHAIN_REACTION_THEME, s, legal);
         expect(handBadgesShown(d)).toBe(d.kind === 'place' || d.kind === 'skip');
         if (s.phase.kind === 'place' && seat !== acting) {
           expect(handBadgesShown(d)).toBe(false);
@@ -443,7 +448,7 @@ describe('myHoldings', () => {
       if (full.phase.kind === 'over') continue;
       for (const mySeat of [0, 2]) {
         const s = viewFor(full, mySeat);
-        const h = myHoldings(s, mySeat);
+        const h = myHoldings(CHAIN_REACTION_THEME, s, mySeat);
         if (h === null) throw new Error('no holdings');
         const p = full.players[mySeat];
         if (!p) throw new Error('no player');
@@ -480,7 +485,7 @@ describe('myHoldings', () => {
     const on = sizes.findIndex((n) => n > 0);
     const shares = s.rules.chains.map((_, c) => (c === off ? 3 : c === on ? 2 : 0));
     const mine = { ...s, players: s.players.map((p, i) => (i === 0 ? { ...p, cash: 1234, shares } : p)) };
-    const h = myHoldings(mine, 0);
+    const h = myHoldings(CHAIN_REACTION_THEME, mine, 0);
     const price = sharePrice(s.rules, on, sizes[on] ?? 0);
     expect(h?.lines.map((l) => [l.chain.index, l.count, l.onBoard, l.price, l.value])).toEqual(
       [
@@ -494,11 +499,11 @@ describe('myHoldings', () => {
 
   it('is empty of lines without shares, and null for a spectator', () => {
     const s = newGame('holdings-start', 4).state;
-    const h = myHoldings(s, 1);
+    const h = myHoldings(CHAIN_REACTION_THEME, s, 1);
     expect(h?.lines).toEqual([]);
     expect(h?.shareValue).toBe(0);
     expect(h?.netWorth).toBe(h?.cash);
-    expect(myHoldings(s, null)).toBeNull();
+    expect(myHoldings(CHAIN_REACTION_THEME, s, null)).toBeNull();
   });
 });
 
@@ -512,14 +517,16 @@ describe('results and status', () => {
       expect(r.cash).toBe(g.state.result.cash[r.seat]);
       expect(r.place).toBe(g.state.result.places[r.seat]);
     }
-    expect(statusLine(g.state, NAMES, 0)).toMatch(/over/i);
+    expect(statusLine(CHAIN_REACTION_THEME, g.state, NAMES, 0)).toMatch(/over/i);
   });
 
   it('says whose decision it is', () => {
     const g = get('dispose');
     const seat = actor(g.state) as number;
-    expect(statusLine(g.state, NAMES, seat)).toMatch(/^Your /);
-    expect(statusLine(g.state, NAMES, (seat + 1) % g.state.seats)).toContain(NAMES[seat]);
+    expect(statusLine(CHAIN_REACTION_THEME, g.state, NAMES, seat)).toMatch(/^Your /);
+    expect(statusLine(CHAIN_REACTION_THEME, g.state, NAMES, (seat + 1) % g.state.seats)).toContain(
+      NAMES[seat],
+    );
   });
 });
 
@@ -529,7 +536,7 @@ describe('describeEvent', () => {
     if (!g) throw new Error('no finished game');
     const types = new Set<string>();
     for (const e of g.events) {
-      const line = describeEvent(e, NAMES);
+      const line = describeEvent(CHAIN_REACTION_THEME, e, NAMES);
       expect(line.length).toBeGreaterThan(0);
       expect(line).not.toMatch(/\b[bsp][1-3]\b/);
       expect(line).not.toContain('\n');
@@ -545,12 +552,19 @@ describe('logLines', () => {
     if (!g) throw new Error('no game');
     return g;
   };
-  const exact = (mySeat: number | null = null) => ({ mySeat, over: true, names: NAMES });
+  const exact = (mySeat: number | null = null) => ({
+    theme: CHAIN_REACTION_THEME,
+    mySeat,
+    over: true,
+    names: NAMES,
+  });
 
   it('describes the session events in order, newest last', () => {
     const g = game();
     const events: readonly unknown[] = g.events;
-    expect(logLines(events, exact())).toEqual(g.events.slice(-LOG_LINES).map((e) => describeEvent(e, NAMES)));
+    expect(logLines(events, exact())).toEqual(
+      g.events.slice(-LOG_LINES).map((e) => describeEvent(CHAIN_REACTION_THEME, e, NAMES)),
+    );
     expect(logLines([], exact())).toEqual([]);
   });
 
@@ -558,7 +572,7 @@ describe('logLines', () => {
     const g = game();
     expect(g.events.length).toBeGreaterThan(5);
     const lines = logLines(g.events, exact(), 5);
-    expect(lines).toEqual(g.events.slice(-5).map((e) => describeEvent(e, NAMES)));
+    expect(lines).toEqual(g.events.slice(-5).map((e) => describeEvent(CHAIN_REACTION_THEME, e, NAMES)));
     const many = Array.from({ length: 250 }, (_, i) => ({ type: 'turnStarted', seat: 0, turn: i + 1 }));
     const capped = logLines(many, exact());
     expect(capped).toHaveLength(LOG_LINES);
@@ -612,7 +626,9 @@ describe('logLines', () => {
     ];
 
     it('as a spectator, at turn 4: turns 1 and 2 lose their amounts, turns 3 and 4 keep them', () => {
-      expect(logLines(events, { mySeat: null, over: false, names: NAMES })).toEqual([
+      expect(
+        logLines(events, { theme: CHAIN_REACTION_THEME, mySeat: null, over: false, names: NAMES }),
+      ).toEqual([
         'Turn 1: Ann.',
         'Ann bought Jade and Lapis shares.',
         'Turn 2: Bo.',
@@ -632,7 +648,7 @@ describe('logLines', () => {
     });
 
     it('my own lines stay exact forever', () => {
-      const lines = logLines(events, { mySeat: 0, over: false, names: NAMES });
+      const lines = logLines(events, { theme: CHAIN_REACTION_THEME, mySeat: 0, over: false, names: NAMES });
       expect(lines[1]).toBe('Ann bought 2 Jade and 1 Lapis for $1,100.');
       expect(lines[8]).toBe('Ann sold 1 for $300, traded 2 (limited by the bank) and kept 1 of Onyx.');
       expect(lines[9]).toBe('Ann kept 3 of Onyx.');
@@ -642,7 +658,12 @@ describe('logLines', () => {
 
     it('a merger belongs to the turn it happens in', () => {
       // At turn 3, turn 2 is the previous turn: its merger lines keep their amounts; turn 1 does not.
-      const lines = logLines(events.slice(0, -2), { mySeat: null, over: false, names: NAMES });
+      const lines = logLines(events.slice(0, -2), {
+        theme: CHAIN_REACTION_THEME,
+        mySeat: null,
+        over: false,
+        names: NAMES,
+      });
       expect(lines[1]).toBe('Ann bought Jade and Lapis shares.');
       expect(lines[4]).toBe('Bo received $3,000, the majority bonus for Onyx.');
       expect(lines[6]).toBe('Bo sold 2 for $600 of Onyx.');
@@ -650,9 +671,9 @@ describe('logLines', () => {
     });
 
     it('everything is exact once the game is over', () => {
-      expect(logLines(events, { mySeat: null, over: true, names: NAMES })).toEqual(
-        events.map((e) => describeEvent(e as ChainReactionEvent, NAMES)),
-      );
+      expect(
+        logLines(events, { theme: CHAIN_REACTION_THEME, mySeat: null, over: true, names: NAMES }),
+      ).toEqual(events.map((e) => describeEvent(CHAIN_REACTION_THEME, e as ChainReactionEvent, NAMES)));
     });
 
     it("drops a founding line's share total on older turns, for every viewer", () => {
@@ -665,14 +686,16 @@ describe('logLines', () => {
         turn(3, 2),
       ];
       for (const mySeat of [null, 0, 1]) {
-        expect(logLines(founded, { mySeat, over: false, names: NAMES })).toEqual([
-          'Turn 1: Ann.',
-          'Ann founded Sapphire with 2 tiles.',
-          'Turn 2: Bo.',
-          'Bo founded Topaz with 3 tiles (4 old shares still held).',
-          'Turn 3: Cy.',
-        ]);
-        expect(logLines(founded, { mySeat, over: true, names: NAMES })[1]).toBe(
+        expect(logLines(founded, { theme: CHAIN_REACTION_THEME, mySeat, over: false, names: NAMES })).toEqual(
+          [
+            'Turn 1: Ann.',
+            'Ann founded Sapphire with 2 tiles.',
+            'Turn 2: Bo.',
+            'Bo founded Topaz with 3 tiles (4 old shares still held).',
+            'Turn 3: Cy.',
+          ],
+        );
+        expect(logLines(founded, { theme: CHAIN_REACTION_THEME, mySeat, over: true, names: NAMES })[1]).toBe(
           'Ann founded Sapphire with 2 tiles (3 old shares still held).',
         );
       }
@@ -683,7 +706,11 @@ describe('logLines', () => {
     const g = playUntil('loglines-hide', 4, randomLegal, (g) => (g.state.turn?.number ?? 0) >= 40, 5000);
     if (!g) throw new Error('no game');
     const mySeat = 1;
-    const lines = logLines(g.events, { mySeat, over: false, names: NAMES }, Number.POSITIVE_INFINITY);
+    const lines = logLines(
+      g.events,
+      { theme: CHAIN_REACTION_THEME, mySeat, over: false, names: NAMES },
+      Number.POSITIVE_INFINITY,
+    );
     expect(lines).toHaveLength(g.events.length);
     const current = g.state.turn?.number ?? 0;
     let t = 0;
@@ -694,17 +721,19 @@ describe('logLines', () => {
       const line = lines[i] as string;
       const seat = 'seat' in e ? e.seat : null;
       if (e.type === 'chainFounded' && t < current - 1) {
-        expect(line).toBe(describeEvent(e, NAMES).replace(/ \(\d+ old shares? still held\)/, ''));
+        expect(line).toBe(
+          describeEvent(CHAIN_REACTION_THEME, e, NAMES).replace(/ \(\d+ old shares? still held\)/, ''),
+        );
         expect(line).not.toContain('old share');
         return;
       }
       if (!AMOUNTS.has(e.type) || t >= current - 1 || seat === mySeat) {
-        expect(line).toBe(describeEvent(e, NAMES));
+        expect(line).toBe(describeEvent(CHAIN_REACTION_THEME, e, NAMES));
         if (AMOUNTS.has(e.type) && t >= current - 1) seen.recent++;
         if (AMOUNTS.has(e.type) && seat === mySeat) seen.mine++;
       } else {
         expect(line).not.toMatch(/\d|\$/);
-        if (line !== describeEvent(e, NAMES)) seen.hidden++;
+        if (line !== describeEvent(CHAIN_REACTION_THEME, e, NAMES)) seen.hidden++;
       }
     });
     expect(seen.hidden).toBeGreaterThan(10);
@@ -751,7 +780,7 @@ describe('priceCard', () => {
     standard: [300, 400, 500, 600, 700, 800, 900, 1000, 1100],
     premium: [400, 500, 600, 700, 800, 900, 1000, 1100, 1200],
   };
-  const card = priceCard(DEFAULT_RULES);
+  const card = priceCard(CHAIN_REACTION_THEME, DEFAULT_RULES);
   const theme = CHAIN_REACTION_THEME.chains as Record<string, { name: string }>;
 
   it('has one row per size bracket, with exact labels', () => {
@@ -802,7 +831,11 @@ describe('priceCard', () => {
 
   it('follows the rules multipliers', () => {
     const r = { ...DEFAULT_RULES, majorityMultiplier: 7, minorityMultiplier: 3 };
-    expect(priceCard(r).rows[0]?.cells[0]).toEqual({ price: 200, majority: 1400, minority: 600 });
+    expect(priceCard(CHAIN_REACTION_THEME, r).rows[0]?.cells[0]).toEqual({
+      price: 200,
+      majority: 1400,
+      minority: 600,
+    });
   });
 
   it('finds the row a chain size is priced at', () => {

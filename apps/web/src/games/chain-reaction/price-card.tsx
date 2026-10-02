@@ -4,6 +4,7 @@
  * it without marks. `PriceCard` uses no hooks, so tests can expand it without a DOM.
  */
 import type { ChainReactionRules } from '@bored-games/chain-reaction';
+import type { ChainReactionTheme } from '@bored-games/chain-reaction/theme';
 import { Fragment } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { Swatch } from './board.tsx';
@@ -12,13 +13,15 @@ import './game.css';
 
 export interface PriceCardProps {
   rules: ChainReactionRules;
+  /** The names and looks in effect (D046). */
+  theme: ChainReactionTheme;
   /** Current size of each chain, in rules order; marks each chain on the board in its row. */
   sizes?: readonly number[] | undefined;
 }
 
 export function PriceCard(props: PriceCardProps) {
-  const { rules, sizes } = props;
-  const card = priceCard(rules);
+  const { rules, theme, sizes } = props;
+  const card = priceCard(theme, rules);
   // Row index → tier index → the chains of that tier priced at that row, with their sizes.
   const marks = new Map<number, Map<number, { chain: ChainView; size: number }[]>>();
   card.tiers.forEach((t, ti) => {
@@ -147,6 +150,7 @@ export function PriceCardDialog(props: {
   open: boolean;
   onClose: () => void;
   rules: ChainReactionRules;
+  theme: ChainReactionTheme;
   sizes: readonly number[];
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -178,7 +182,7 @@ export function PriceCardDialog(props: {
               Close
             </button>
           </div>
-          <PriceCard rules={props.rules} sizes={props.sizes} />
+          <PriceCard rules={props.rules} theme={props.theme} sizes={props.sizes} />
         </div>
       )}
     </dialog>
