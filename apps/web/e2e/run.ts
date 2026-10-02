@@ -85,6 +85,8 @@ try {
     const built = await run('pnpm', ['exec', 'vite', 'build', '--outDir', OUT_DIR, '--emptyOutDir'], {
       ...process.env,
       VITE_ALLOW_LINK_RELAYS: '1',
+      // Never the licensed names (D046), whatever the shell exports.
+      VITE_LICENSED_BRANDS: '0',
     });
     if (built !== 0) throw new Error(`the web build failed (exit ${built})`);
   }
