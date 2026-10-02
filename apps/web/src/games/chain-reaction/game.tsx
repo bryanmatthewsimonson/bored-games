@@ -7,6 +7,7 @@ import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
 import { Hand, TIP_CLOSED, type TipEvent, tipReducer } from './hand.tsx';
 import { isLocked, submitUnderLock } from './lock.ts';
+import { CHAIN_REACTION_META } from './meta.ts';
 import {
   boardCells,
   chainRows,
@@ -203,7 +204,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
             Price card
           </button>
           {/* A new tab, so the running game here is not torn down and rebuilt. */}
-          <a class="btn btn-small" href={rulesHref()} target="_blank" rel="noopener">
+          <a class="btn btn-small" href={rulesHref(CHAIN_REACTION_META.id)} target="_blank" rel="noopener">
             Rules<span class="sr-only"> (opens in a new tab)</span>
           </a>
         </nav>

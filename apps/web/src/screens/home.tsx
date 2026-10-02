@@ -2,13 +2,14 @@
  * The Home route (#/): the New table form, the player's own tables and games, and the open tables to join.
  */
 import { BRAND } from '@bored-games/brand';
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { Hex } from '@bored-games/protocol';
 import { useState } from 'preact/hooks';
 import { Avatar } from '../components/avatar.tsx';
-import { NewTableForm } from '../components/new-table-form.tsx';
+import { NewTableForm, pickableGames } from '../components/new-table-form.tsx';
 import { TableCard } from '../components/table-card.tsx';
 import { useApp } from '../context.ts';
+import { GAME_METAS } from '../game-names.ts';
+import { DEFAULT_GAME } from '../games/ids.ts';
 import { backupReminderVisible, markBackedUp } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
@@ -214,8 +215,11 @@ function OpenTables(props: { tables: readonly TableEntry[]; me: Hex }) {
 }
 
 export function HomeScreen() {
-  const { signer } = useApp();
+  const { signer, deps } = useApp();
   const lobby = useLobby();
+  const games = pickableGames(deps.modules);
+  const [game, setGame] = useState(games.includes(DEFAULT_GAME) ? DEFAULT_GAME : (games[0] ?? DEFAULT_GAME));
+  const meta = GAME_METAS.get(game);
   const me = signer.pubkey;
   const mine = lobby.myTables.value;
   const mineAddresses = new Set(mine.map((t) => t.address));
@@ -229,11 +233,12 @@ export function HomeScreen() {
   return (
     <div class="home stack">
       <section class="panel hero" aria-labelledby="home-title">
-        <h1 id="home-title">
-          {BRAND.name}: {CHAIN_REACTION_THEME.title}
-        </h1>
-        <p class="lede">{CHAIN_REACTION_THEME.tagline}</p>
-        <p class="muted">{BRAND.tagline}</p>
+        <h1 id="home-title">{BRAND.name}</h1>
+        <p class="lede">{BRAND.tagline}</p>
+        <p class="muted">
+          Games here: {games.map((id) => GAME_METAS.get(id)?.title() ?? id).join(', ')}.
+          {meta !== undefined && ` ${meta.title()}: ${meta.tagline()}`}
+        </p>
       </section>
 
       <BackupReminder />
@@ -241,7 +246,7 @@ export function HomeScreen() {
 
       <div class={mine.length > 0 ? 'home-grid lists-first' : 'home-grid'}>
         <div class="stack">
-          <NewTableForm />
+          <NewTableForm game={game} onGame={setGame} />
           <section class="panel" aria-labelledby="how-h">
             <h2 id="how-h">How it works</h2>
             <ul class="plain">

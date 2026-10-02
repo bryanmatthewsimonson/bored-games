@@ -21,10 +21,12 @@ import type { Settings } from './settings.ts';
 import type { KeyValueStore } from './storage.ts';
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
-export type ModuleRegistry = ReadonlyMap<string, GameModule<any, any, any>>;
+type AnyModule = GameModule<any, any, any>;
 
-/** The games this client can play, by module id. */
-export const MODULES: ModuleRegistry = new Map([[chainReaction.id, chainReaction]]);
+export type ModuleRegistry = ReadonlyMap<string, AnyModule>;
+
+/** The games this client can play, by module id; each also has a web registry entry (games/registry.ts). */
+export const MODULES: ModuleRegistry = new Map<string, AnyModule>([[chainReaction.id, chainReaction]]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */
 export interface PoolLike {

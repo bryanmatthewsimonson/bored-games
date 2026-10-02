@@ -1,23 +1,22 @@
 /*
- * The Game route (#/g/<rootId>): one GameController for the life of the screen, bound to the Chain Reaction
- * component. The controller performs the automatic duties; this screen shows progress and passes the
- * player's decisions to `act`.
+ * The Game route (#/g/<rootId>): one GameController for the life of the screen. The screen is generic (D045): it
+ * shows the setup progress, the chrome every game shares (warnings, the result line, Resign) and dispatches the
+ * play area to the registry's component for the table's game. The controller performs the automatic duties; the
+ * player's decisions go to `act`.
  */
-import type { ChainReactionAction, ChainReactionState } from '@bored-games/chain-reaction';
-import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { SessionView } from '@bored-games/client';
-import { useEffect, useMemo } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
 import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
-import { type Audit, ChainReactionGame, lastTileOf, logLines } from '../games/chain-reaction/index.ts';
+import { gameTitle } from '../game-names.ts';
+import { webGame } from '../games/registry.ts';
+import type { Audit, SetupCopy } from '../games/types.ts';
 import type { ProfileInfo } from '../profile-model.ts';
 import { usePlayerProfiles } from '../profiles.ts';
-import { homeHref } from '../router.ts';
-
-const NO_EVENTS: readonly unknown[] = Object.freeze([]);
+import { activeGame, homeHref } from '../router.ts';
 
 /** "2d 4h left", "3h 10m left", "overdue", from seconds remaining. */
 export function formatDeadline(secondsLeft: number): string {
@@ -38,6 +37,7 @@ export function statusNotice(status: GameStatus, view: SessionView | null): stri
     case 'working':
       if (view?.phase === 'shuffle') return 'Shuffling the deck…';
       if (view?.phase === 'deal') return 'Dealing…';
+      if (view?.phase === 'done') return 'Signing the result…';
       return 'working…';
     case 'stuck':
       return 'Stuck: an automatic step failed. Reload the page to retry.';
@@ -70,6 +70,30 @@ export function timeoutExplanation(view: SessionView, who: string): string {
   return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits: the game ends now, ${who} is ranked last and the others are ranked as if the game ended now.`;
 }
 
+/** The seats whose resignation ended the game (PROTOCOL §4.9); empty otherwise. */
+export function resignedSeats(view: SessionView | null): readonly number[] {
+  const r = (view as { resigned?: unknown } | null)?.resigned;
+  return Array.isArray(r) ? r.filter((x): x is number => Number.isInteger(x)) : [];
+}
+
+/** What resigning does, for the confirm step: before the first game action the game is cancelled instead. */
+export function resignExplanation(view: SessionView): string {
+  const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
+  if (!started) return 'No move has been played yet, so resigning cancels the game without a result.';
+  return view.seats === 2
+    ? 'You lose the game. This cannot be undone.'
+    : 'The game ends now: you are ranked last and the others are ranked as the game stands. This cannot be undone.';
+}
+
+/** "Result signed by 2 of 2 players", once the session has a result to attest; null before. */
+export function attestLine(view: SessionView | null): string | null {
+  if (view === null || view.phase !== 'done' || view.outcome === null) return null;
+  const n = view.attested.length;
+  return n === view.seats
+    ? `Result confirmed: signed by all ${n} players.`
+    : `Result signed by ${n} of ${view.seats} players so far.`;
+}
+
 /** The seats a timeout claim made forfeit, when one ended the game; empty otherwise. */
 export function timedOutSeats(view: SessionView | null): readonly number[] {
   const a = view?.phase === 'done' ? view.audit : null;
@@ -97,23 +121,27 @@ function lockedReason(status: GameStatus): string {
   return 'It is not your decision right now.';
 }
 
+/** The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). */
+export function setupStep(view: SessionView | null, copy: SetupCopy | null): string {
+  if (view === null) return 'Looking for the game on your relays…';
+  if (view.phase === 'shuffle')
+    return `${copy?.shuffling ?? 'Shuffling'}: ${view.head.seq} of ${view.seats} players done.`;
+  if (view.phase === 'deal') return copy?.dealing ?? 'Dealing…';
+  return 'Loading the game…';
+}
+
 function SetupProgress(props: {
+  title: string;
   view: SessionView | null;
+  copy: SetupCopy | null;
   status: GameStatus;
   error: string | null;
   claim: { explanation: string; busy: boolean; onClaim: () => void } | null;
 }) {
-  const v = props.view;
-  const step =
-    v === null
-      ? 'Looking for the game on your relays…'
-      : v.phase === 'shuffle'
-        ? `Shuffling the deck: ${v.head.seq} of ${v.seats} players done.`
-        : 'Dealing the tiles…';
   return (
     <section class="panel game-loading" aria-labelledby="game-title" aria-busy={props.status !== 'waiting'}>
-      <h1 id="game-title">{CHAIN_REACTION_THEME.title}</h1>
-      <p role="status">{step}</p>
+      <h1 id="game-title">{props.title}</h1>
+      <p role="status">{setupStep(props.view, props.copy)}</p>
       {props.status === 'working' && <p class="muted">Working… this can take a few seconds.</p>}
       {props.status === 'stuck' && (
         <p class="error" role="alert">
@@ -135,6 +163,55 @@ function SetupProgress(props: {
   );
 }
 
+/**
+ * "Resign", then a confirm step that says what resigning does. A resignation cannot be taken back, so it is
+ * never sent on the first click.
+ */
+export function ResignButton(props: { explanation: string; busy: boolean; onResign: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <button type="button" class="btn btn-small" disabled={props.busy} onClick={() => setConfirming(true)}>
+        Resign
+      </button>
+    );
+  }
+  return (
+    <section class="claim-confirm" role="alertdialog" aria-labelledby="resign-confirm-h">
+      <p id="resign-confirm-h">
+        <strong>Resign this game?</strong> {props.explanation}
+      </p>
+      <div class="row">
+        <button
+          type="button"
+          class="btn btn-small btn-primary"
+          disabled={props.busy}
+          onClick={() => {
+            setConfirming(false);
+            props.onResign();
+          }}
+        >
+          Yes, resign
+        </button>
+        <button type="button" class="btn btn-small" onClick={() => setConfirming(false)}>
+          Cancel
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign or a timeout). */
+function placesText(view: SessionView, names: readonly string[]): string {
+  const o = view.outcome;
+  if (o === null) return '';
+  return o.places
+    .map((place, seat) => ({ place, seat }))
+    .sort((a, b) => a.place - b.place || a.seat - b.seat)
+    .map(({ place, seat }) => `${place}. ${names[seat] ?? `Seat ${seat + 1}`}`)
+    .join(', ');
+}
+
 export function GameScreen(props: { rootId: string }) {
   const { deps } = useApp();
   const ctl = useMemo(() => new GameController(props.rootId, deps), [props.rootId, deps]);
@@ -151,7 +228,15 @@ export function GameScreen(props: { rootId: string }) {
   const seats = ctl.seats.value;
   const now = ctl.clock.value;
   const target = ctl.timeoutTarget.value;
-  const state = (view?.state ?? null) as ChainReactionState | null;
+  const gameId = ctl.game.value;
+  const game = gameId === null ? undefined : webGame(gameId);
+  // The header's Rules link follows this game while the screen is open.
+  useEffect(() => {
+    activeGame.value = gameId;
+    return () => {
+      activeGame.value = null;
+    };
+  }, [gameId]);
 
   // Seat profiles come from the page's ProfileStore (D040), which keeps one kind 0 subscription for every screen.
   const profiles = usePlayerProfiles(seats);
@@ -160,18 +245,18 @@ export function GameScreen(props: { rootId: string }) {
     () => seats.map((pk, i) => <Avatar key={pk} pubkey={pk} picture={profiles[i]?.picture ?? null} />),
     [seats, profiles],
   );
-  // The session's module events (oldest first, a new frozen array on every change): the log and the last tile.
-  const events = view?.events ?? NO_EVENTS;
-  const mySeat = view?.mySeat ?? null;
-  const over = state?.phase.kind === 'over';
-  const log = useMemo(() => logLines(events, { mySeat, over, names }), [events, mySeat, over, names]);
-  const lastTile = useMemo(() => lastTileOf(events), [events]);
+  const nameOf = (seat: number): string => names[seat] ?? `Seat ${seat + 1}`;
 
   if (status === 'cancelled') {
+    const quit = resignedSeats(view);
     return (
       <section class="panel" aria-labelledby="game-title">
         <h1 id="game-title">Game cancelled</h1>
-        <p>A player stalled before the first move, so this game ended without a result.</p>
+        <p>
+          {quit.length > 0
+            ? `${quit.map(nameOf).join(', ')} resigned before the first move, so this game ended without a result.`
+            : 'A player stalled before the first move, so this game ended without a result.'}
+        </p>
         <p>
           <a href={homeHref()}>Back to the start</a>
         </p>
@@ -182,17 +267,34 @@ export function GameScreen(props: { rootId: string }) {
     target === null || view === null
       ? null
       : {
-          explanation: timeoutExplanation(view, names[target] ?? `Seat ${target + 1}`),
+          explanation: timeoutExplanation(view, nameOf(target)),
           busy,
           onClaim: () => void ctl.claimTimeout(),
         };
-  if (state === null || view === null || view.phase === 'shuffle' || view.phase === 'deal')
-    return <SetupProgress view={view} status={status} error={error} claim={claim} />;
+  const title = gameId === null ? 'Game' : gameTitle(gameId);
+  const copy = game?.setupCopy(view !== null && view.shuffleSteps > 0) ?? null;
+  if (view === null || view.state === null || view.phase === 'shuffle' || view.phase === 'deal')
+    return (
+      <SetupProgress title={title} view={view} copy={copy} status={status} error={error} claim={claim} />
+    );
+  if (game === undefined) {
+    return (
+      <section class="panel" aria-labelledby="game-title">
+        <h1 id="game-title">{title}</h1>
+        <p class="error" role="alert">
+          This app cannot show {title} games yet.
+        </p>
+      </section>
+    );
+  }
 
   const audit: Audit | undefined = view.phase === 'end' || view.phase === 'done' ? view.audit : undefined;
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
+  const resigned = resignedSeats(view);
   const deadlineLeft = view.pendingSince + view.deadline - now;
+  const attested = attestLine(view);
+  const Component = game.Component;
   return (
     <>
       {error !== null && (
@@ -202,28 +304,32 @@ export function GameScreen(props: { rootId: string }) {
       )}
       {cheats.length > 0 && (
         <p class="warning" role="alert">
-          {cheats.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ')}{' '}
-          {cheats.length === 1 ? 'has' : 'have'} signed two rival moves for the same turn.
+          {cheats.map(nameOf).join(', ')} {cheats.length === 1 ? 'has' : 'have'} signed two rival moves for
+          the same turn.
         </p>
       )}
       {timedOut.length > 0 && (
         <p class="warning" role="status">
-          The game is over: {timedOut.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ')} ran out of
-          time and {timedOut.length === 1 ? 'forfeits' : 'forfeit'}.
+          The game is over: {timedOut.map(nameOf).join(', ')} ran out of time and{' '}
+          {timedOut.length === 1 ? 'forfeits' : 'forfeit'}. Final places: {placesText(view, names)}.
         </p>
       )}
-      <ChainReactionGame
-        state={state}
+      {resigned.length > 0 && (
+        <p class="warning game-resigned" role="status">
+          The game is over: {resigned.map(nameOf).join(', ')} {resigned.length === 1 ? 'has' : 'have'}{' '}
+          resigned. Final places: {placesText(view, names)}.
+        </p>
+      )}
+      <Component
+        view={view}
         mySeat={view.mySeat}
-        legal={ctl.legal.value as readonly ChainReactionAction[]}
+        legal={ctl.legal.value}
         canAct={status === 'your-turn' && !busy}
         lockedReason={lockedReason(status)}
         busy={busy}
         onAct={(a) => ctl.act(a)}
         names={names}
         avatars={avatars}
-        events={log}
-        lastTile={lastTile}
         audit={audit}
         notice={notice ?? statusNotice(status, view)}
         deadline={view.phase === 'play' ? formatDeadline(deadlineLeft) : undefined}
@@ -231,6 +337,20 @@ export function GameScreen(props: { rootId: string }) {
         timeoutExplanation={claim?.explanation}
         ended={view.phase !== 'play'}
       />
+      <div class="game-chrome">
+        {attested !== null && (
+          <p class="muted game-attested" role="status">
+            {attested}
+          </p>
+        )}
+        {ctl.canResign.value && view.phase === 'play' && (
+          <ResignButton
+            explanation={resignExplanation(view)}
+            busy={busy}
+            onResign={() => void ctl.resign()}
+          />
+        )}
+      </div>
     </>
   );
 }

@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
 import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
+  attestLine,
   equivocatorsOf,
   formatDeadline,
   playerNames,
+  resignExplanation,
+  resignedSeats,
+  setupStep,
   statusNotice,
   timedOutSeats,
   timeoutExplanation,
@@ -71,6 +75,50 @@ describe('game screen helpers', () => {
     ).toEqual([0, 2]);
     expect(timedOutSeats(viewOf({ phase: 'done', audit: { fail: [1], reason: 'bad shuffle' } }))).toEqual([]);
     expect(timedOutSeats(viewOf({ phase: 'play', audit: { fail: [1], reason: 'timeout' } }))).toEqual([]);
+  });
+});
+
+describe('game chrome helpers (D045)', () => {
+  it('reads the seats whose resignation ended the game', () => {
+    expect(resignedSeats(null)).toEqual([]);
+    expect(resignedSeats(viewOf({ resigned: [1] }))).toEqual([1]);
+  });
+
+  it('explains what resigning does: a cancel before the first action, a loss or last place after', () => {
+    expect(
+      resignExplanation(viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 0 } })),
+    ).toMatch(/cancels the game/);
+    expect(
+      resignExplanation(viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 3 } })),
+    ).toMatch(/You lose the game/);
+    expect(resignExplanation(viewOf({ phase: 'play', seats: 3, head: { id: 'h', seq: 3 } }))).toMatch(
+      /cancels the game/,
+    );
+    expect(resignExplanation(viewOf({ phase: 'play', seats: 3, head: { id: 'h', seq: 9 } }))).toMatch(
+      /you are ranked last/,
+    );
+  });
+
+  it('counts the attestations once there is a result', () => {
+    const outcome = { places: [1, 2], reason: 'resign', scores: [1, 1] };
+    expect(attestLine(null)).toBeNull();
+    expect(attestLine(viewOf({ phase: 'play', outcome: null, attested: [] }))).toBeNull();
+    expect(attestLine(viewOf({ phase: 'done', seats: 2, outcome, attested: [0] }))).toBe(
+      'Result signed by 1 of 2 players so far.',
+    );
+    expect(attestLine(viewOf({ phase: 'done', seats: 2, outcome, attested: [0, 1] }))).toBe(
+      'Result confirmed: signed by all 2 players.',
+    );
+  });
+
+  it('words the setup step from the game’s copy; a deckless game has none', () => {
+    const copy = { shuffling: 'Shuffling the deck', dealing: 'Dealing the tiles…' };
+    expect(setupStep(null, copy)).toMatch(/Looking for the game/);
+    expect(setupStep(viewOf({ phase: 'shuffle', head: { id: 'h', seq: 1 } }), copy)).toBe(
+      'Shuffling the deck: 1 of 3 players done.',
+    );
+    expect(setupStep(viewOf({ phase: 'deal' }), copy)).toBe('Dealing the tiles…');
+    expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
   });
 });
 

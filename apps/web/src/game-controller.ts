@@ -52,10 +52,10 @@ export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-tur
 export const TICK_MS = 30_000;
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
-export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest];
+export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
 
 /** The game event kinds signed by a seat's session key; attestations (`KIND.attest`) are signed by its npub. */
-const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal];
+const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.resign];
 
 /**
  * Stored game events asked for per page. A page that brings any event not seen before is followed by an older
@@ -122,7 +122,7 @@ export function loadSeen(
 }
 
 /**
- * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest` and
+ * The saved outbox of a game, by slot: `move:<seq>:<prev>`, `deal`, `secret`, `attest`, `resign` and
  * `timeout:<seat>:<head>`.
  */
 export function loadOutbox(
@@ -181,6 +181,10 @@ export class GameController {
   readonly legal: Signal<readonly unknown[]> = signal([]);
   /** A seat this player may claim a timeout against now, or null. */
   readonly timeoutTarget: Signal<number | null> = signal(null);
+  /** Whether this player may resign now (PROTOCOL §4.9): seated, synced, and the game is live. */
+  readonly canResign: Signal<boolean> = signal(false);
+  /** The game's module id, from the root, once it is known. */
+  readonly game: Signal<string | null> = signal(null);
   /** The seats' identity pubkeys, in seat order. */
   readonly seats: Signal<readonly Hex[]> = signal([]);
   readonly table: Signal<ParsedTable | null> = signal(null);
@@ -308,6 +312,30 @@ export class GameController {
       this.error.value = null;
     } catch (e) {
       this.error.value = `The timeout claim was not sent: ${errorText(e)}`;
+    } finally {
+      this.busy.value = false;
+      this.#refresh();
+      this.#queueDuties();
+    }
+  }
+
+  /**
+   * Resign (PROTOCOL §4.9, D045): build the Resign once (the `resign` slot keeps it, so a reload re-sends the same
+   * event), fold it in and publish it. The game ends with this seat last.
+   */
+  async resign(): Promise<void> {
+    const session = this.#session;
+    if (session === null || this.busy.value || !this.#synced) return;
+    this.busy.value = true;
+    try {
+      await this.#yield();
+      if (this.#disposed) throw new Error('The game screen was closed.');
+      const saved = this.#live('resign');
+      if (saved === null && !session.canResign()) throw new Error('the game is no longer live');
+      this.#commit('resign', saved ?? session.buildResign(this.#d.rnd, this.#d.now()));
+      this.error.value = null;
+    } catch (e) {
+      this.error.value = `Your resignation was not sent: ${errorText(e)}`;
     } finally {
       this.busy.value = false;
       this.#refresh();
@@ -462,6 +490,7 @@ export class GameController {
     }
     this.#rootEv = ev;
     this.#root = root;
+    this.game.value = root.game;
     this.#noteSeen(ev.id, this.#d.now());
     this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
     if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
@@ -637,6 +666,7 @@ export class GameController {
     this.view.value = v;
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
+    this.canResign.value = this.#synced && session.canResign();
     this.status.value = this.#statusOf(v, duties);
     this.#cacheStatus(v.head.seq, this.status.value, now);
     this.#maybePrune(v, duties);
