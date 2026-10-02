@@ -47,14 +47,23 @@ async function open(browser: Browser, name: string, url: string): Promise<Player
 const board = (p: Player): Locator => p.page.getByTestId('chess-game');
 const seqOf = async (p: Player): Promise<number> => Number(await board(p).getAttribute('data-seq'));
 
+/**
+ * Checks the phone layout at 390 px on every run: no horizontal page scroll, and a square board when one is
+ * shown. With E2E_SCREENSHOTS set, also saves the page at 1280 and 390 px.
+ */
 async function shoot(p: Player, file: string): Promise<void> {
-  if (SHOTS === undefined || SHOTS === '') return;
-  await p.page.setViewportSize({ width: 1280, height: 1000 });
-  await p.page.screenshot({ path: `${SHOTS}/${file}-1280.png`, fullPage: true });
+  const save = SHOTS !== undefined && SHOTS !== '';
+  if (save) await p.page.screenshot({ path: `${SHOTS}/${file}-1280.png`, fullPage: true });
   await p.page.setViewportSize({ width: 390, height: 844 });
-  // No horizontal page scroll on a phone.
-  expect(await p.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await p.page.screenshot({ path: `${SHOTS}/${file}-390.png`, fullPage: true });
+  expect(await p.page.evaluate(() => document.documentElement.scrollWidth), file).toBeLessThanOrEqual(390);
+  const grid = p.page.locator('.chess-board');
+  if ((await grid.count()) > 0) {
+    const box = await grid.boundingBox();
+    if (box === null) throw new Error('no board');
+    expect(Math.abs(box.width - box.height), file).toBeLessThanOrEqual(1);
+    expect(box.width, file).toBeGreaterThan(300);
+  }
+  if (save) await p.page.screenshot({ path: `${SHOTS}/${file}-390.png`, fullPage: true });
   await p.page.setViewportSize({ width: 1280, height: 1000 });
 }
 
@@ -93,10 +102,15 @@ async function seen(everyone: readonly Player[], seq: number): Promise<void> {
     await expect(board(q)).toHaveAttribute('data-seq', String(seq), { timeout: MOVE_MS });
 }
 
+/** Waits until `p` may move: the status line is marked as theirs only once the board accepts a move. */
+async function myTurn(p: Player): Promise<void> {
+  await expect(p.page.locator('.chess-status-line.mine')).toBeVisible({ timeout: MOVE_MS });
+}
+
 /** `p` moves from one square to another by clicking both; every player then sees the move. */
 async function move(p: Player, from: string, to: string, everyone: readonly Player[]): Promise<void> {
   const before = await seqOf(p);
-  await expect(p.page.getByText(/^Your move/)).toBeVisible({ timeout: MOVE_MS });
+  await myTurn(p);
   await square(p, from).click();
   await expect(square(p, from)).toHaveAttribute('aria-pressed', 'true');
   await square(p, to).click();
@@ -106,7 +120,7 @@ async function move(p: Player, from: string, to: string, everyone: readonly Play
 /** `p` drags a piece with the mouse from one square to another. */
 async function drag(p: Player, from: string, to: string, everyone: readonly Player[]): Promise<void> {
   const before = await seqOf(p);
-  await expect(p.page.getByText(/^Your move/)).toBeVisible({ timeout: MOVE_MS });
+  await myTurn(p);
   const a = await square(p, from).boundingBox();
   const b = await square(p, to).boundingBox();
   if (a === null || b === null) throw new Error('no square');
@@ -133,6 +147,9 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
   await expect(square(a, 'e4')).toHaveAccessibleName('e4, empty');
   await shoot(a, 'chess-start');
   await move(a, 'f2', 'f3', both);
+  // The opponent's move is announced in the live region.
+  await expect(b.page.getByTestId('chess-live')).toHaveText(/\(White\) played pawn to f3\.$/);
+  await expect(a.page.getByTestId('chess-live')).toHaveText('');
   await move(b, 'e7', 'e5', both);
   await move(a, 'g2', 'g4', both);
   await expect(b.page.getByRole('listitem').filter({ hasText: 'f3' })).toBeVisible();
@@ -142,13 +159,16 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
     await expect(p.page.getByText(/^Checkmate: .* \(Black\) wins$/)).toBeVisible({ timeout: MOVE_MS });
     await expect(p.page.getByText('0–1', { exact: true })).toBeVisible();
     await expect(board(p)).toHaveAttribute('data-result', 'checkmate');
-    await expect(p.page.getByText('Result confirmed: signed by all 2 players.')).toBeVisible({
+    await expect(p.page.getByText('Result confirmed: signed by both players.')).toBeVisible({
       timeout: MOVE_MS,
     });
     await expect(p.page.getByRole('button', { name: 'Resign' })).toHaveCount(0);
   }
   await expect(a.page.getByText('Qh4#')).toBeVisible();
   await expect(square(a, 'e1')).toHaveAccessibleName('e1, white king, in check');
+  await expect(a.page.getByTestId('chess-live')).toHaveText(
+    /\(Black\) played queen to h4, checkmate\. Game over, 0–1: Checkmate: .* \(Black\) wins\.$/,
+  );
   await shoot(a, 'chess-mate');
 
   // Game 2: 1. e4 f6 2. Qh5+, and b resigns in check.
@@ -164,11 +184,11 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
   await b.page.getByRole('button', { name: 'Yes, resign' }).click();
   for (const p of both) {
     await expect(board(p)).toHaveAttribute('data-result', 'resign', { timeout: MOVE_MS });
-    await expect(p.page.getByText(/\(Black\) resigned: .* \(White\) wins/)).toBeVisible();
+    await expect(p.page.locator('.chess-result-text')).toHaveText(/\(Black\) resigned: .* \(White\) wins$/);
     // The score comes from the places: a resign leaves the outcome's scores at 1–1 (D048).
     await expect(p.page.getByText('1–0', { exact: true })).toBeVisible();
     await expect(p.page.getByText(/has resigned\. Final places: 1\. /)).toBeVisible();
-    await expect(p.page.getByText('Result confirmed: signed by all 2 players.')).toBeVisible({
+    await expect(p.page.getByText('Result confirmed: signed by both players.')).toBeVisible({
       timeout: MOVE_MS,
     });
   }
@@ -179,7 +199,7 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
 
   // Game 3: keyboard, drag, a promotion with a draw offer, and an agreed draw.
   await startChess(a, b);
-  await expect(a.page.getByText(/^Your move/)).toBeVisible({ timeout: MOVE_MS });
+  await myTurn(a);
   await square(a, 'a2').focus();
   await a.page.keyboard.press('Enter');
   await expect(square(a, 'a2')).toHaveAttribute('aria-pressed', 'true');
@@ -196,20 +216,31 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
   await move(b, 'c8', 'b7', both);
   await move(a, 'a6', 'b7', both);
   await move(b, 'b8', 'c6', both);
-  await expect(a.page.getByText(/^Your move/)).toBeVisible({ timeout: MOVE_MS });
+  await myTurn(a);
   await square(a, 'b7').click();
   await expect(square(a, 'a8')).toHaveAccessibleName('a8, black rook, capture');
   await expect(square(a, 'b8')).toHaveAccessibleName('b8, empty, legal move, last move');
   await shoot(a, 'chess-selected');
   await a.page.getByLabel('Offer a draw with this move').check();
+  // Escape closes the promotion dialog without moving, and focus returns to the board.
   await square(a, 'a8').click();
   const dialog = a.page.getByRole('dialog', { name: 'Promote the pawn to' });
+  await expect(dialog).toBeVisible();
+  await a.page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(square(a, 'a8')).toBeFocused();
+  await expect(square(a, 'b7')).toHaveAttribute('aria-pressed', 'true');
+  await expect(board(a)).toHaveAttribute('data-seq', '8');
+  await square(a, 'a8').click();
   await expect(dialog).toBeVisible();
   await shoot(a, 'chess-promotion');
   await dialog.getByRole('button', { name: 'Queen' }).click();
   await seen(both, 9);
   await expect(b.page.getByText('bxa8=Q')).toBeVisible();
   await expect(b.page.getByText(/\(White\) offers a draw\. Accept it/)).toBeVisible();
+  await expect(b.page.getByTestId('chess-live')).toHaveText(
+    /\(White\) played pawn takes rook on a8, promotes to queen, and offers a draw\.$/,
+  );
   await expect(a.page.getByText(/You offered a draw with your last move/)).toBeVisible();
   await shoot(b, 'chess-draw-offer');
   await b.page.getByRole('button', { name: 'Accept draw' }).click();
@@ -217,7 +248,7 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
     await expect(board(p)).toHaveAttribute('data-result', 'agreement', { timeout: MOVE_MS });
     await expect(p.page.getByText('Draw by agreement', { exact: true })).toBeVisible();
     await expect(p.page.getByText('½–½', { exact: true })).toBeVisible();
-    await expect(p.page.getByText('Result confirmed: signed by all 2 players.')).toBeVisible({
+    await expect(p.page.getByText('Result confirmed: signed by both players.')).toBeVisible({
       timeout: MOVE_MS,
     });
   }
