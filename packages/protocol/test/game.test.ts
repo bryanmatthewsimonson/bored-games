@@ -26,9 +26,11 @@ import {
   type PosShare,
   parseAttest,
   parseMove,
+  parseResign,
   parseSecret,
   parseShares,
   parseTimeout,
+  resignTemplate,
   secretTemplate,
   sharesTemplate,
   timeoutTemplate,
@@ -359,6 +361,48 @@ describe('Timeout claim (7454)', () => {
   it('rejects the wrong kind and non-empty content', () => {
     expect(code(() => parse({ ...tpl, kind: KIND.reveal }))).toBe('wrong-kind');
     expect(code(() => parse({ ...tpl, content: '{"a":1}' }))).toBe('bad-content');
+    expect(code(() => parse({ ...tpl, content: '' }))).toBe('bad-content');
+  });
+});
+
+describe('Resign (7457)', () => {
+  const tpl = resignTemplate({ rootId: ROOT, headId: HEAD }, T0);
+  const parse = (t: EventTemplate) => parseResign(sign(t));
+
+  it('has root and head tags and the resign content', () => {
+    expect(tpl.kind).toBe(KIND.resign);
+    expect(KIND.resign).toBe(7457);
+    expect(tpl.tags).toEqual([rootTag, ['e', HEAD, '', 'head'], ['proto', '1']]);
+    expect(tpl.content).toBe('{"type":"resign"}');
+  });
+
+  it('round-trips, the root itself being a valid head', () => {
+    const ev = sign(tpl);
+    expect(parseResign(ev)).toEqual({
+      id: ev.id,
+      pubkey: SESSION,
+      createdAt: T0,
+      rootId: ROOT,
+      headId: HEAD,
+    });
+    expect(parse(resignTemplate({ rootId: ROOT, headId: ROOT }, T0)).headId).toBe(ROOT);
+  });
+
+  const bad = (name: string, f: (tags: string[][]) => string[][]) =>
+    it(`rejects ${name}`, () => expect(code(() => parse(withTags(tpl, f)))).toBe('bad-tag'));
+  bad('a missing head', (t) => t.filter((x) => x[3] !== 'head'));
+  bad('a missing root', (t) => t.filter((x) => x[3] !== 'root'));
+  bad('two head tags', (t) => [...t, ['e', ROOT, '', 'head']]);
+  bad('a prev tag', (t) => [...t, prevTag]);
+  bad('a head that is not hex', (t) => t.map((x) => (x[3] === 'head' ? ['e', 'nope', '', 'head'] : x)));
+
+  it('rejects the wrong kind, a missing proto tag and any other content', () => {
+    expect(code(() => parse({ ...tpl, kind: KIND.timeout }))).toBe('wrong-kind');
+    expect(code(() => parse(withTags(tpl, (t) => t.filter((x) => x[0] !== 'proto'))))).not.toBe('accepted');
+    expect(code(() => parse({ ...tpl, content: '{}' }))).toBe('bad-content');
+    expect(code(() => parse({ ...tpl, content: '{"type":"forfeit"}' }))).toBe('bad-content');
+    expect(code(() => parse({ ...tpl, content: '{"seat":0,"type":"resign"}' }))).toBe('bad-content');
+    expect(code(() => parse({ ...tpl, content: '{ "type":"resign"}' }))).toBe('bad-content');
     expect(code(() => parse({ ...tpl, content: '' }))).toBe('bad-content');
   });
 });

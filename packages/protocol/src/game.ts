@@ -21,7 +21,7 @@ import { type EventTemplate, type Hex, isHex64 } from './nostr.ts';
 import { named, one } from './tags.ts';
 
 /*
- * In-game events (PROTOCOL §4.4–§4.8): Move, Shares, Timeout claim, Secret reveal and Result attestation.
+ * In-game events (PROTOCOL §4.4–§4.9): Move, Shares, Timeout claim, Secret reveal, Result attestation and Resign.
  * Templates build unsigned events; parsers take signed events from peers, run the same pipeline as the lobby
  * parsers (size cap, NIP-01 validity, kind, `proto` tag, required tags, canonical content, exact content shape)
  * and throw `ProtocolError` on anything else. Parsers check shapes only: proofs, owed shares, the `x·G = X_k`
@@ -70,6 +70,14 @@ export interface TimeoutSpec {
 }
 
 export type ParsedTimeout = Parsed & TimeoutSpec;
+
+export interface ResignSpec {
+  rootId: Hex;
+  /** The head the resigning seat saw when it resigned (PROTOCOL §4.9). */
+  headId: Hex;
+}
+
+export type ParsedResign = Parsed & ResignSpec;
 
 export interface SecretSpec {
   rootId: Hex;
@@ -275,6 +283,25 @@ export function parseTimeout(ev: unknown): ParsedTimeout {
     const seat = numberTag(e.tags, 'seat', 0);
     record(canonicalContent(e.content), 'content', []);
     return { ...parsedOf(e), rootId: ids.root as Hex, headId: ids.head as Hex, seat };
+  });
+}
+
+/* ------------------------------------------------------------------------------------------ resign */
+
+/** The Resign event (kind 7457), unsigned: root and head; content `{"type":"resign"}` (PROTOCOL §4.9, D045). */
+export function resignTemplate(r: ResignSpec, createdAt: number): EventTemplate {
+  return template(KIND.resign, createdAt, [rootTag(r.rootId), ['e', r.headId, '', 'head']], {
+    type: 'resign',
+  });
+}
+
+/** Parse a Resign event. Whether its signer holds a seat, and what it ends, is for the session engine. */
+export function parseResign(ev: unknown): ParsedResign {
+  return parseEvent(ev, KIND.resign, (e) => {
+    const ids = markedIds(e.tags, ['root', 'head']);
+    const c = record(canonicalContent(e.content), 'content', ['type']);
+    if (c.type !== 'resign') badContent('type must be "resign"');
+    return { ...parsedOf(e), rootId: ids.root as Hex, headId: ids.head as Hex };
   });
 }
 

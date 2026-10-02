@@ -167,12 +167,39 @@ export function badShuffle(seat: number): Adversary {
   };
 }
 
-export const ADVERSARIES = ['badShare', 'forgedSkip', 'equivocate', 'vanish', 'badShuffle'] as const;
+/**
+ * `resign`: the seat plays honestly until the chain reaches `atSeq` moves, then resigns (PROTOCOL §4.9, D045) and
+ * only attests from then on. Not a cheat, but a seat whose departure the others must agree on: the resign is
+ * labelled so the report shows how every client received it.
+ */
+export function resignAt(seat: number, atSeq: number): Adversary {
+  let done = false;
+  return {
+    name: 'resign',
+    seat,
+    turn(t) {
+      if (done) return 'honest';
+      if (t.session.view().head.seq < atSeq || !t.session.canResign()) return 'honest';
+      done = true;
+      t.publish(t.session.buildResign(t.rnd, t.now), 'resign');
+      return 'honest';
+    },
+  };
+}
+
+export const ADVERSARIES = [
+  'badShare',
+  'forgedSkip',
+  'equivocate',
+  'vanish',
+  'badShuffle',
+  'resign',
+] as const;
 export type AdversaryName = (typeof ADVERSARIES)[number];
 
 /**
- * The named adversary at `seat`. `vanish` vanishes before the first game action unless `vanishAt` (a chain length)
- * says otherwise.
+ * The named adversary at `seat`. `vanish` vanishes, and `resign` resigns, before the first game action unless
+ * `vanishAt` (a chain length) says otherwise.
  */
 export function adversary(name: AdversaryName, seat: number, seats: number, vanishAt = seats): Adversary {
   switch (name) {
@@ -186,6 +213,8 @@ export function adversary(name: AdversaryName, seat: number, seats: number, vani
       return vanish(seat, vanishAt);
     case 'badShuffle':
       return badShuffle(seat);
+    case 'resign':
+      return resignAt(seat, vanishAt);
   }
 }
 
@@ -283,6 +312,20 @@ export function unexpected(report: SimReport, seat: number): string[] {
             same(report.audit, { fail: [seat], reason: 'withheld secret' }),
           `audit ${audit}`,
         );
+      }
+      break;
+    case 'resign':
+      want(report.cheats.length === 1, 'it never resigned');
+      want(same(report.forfeits, [seat]), `forfeits ${report.forfeits}`);
+      want(report.claims === 0, `${report.claims} timeout claims`);
+      if (report.actions === 0) {
+        want(report.phase === 'cancelled', `phase ${report.phase}, not cancelled`);
+        want(report.outcome === null, 'a cancelled game has an outcome');
+      } else {
+        want(report.phase === 'done', `phase ${report.phase}, not done`);
+        want(report.outcome?.reason === 'resign', `outcome reason ${report.outcome?.reason}`);
+        want(lastAlone(places, seat), `places ${places}`);
+        want(same(report.audit, { fail: [seat], reason: 'resign' }), `audit ${audit}`);
       }
       break;
     default:

@@ -140,7 +140,7 @@ export interface SimReport {
 }
 
 /** The in-game kinds a client subscribes to (PROTOCOL §9). */
-const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest];
+const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
 const RELAYS = ['wss://relay.sim.invalid'];
 const DEFAULT_START = 1_700_000_000;
 /** The most events one client publishes in one turn; a sound session needs far fewer. */
