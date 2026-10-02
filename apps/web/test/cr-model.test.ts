@@ -38,6 +38,7 @@ import {
   logLines,
   myHoldings,
   newlyPlacedTile,
+  outcomeRows,
   playerRows,
   priceCard,
   priceRowOf,
@@ -518,6 +519,17 @@ describe('results and status', () => {
       expect(r.place).toBe(g.state.result.places[r.seat]);
     }
     expect(statusLine(CHAIN_REACTION_THEME, g.state, NAMES, 0)).toMatch(/over/i);
+  });
+
+  it('lists the platform outcome after an early end: places with the forfeiting seat last, and cash', () => {
+    const outcome = { places: [2, 4, 1, 2], scores: [6000, 9000, 7500, 6000] };
+    expect(outcomeRows(outcome, NAMES)).toEqual([
+      { seat: 2, name: NAMES[2], place: 1, cash: 7500 },
+      { seat: 0, name: NAMES[0], place: 2, cash: 6000 },
+      { seat: 3, name: NAMES[3], place: 2, cash: 6000 },
+      { seat: 1, name: NAMES[1], place: 4, cash: 9000 },
+    ]);
+    expect(outcomeRows(null, NAMES)).toEqual([]);
   });
 
   it('says whose decision it is', () => {

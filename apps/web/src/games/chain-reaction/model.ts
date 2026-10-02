@@ -448,6 +448,24 @@ export function resultRows(s: ChainReactionState, names: readonly string[]): Res
     .sort((a, b) => a.place - b.place || a.seat - b.seat);
 }
 
+/** The places and scores of a session outcome: what `outcomeRows` reads. */
+export interface OutcomeLike {
+  readonly places: readonly number[];
+  readonly scores: readonly number[];
+}
+
+/**
+ * Places and cash, best first, for a game that ended outside its rules (a resign or a timeout, PROTOCOL §8.2–§8.3):
+ * the platform's places, with the forfeiting seats last, and its scores, which for Chain Reaction are each seat's
+ * cash as if the game ended now (`standings`: bonuses paid and every share sold). Empty without an outcome.
+ */
+export function outcomeRows(outcome: OutcomeLike | null, names: readonly string[]): ResultRow[] {
+  if (outcome === null) return [];
+  return outcome.places
+    .map((place, seat) => ({ seat, name: seatName(names, seat), place, cash: outcome.scores[seat] ?? 0 }))
+    .sort((a, b) => a.place - b.place || a.seat - b.seat);
+}
+
 // ---------------------------------------------------------------- decisions
 
 export interface ChainOption {

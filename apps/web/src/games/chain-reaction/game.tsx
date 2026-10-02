@@ -16,6 +16,8 @@ import {
   handBadgesShown,
   handTiles,
   myHoldings,
+  type OutcomeLike,
+  outcomeRows,
   playerRows,
   resultRows,
   statusLine,
@@ -67,6 +69,11 @@ export interface ChainReactionGameProps {
   timeoutExplanation?: string | undefined;
   /** True once the game has ended outside the rules (a timeout): a hidden tile will never be revealed. */
   ended?: boolean | undefined;
+  /**
+   * The platform's result once the game is done: after a resign or a timeout (the engine never reached `over`) the
+   * results come from it, with each seat's cash as if the game ended now.
+   */
+  outcome?: OutcomeLike | null | undefined;
 }
 
 export function ChainReactionGame(props: ChainReactionGameProps) {
@@ -122,6 +129,8 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
   const players = playerRows(theme, state, names, mySeat);
   const status = statusLine(theme, state, names, mySeat);
   const over = state.phase.kind === 'over';
+  // A resign or a timeout ended the game outside its rules: the results come from the platform's outcome.
+  const early = !over && props.outcome != null ? outcomeRows(props.outcome, names) : null;
   // Hidden for a spectator, and once the game is over: the results then give every player's final cash.
   const holdings = over ? null : myHoldings(theme, state, mySeat);
 
@@ -177,12 +186,13 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
           </section>
         )}
         {holdings !== null && <HoldingsPanel holdings={holdings} />}
-        {over ? (
+        {over || early !== null ? (
           <ResultsView
-            rows={resultRows(state, names)}
+            rows={early ?? resultRows(state, names)}
             audit={props.audit}
             names={names}
             avatars={props.avatars}
+            early={early !== null}
           />
         ) : (
           mySeat !== null && (

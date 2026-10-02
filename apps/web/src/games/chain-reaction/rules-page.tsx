@@ -424,6 +424,13 @@ export function RulesContent(props: { theme: ChainReactionTheme; rules?: ChainRe
             cancelled instead. Nothing is claimed automatically.
           </li>
           <li>
+            <strong>Resigning.</strong> Resign, under the board, ends the game for everyone at any time. You
+            are ranked last and the others are ranked by their cash as if the game ended now. The game does
+            not count toward ratings, and your resignation is recorded. The other browsers still reveal their
+            secrets, so the hidden moves made so far are checked. If no move has been played yet, the game is
+            cancelled instead.
+          </li>
+          <li>
             <strong>The end-of-game audit.</strong> When the game ends, every browser reveals its secrets and
             checks the hidden moves, such as "I have no playable tile". The results then say "Audit passed",
             or name who failed.
