@@ -263,3 +263,11 @@ export function saveProfileCache(
 ): boolean {
   return writeJson(store, cacheKey(profile), pruneProfileCache(entries, now));
 }
+
+/** The Home nudge shows once the player's own profile has loaded without a name, until dismissed. */
+export function profileNudgeVisible(
+  me: { loaded: boolean; info: { name: string | null } | null },
+  dismissed: boolean,
+): boolean {
+  return me.loaded && (me.info?.name ?? null) === null && !dismissed;
+}

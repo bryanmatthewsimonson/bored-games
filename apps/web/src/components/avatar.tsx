@@ -68,14 +68,16 @@ export function PlayerTagView(props: {
   return (
     <span class="player-tag">
       <Avatar pubkey={props.pubkey} picture={props.info?.picture ?? null} size={props.size ?? 24} />
-      {name !== null && (
-        <>
-          <bdi class="player-name" title={name}>
-            {name}
-          </bdi>{' '}
-        </>
-      )}
-      <NpubTag pubkey={props.pubkey} {...(props.isMe === undefined ? {} : { isMe: props.isMe })} />
+      <span class="player-text">
+        {name !== null && (
+          <>
+            <bdi class="player-name" title={name}>
+              {name}
+            </bdi>{' '}
+          </>
+        )}
+        <NpubTag pubkey={props.pubkey} {...(props.isMe === undefined ? {} : { isMe: props.isMe })} />
+      </span>
     </span>
   );
 }

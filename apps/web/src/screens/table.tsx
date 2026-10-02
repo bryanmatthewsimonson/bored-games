@@ -5,7 +5,8 @@
 import type { LobbyView } from '@bored-games/client';
 import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
-import { NpubTag, StatusChip } from '../components/chips.tsx';
+import { PlayerTag } from '../components/avatar.tsx';
+import { StatusChip } from '../components/chips.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
@@ -38,7 +39,7 @@ function Seats(props: { view: LobbyView; me: Hex }) {
           <span class="seat-kind">{KIND_LABEL[r.kind]}</span>
           <span class="seat-who">
             {r.npub !== null ? (
-              <NpubTag pubkey={r.npub} isMe={r.isMe} />
+              <PlayerTag pubkey={r.npub} isMe={r.isMe} size={32} />
             ) : (
               <span class="muted">Anyone can take this seat</span>
             )}
@@ -78,7 +79,7 @@ function Picker(props: {
               disabled={!on && picks.length >= want}
               onChange={() => toggle(c.npub)}
             />
-            <NpubTag pubkey={c.npub} />
+            <PlayerTag pubkey={c.npub} />
           </label>
         );
       })}
@@ -183,7 +184,7 @@ export function TableScreen(props: { creator: string; tableId: string }) {
         </div>
         <p class="muted">
           {isCreator ? 'You created this table.' : 'Created by'}{' '}
-          {!isCreator && <NpubTag pubkey={t.creator} />}
+          {!isCreator && <PlayerTag pubkey={t.creator} />}
         </p>
 
         <h2>Seats</h2>

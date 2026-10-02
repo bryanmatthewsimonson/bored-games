@@ -12,6 +12,7 @@ import {
   PROFILE_CACHE_TTL_S,
   parseProfile,
   profileName,
+  profileNudgeVisible,
   profileTemplate,
   pruneProfileCache,
   safeImageUrl,
@@ -235,5 +236,15 @@ describe('profile cache', () => {
     expect(back[0]?.picture).toBeNull();
     store.setItem(storageKey('a', 'profiles'), 'not json');
     expect(loadProfileCache(store, 'a', 60).size).toBe(0);
+  });
+});
+
+describe('profileNudgeVisible', () => {
+  it('shows once the profile has loaded without a name, until dismissed', () => {
+    expect(profileNudgeVisible({ loaded: false, info: null }, false)).toBe(false);
+    expect(profileNudgeVisible({ loaded: true, info: null }, false)).toBe(true);
+    expect(profileNudgeVisible({ loaded: true, info: { name: null } }, false)).toBe(true);
+    expect(profileNudgeVisible({ loaded: true, info: { name: 'Ann' } }, false)).toBe(false);
+    expect(profileNudgeVisible({ loaded: true, info: null }, true)).toBe(false);
   });
 });

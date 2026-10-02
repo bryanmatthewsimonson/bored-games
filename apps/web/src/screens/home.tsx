@@ -5,13 +5,55 @@ import { BRAND } from '@bored-games/brand';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import type { Hex } from '@bored-games/protocol';
 import { useState } from 'preact/hooks';
+import { Avatar } from '../components/avatar.tsx';
 import { NewTableForm } from '../components/new-table-form.tsx';
 import { TableCard } from '../components/table-card.tsx';
 import { useApp } from '../context.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
+import { profileNudgeVisible } from '../profile-model.ts';
+import { useProfile } from '../profiles.ts';
 import { gameHref, tableHref } from '../router.ts';
+import { readItem, storageKey, writeItem } from '../storage.ts';
+
+/** Storage name of the dismissed profile nudge. */
+export const NUDGE_DISMISSED = 'nudge-profile';
+
+/** "Add your name and picture", once the player's profile has loaded without a name. */
+function ProfileNudge() {
+  const { signer, store, profile, settingsOpen } = useApp();
+  const me = useProfile(signer.pubkey);
+  const key = storageKey(profile, NUDGE_DISMISSED);
+  const [dismissed, setDismissed] = useState(() => readItem(store, key) === '1');
+  if (!profileNudgeVisible(me, dismissed)) return null;
+  return (
+    <section class="panel nudge" aria-label="Your name and picture">
+      <Avatar pubkey={signer.pubkey} picture={null} size={48} />
+      <div class="nudge-body">
+        <p>
+          <strong>Add your name and picture so friends recognize you.</strong> Until then, other players see
+          only your public key and this pattern.
+        </p>
+        <div class="row">
+          <button type="button" class="btn btn-primary" onClick={() => (settingsOpen.value = true)}>
+            Add name and picture
+          </button>
+          <button
+            type="button"
+            class="btn"
+            onClick={() => {
+              writeItem(store, key, '1');
+              setDismissed(true);
+            }}
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function MyTables(props: { tables: readonly MyTable[] }) {
   const lobby = useLobby();
@@ -150,6 +192,8 @@ export function HomeScreen() {
         <p class="lede">{CHAIN_REACTION_THEME.tagline}</p>
         <p class="muted">{BRAND.tagline}</p>
       </section>
+
+      <ProfileNudge />
 
       <div class={mine.length > 0 ? 'home-grid lists-first' : 'home-grid'}>
         <div class="stack">

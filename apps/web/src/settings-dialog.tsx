@@ -4,6 +4,7 @@ import { useApp } from './context.ts';
 import { CopyButton } from './header.tsx';
 import { exportNsec, writeSignerChoice } from './identity.ts';
 import { parseRelayInput } from './settings.ts';
+import { ProfileSection } from './settings-profile.tsx';
 
 function RelaySection() {
   const { settings } = useApp();
@@ -214,6 +215,7 @@ export function SettingsDialog() {
               Close
             </button>
           </div>
+          <ProfileSection />
           <RelaySection />
           <IdentitySection />
         </div>
