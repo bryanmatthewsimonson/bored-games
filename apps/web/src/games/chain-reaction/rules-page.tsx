@@ -397,10 +397,9 @@ export function RulesContent(props: { rules?: ChainReactionRules }) {
             six. Every player needs the game open for it to finish.
           </li>
           <li>
-            <strong>A new tile takes a moment to show.</strong> As soon as the other players' browsers see
-            your draw, they send what you need to read it. Until then it shows as "…" marked new. That takes
-            seconds while they have the game open and in view; a tab in the background can take a minute or
-            more, and a closed game sends it once it is opened again. It is always known before you need it.
+            <strong>A new tile can show "?" for a while.</strong> Each other player's next move carries what
+            you need to read it, so it shows "?" until every other player has moved once. It is always known
+            before you need it.
           </li>
           <li>
             <strong>Merger decisions can come to you out of turn.</strong> When a chain you hold shares in is

@@ -52,8 +52,6 @@ export interface ChainReactionGameProps {
   onClaimTimeout?: (() => void) | undefined;
   /** What the claim does (who forfeits), for the confirm step. */
   timeoutExplanation?: string | undefined;
-  /** True once the game has ended outside the rules (a timeout): no tile is being revealed any more. */
-  ended?: boolean | undefined;
 }
 
 export function ChainReactionGame(props: ChainReactionGameProps) {
@@ -126,7 +124,6 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
               disabled={locked}
               onSelect={setSelected}
               onPreview={setPreview}
-              revealing={props.ended !== true}
             />
           </section>
         )}

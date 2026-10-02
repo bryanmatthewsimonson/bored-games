@@ -208,14 +208,14 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
   );
 
   it(
-    'a Shares event and a move with a corrupt share are never accepted, and the game goes on to an honest end',
+    'a move with a corrupt share is never accepted, and the game goes on to an honest end',
     () => {
       const r = sim('sim-bad-share', 'badShare');
       expect(r.failures).toEqual([]);
       expect(unexpected(r, CHEAT)).toEqual([]);
       expect(r).toMatchObject({ phase: 'done', audit: 'pass', forfeits: [] });
-      expect(r.cheats.map((c) => c.label)).toEqual(['badShares', 'badShare']);
-      for (const c of r.cheats) expect(Object.values(c.statuses).flat()).not.toContain('accepted');
+      expect(r.cheats).toHaveLength(1);
+      expect(Object.values(r.cheats[0]?.statuses ?? {}).flat()).not.toContain('accepted');
       expect(r.attested).toEqual([0, 1, 2]);
     },
     LONG,

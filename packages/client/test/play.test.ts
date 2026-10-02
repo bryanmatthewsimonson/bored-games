@@ -2,7 +2,6 @@ import { type ChainReactionState, chainReaction, tileId } from '@bored-games/cha
 import { canonicalJson, createRng, stateHash } from '@bored-games/game-kit';
 import {
   finalizeEvent,
-  KIND,
   type MoveContent,
   moveTemplate,
   type NostrEvent,
@@ -14,7 +13,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
-import { deliver, makeGame, newSession, playShuffle, statuses, T0, trust, unshared } from './helpers.ts';
+import { deliver, makeGame, newSession, playShuffle, statuses, T0 } from './helpers.ts';
 
 const SEATS = 3;
 const MOVES = 30;
@@ -55,8 +54,6 @@ describe('play: game-action moves', () => {
   const moves: NostrEvent[] = [];
   /** Per move, each session's head, pending, log hash and public state hash. */
   const agreement: string[][] = [];
-  /** Per move: how many shares its signer owed before it, and the signer's duties and decision after it. */
-  const paid: { owed: number; after: unknown; decides: boolean }[] = [];
   /** A move whose signer published its owed shares in a separate, earlier Shares event. */
   let early: { shares: NostrEvent; move: NostrEvent };
   /** A valid alternative to `moves[rival.index]`, signed by the same seat on the same prev. */
@@ -77,7 +74,6 @@ describe('play: game-action moves', () => {
       const pending = spectator.view().pending;
       if (pending.type !== 'player') throw new Error(`move ${i}: no player decision is pending`);
       const s = players[pending.seat] as GameSession;
-      const owed = s.duties().find((d) => d.kind === 'share');
       // The uniform fuzz policy.
       const legal = s.legalActions();
       const action = rng.pick(legal);
@@ -104,12 +100,6 @@ describe('play: game-action moves', () => {
       expect(statuses(deliver(all, [ev]))).toEqual(Array(4).fill('accepted'));
       log.push(ev);
       moves.push(ev);
-      const next = spectator.view().pending;
-      paid.push({
-        owed: owed?.kind === 'share' ? owed.positions.length : 0,
-        after: s.duties(),
-        decides: next.type === 'player' && next.seat === pending.seat,
-      });
       agreement.push(
         all.map((x) => {
           const v = x.view();
@@ -138,24 +128,10 @@ describe('play: game-action moves', () => {
     for (const s of [...players, spectator]) expect(s.view().forfeits).toEqual([]);
   });
 
-  it('clears a share duty with the move that carries the shares: after its move a seat owes nothing', () => {
-    expect(paid).toHaveLength(MOVES);
-    for (const [i, p] of paid.entries()) {
-      expect(p.after, `after move ${i}`).toEqual(p.decides ? [{ kind: 'decide' }] : []);
-    }
-    // Some of those moves paid a share duty that was due when the seat decided.
-    expect(paid.filter((p) => p.owed > 0).length).toBeGreaterThan(0);
-  });
-
   it('gives the decide duty and legal actions only to the pending seat, and builds only legal actions', () => {
     const pending = spectator.view().pending as { type: 'player'; seat: number };
-    let owing = 0;
     for (const [k, s] of players.entries()) {
-      // Every seat that has not shared a drawn tile yet owes it first (D039).
-      const owed = unshared(game, log, stateOf(spectator), k);
-      const share = owed.length > 0 ? [{ kind: 'share', positions: owed }] : [];
-      if (owed.length > 0) owing++;
-      expect(s.duties()).toEqual(k === pending.seat ? [...share, { kind: 'decide' }] : share);
+      expect(s.duties()).toEqual(k === pending.seat ? [{ kind: 'decide' }] : []);
       if (k !== pending.seat) {
         expect(s.legalActions()).toEqual([]);
         expect(() => s.buildAction({ type: 'skipPlace', actor: k }, game.rnd, T0 + 5000)).toThrow(
@@ -175,124 +151,6 @@ describe('play: game-action moves', () => {
     expect(spectator.duties()).toEqual([]);
     expect(spectator.legalActions()).toEqual([]);
     expect(() => spectator.buildAction(legal[0], game.rnd, T0 + 5000)).toThrow(ClientError);
-    // The game stopped with a drawn tile some seat has not shared, so the share duty was checked too.
-    expect(owing).toBeGreaterThan(0);
-  });
-
-  /*
-   * The share duty (D039): a seat publishes the shares it owes as soon as it sees a draw, so the drawer learns its
-   * tile in seconds instead of after every other seat's next move.
-   */
-
-  /** Seat `viewer`'s fresh session (null: a spectator) after the log up to `ev`, each event first seen at its date. */
-  function seenUpTo(ev: NostrEvent, viewer: number | null): GameSession {
-    const s = newSession(game, viewer);
-    const prefix = log.slice(0, log.indexOf(ev));
-    trust([s], prefix);
-    for (const e of prefix) expect(s.receive(e, e.created_at).status).toBe('accepted');
-    return s;
-  }
-
-  /**
-   * Every seat's session and a spectator's, just after the game's first endTurn, first seen at its date. It
-   * draws for its actor, and no seat owes any other share then.
-   */
-  function afterFirstDraw() {
-    const ev = moves.find((m) => actionOf(m).type === 'endTurn') as NostrEvent;
-    const drawer = actionOf(ev).actor;
-    const seats = [0, 1, 2].map((k) => seenUpTo(ev, k));
-    const watcher = seenUpTo(ev, null);
-    const all = [...seats, watcher];
-    const before = new Set(chainReaction.dealt(stateOf(watcher)).map((d) => d.pos));
-    expect(statuses(deliver(all, [ev], undefined, ev.created_at))).toEqual(Array(4).fill('accepted'));
-    const drawn = chainReaction
-      .dealt(stateOf(watcher))
-      .filter((d) => d.to === drawer && !before.has(d.pos))
-      .map((d) => d.pos);
-    expect(drawn.length).toBeGreaterThan(0);
-    const next = (drawer + 1) % SEATS;
-    const third = (drawer + 2) % SEATS;
-    expect((watcher.view().pending as { seat: number }).seat).toBe(next);
-    const hidden = (s: GameSession): number =>
-      stateOf(s).players[drawer]?.hand.filter((h) => h.tile === null).length ?? -1;
-    return { ev, drawer, next, third, seats, watcher, all, drawn, hidden };
-  }
-
-  it('gives every other seat a share duty for a drawn tile, before its decision; the drawer and spectators none', () => {
-    const { drawer, next, third, seats, watcher, drawn, hidden } = afterFirstDraw();
-    const share = { kind: 'share', positions: drawn };
-    expect(seats[drawer]?.duties()).toEqual([]);
-    expect(seats[next]?.duties()).toEqual([share, { kind: 'decide' }]);
-    expect(seats[third]?.duties()).toEqual([share]);
-    expect(watcher.duties()).toEqual([]);
-    expect(() => seats[drawer]?.buildShares(game.rnd, T0 + 5000)).toThrow(ClientError);
-    expect(() => watcher.buildShares(game.rnd, T0 + 5000)).toThrow(ClientError);
-    // The drawer cannot read its new tile yet.
-    expect(hidden(seats[drawer] as GameSession)).toBe(drawn.length);
-  });
-
-  it('lets the drawer read its tile from the Shares events alone; the next move then carries no shares', () => {
-    const { ev, drawer, next, third, seats, watcher, all, drawn, hidden } = afterFirstDraw();
-    const shares = [next, third].map((k, i) =>
-      (seats[k] as GameSession).buildShares(game.rnd, ev.created_at + 1 + i),
-    );
-    for (const sh of shares) {
-      expect(sh.kind).toBe(KIND.shares);
-      expect(parseShares(sh).shares.map((x) => x.pos)).toEqual(drawn);
-    }
-    expect(statuses(deliver(all, shares, undefined, ev.created_at + 5))).toEqual(Array(8).fill('accepted'));
-    expect(hidden(seats[drawer] as GameSession)).toBe(0);
-    // Every share is needed to decrypt, the drawer's own included: the others still cannot read it.
-    const handSize = stateOf(seats[drawer] as GameSession).players[drawer]?.hand.length;
-    for (const s of [seats[next], seats[third], watcher]) expect(hidden(s as GameSession)).toBe(handSize);
-    expect(seats[next]?.duties()).toEqual([{ kind: 'decide' }]);
-    expect(seats[third]?.duties()).toEqual([]);
-    expect(() => seats[third]?.buildShares(game.rnd, T0 + 5000)).toThrow(ClientError);
-
-    const s = seats[next] as GameSession;
-    const move = s.buildAction(s.legalActions()[0], game.rnd, ev.created_at + 10);
-    expect(contentOf(move).shares).toEqual([]);
-    expect(statuses(deliver(all, [move], undefined, ev.created_at + 10))).toEqual(Array(4).fill('accepted'));
-    for (const x of all) expect(x.view().head.id).toBe(move.id);
-  });
-
-  it('does not count a Shares event that leaves the stall set as it was as progress (Ruling 11)', () => {
-    const { ev, next, third, seats, all } = afterFirstDraw();
-    const deadline = 259200;
-    for (const x of all) expect(x.view().pendingSince).toBe(ev.created_at);
-    // The next seat can decide with its hand known: it alone is stalled, before and after these shares.
-    for (const [i, k] of [third, next].entries()) {
-      const sh = (seats[k] as GameSession).buildShares(game.rnd, ev.created_at + 1);
-      expect(statuses(deliver(all, [sh], undefined, ev.created_at + 500 * (i + 1)))).toEqual(
-        Array(4).fill('accepted'),
-      );
-    }
-    for (const x of all) expect(x.view().pendingSince).toBe(ev.created_at);
-    expect(seats[third]?.timeoutTarget(ev.created_at + deadline - 1)).toBeNull();
-    expect(seats[third]?.timeoutTarget(ev.created_at + deadline)).toBe(next);
-  });
-
-  it('owes no share duty once a timeout has ended the game', () => {
-    const { ev, drawer, next, third, seats, all, drawn } = afterFirstDraw();
-    const due = ev.created_at + 259200;
-    const claim = (seats[third] as GameSession).buildTimeout(next, game.rnd, due);
-    expect(statuses(deliver(all, [claim], undefined, due))).toEqual(Array(4).fill('accepted'));
-    // The other seats still have not shared the drawn tile, but only the attestation can be due now.
-    for (const [k, s] of seats.entries()) {
-      expect(s.view().phase).toBe('done');
-      expect(s.duties()).toEqual([{ kind: 'attest' }]);
-      expect(unshared(game, log.slice(0, log.indexOf(ev) + 1), stateOf(s), k)).toEqual(
-        k === drawer ? [] : drawn,
-      );
-    }
-  });
-
-  it('owes no share duty in the deal phase: the deal duty covers it', () => {
-    const firstDeal = log[SEATS] as NostrEvent;
-    const s = seenUpTo(log[SEATS + 1] as NostrEvent, 1);
-    expect(s.view().phase).toBe('deal');
-    expect(unshared(game, log.slice(0, log.indexOf(firstDeal) + 1), stateOf(s), 1).length).toBeGreaterThan(0);
-    expect(s.duties()).toEqual([{ kind: 'deal' }]);
   });
 
   it('stores a move whose owed share is only in an earlier Shares event, and accepts it once that arrives', () => {

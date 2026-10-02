@@ -157,15 +157,9 @@ export function boardCells(s: ChainReactionState, lastTile: number | null = null
 
 export type HandBadge = 'playable' | 'found' | 'merge' | 'dead' | 'blocked';
 
-/** What one of the viewer's tiles that it cannot read yet is called (D039). */
-export const REVEALING = 'New tile, being revealed';
-
 export interface HandTile {
   readonly pos: number;
-  /**
-   * Null when this state does not know the tile: another seat's hand in a view, or the viewer's own tile while it
-   * is being revealed (drawn, with some other seat's decryption share not in yet; D039).
-   */
+  /** Null when this state does not know the tile (another seat's hand in a view). */
   readonly tile: number | null;
   readonly id: string | null;
   readonly cls: TileClass | null;
@@ -199,7 +193,7 @@ function previewOf(rules: ChainReactionRules, cls: TileClass): string {
 export function handTiles(s: ChainReactionState, seat: number): HandTile[] {
   return (s.players[seat]?.hand ?? []).map((h) => {
     if (h.tile === null)
-      return { pos: h.pos, tile: null, id: null, cls: null, badge: null, preview: REVEALING };
+      return { pos: h.pos, tile: null, id: null, cls: null, badge: null, preview: 'Hidden tile' };
     const cls = classifyTile(s.board, s.rules, h.tile);
     return {
       pos: h.pos,

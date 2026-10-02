@@ -15,17 +15,7 @@ import { ClientError } from '../src/errors.ts';
 import { GameSession } from '../src/session.ts';
 import type { Identity, SessionView } from '../src/types.ts';
 import { forgeAction, lenientDiscards, lenientSkips } from './cheat.ts';
-import {
-  deliver,
-  makeGame,
-  newSession,
-  playShuffle,
-  statuses,
-  T0,
-  type TestGame,
-  trust,
-  unshared,
-} from './helpers.ts';
+import { deliver, makeGame, newSession, playShuffle, statuses, T0, type TestGame, trust } from './helpers.ts';
 
 const SEATS = 3;
 const DECK = 108;
@@ -114,10 +104,7 @@ function playToEnd(
     const pending = reference.view().pending;
     if (pending.type !== 'player') throw new Error(`move ${i}: no player decision is pending`);
     const s = players[pending.seat] as GameSession;
-    // The seat's decision, after the shares it still owes for tiles drawn since its last move (D039).
-    const owed = unshared(game, p.log, stateOf(reference), pending.seat);
-    const due = [...(owed.length > 0 ? [{ kind: 'share', positions: owed }] : []), { kind: 'decide' }];
-    if (canonicalJson(s.duties()) !== canonicalJson(due)) {
+    if (s.duties().length !== 1 || s.duties()[0]?.kind !== 'decide') {
       throw new Error(`move ${i}: seat ${pending.seat} has duties ${JSON.stringify(s.duties())}`);
     }
     const ev = hooks.forge?.(i, s) ?? s.buildAction(choose(s.legalActions(), rng), game.rnd, t++);

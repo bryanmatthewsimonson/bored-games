@@ -18,8 +18,6 @@
    - **Rival shuffle steps (D030, Ruling 12).** The arrival-order split in the old rival-shuffle cap is fixed: two well-formed steps by one seat on a chain prev flag it without proofs, and past 3 steps per prev only steps another seat acknowledged are fork-choice candidates. Owner to confirm the residuals: colluders can acknowledge junk, and the last shuffler can withdraw its step (stalling and flagging itself) until another seat moves.
    - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 
-10. **Prompt shares and tile exposure (D039).** A drawn tile now shows within seconds because the other seats share it at once. The cost: one seat can sign two rival turns on purpose and so learn the next player's tile, or make it public to everyone (PROTOCOL §11). It is always detected, and the seat is ranked last. Accept this trade-off, or ask for a mitigation (sharing only once the drawer's turn is over, or a fork tie-break change)?
-
 ## Status
 
 | Phase | State |
@@ -32,8 +30,6 @@
 | 5. Social | Not started |
 | 6. Second game | Not started (needs open question 5) |
 | 7. Polish | Not started |
-
-**Prompt tile reveal (D039, 2026-10-02):** the client has a `share` duty in play: each seat publishes its owed decryption shares in a Shares event as soon as it sees a draw, and the web controller sends it quietly, so a drawn tile shows within seconds instead of after every other player's next move. The hand shows a tile being revealed as "…" with a "new" badge and a status note.
 
 **Names, avatars and keys (2026-10-02, D040, D041):** players set a name, about line and picture (upload, gallery or link, stored on a Blossom server) in Settings, shown with the short npub in the header, the Home cards, the table seats and the game (status line, log, Players panel and results, all read from one page-wide ProfileStore). Everybody has a generated pattern avatar, and Home nudges players without a name. Secret keys can be imported (with Switch back), the browser is asked to keep site data on the first create or join, and Home reminds local keys to back up. Last verified 2026-10-02 after the game screen moved to the ProfileStore: `pnpm check` passes (1161 tests in 61 files, 7 skipped), and `pnpm e2e` passes both specs (about 1 minute).
 
