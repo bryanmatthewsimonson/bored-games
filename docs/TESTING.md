@@ -41,7 +41,7 @@ Chess has no hidden cards, so there is no shuffle or deal: the board appears as 
 3. **Join** (window b) and **Start** (window a) as above. Window a plays White.
 4. **Play:** click one of your pieces, then the square to move it to (legal squares show a dot). A pawn reaching the last rank shows a **Promote to** select before you click its square. Tick **Offer a draw with this move** to offer a draw with your move; your opponent then sees **Accept the draw**. The move list is on the right.
 5. **Resign** (under the board; only in 2-player games without a deck, so Chess for now) asks for confirmation first, then ends the game: you lose. Before the first move, resigning cancels the game instead.
-6. At the end both windows show the result and "Result confirmed: signed by all 2 players." once both apps have signed it.
+6. At the end both windows show the result and "Result confirmed: signed by both players." once both apps have signed it.
 
 Fool's mate is a quick test: 1. f3 e5 2. g4 Qh4#. The board is a placeholder; the full Chess UI comes in Phase D2.
 

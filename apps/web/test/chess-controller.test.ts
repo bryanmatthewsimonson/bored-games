@@ -150,7 +150,7 @@ describe('GameController with a deckless game (Chess)', () => {
         audit: 'pass',
         outcome: { places: [2, 1], reason: 'checkmate' },
       });
-      expect(attestLine(c.view.value)).toMatch(/signed by all 2 players/);
+      expect(attestLine(c.view.value)).toMatch(/signed by both players/);
       await waitFor('done', () => c.status.value === 'done');
       expect(c.canResign.value).toBe(false);
     }

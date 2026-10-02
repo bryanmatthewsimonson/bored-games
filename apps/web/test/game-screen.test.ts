@@ -101,7 +101,10 @@ describe('game chrome helpers (D045)', () => {
       'Result signed by 1 of 2 players so far.',
     );
     expect(attestLine(viewOf({ phase: 'done', seats: 2, outcome, attested: [0, 1] }))).toBe(
-      'Result confirmed: signed by all 2 players.',
+      'Result confirmed: signed by both players.',
+    );
+    expect(attestLine(viewOf({ phase: 'done', seats: 3, outcome, attested: [0, 1, 2] }))).toBe(
+      'Result confirmed: signed by all 3 players.',
     );
   });
 
