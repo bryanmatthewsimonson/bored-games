@@ -74,11 +74,15 @@ export interface Outcome {
   readonly reason: string;
   /**
    * Set only by the platform, never by a module: the result does not count toward ratings (a Resign ended a game of
-   * 3 or more seats, PROTOCOL §8.3, D052). Absent otherwise.
+   * 3 or more seats, PROTOCOL §8.3, D052; or the end holds only because a deck secret froze its fork, §6.6, D056).
+   * Absent otherwise.
    */
   readonly unrated?: true;
-  /** Set only by the platform, with `unrated`: the seat whose Resign ended the game. Absent otherwise. */
-  readonly endedBy?: { readonly type: 'resign'; readonly seat: Seat };
+  /**
+   * Set only by the platform, with `unrated`: the seat whose Resign ended the game (`resign`), or the forker whose
+   * ending branch holds only by the freeze (`fork`). Absent otherwise.
+   */
+  readonly endedBy?: { readonly type: 'resign' | 'fork'; readonly seat: Seat };
 }
 
 export type SetupInput<R> =

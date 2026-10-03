@@ -576,6 +576,10 @@ describe('Result attestation (7456)', () => {
       expect(code(() => parse(outcome(o)))).toBe('bad-content');
     const by = { type: 'resign', seat: 1 };
     expect(code(() => parse(outcome({ unrated: true, endedBy: by })))).toBe('accepted');
+    // D056 fix round 2: an end that holds only because a deck secret froze its fork records the forker.
+    expect(code(() => parse(outcome({ unrated: true, endedBy: { type: 'fork', seat: 2 } })))).toBe(
+      'accepted',
+    );
     rejected({ unrated: true });
     rejected({ endedBy: by });
     rejected({ unrated: false, endedBy: by });

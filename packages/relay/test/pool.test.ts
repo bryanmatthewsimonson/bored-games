@@ -285,7 +285,7 @@ describe('RelayPool', () => {
     latest(A).receive(['EOSE', 'bg-1']);
     latest(B).drop();
     await flush();
-    expect(onEose).toHaveBeenCalledWith({ eose: 1, relays: 2, timedOut: false });
+    expect(onEose).toHaveBeenCalledWith(expect.objectContaining({ eose: 1, relays: 2, timedOut: false }));
     p.close();
 
     const q = pool([A]);
@@ -293,7 +293,7 @@ describe('RelayPool', () => {
     const down = vi.fn();
     q.subscribe([{}], () => {}, down);
     await flush();
-    expect(down).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: false });
+    expect(down).toHaveBeenCalledWith(expect.objectContaining({ eose: 0, relays: 1, timedOut: false }));
     q.close();
 
     const r = pool([A]);
@@ -302,8 +302,39 @@ describe('RelayPool', () => {
     r.subscribe([{}], () => {}, closed);
     latest(A).receive(['CLOSED', 'bg-1', 'blocked']);
     await flush();
-    expect(closed).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: false });
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ eose: 0, relays: 1, timedOut: false }));
     r.close();
+  });
+
+  it('names the relays that sent EOSE, and those down for longer than deadAfterMs (D056)', async () => {
+    const p = new RelayPool([A, B], { WebSocket: FakeSocket, backoffMs: [60_000], deadAfterMs: 120_000 });
+    latest(A).open();
+    latest(B).drop();
+    const first = vi.fn();
+    p.subscribe([{}], () => {}, first);
+    latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
+    expect(first).toHaveBeenCalledWith(
+      expect.objectContaining({ eose: 1, relays: 2, eosedUrls: [A], deadUrls: [] }),
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    // B's reconnect failed again: still down since the first failure, now past the limit.
+    latest(B).drop();
+    const later = vi.fn();
+    p.subscribe([{}], () => {}, later);
+    latest(A).receive(['EOSE', 'bg-2']);
+    await flush();
+    expect(later).toHaveBeenCalledWith(expect.objectContaining({ eosedUrls: [A], deadUrls: [B] }));
+    // Once B opens it is no longer dead.
+    await vi.advanceTimersByTimeAsync(60_000);
+    latest(B).open();
+    const again = vi.fn();
+    p.subscribe([{}], () => {}, again);
+    latest(A).receive(['EOSE', 'bg-3']);
+    latest(B).receive(['EOSE', 'bg-3']);
+    await flush();
+    expect(again).toHaveBeenCalledWith(expect.objectContaining({ eosedUrls: [A, B], deadUrls: [] }));
+    p.close();
   });
 
   it('counts a CLOSED subscription from a relay as answered', async () => {
@@ -371,7 +402,7 @@ describe('RelayPool', () => {
     unsub();
     await vi.advanceTimersByTimeAsync(500);
     expect(fast).toHaveBeenCalledTimes(1);
-    expect(fast).toHaveBeenCalledWith({ eose: 0, relays: 1, timedOut: true });
+    expect(fast).toHaveBeenCalledWith(expect.objectContaining({ eose: 0, relays: 1, timedOut: true }));
     expect(gone).not.toHaveBeenCalled();
     p.close();
   });

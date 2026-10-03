@@ -1105,6 +1105,19 @@ textarea.prose {
   flex: 1 1 320px;
 }
 
+/* Saved events the controller discarded or kept back instead of sending (D056). */
+.sync-notes {
+  flex: 1 1 100%;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.sync-notes ul {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
+
 /* Credits page (#/credits) */
 .credits-page {
   display: grid;

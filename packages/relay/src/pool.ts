@@ -39,6 +39,11 @@ export interface RelayPoolOptions {
   publishTimeoutMs?: number;
   /** Default wait for EOSE before `onEose` fires anyway, in ms. Default 8000. */
   eoseTimeoutMs?: number;
+  /**
+   * A relay that has not been open for this long (ms), since its first connection attempt or since it last went
+   * down, is listed in `EoseInfo.deadUrls`. Default 120000.
+   */
+  deadAfterMs?: number;
 }
 
 export interface SubscribeOptions {
@@ -56,6 +61,10 @@ export type PublishResult = { url: string; ok: boolean; message: string };
 export interface EoseInfo {
   eose: number;
   relays: number;
+  /** The relays that sent EOSE (the pool always sets it; optional for callers that build an `EoseInfo`). */
+  eosedUrls?: string[];
+  /** The relays that have been unreachable for `deadAfterMs` or more, with no open connection since. */
+  deadUrls?: string[];
   timedOut: boolean;
 }
 export type RelayState = 'connecting' | 'open' | 'closed';
@@ -63,6 +72,7 @@ export type RelayState = 'connecting' | 'open' | 'closed';
 export const DEFAULT_BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
 export const PUBLISH_TIMEOUT_MS = 10_000;
 export const EOSE_TIMEOUT_MS = 8000;
+export const DEAD_AFTER_MS = 120_000;
 
 const OPEN = 1;
 
@@ -82,6 +92,8 @@ interface Relay {
   attempt: number;
   reconnect: ReturnType<typeof setTimeout> | null;
   pending: Map<string, Pending>;
+  /** Since when (ms) it has not been open: its first connection attempt, or when it last went down; null while open. */
+  downSince: number | null;
 }
 
 interface Subscription {
@@ -109,6 +121,7 @@ export class RelayPool {
   readonly #backoff: number[];
   readonly #publishTimeout: number;
   readonly #eoseTimeout: number;
+  readonly #deadAfter: number;
   readonly #relays: Relay[];
   readonly #subs = new Map<string, Subscription>();
   #nextSub = 1;
@@ -119,6 +132,7 @@ export class RelayPool {
     this.#backoff = opts.backoffMs && opts.backoffMs.length > 0 ? opts.backoffMs : DEFAULT_BACKOFF_MS;
     this.#publishTimeout = opts.publishTimeoutMs ?? PUBLISH_TIMEOUT_MS;
     this.#eoseTimeout = opts.eoseTimeoutMs ?? EOSE_TIMEOUT_MS;
+    this.#deadAfter = opts.deadAfterMs ?? DEAD_AFTER_MS;
     this.#relays = [];
     this.addRelays(urls);
   }
@@ -135,7 +149,15 @@ export class RelayPool {
     if (this.#closed) return;
     for (const url of urls) {
       if (this.#relays.some((r) => r.url === url)) continue;
-      const r: Relay = { url, ws: null, state: 'closed', attempt: 0, reconnect: null, pending: new Map() };
+      const r: Relay = {
+        url,
+        ws: null,
+        state: 'closed',
+        attempt: 0,
+        reconnect: null,
+        pending: new Map(),
+        downSince: null,
+      };
       this.#relays.push(r);
       this.#connect(r);
     }
@@ -252,6 +274,8 @@ export class RelayPool {
   #connect(r: Relay): void {
     if (this.#closed) return;
     r.reconnect = null;
+    // Unreachable until it opens: a connection that hangs counts as down from its first attempt.
+    r.downSince ??= Date.now();
     let ws: SocketLike;
     try {
       ws = new this.#WS(r.url);
@@ -267,6 +291,7 @@ export class RelayPool {
       if (r.ws !== ws || this.#closed) return;
       r.state = 'open';
       r.attempt = 0;
+      r.downSince = null;
       for (const sub of this.#subs.values()) {
         sub.answered.delete(r.url);
         this.#sendReq(r, sub);
@@ -292,6 +317,7 @@ export class RelayPool {
 
   /** A relay is unreachable: stop waiting for it on every subscription and schedule a retry. */
   #onDown(r: Relay): void {
+    r.downSince ??= Date.now();
     for (const p of r.pending.values()) p.sent = false;
     for (const sub of this.#subs.values()) {
       sub.answered.add(r.url);
@@ -337,7 +363,16 @@ export class RelayPool {
     this.#clearEoseTimer(sub);
     const onEose = sub.onEose;
     if (onEose === undefined) return;
-    const info: EoseInfo = { eose: sub.eosed.size, relays: this.#relays.length, timedOut };
+    const now = Date.now();
+    const info: EoseInfo = {
+      eose: sub.eosed.size,
+      relays: this.#relays.length,
+      timedOut,
+      eosedUrls: [...sub.eosed],
+      deadUrls: this.#relays
+        .filter((r) => r.downSince !== null && now - r.downSince >= this.#deadAfter)
+        .map((r) => r.url),
+    };
     queueMicrotask(() => {
       if (this.#subs.get(sub.id) !== sub) return;
       try {

@@ -115,6 +115,18 @@ export function resignLine(view: SessionView | null, names: readonly string[]): 
 }
 
 /**
+ * The note for an unrated end that holds only because a deck secret froze its fork (D056, `endedBy` type `fork`):
+ * "Unrated: Ann signed two rival moves, and this end holds only because a player's secret was already out."
+ * Null otherwise.
+ */
+export function forkLine(view: SessionView | null, names: readonly string[]): string | null {
+  const by = view?.outcome?.endedBy;
+  if (by?.type !== 'fork') return null;
+  const who = names[by.seat] ?? `Seat ${by.seat + 1}`;
+  return `Unrated: ${who} signed two rival moves, and this end holds only because a player's secret was already out.`;
+}
+
+/**
  * "Result confirmed: signed by both players" (two seats) or "… by all 3 players", or "Result signed by 1 of 2
  * players so far", once the session has a result to attest; null before.
  */
@@ -182,6 +194,8 @@ function SetupProgress(props: {
   waiting: string | null;
   /** "You're watching this game", when the key in use holds no seat (D057). */
   watching: ComponentChildren;
+  log: readonly string[];
+  onSendAnyway: (() => void) | null;
 }) {
   return (
     <section class="panel game-loading" aria-labelledby="game-title" aria-busy={props.status !== 'waiting'}>
@@ -205,6 +219,8 @@ function SetupProgress(props: {
           {props.error}
         </p>
       )}
+      {props.onSendAnyway !== null && <SendAnyway onSend={props.onSendAnyway} />}
+      <SyncNotes lines={props.log} />
     </section>
   );
 }
@@ -247,6 +263,41 @@ export function ResignButton(props: { explanation: string; busy: boolean; onResi
   );
 }
 
+/**
+ * "Send anyway" (D056): offered once a saved event or the end-of-game secret has waited `HOLD_CAP_S` for every
+ * relay to answer, or for this device to catch up with the relays.
+ */
+export function SendAnyway(props: { onSend: () => void }) {
+  return (
+    <p class="warning send-anyway" role="status">
+      Something saved on this device is still waiting for every relay to answer before it is sent. If you
+      already played this turn on another device, sending it counts as signing two moves for one turn, and you
+      forfeit.{' '}
+      <button type="button" class="btn btn-small" onClick={props.onSend}>
+        Send anyway
+      </button>
+    </p>
+  );
+}
+
+/**
+ * "Sync notes": what the controller did with events saved on this device that no relay had confirmed (D056), such
+ * as a move discarded because the game moved on, or a deal kept but not sent. Nothing when there are none.
+ */
+export function SyncNotes(props: { lines: readonly string[] }) {
+  if (props.lines.length === 0) return null;
+  return (
+    <details class="sync-notes">
+      <summary>Sync notes ({props.lines.length})</summary>
+      <ul>
+        {props.lines.map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign or a timeout). */
 export function placesText(view: SessionView, names: readonly string[]): string {
   const o = view.outcome;
@@ -271,6 +322,8 @@ export function GameScreen(props: { rootId: string }) {
   const busy = ctl.busy.value;
   const error = ctl.error.value;
   const notice = ctl.notice.value;
+  const log = ctl.log.value;
+  const sendAnyway = ctl.canSendAnyway.value ? () => ctl.sendAnyway() : null;
   const seats = ctl.seats.value;
   const now = ctl.clock.value;
   const target = ctl.timeoutTarget.value;
@@ -380,6 +433,8 @@ export function GameScreen(props: { rootId: string }) {
         claim={claim}
         waiting={waiting}
         watching={watching}
+        log={log}
+        onSendAnyway={sendAnyway}
       />
     );
   if (game === undefined) {
@@ -397,6 +452,7 @@ export function GameScreen(props: { rootId: string }) {
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
   const resigned = resignLine(view, names);
+  const forked = forkLine(view, names);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
   const Component = game.Component;
@@ -430,6 +486,11 @@ export function GameScreen(props: { rootId: string }) {
           {resigned}
         </p>
       )}
+      {forked !== null && (
+        <p class="warning" role="status">
+          {forked}
+        </p>
+      )}
       <Component
         view={view}
         mySeat={view.mySeat}
@@ -460,6 +521,8 @@ export function GameScreen(props: { rootId: string }) {
             onResign={() => void ctl.resign()}
           />
         )}
+        {sendAnyway !== null && <SendAnyway onSend={sendAnyway} />}
+        <SyncNotes lines={log} />
       </div>
     </>
   );
