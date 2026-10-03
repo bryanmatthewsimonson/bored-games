@@ -398,6 +398,7 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | Two devices, 2 seats, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,337,436, complete | claim race, post-end | |
 | The same with the first wording of rule 6(b) (`cutoff: 'path'`) | 3,335,784, complete | **`rating` 13,944** (seat 1; the regression), claim race, post-end | |
 | Two devices, colluder pairs, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,021,732 / 10,071,576 / 14,482,399 (pairs {0,1}, {0,2}, {1,2}), complete | | `void-forfeit`, `attested-void`, claim race, post-end |
+| Without the check before signing (`ownCheck` off): two devices, 2 seats, a claim, a resign, a deadline; and two honest seats on two devices each, 3 moves | 1,885,146 (seats 0, 1); 275,964 (seats 0–2), complete | claim race, post-end; `attested-void` 416, ended-void, post-end | |
 | **Two honest seats on two devices each** (a single adversary, four honest devices), 3 moves | 226,473 over the six coalitions, complete | `attested-void` 112, ended-void, post-end | post-end |
 | The same with a claim and a deadline | 25,007,602 / 28,718,059 / 8,458,547 (seats 0–2), complete | `attested-void` 616, claim race, ended-void, post-end | |
 
