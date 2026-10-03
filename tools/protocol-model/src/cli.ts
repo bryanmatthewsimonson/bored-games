@@ -1,7 +1,7 @@
 /**
  * pnpm --filter @bored-games/protocol-model explore [options]
  *
- *   --design v1,d039,ack,ack-lock,fs,fgr,fgr2,stop   designs to explore (default: all; stop = candidate (e))
+ *   --design v1,d039,ack,ack-lock,fs,fgr,fgr2,stop,stop3   designs (default: all; stop3 = candidate (e), round 3)
  *   --mode private,viewers,public,roll     grant modes (default: private, viewers, public)
  *   --over-stands                          stop design: a side that already reached the end stands
  *   --seats 3        --length 4            seats, and moves until the game is over
@@ -13,6 +13,8 @@
  *   --devices 2      --ack-device all|first|checked   two devices per honest seat, and which act on their own
  *   --multi-draw     --absence             moves drawing two positions; humans who leave on a stop
  *   --rule9 at-or-past|strict|none         when a stop overrides a counted claim or resign
+ *   --attests 1                            stop3: attestations the adversary may sign
+ *   --stale 1        --outbox-rule         honest moves saved offline and published late; the controller rule
  *   --max-states 5000000                   give up past this many states per run (reported as incomplete)
  *   --traces                               print the first trace of every violation kind
  *
@@ -44,6 +46,9 @@ const { values } = parseArgs({
     absence: { type: 'boolean', default: false },
     rule9: { type: 'string' },
     'over-stands': { type: 'boolean', default: false },
+    attests: { type: 'string', default: '1' },
+    stale: { type: 'string', default: '0' },
+    'outbox-rule': { type: 'boolean', default: false },
   },
 });
 
@@ -97,6 +102,9 @@ for (const design of designs) {
         multiDraw: values['multi-draw'],
         absence: values.absence,
         overStands: values['over-stands'],
+        advAttests: num(values.attests, 'attests'),
+        stale: num(values.stale, 'stale'),
+        outboxRule: values['outbox-rule'],
         ...(values.rule9 === undefined ? {} : { rule9: values.rule9 as 'at-or-past' | 'strict' | 'none' }),
       });
       states += r.states;
