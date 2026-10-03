@@ -13,6 +13,7 @@
     "format": "biome format --write .",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "fuzz": "node tools/fuzz/src/cli.ts",
+    "model": "node tools/protocol-model/src/cli.ts",
     "sim": "node tools/sim/src/cli.ts",
     "test:sim": "SIM=1 vitest run --project client test/sim.test.ts",
     "relay": "node tools/dev-relay/src/main.ts",

@@ -2,6 +2,7 @@ import { type Share, validPos } from './dleq.ts';
 import type { Ciphertext } from './elgamal.ts';
 import { decodePoint, decodeScalar, encodePoint, encodeScalar, type Point } from './encoding.ts';
 import type { PokProof } from './pok.ts';
+import type { SealedOpening, SealedShare } from './sealed.ts';
 import type { ShuffleProof } from './shuffle.ts';
 
 /*
@@ -257,5 +258,97 @@ export function decodePok(v: unknown): PokProof {
   return withPath('pok', () => {
     const root = record(v, 'pok', ['c', 's']);
     return { c: scalar(root.c, 'pok.c'), s: scalar(root.s, 'pok.s') };
+  });
+}
+
+/* ------------------------------------------------------------------------------------------- sealed share */
+
+/**
+ * A sealed share on the wire (docs/proposals/prompt-reveal.md §7): the sender's share of `pos` sealed to seat
+ * `to`. The sender is the event's signer, so it is not repeated. Reference only, not used by the protocol yet.
+ */
+export interface SealedShareWire {
+  a: string;
+  b: string;
+  pos: number;
+  proof: { c: string; s1: string; s2: string };
+  to: number;
+}
+
+/** A transferable opening on the wire: the opened layer `e = x_T·A` of the sealed share of `pos` from seat `from`. */
+export interface SealedOpeningWire {
+  e: string;
+  from: number;
+  pos: number;
+  proof: { c: string; s: string };
+}
+
+/** `{a, b, pos, proof: {c, s1, s2}, to}`. Throws on an identity point, a bad `pos` or `to`, or a scalar outside [0, q). */
+export function encodeSealedShare(x: { pos: number; to: number; sealed: SealedShare }): SealedShareWire {
+  if (!validPos(x.pos)) throw new RangeError('encodeSealedShare: pos must be a non-negative safe integer');
+  if (!validPos(x.to)) throw new RangeError('encodeSealedShare: to must be a non-negative safe integer');
+  return {
+    a: encodePoint(x.sealed.A),
+    b: encodePoint(x.sealed.B),
+    pos: x.pos,
+    proof: { c: encodeScalar(x.sealed.c), s1: encodeScalar(x.sealed.s1), s2: encodeScalar(x.sealed.s2) },
+    to: x.to,
+  };
+}
+
+/** Strict inverse of `encodeSealedShare`. Parses only; does not verify the proof or that `to` is a seat. */
+export function decodeSealedShare(v: unknown): { pos: number; to: number; sealed: SealedShare } {
+  return withPath('sealed', () => {
+    const root = record(v, 'sealed', ['a', 'b', 'pos', 'proof', 'to']);
+    const proof = record(root.proof, 'sealed.proof', ['c', 's1', 's2']);
+    if (!validPos(root.pos)) return fail('sealed.pos', 'expected a non-negative safe integer');
+    if (!validPos(root.to)) return fail('sealed.to', 'expected a non-negative safe integer');
+    return {
+      pos: root.pos,
+      to: root.to,
+      sealed: {
+        A: point(root.a, 'sealed.a'),
+        B: point(root.b, 'sealed.b'),
+        c: scalar(proof.c, 'sealed.proof.c'),
+        s1: scalar(proof.s1, 'sealed.proof.s1'),
+        s2: scalar(proof.s2, 'sealed.proof.s2'),
+      },
+    };
+  });
+}
+
+/** `{e, from, pos, proof: {c, s}}`. Throws on an identity `e`, a bad `pos` or `from`, or a scalar outside [0, q). */
+export function encodeSealedOpening(x: {
+  pos: number;
+  from: number;
+  opening: SealedOpening;
+}): SealedOpeningWire {
+  if (!validPos(x.pos)) throw new RangeError('encodeSealedOpening: pos must be a non-negative safe integer');
+  if (!validPos(x.from))
+    throw new RangeError('encodeSealedOpening: from must be a non-negative safe integer');
+  return {
+    e: encodePoint(x.opening.E),
+    from: x.from,
+    pos: x.pos,
+    proof: { c: encodeScalar(x.opening.c), s: encodeScalar(x.opening.s) },
+  };
+}
+
+/** Strict inverse of `encodeSealedOpening`. Parses only; does not verify. */
+export function decodeSealedOpening(v: unknown): { pos: number; from: number; opening: SealedOpening } {
+  return withPath('opening', () => {
+    const root = record(v, 'opening', ['e', 'from', 'pos', 'proof']);
+    const proof = record(root.proof, 'opening.proof', ['c', 's']);
+    if (!validPos(root.pos)) return fail('opening.pos', 'expected a non-negative safe integer');
+    if (!validPos(root.from)) return fail('opening.from', 'expected a non-negative safe integer');
+    return {
+      pos: root.pos,
+      from: root.from,
+      opening: {
+        E: point(root.e, 'opening.e'),
+        c: scalar(proof.c, 'opening.proof.c'),
+        s: scalar(proof.s, 'opening.proof.s'),
+      },
+    };
   });
 }
