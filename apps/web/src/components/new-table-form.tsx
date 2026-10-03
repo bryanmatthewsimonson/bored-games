@@ -1,3 +1,5 @@
+import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@bored-games/bank';
+import { BANK_THEME } from '@bored-games/bank/theme';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
@@ -26,6 +28,12 @@ export function NewTableForm(props: { game: string }) {
   const [seats, setSeats] = useState(range.min);
   useEffect(() => setSeats(range.min), [range]);
   const [deadline, setDeadline] = useState(259200);
+  const [rounds, setRounds] = useState<(typeof ROUND_CHOICES)[number]>(DEFAULT_RULES.rounds);
+  const [banking, setBanking] = useState<(typeof BANKING_CHOICES)[number]>(DEFAULT_RULES.banking);
+  useEffect(() => {
+    setRounds(DEFAULT_RULES.rounds);
+    setBanking(DEFAULT_RULES.banking);
+  }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +70,21 @@ export function NewTableForm(props: { game: string }) {
     setBusy(true);
     setError('');
     try {
-      const address = await lobby.createTable({ seats, deadline, invited: check.invited, game });
+      const spec = { seats, deadline, invited: check.invited, game };
+      if (game === 'bank') {
+        const checked = validateRules({
+          rulesVersion: DEFAULT_RULES.rulesVersion,
+          rounds,
+          banking,
+          maxRollsPerRound: DEFAULT_RULES.maxRollsPerRound,
+        });
+        if (!checked.ok) throw new Error(checked.error.message);
+        const address = await lobby.createTable({ ...spec, rules: checked.value });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      const address = await lobby.createTable(spec);
       const a = splitAddress(address);
       if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
     } catch (err) {
@@ -111,6 +133,49 @@ export function NewTableForm(props: { game: string }) {
         </div>
         <p class="hint">After this long, the others can skip a player who has not moved.</p>
       </fieldset>
+
+      {game === 'bank' && (
+        <>
+          <div class="field">
+            <label for="rounds">Rounds</label>
+            <select
+              id="rounds"
+              value={rounds}
+              onChange={(e) => {
+                const n = Number(e.currentTarget.value);
+                if (n === 5 || n === 10 || n === 20) setRounds(n);
+              }}
+              disabled={busy}
+            >
+              {ROUND_CHOICES.map((n) => (
+                <option key={n} value={n}>
+                  {BANK_THEME.rounds[n]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <fieldset class="field" disabled={busy}>
+            <legend>Banking</legend>
+            <div class="radio-row">
+              {BANKING_CHOICES.map((choice) => (
+                <label key={choice} class="radio">
+                  <input
+                    type="radio"
+                    name="banking"
+                    value={choice}
+                    checked={banking === choice}
+                    onChange={() => setBanking(choice)}
+                  />
+                  {BANK_THEME.banking[choice]}
+                </label>
+              ))}
+            </div>
+            <p class="hint">
+              Everyone may bank between rolls, or only the player who is about to roll. The table names which.
+            </p>
+          </fieldset>
+        </>
+      )}
 
       <div class="field">
         <label for="invite">Invited players (optional)</label>

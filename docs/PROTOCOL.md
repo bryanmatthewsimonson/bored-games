@@ -352,7 +352,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 4. **Play:** game-action moves, `seq` N+1 onward.
 5. **End:** the module reaches `over`. Then come Secret reveals (7455), the audit (§7) and Result attestations (7456).
 
-**Deckless games (D045).** With N = 0 there is no Shuffle and no Deal: the client sets the module up in view mode when it loads the root, and play starts with move 1. There are no decryption shares and no deck secrets: a Shares event (7453) or a Secret reveal (7455) for a deckless game is invalid, and so is a game action whose `reveals` or `shares` is not empty. When the module reaches `over` the audit runs at once (§7), with no Secret phase. Joins and the root still carry deck keys and their proofs (§4.2), unchanged.
+**Deckless games (D045, amended by D058 for dice).** With N = 0 there is no Shuffle and no Deal: the client sets the module up in view mode when it loads the root, and play starts with move 1. There are no card shares and no deck secrets: a Shares event (7453) or a Secret reveal (7455) for a deckless game is invalid. A game action's `reveals` is empty. Its `shares` is empty too, except in a dice game (§6.3a), where a roll or a contribution carries exactly one beacon share and nothing else. When the module reaches `over` the audit runs at once (§7), with no Secret phase. Joins and the root still carry deck keys and their proofs (§4.2), unchanged: a dice game uses those keys for the beacon.
 
 A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before the module is over: it is **cancelled** before the first game action and ends by forfeit after it. After a Resign in a game with a deck, the End phase still follows: the remaining Secret reveals, a partial audit and the attestations (§8.3).
 
@@ -374,6 +374,15 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **Not signed.** Derived reveals are not events. Every client derives them identically from the share set, and records each one in the interleaved action log (§7) at the point the fold applied it.
 - **Moves wait.** While a reveal is pending, a game action on that state waits (§6.5).
 - If a position decrypts to no card, or the module rejects the derived reveal, the client stops deriving. With verified shuffles and shares this cannot happen.
+
+### 6.3a Derived dice rolls (D058)
+A module that rolls dice exposes `rolls` and `beaconOf`. The session treats it as a beacon game even when `decks(rules)` is empty. Bank is the first (§4.3 of `docs/GAME-SYSTEMS.md`, option 1b), with one departure from that section's automatic last contribution: D050 forbids prompt duties, so each contribution is an ordinary turn.
+- **The point.** Roll `i` is `H_i = h2c('roll:' + rootId + ':' + i)`. Seat `k`'s contribution is `D = x_k·H_i`, published as one decryption share (`packages/deck` `makeRollShare`) bound to the reserved deck id `roll` and position `i`, with a DLEQ proof against the seat's deck key. The deck key was fixed at Join, so the seat has exactly one valid contribution. Proof randomness does not change `D`.
+- **Who publishes, and when.** The seat who chooses to roll attaches its share to that Roll move. `beaconOf` names the roll id for that action and for each later Contribute action, and names none for a bank or a stay. Every other seat then takes one Contribute turn, in the order the module lists. The last of them is a seat other than the roller, so the roller cannot compute the faces before choosing to roll. That last seat learns the faces first and can only withhold its turn, which is a timeout forfeit (§8). The web button reads "Show the dice": the tap publishes the share the key already determines.
+- **Not a Shares event.** The share rides on the move (§6.1). A Shares event (7453) in a deckless game stays invalid. The session stores the share in the same share store as card shares, keyed by the roll id. Bank deals nothing, so a roll id never meets a card position. A game that deals and rolls needs a deck id on that store; v1 does not have one.
+- **Deriving.** Once `pending()` is `{type:'beacon', id}` and every seat has one verified share of that id, every client computes the seed as the SHA-256 of those `D` points in seat order, each as compressed SEC1 bytes, draws two faces in `1..6` by rejection sampling (`packages/dice` `faces`), and applies `{type:'rolled', actor:'beacon', id, dice:[a,b]}`. The action is not an event. It is recorded in the interleaved action log (§7) at the chain length where the fold applied it, which is the length after the last contribution. The fold derives it in the same settle as that contribution, and a trial fold does too, so fork choice sees the dice. The client repeats while the module pends a beacon it can satisfy.
+- **A player does not send the faces.** A game action whose action is `{type:'rolled', …}` is invalid (`a player does not send the dice`), before the pending-seat check. While a beacon is pending, a game action is invalid (`no player decision is pending`): the fold derives the roll itself, and the move is not buffered. A roll or a contribution with the wrong number of shares, a reveal, a share for another roll, or a share that fails `verifyRollShare` is invalid. A bank or a stay that carries a share is invalid.
+- **Audit.** Contributions are checked when the move is folded. The replay (§7) re-applies the derived roll from the log. It does not re-draw the faces: the faces in the log are what every client derived from the same shares. A module that rejects that roll fails every seat, as a rejected derived reveal does.
 
 ### 6.4 Private cards
 - When a client holds every other seat's verified share for a position that `dealt` assigns to its own seat, it decrypts the position with its own layer (`ownShare`, §5.4) and calls the module's `learn`. Each position is tried once.
@@ -424,7 +433,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 2. **Audit.** Once every seat's secret is known, any client:
    - decrypts every final-deck position with all the secrets (`decryptWithSecrets`, then `cardOf`), which gives the full deck order
    - sets the module up in **full mode** with that order
-   - replays the **interleaved action log**: the chain's game actions and the derived reveals (§6.3), in the order the fold applied them. Learns are not replayed.
+   - replays the **interleaved action log**: the chain's game actions, the derived reveals (§6.3) and the derived rolls (§6.3a), in the order the fold applied them. Learns are not replayed.
 
    The full-mode engine re-checks every claim that depended on hidden cards, for example in Chain Reaction:
    - "no playable tile" (`skipPlace`)
@@ -432,7 +441,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
    - every hand slot's contents.
 3. **Verdict.** The audit is `pass`, or `{fail: [seats ascending], reason}`:
    - The first game action the replay rejects fails its actor, alone.
-   - A rejected derived reveal, a position that decrypts to no card, or a full-mode setup that refuses the order fails every seat: no single seat is to blame.
+   - A rejected derived reveal, a rejected derived roll, a position that decrypts to no card, or a full-mode setup that refuses the order fails every seat: no single seat is to blame.
    - If the replay's `outcome` differs from the one the client's own state declares, every seat fails (`outcome mismatch`).
    - `reason` has at most 500 code points.
 
@@ -505,7 +514,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
   2. **S0** is H', moved forward to just after the resigning seat's last game action on the chain, if it has any after H'. The resigner's own last turn counts ("move, then resign" and "resign, then move" cannot be told apart, and both are legitimate), and naming an old head never drops the resigner's own later Moves.
   3. **S** extends S0 through the contiguous Moves signed by the seat pending at S0, unless that is the resigning seat: the next seat's turn raced against the Resign is scored. It stops at the first Move by any other signer. Moves past S still link, but are never scored.
   4. **If the module is over at S** (a mate, a declared end), the game's own outcome stands: the rules result, with the normal End phase (Secret reveals and the full audit in a game with a deck), rated, without `unrated` or `endedBy`; clients record that a Resign was also held. Otherwise the result is the resign ranking at S, the resigner strictly last, unrated with `endedBy` with 3 or more seats.
-  5. The **partial audit** replays the action log up to S (derived reveals included), and the attestation's `logHash` covers the chain up to S.
+  5. The **partial audit** replays the action log up to S (derived reveals and derived rolls included), and the attestation's `logHash` covers the chain up to S.
 
   Every client holding the same events computes the same S and attests the same result. Scoring at the bare canonical head was rejected (fix round 2): nobody can answer moves made after a Resign, so a resigner or a coalition could add free turns, and a pending Chess player could resign and then mate, giving places and scores that contradict each other. A Resign that cancels stops the fold for good (there is no result to score). An accepted claim (a withheld secret) stops the fold too.
 - **A Resign that counts after the result is final changes nothing,** whether the result came from the module's own end (a mate or a declared end that raced the Resign stands), an accepted claim, or an earlier Resign. Its secret still counts as the seat's Secret reveal where the End phase needs one, so a seat whose own client counted its Resign first, and so publishes no Secret, is not timed out by the clients where the game ended otherwise.
@@ -538,7 +547,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no shares and no secrets (§6.1). Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4).
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4).
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)

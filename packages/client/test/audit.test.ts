@@ -73,10 +73,12 @@ function playedGame(seed: string): { input: AuditInput; final: ChainReactionStat
         action: { type: 'reveal', actor: 'deck', deck: 'tiles', pos, card: order[pos] },
         seq,
       };
-    } else {
+    } else if (p.type === 'player') {
       const legal = chainReaction.legalActions(state, p.seat) as { declareEnd?: boolean }[];
       const declare = legal.find((a) => a.declareEnd === true);
       entry = { actor: p.seat, action: declare ?? rng.pick(legal), seq };
+    } else {
+      throw new Error('Chain Reaction does not roll dice');
     }
     const r = chainReaction.apply(state, entry.action);
     if (!r.ok) throw new Error(r.error.message);

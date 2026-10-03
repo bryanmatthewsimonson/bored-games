@@ -77,6 +77,11 @@ export interface NewTable {
   relays?: readonly string[];
   /** The module id; the first registered module by default. */
   game?: string;
+  /**
+   * Rule options for this table. Checked with the module's `validateRules`. Omitted means the module's defaults.
+   * Only Bank's form sets this today.
+   */
+  rules?: unknown;
 }
 
 /** Why a join is refused for a table this profile joined or created with another player key. */
@@ -235,6 +240,12 @@ export class LobbyController {
     if (game === undefined || module === undefined) throw new Error('This game is not available.');
     const relays = [...(spec.relays ?? this.#d.relays())];
     const tableId = bytesToHex(this.#d.rnd(8));
+    let rules = module.defaultRules();
+    if (spec.rules !== undefined) {
+      const checked = module.validateRules(spec.rules);
+      if (!checked.ok) throw new Error(checked.error.message);
+      rules = checked.value;
+    }
     const template = tableTemplate(
       {
         tableId,
@@ -246,7 +257,7 @@ export class LobbyController {
         open: spec.seats - 1 - spec.invited.length,
         relays,
         status: 'open',
-        rules: module.defaultRules(),
+        rules,
       },
       this.#d.now(),
     );

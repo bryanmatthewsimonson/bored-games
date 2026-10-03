@@ -43,9 +43,11 @@ export function step(game: ScriptedGame, script: Script, rng: Rng): ScriptedGame
   if (pending.type === 'reveal') {
     const pos = pending.positions[0] as number;
     action = { type: 'reveal', actor: 'deck', deck: 'tiles', pos, card: s.deck.order?.[pos] };
-  } else {
+  } else if (pending.type === 'player') {
     const legal = chainReaction.legalActions(s, pending.seat) as ChainReactionAction[];
     action = legal[script(s, legal, rng)];
+  } else {
+    throw new Error('Chain Reaction does not roll dice');
   }
   const r = chainReaction.apply(s, action);
   if (!r.ok) throw new Error(`scripted move rejected: ${r.error.message}`);

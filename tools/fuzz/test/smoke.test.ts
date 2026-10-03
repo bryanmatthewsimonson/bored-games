@@ -20,6 +20,23 @@ it('chain-reaction: a few hundred fuzzed games keep every invariant', () => {
   expect(report.coverage['merger:3way']).toBeGreaterThan(0);
 });
 
+it('bank: a few hundred fuzzed games keep every invariant', () => {
+  const target = TARGETS.bank;
+  if (!target) throw new Error('bank target missing');
+  const report = fuzzBatch(target.module, {
+    seed: 'vitest-smoke',
+    games: 200,
+    seatCounts: target.defaultSeatCounts,
+    rules: target.module.defaultRules(),
+    policies: target.policies,
+  });
+  expect(report.failures).toEqual([]);
+  expect(report.games).toBe(200);
+  expect(report.coverage['end:score']).toBeGreaterThan(0);
+  expect(report.coverage['roll:bust']).toBeGreaterThan(0);
+  expect(report.coverage['bank:shared']).toBeGreaterThan(0);
+});
+
 it('chess: fuzzed games keep every invariant and all end', () => {
   const target = TARGETS.chess;
   if (!target) throw new Error('chess target missing');

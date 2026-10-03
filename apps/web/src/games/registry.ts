@@ -3,6 +3,10 @@
  * and its setup copy. The platform screens dispatch through it and import no game directly. Adding a game: add
  * its id to ids.ts, its module to MODULES (net.ts) and an entry here (a test checks that the three agree).
  */
+
+import { BankGame } from './bank/game.tsx';
+import { BANK_META } from './bank/meta.ts';
+import { BankRulesPage } from './bank/rules-page.tsx';
 import { CHAIN_REACTION_META } from './chain-reaction/meta.ts';
 import { RulesPage as ChainReactionRulesPage } from './chain-reaction/rules-page.tsx';
 import { ChainReactionScreen } from './chain-reaction/screen.tsx';
@@ -24,6 +28,12 @@ export const GAMES: readonly WebGame[] = [
     ...CHESS_META,
     Component: ChessGame,
     RulesPage: ChessRulesPage,
+    setupCopy: () => null,
+  },
+  {
+    ...BANK_META,
+    Component: BankGame,
+    RulesPage: BankRulesPage,
     setupCopy: () => null,
   },
 ];

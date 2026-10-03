@@ -12,7 +12,7 @@ type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 
 /** One entry of the interleaved action log: a seat's game action or a derived reveal, in fold order (D030 R6). */
 export interface LoggedAction {
-  actor: number | 'deck';
+  actor: number | 'deck' | 'beacon';
   action: unknown;
   /** The chain `seq` of the move that carried the action, or of the head a derived reveal followed. */
   seq: number;
@@ -83,6 +83,8 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
     const why = `${r.error.code}: ${r.error.message}`;
     if (entry.actor === 'deck')
       return { fail: everyone(seats, `the derived reveal after move ${entry.seq} fails: ${why}`) };
+    if (entry.actor === 'beacon')
+      return { fail: everyone(seats, `the derived roll after move ${entry.seq} fails: ${why}`) };
     return {
       fail: {
         fail: [entry.actor],

@@ -281,6 +281,10 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
           card: order[pos] as number,
         };
         action = reveal;
+      } else if (pending.type === 'beacon') {
+        // The fuzzer does not run the beacon. Faces are uniform and come from the move rng, never a seat policy.
+        const die = (): number => moveRng.int(6) + 1;
+        action = { type: 'rolled', actor: 'beacon', id: pending.id, dice: [die(), die()] };
       } else {
         const legal = module.legalActions(full, pending.seat);
         if (legal.length === 0) return fail(`seat ${pending.seat} has no legal action (${pending.decision})`);
@@ -304,7 +308,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       }
 
       lastAction = action;
-      const revealProblem = checkReveals(action, pending.type === 'reveal' ? 'deck' : pending.seat);
+      const revealProblem = checkReveals(action, pending.type === 'player' ? pending.seat : 'deck');
       if (revealProblem) return fail(revealProblem);
       const res = module.apply(full, action);
       if (!res.ok) return fail(`chosen action rejected: ${res.error.code} ${res.error.message}`);
@@ -316,7 +320,9 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       // Throws on anything that would not survive a JSON round trip (undefined, NaN, -0, Map...).
       assertJsonSafe(full);
 
-      bump(`event:${pending.type === 'reveal' ? 'reveal' : 'move'}`);
+      const pendingKind =
+        pending.type === 'reveal' ? 'reveal' : pending.type === 'beacon' ? 'beacon' : 'move';
+      bump(`event:${pendingKind}`);
       for (const ev of res.events) bump(`event:${ev.type}`);
       for (const tag of module.coverage?.(full, res.events) ?? []) bump(tag);
 

@@ -3,6 +3,8 @@
  * from the game packages. Light: no game components. `brands.ts` picks the names in effect; a test checks every
  * entry against its rules module.
  */
+import { BANK_BRAND } from '@bored-games/bank/brand';
+import { BANK_CATALOG } from '@bored-games/bank/catalog';
 import { CHAIN_REACTION_CATALOG } from '@bored-games/chain-reaction/catalog';
 import { SAFE_BRAND as CHAIN_REACTION_SAFE } from '@bored-games/chain-reaction/theme';
 import { CHESS_BRAND } from '@bored-games/chess/brand';
@@ -19,6 +21,7 @@ export interface CatalogGame {
 const GAMES: readonly CatalogGame[] = [
   { entry: CHAIN_REACTION_CATALOG, safe: CHAIN_REACTION_SAFE },
   { entry: CHESS_CATALOG, safe: CHESS_BRAND },
+  { entry: BANK_CATALOG, safe: BANK_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));

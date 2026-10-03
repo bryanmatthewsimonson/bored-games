@@ -5,17 +5,22 @@ import {
   G,
   initialDeck,
   jointKey,
+  makeRollShare,
   makeShare,
   ownShare,
   type Point,
   proveShuffle,
   type RandomBytes,
+  rollSeed,
+  type Share,
   type ShareCtx,
   type ShuffleCtx,
   shuffleDeck,
+  verifyRollShare,
   verifyShare,
   verifyShuffle,
 } from '@bored-games/deck';
+import { faces } from '@bored-games/dice';
 import {
   canonicalJson,
   deepFreeze,
@@ -299,6 +304,11 @@ function kindOf(ev: unknown): number | null {
 
 const byId = <T extends { id: Hex }>(xs: Iterable<T>): T[] => [...xs].sort((a, b) => (a.id < b.id ? -1 : 1));
 const ascending = (xs: Iterable<number>): number[] => [...new Set(xs)].sort((a, b) => a - b);
+
+/** True when a seat's action claims to be the derived dice. Players never send those faces (D058). */
+function playerSentDice(action: unknown): boolean {
+  return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'rolled';
+}
 
 export class GameSession {
   private readonly module: AnyModule;
@@ -802,7 +812,10 @@ export class GameSession {
     } else if (c.type !== 'action') {
       return `move ${m.seq} must be a game action`;
     } else if (!this.hasDeck() && (c.shares.length > 0 || c.reveals.length > 0)) {
-      return 'a deckless game carries no shares or reveals';
+      // Chess has no beacon, so any share is still illegal. A dice game may carry the one share its roll owes (D058).
+      if (!this.usesBeacon()) return 'a deckless game carries no shares or reveals';
+      if (c.reveals.length > 0 || c.shares.length !== 1)
+        return 'a dice roll carries exactly one share and no reveals';
     }
     return null;
   }
@@ -1395,13 +1408,17 @@ export class GameSession {
     seat: number,
     c: Extract<ParsedMove['content'], { type: 'action' }>,
   ): Checked {
+    // Faces are derived from the beacon. A seat that sends them is inventing the roll (D058).
+    if (playerSentDice(c.action)) return reject('a player does not send the dice');
     const p = this.module.pending(state);
     // A pending reveal resolves once its shares arrive; the move may follow it.
     if (p.type === 'reveal') return 'wait';
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
-    const bad = this.actionProofs(m.id, seat, c.shares, c.reveals);
+    const bad = this.usesBeacon()
+      ? this.beaconShareOk(m.id, state, seat, c)
+      : this.actionProofs(m.id, seat, c.shares, c.reveals);
     if (bad !== null) return reject(bad);
 
     const r = this.module.apply(state, c.action);
@@ -1454,6 +1471,39 @@ export class GameSession {
       return null;
     };
     const result = check(shares, 'share') ?? check(reveals, 'reveal');
+    this.actionChecked.set(id, result);
+    return result;
+  }
+
+  /** A game that rolls dice with the beacon (D058). Chess does not. */
+  private usesBeacon(): boolean {
+    return typeof this.module.rolls === 'function' && typeof this.module.beaconOf === 'function';
+  }
+
+  /**
+   * The one beacon share a `roll` or `contribute` owes, checked against the seat's deck key and the reserved deck
+   * id `roll`. Cached like `actionProofs`: the action and the root fix the answer. Null when it verifies.
+   */
+  private beaconShareOk(
+    id: Hex,
+    state: unknown,
+    seat: number,
+    c: Extract<ParsedMove['content'], { type: 'action' }>,
+  ): string | null {
+    const cached = this.actionChecked.get(id);
+    if (cached !== undefined) return cached;
+    const owed = this.module.beaconOf?.(state, c.action) ?? null;
+    let result: string | null = null;
+    if (owed === null) {
+      if (c.shares.length > 0 || c.reveals.length > 0) result = 'this action carries no roll share';
+    } else {
+      const share = c.shares[0];
+      if (c.reveals.length > 0 || c.shares.length !== 1 || share === undefined || share.pos !== owed) {
+        result = 'the roll share must be the one share for this roll';
+      } else if (!verifyRollShare(this.keys[seat] as Point, this.root.id, owed, share.share)) {
+        result = 'the roll share does not verify';
+      }
+    }
     this.actionChecked.set(id, result);
     return result;
   }
@@ -1996,7 +2046,11 @@ export class GameSession {
     this.learned.clear();
     for (const pos of snap.learned) this.learned.add(pos);
     this.shares = new ShareStore(this.seats);
-    if (!this.hasDeck()) return;
+    if (!this.hasDeck()) {
+      // A trial that keeps the roll move must still find the roller's share on it (D058). Chess carries none.
+      if (this.usesBeacon()) this.replayActionShares();
+      return;
+    }
     if (this.finalDeck() === null) {
       // The shares were checked against a final deck that is gone: they all wait again, as if never folded.
       if (this.sharesSeen.size > 0) this.sharesVersion++;
@@ -2013,6 +2067,11 @@ export class GameSession {
       const seat = this.seatOf.get(s.pubkey) as number;
       for (const { pos, share } of s.shares) this.shares.add(seat, pos, share);
     }
+    this.replayActionShares();
+  }
+
+  /** Shares carried on the action moves still on the chain, in fold order. The first share of a seat and position wins. */
+  private replayActionShares(): void {
     for (const m of this.chain) {
       if (m.content.type !== 'action') continue;
       const seat = this.seatOf.get(m.pubkey) as number;
@@ -2105,6 +2164,7 @@ export class GameSession {
       progressed = true;
     }
     if (this.phase === 'play' && this.revealPublic()) progressed = true;
+    if (this.phase === 'play' && this.deriveBeacon()) progressed = true;
     if (this.phase === 'play' && this.module.pending(this.state).type === 'over') {
       this.phase = 'end';
       progressed = true;
@@ -2190,6 +2250,35 @@ export class GameSession {
         this.actionLog.push({ actor: 'deck', action, seq: this.chain.length });
         progressed = true;
       }
+    }
+  }
+
+  /**
+   * Derived dice (D058): while the module pends a beacon and every seat has one share of that roll, apply
+   * `{type: 'rolled', actor: 'beacon', id, dice}` from the SHA-256 of the shares. The faces are not a network event.
+   * Runs during a trial fold too, beside `revealPublic`, so fork choice sees the pot.
+   */
+  private deriveBeacon(): boolean {
+    if (!this.usesBeacon()) return false;
+    let progressed = false;
+    for (;;) {
+      const p = this.module.pending(this.state);
+      if (p.type !== 'beacon') return progressed;
+      if (!this.shares.covered(p.id)) return progressed;
+      const slots = this.shares.slots(p.id);
+      const shares = slots.filter((slot): slot is Share => slot !== null);
+      if (shares.length !== this.seats) return progressed;
+      const rolled = faces(rollSeed(shares), 2, 6);
+      const a = rolled[0];
+      const b = rolled[1];
+      if (a === undefined || b === undefined) return progressed;
+      const action = { type: 'rolled' as const, actor: 'beacon' as const, id: p.id, dice: [a, b] as const };
+      const r = this.module.apply(this.state, action);
+      if (!r.ok) return progressed;
+      this.state = deepFreeze(r.state);
+      this.record(r.events);
+      this.actionLog.push({ actor: 'beacon', action, seq: this.chain.length });
+      progressed = true;
     }
   }
 
@@ -2654,14 +2743,26 @@ export class GameSession {
     }
     const legal = this.module.legalActions(this.state, me.seat).find((a) => canonicalJson(a) === wanted);
     if (legal === undefined) throw new ClientError('the action is not legal now');
-    const deck = this.finalDeck() as Ciphertext[];
-    const share = (pos: number): PosShare => ({
-      pos,
-      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
-    });
-    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map(share);
-    const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
-    const reveals = shown.sort((a, b) => a - b).map(share);
+    let shares: PosShare[];
+    let reveals: PosShare[];
+    if (this.usesBeacon()) {
+      // Bank has no dealt cards. The roll or contribution owes exactly one beacon share; Bank and Stay owe none.
+      reveals = [];
+      const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
+      shares =
+        rollId === null
+          ? []
+          : [{ pos: rollId, share: makeRollShare(me.deckSecret, this.root.id, rollId, rnd) }];
+    } else {
+      const deck = this.finalDeck() as Ciphertext[];
+      const share = (pos: number): PosShare => ({
+        pos,
+        share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
+      });
+      shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map(share);
+      const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
+      reveals = shown.sort((a, b) => a - b).map(share);
+    }
     const t = moveTemplate(
       {
         rootId: this.root.id,

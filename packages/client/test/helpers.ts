@@ -1,3 +1,4 @@
+import { bank } from '@bored-games/bank';
 import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
@@ -46,10 +47,11 @@ export const ROOT_SEEN = T0 + 10;
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 type AnyModule = GameModule<any, any, any>;
 
-/** Every game the tests play: Chain Reaction (one deck) and Chess (deckless, D045). */
+/** Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045) and Bank (dice beacon, D058). */
 export const MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
+  [bank.id, bank],
 ]);
 
 export interface TestGame {

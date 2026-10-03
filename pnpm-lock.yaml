@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@bored-games/bank':
+        specifier: workspace:*
+        version: link:../../packages/games/bank
       '@bored-games/brand':
         specifier: workspace:*
         version: link:../../packages/brand
@@ -80,6 +83,9 @@ importers:
       '@bored-games/deck':
         specifier: workspace:*
         version: link:../deck
+      '@bored-games/dice':
+        specifier: workspace:*
+        version: link:../dice
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../game-kit
@@ -87,6 +93,9 @@ importers:
         specifier: workspace:*
         version: link:../protocol
     devDependencies:
+      '@bored-games/bank':
+        specifier: workspace:*
+        version: link:../games/bank
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../games/chain-reaction
@@ -107,7 +116,19 @@ importers:
         specifier: workspace:*
         version: link:../game-kit
 
+  packages/dice:
+    dependencies:
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+
   packages/game-kit: {}
+
+  packages/games/bank:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
 
   packages/games/chain-reaction:
     dependencies:
@@ -164,6 +185,9 @@ importers:
 
   tools/fuzz:
     dependencies:
+      '@bored-games/bank':
+        specifier: workspace:*
+        version: link:../../packages/games/bank
       '@bored-games/chain-reaction':
         specifier: workspace:*
         version: link:../../packages/games/chain-reaction

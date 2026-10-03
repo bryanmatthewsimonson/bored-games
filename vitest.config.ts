@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     projects: [
       { test: { name: 'game-kit', root: 'packages/game-kit', include: ['test/**/*.test.ts'] } },
+      { test: { name: 'dice', root: 'packages/dice', include: ['test/**/*.test.ts'] } },
       {
         test: {
           name: 'chain-reaction',
@@ -17,6 +18,14 @@ export default defineConfig({
         test: {
           name: 'chess',
           root: 'packages/games/chess',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
+          name: 'bank',
+          root: 'packages/games/bank',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
         },

@@ -26,6 +26,7 @@ export type {
   ApplyResult,
   DealtPosition,
   DeckSpec,
+  DiceRoll,
   EngineError,
   GameLog,
   GameModule,

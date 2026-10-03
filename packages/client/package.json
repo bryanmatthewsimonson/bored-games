@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@bored-games/deck": "workspace:*",
+    "@bored-games/dice": "workspace:*",
     "@bored-games/game-kit": "workspace:*",
     "@bored-games/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@bored-games/bank": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
     "@bored-games/chess": "workspace:*"
   }
