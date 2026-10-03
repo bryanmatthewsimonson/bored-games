@@ -154,15 +154,46 @@ const MAX_ACK_DEPTH = 32;
 /** Audits kept by log hash, so a trial fold that relinks the same finished chain does not run it again. */
 const MAX_AUDITS = 8;
 
-/** A fork's best side branch, found by trial: its moves (lowest-id first among equals) and whether it ends the game. */
+/**
+ * A fork's best side branch, found by trial: its moves (lowest-id first among equals), whether it ends the game, and
+ * whether it is settled (`Rank`).
+ */
 interface Branch {
   moves: ParsedMove[];
   over: boolean;
+  settled: boolean;
 }
 
-/** Whether branch `a` beats `b` (D030 Ruling 9): reaching `over` first, then length; ties keep `b`. */
-const beats = (a: { over: boolean; length: number }, b: { over: boolean; length: number }): boolean =>
-  a.over !== b.over ? a.over : a.length > b.length;
+/**
+ * What fork choice ranks a branch from a fork point by (D030 Ruling 9, D056 "the late ending rival"):
+ * - `over`: it reaches the module's `over`;
+ * - `settled`: every seat other than the signer of its first move (the seat that forked) signed a move on it;
+ * - `length`: its length in accepted moves.
+ */
+interface Rank {
+  over: boolean;
+  settled: boolean;
+  length: number;
+}
+
+/**
+ * Whether branch `a` beats `b` at one fork point; ties keep `b` (the caller then compares the successors' ids).
+ * 1. A branch that reaches `over` or is settled beats one that is neither: an ending side branch beats a longer live
+ *    chain, unless every other seat has played on that chain since the fork (D056).
+ * 2. Then the longer branch.
+ * 3. Then the one that reaches `over`.
+ * Settled before length among live branches is forced: with "over beats an unsettled branch" and "a longer settled
+ * branch beats an ending one", comparing live branches by length alone would be cyclic, so not a function of the
+ * events held.
+ */
+const beats = (a: Rank, b: Rank): boolean => {
+  const ta = a.over || a.settled;
+  if (ta !== (b.over || b.settled)) return ta;
+  if (a.length !== b.length) return a.length > b.length;
+  return a.over && !b.over;
+};
+
+const rankOf = (b: Branch): Rank => ({ over: b.over, settled: b.settled, length: b.moves.length });
 
 /** A move judged as of its prev (D030 R2 as refined by Ruling 3): valid, not known yet, or why it is invalid. */
 type Judged = 'valid' | 'unknown' | { reject: string };
@@ -389,7 +420,9 @@ export class GameSession {
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
   private readonly stuck = new Map<Hex, number>();
   /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
-  private readonly forkMemo = new Map<Hex, { key: string; ids: Hex[]; over: boolean }>();
+  private readonly forkMemo = new Map<Hex, { key: string; ids: Hex[]; over: boolean; settled: boolean }>();
+  /** The best branch through the chain's own successor at a fork, by trial (`throughBest`), kept while its key holds. */
+  private readonly throughMemo = new Map<Hex, { key: string; rank: Rank }>();
   /** Above zero during trial folds, which skip private learns and the audit. */
   private trialDepth = 0;
   /** Above zero while a fork is examined: the pool ends as it started, so its versions are left alone. */
@@ -1656,15 +1689,20 @@ export class GameSession {
   /* ------------------------------------------------------------------------------------- fork choice */
 
   /**
-   * Re-choose the chain at every fork point where a side branch beats the current one (D030 Rulings 5 and 9). At a
-   * prev on the chain, branches rank by whether they reach the module's `over`, then by length in accepted moves,
-   * then by the lowest id: a finished game is never reopened by a branch that does not finish it, however long.
+   * Re-choose the chain at every fork point where a side branch beats the current one (D030 Rulings 5 and 9, D056).
+   * At a prev on the chain, branches rank by `beats`: one that reaches the module's `over` or is settled (every seat
+   * but the forker played on it) first, then length in accepted moves, then reaching `over`, then the lowest id of
+   * the successor. A finished game is never reopened by a branch that does not finish it unless every other seat
+   * played on that branch, which a seat holding the end never does.
    * - A fork is examined at most once per `receive`.
    * - Only candidates count (D030 Ruling 12): a shuffle step that is not one is no side branch.
    * - When the chain is over, a side branch whose pooled depth (an upper bound on its valid length) cannot reach
    *   the chain's length past the prev is skipped without a trial.
    * - Otherwise the fork's best side branch comes from `sideBest`, which keeps its verdict until the pool below
    *   the prev, the shares or the shuffle candidates change.
+   * - The chain's own branch is ranked by its tail. Only when the side branch beats the tail and a later fork sits
+   *   on the tail (where the chain followed that fork's own ranking) is the best branch through the chain's own
+   *   successor found by trial (`throughBest`), so the choice here is the same whatever was linked first.
    * Returns true when the chain changed.
    */
   private resolveForks(): boolean {
@@ -1675,7 +1713,7 @@ export class GameSession {
       this.forkSeen.set(prev, this.generation);
       const side = [...pooled.values()].filter((m) => this.shuffleEligible(m));
       if (side.length === 0) continue;
-      const cur = { over: this.isOver(), length: this.chain.length - j };
+      const cur: Rank = { over: this.isOver(), settled: this.settledFrom(j), length: this.chain.length - j };
       const top = (this.chain[j] as ParsedMove).id;
       if (cur.over) {
         const depths = new Map<Hex, number>();
@@ -1688,8 +1726,10 @@ export class GameSession {
       const best = this.sideBest(j);
       const first = best.ids[0];
       if (first === undefined) continue;
-      const side1 = { over: best.over, length: best.ids.length };
-      if (!(beats(side1, cur) || (!beats(cur, side1) && first < top))) continue;
+      const side1: Rank = { over: best.over, settled: best.settled, length: best.ids.length };
+      const wins = (own: Rank): boolean => beats(side1, own) || (!beats(own, side1) && first < top);
+      if (!wins(cur)) continue;
+      if (this.laterFork(j) && !wins(this.throughBest(j))) continue;
       this.truncate(j);
       this.quiesce();
       for (const id of best.ids) {
@@ -1706,42 +1746,116 @@ export class GameSession {
     return this.phase === 'end' || this.phase === 'done';
   }
 
+  /** The seats other than `seat`. */
+  private othersThan(seat: number): Set<number> {
+    const out = new Set<number>();
+    for (let k = 0; k < this.seats; k++) if (k !== seat) out.add(k);
+    return out;
+  }
+
+  /**
+   * Whether the chain's tail after chain move `j` is settled (D056): every seat other than the signer of the chain's
+   * move `j + 1` (the seat that forked there) signed a move on it.
+   */
+  private settledFrom(j: number): boolean {
+    const forker = this.seatOf.get((this.chain[j] as ParsedMove).pubkey) as number;
+    const need = this.othersThan(forker);
+    for (let i = j + 1; i < this.chain.length && need.size > 0; i++)
+      need.delete(this.seatOf.get((this.chain[i] as ParsedMove).pubkey) as number);
+    return need.size === 0;
+  }
+
+  /** Whether a later prev on the chain than chain move `j` holds a pooled side move that is a candidate. */
+  private laterFork(j: number): boolean {
+    for (let i = j + 1; i < this.chain.length; i++) {
+      const pooled = this.movesByPrev.get(this.idAt(i));
+      if (pooled !== undefined && [...pooled.values()].some((m) => this.shuffleEligible(m))) return true;
+    }
+    return false;
+  }
+
+  /** The kept-verdict key of the fork after chain move `j`: the pool below it, the shares and the candidates. */
+  private forkKey(j: number): string {
+    return `${this.poolVersion.get(this.idAt(j)) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`;
+  }
+
   /**
    * The best branch at the fork after chain move `j`, other than the chain's own, by trial: cut back to `j`, find
    * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it, the shares or
    * the shuffle candidates change, so an event elsewhere does not repeat the trial.
    */
-  private sideBest(j: number): { ids: Hex[]; over: boolean } {
+  private sideBest(j: number): { ids: Hex[]; over: boolean; settled: boolean } {
     const prev = this.idAt(j);
-    const key = `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`;
     const known = this.forkMemo.get(prev);
-    if (known !== undefined && known.key === key) return known;
+    if (known !== undefined && known.key === this.forkKey(j)) return known;
     this.trials++;
+    const top = (this.chain[j] as ParsedMove).id;
+    const best = this.trialAt(j, () => this.bestExtension(top));
+    const out = {
+      key: this.forkKey(j),
+      ids: best.moves.map((m) => m.id),
+      over: best.over,
+      settled: best.settled,
+    };
+    this.forkMemo.set(prev, out);
+    return out;
+  }
+
+  /**
+   * The best branch headed by the chain's own move after chain move `j`, ranked at that fork (`beats`), by trial.
+   * It differs from the chain's tail only when a later fork on the tail chose, by its own ranking, a branch that
+   * ranks lower here. Kept while the pool below every move of the tail, the shares and the candidates hold.
+   */
+  private throughBest(j: number): Rank {
+    const prev = this.idAt(j);
+    const parts = [this.forkKey(j)];
+    for (let i = j + 1; i <= this.chain.length; i++)
+      parts.push(String(this.poolVersion.get(this.idAt(i)) ?? 0));
+    const key = `${this.chain.length}:${parts.join(',')}`;
+    const known = this.throughMemo.get(prev);
+    if (known !== undefined && known.key === key) return known.rank;
+    this.trials++;
+    const own = this.chain[j] as ParsedMove;
+    const best = this.trialAt(j, () => {
+      const h = this.chain.length;
+      if (!this.tryLink(own)) return { moves: [], over: false, settled: false };
+      const need = this.othersThan(this.seatOf.get(own.pubkey) as number);
+      const sub = this.bestExtension(null, need);
+      const out: Branch = {
+        moves: [own, ...sub.moves],
+        over: sub.moves.length > 0 ? sub.over : this.isOver(),
+        settled: sub.moves.length > 0 ? sub.settled : need.size === 0,
+      };
+      this.truncate(h);
+      return out;
+    });
+    const rank = rankOf(best);
+    this.throughMemo.set(prev, { key, rank });
+    return rank;
+  }
+
+  /**
+   * Run `find` with the chain cut back to chain move `j`, in trial mode, then put the chain back as it was, learns
+   * and (cached) audit included; the pool ends as it started.
+   */
+  private trialAt(j: number, find: () => Branch): Branch {
     const tail = this.chain.slice(j);
-    const top = (tail[0] as ParsedMove).id;
-    let best: Branch = { moves: [], over: false };
+    let best: Branch = { moves: [], over: false, settled: false };
     this.quiet++;
     try {
       this.truncate(j);
       this.trialDepth++;
       try {
-        best = this.bestExtension(top);
+        best = find();
       } finally {
         this.trialDepth--;
       }
-      // Put the chain back as it was, learns and (cached) audit included; the pool ends as it started.
       this.quiesce();
       for (const m of tail) if (!this.tryLink(m)) break;
     } finally {
       this.quiet--;
     }
-    const out = {
-      key: `${this.poolVersion.get(prev) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`,
-      ids: best.moves.map((m) => m.id),
-      over: best.over,
-    };
-    this.forkMemo.set(prev, out);
-    return out;
+    return best;
   }
 
   /**
@@ -1772,27 +1886,28 @@ export class GameSession {
 
   /**
    * The best branch from the head, by trial: link each pooled successor that is a candidate in id order (but
-   * `exclude`), recurse, and cut back. Branches rank by reaching `over`, then length; ties keep the lowest id.
-   * Leaves the fold at the head it started from.
+   * `exclude`), recurse, and cut back. Branches rank by `beats`, as at the fork this search started from: `missing`
+   * holds the seats that have not signed a move on the branch since that fork, and null at the fork itself, where
+   * each successor's signer is the forker. Ties keep the lowest id. Leaves the fold at the head it started from.
    */
-  private bestExtension(exclude: Hex | null = null): Branch {
+  private bestExtension(exclude: Hex | null = null, missing: ReadonlySet<number> | null = null): Branch {
     const h = this.chain.length;
-    let best: Branch = { moves: [], over: false };
+    let best: Branch = { moves: [], over: false, settled: false };
     const kids = this.movesByPrev.get(this.headId());
     if (kids === undefined) return best;
     for (const k of byId(kids.values())) {
       if (k.id === exclude || !this.shuffleEligible(k) || !this.tryLink(k)) continue;
-      const sub = this.bestExtension();
-      const branch = { moves: [k, ...sub.moves], over: sub.moves.length > 0 ? sub.over : this.isOver() };
+      const seat = this.seatOf.get(k.pubkey) as number;
+      const need = new Set(missing ?? this.othersThan(seat));
+      need.delete(seat);
+      const sub = this.bestExtension(null, need);
+      const branch: Branch = {
+        moves: [k, ...sub.moves],
+        over: sub.moves.length > 0 ? sub.over : this.isOver(),
+        settled: sub.moves.length > 0 ? sub.settled : need.size === 0,
+      };
       this.truncate(h);
-      if (
-        beats(
-          { over: branch.over, length: branch.moves.length },
-          { over: best.over, length: best.moves.length },
-        )
-      ) {
-        best = branch;
-      }
+      if (beats(rankOf(branch), rankOf(best))) best = branch;
     }
     return best;
   }

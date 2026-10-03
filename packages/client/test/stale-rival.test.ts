@@ -14,8 +14,11 @@ import { catchUp, deliver, LATE, makeGame, newSession, shuffleAll, statuses, T0 
  * - it is an equivocation: the seat is flagged and forfeits (ranked last), even in a game that is already over,
  *   whose result then changes after it was attested;
  * - fork choice does not reorganize for it while it is shorter and does not reach the module's `over`;
- * - but a stale rival that ends the game (here a declared end) beats a longer chain that has not ended: the game
- *   is cut back to that old position and ends there.
+ * - a stale rival that ends the game (here a declared end) no longer rewinds a longer chain that has not ended once
+ *   every other seat has played on that chain since the fork (D056, "the late ending rival"): before D056 it cut
+ *   the game back to that old position and ended it there, which let a seat out of contention pick the others'
+ *   order (rated kingmaking). A real end raced by a move of the same seat still stands while some other seat has
+ *   not played on the live chain.
  * The web controller never publishes such a move (D056); these tests describe what happens if a seat does.
  */
 
@@ -31,6 +34,8 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
   /** Every event in publication order, and the moves alone. */
   const log: NostrEvent[] = [];
   const moves: NostrEvent[] = [];
+  /** The seat that signed each move, by id. */
+  const signer = new Map<string, number>();
   /** The log while the game was still in play, a few moves after the first chance to declare the end. */
   let mid: NostrEvent[];
   /** The first position where the pending seat could declare the end (it did not): the log before that move. */
@@ -74,6 +79,7 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
       const ev = s.buildAction(action, game.rnd, t++);
       publish(ev);
       moves.push(ev);
+      signer.set(ev.id, pending.seat);
     }
     for (const s of players) publish(s.buildSecret(game.rnd, t++));
     for (const [k, s] of players.entries())
@@ -112,16 +118,78 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
     expect(v.forfeits).toEqual([seat]);
   });
 
-  it('in play: a stale rival that declares the end reorganizes the game, which ends at that old position', () => {
+  /** The seats that signed a move in `events` from index `from` on. */
+  const signersFrom = (events: readonly NostrEvent[], from: number): Set<number> =>
+    new Set(events.slice(from).flatMap((ev) => (signer.has(ev.id) ? [signer.get(ev.id) as number] : [])));
+
+  it('in play: a stale ending rival does not rewind a chain every other seat played on since the fork', () => {
     const { seat, ev } = rivalAt(beforeDeclare, (legal) => legal.find(isDeclare));
+    // Every seat but the rival's signer played on the live chain after the fork.
+    const others = signersFrom(mid, beforeDeclare.length);
+    for (let k = 0; k < SEATS; k++) if (k !== seat) expect(others.has(k)).toBe(true);
     const watcher = catchUp(game, null, mid);
-    expect(watcher.view().head.seq).toBeGreaterThan(beforeDeclare.length);
+    const head = watcher.view().head;
+    expect(head.seq).toBeGreaterThan(beforeDeclare.length);
     expect(watcher.receive(ev, LATE)).toEqual({ status: 'accepted' });
     const v = watcher.view();
-    // Reaching `over` beats length (D030 Ruling 9): the moves played since are cut off the chain.
-    expect(v.head.id).toBe(ev.id);
-    expect(v.phase).toBe('end');
+    // Before D056 this cut the game back to the rival and ended it there (Ruling 9 alone).
+    expect(v.head).toEqual(head);
+    expect(v.phase).toBe('play');
+    expect(v.outcome).toBeNull();
     expect(v.equivocators).toEqual([seat]);
+    expect(v.forfeits).toEqual([seat]);
+    // Whatever the arrival order: a device that holds the rival first ends up on the same chain.
+    const early = catchUp(game, null, [...beforeDeclare, ev]);
+    expect(early.view().phase).toBe('end');
+    for (const later of mid.slice(beforeDeclare.length)) early.receive(later, LATE);
+    expect(early.view().head).toEqual(head);
+    expect(early.view().phase).toBe('play');
+    expect(early.view().forfeits).toEqual([seat]);
+  });
+
+  it('a real end raced by a move of the same seat still stands while another seat has not played on', () => {
+    const { seat, ev } = rivalAt(beforeDeclare, (legal) => legal.find(isDeclare));
+    // The live chain: the seat's other move, then moves up to (not including) the one that would make every other
+    // seat a signer since the fork.
+    let cut = beforeDeclare.length + 1;
+    for (; cut < mid.length; cut++) {
+      const seen = signersFrom(mid.slice(0, cut + 1), beforeDeclare.length);
+      if ([...Array(SEATS).keys()].every((k) => k === seat || seen.has(k))) break;
+    }
+    const live = mid.slice(0, cut);
+    expect(live.length).toBeGreaterThan(beforeDeclare.length);
+    for (const order of [
+      [...live, ev],
+      [...beforeDeclare, ev, ...live.slice(beforeDeclare.length)],
+    ]) {
+      const watcher = catchUp(game, null, beforeDeclare);
+      for (const e of order.slice(beforeDeclare.length))
+        expect(watcher.receive(e, LATE).status).not.toBe('rejected');
+      const v = watcher.view();
+      // Reaching `over` beats a longer chain that is not settled (Ruling 9, kept by D056).
+      expect(v.head.id).toBe(ev.id);
+      expect(v.phase).toBe('end');
+      expect(v.equivocators).toEqual([seat]);
+      expect(v.forfeits).toEqual([seat]);
+    }
+  });
+
+  it('residual: a real end is lost when every other seat plays past it (the ender is flagged and ranked last)', () => {
+    // The coalition case: the seat declares the end (a real, legitimate end) and also signs the move the log played;
+    // every other seat then plays on that live chain (colluding, or never shown the end). Settled beats ending, so
+    // the end is lost; the only cost is the ender's place. It takes every other seat's signed move on the live
+    // chain: a seat whose client held the end never builds one.
+    const { seat, ev } = rivalAt(beforeDeclare, (legal) => legal.find(isDeclare));
+    const watcher = catchUp(game, null, [...beforeDeclare, ev]);
+    expect(watcher.view().phase).toBe('end');
+    for (const later of log.slice(beforeDeclare.length)) watcher.receive(later, LATE);
+    const v = watcher.view();
+    expect(v.head).toEqual(done.head);
+    expect(v.phase).toBe('done');
+    expect(v.equivocators).toEqual([seat]);
+    const declared = done.outcome as NonNullable<SessionView['outcome']>;
+    expect(v.outcome).toEqual(rankWithForfeits(declared.scores, [seat], declared.places));
+    expect(v.outcome?.places[seat]).toBe(SEATS);
   });
 
   it('after the end: a stale rival flags its seat and changes the attested result, though the chain stays', () => {
