@@ -113,7 +113,9 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-  padding: 10px var(--gutter);
+  /* viewport-fit=cover (D057): keep clear of the notch and the rounded corners. */
+  padding: max(10px, env(safe-area-inset-top, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px)) 10px
+    max(var(--gutter), env(safe-area-inset-left, 0px));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -177,7 +179,8 @@ main {
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: var(--gutter);
+  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--gutter)
+    max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 main:focus {
@@ -208,7 +211,7 @@ main:focus {
 }
 
 .app-footer {
-  padding: 12px var(--gutter);
+  padding: 12px var(--gutter) max(12px, env(safe-area-inset-bottom, 0px));
   text-align: center;
   font-size: 0.85rem;
   color: var(--muted);
@@ -305,22 +308,52 @@ input[aria-invalid="true"] {
 }
 
 /* Settings dialog */
+/*
+ * The dialog fits the visible viewport (dvh, with a vh fallback; less the safe areas), its head stays in view and
+ * only its body scrolls, with overscroll contained so that scrolling up inside it never becomes the page's
+ * pull-to-refresh (D057: on iOS Safari with the address bar at the top, the Close button scrolled away and the
+ * pull-to-refresh reload exposed the key race).
+ */
 .dialog {
   width: min(560px, calc(100vw - 2 * 8px));
-  max-height: calc(100vh - 2 * 8px);
+  max-height: calc(100vh - 2 * 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   padding: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
+@supports (height: 100dvh) {
+  .dialog {
+    max-height: calc(100dvh - 2 * 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
 .dialog::backdrop {
   background: rgb(20 24 34 / 0.5);
 }
 
+/* While a modal dialog is open the page behind it does not scroll (nor pull to refresh). */
+html:has(.dialog[open]),
+html:has(.blocking-overlay) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--gutter);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dialog-head {
@@ -328,6 +361,23 @@ input[aria-invalid="true"] {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* A head that is the dialog's own child (not inside its body) stays at the top while the body scrolls. */
+.dialog > .dialog-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  padding: var(--gutter) var(--gutter) 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
 }
 
 .dialog-head h2 {
@@ -367,7 +417,8 @@ input[aria-invalid="true"] {
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: var(--gutter) var(--gutter) 0;
+  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right, 0px)) 0
+    max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 .banners .warning {
@@ -1339,4 +1390,47 @@ input[type="search"] {
 .game-waiting {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+/* The lost-key banner (D057): louder than the other page warnings. */
+.banner-loud {
+  border-width: 2px;
+  border-color: var(--danger);
+}
+
+/* "Your key changed in another tab" (D057): covers the page until it is reloaded. */
+.blocking-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: max(var(--gutter), env(safe-area-inset-top, 0px)) var(--gutter)
+    max(var(--gutter), env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.blocking-overlay .panel {
+  max-width: 480px;
+}
+
+.blocking-overlay p {
+  margin: 0 0 8px;
+}
+
+.join-backup-key {
+  display: grid;
+  gap: 6px;
+}
+
+.join-backup-key summary {
+  cursor: pointer;
+}
+
+.nsec-inline {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 0.85rem;
 }

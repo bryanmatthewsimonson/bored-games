@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { InAppBanner } from '../src/components/inapp-banner.tsx';
+import { InAppBanner, LostKeyBanner } from '../src/components/inapp-banner.tsx';
+import { LOST_KEY_NOTICE } from '../src/identity.ts';
 import { IN_APP_NOTICE, inAppBrowser } from '../src/inapp-model.ts';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
@@ -121,6 +122,17 @@ describe('in-app browsers (D057)', () => {
     expect(spokenText(tree)).toBe(`${IN_APP_NOTICE} Dismiss`);
     const [button] = findAll(tree, (el) => el.tag === 'button');
     expect(button?.attrs.type).toBe('button');
+    (button?.attrs.onClick as (() => void) | undefined)?.();
+    expect(dismissed).toBe(1);
+  });
+
+  it('renders the lost-key banner as an alert with its own Dismiss button (D057)', () => {
+    let dismissed = 0;
+    const tree = renderTree(LostKeyBanner({ onDismiss: () => dismissed++ }));
+    expect((tree[0] as { attrs: Record<string, unknown> }).attrs.role).toBe('alert');
+    expect(spokenText(tree)).toContain(LOST_KEY_NOTICE);
+    const [button] = findAll(tree, (el) => el.tag === 'button');
+    expect(button?.attrs['aria-label']).toBe('Dismiss the lost key warning');
     (button?.attrs.onClick as (() => void) | undefined)?.();
     expect(dismissed).toBe(1);
   });

@@ -156,7 +156,7 @@ async function saveProfile(page: Page) {
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Save name and picture' }).click();
   await expect(dialog.getByText(/^Saved\./)).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 }
 
 const seatOf = (page: Page, name: string) => page.locator('.seat-list .seat').filter({ hasText: name });
@@ -226,6 +226,8 @@ test('players set a name and picture, and see each other’s on the table seats'
 
   await a.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
   await a.getByRole('button', { name: 'Create table' }).click();
+  // A key never backed up is asked first (D057).
+  await a.getByRole('button', { name: 'Create anyway' }).click();
   await expect(a).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.getByLabel('Table link').inputValue();
 
@@ -283,7 +285,7 @@ test('an in-app browser gets a warning it can dismiss for the tab (D057)', async
   await expect(banner).toBeVisible();
   // No horizontal scroll at phone width.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.getByRole('button', { name: 'Dismiss' }).click();
+  await page.getByRole('button', { name: 'Dismiss the in-app browser warning' }).click();
   await expect(banner).toHaveCount(0);
   // Dismissed for this tab: a reload keeps it hidden, a new tab shows it again.
   await page.reload();
@@ -293,4 +295,108 @@ test('an in-app browser gets a warning it can dismiss for the tab (D057)', async
   await tab.goto(appUrl('inapp'));
   await expect(tab.getByText("You're in an in-app browser.", { exact: false })).toBeVisible();
   await context.close();
+});
+
+test('the Settings dialog keeps its Close button in view on a phone, however far it scrolls (D057)', async ({
+  browser,
+}) => {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 390, height: 600 },
+  ]) {
+    const context = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+    const page = await context.newPage();
+    await page.goto(appUrl('phone'));
+    await openSettings(page);
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    const body = dialog.locator('.dialog-body');
+    // The body scrolls inside the dialog: scroll it to the bottom.
+    expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    await body.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1))
+      .toBe(true);
+    // The page behind did not scroll, and the dialog fits the viewport.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect((box?.y ?? -1) >= 0 && (box?.y ?? 0) + (box?.height ?? 0) <= viewport.height).toBe(true);
+    // Both Close buttons are in the viewport; the head's still works.
+    const [top, bottom] = [
+      dialog.getByRole('button', { name: 'Close', exact: true }),
+      dialog.getByRole('button', { name: 'Close settings' }),
+    ];
+    await expect(top).toBeInViewport();
+    await expect(bottom).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await top.click();
+    await expect(dialog).toBeHidden();
+    // The bottom Close works too.
+    await openSettings(page);
+    await body.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
+    await expect(dialog).toBeHidden();
+    await context.close();
+  }
+});
+
+test('a key changed in another tab blocks this tab, refuses its join, and is kept under Other keys (D057)', async ({
+  browser,
+}) => {
+  // A host in a browser of its own opens a Chess table.
+  const hostContext = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const host = await hostContext.newPage();
+  await host.goto(appUrl('host'));
+  await host.getByRole('link', { name: 'Chess', exact: true }).click();
+  await host.getByRole('button', { name: 'Create table' }).click();
+  await host.getByRole('button', { name: 'Create anyway' }).click();
+  await expect(host).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
+  const share = await host.getByLabel('Table link').inputValue();
+
+  // One browser: two tabs of profile "race" (one on the table), and one of profile "other".
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const page1 = await context.newPage();
+  await page1.goto(appUrl('race', share));
+  await expect(page1.getByRole('button', { name: 'Join this table' })).toBeVisible();
+  const oldKey = await page1.locator('.identity .npub').innerText();
+  const page2 = await context.newPage();
+  await page2.goto(appUrl('race'));
+  await expect(page2.locator('.identity .npub')).toHaveText(oldKey);
+  const other = await context.newPage();
+  await other.goto(appUrl('other'));
+  const otherKey = await other.locator('.identity .npub').innerText();
+
+  // Tab 2 replaces the profile's key, as a second page minting its own would.
+  await page2.evaluate(() => localStorage.setItem('bg:race:sk', '11'.repeat(32)));
+
+  // Tab 1 is blocked at once, and stops signing: even a join started by script is refused.
+  const dialog = page1.getByRole('alertdialog', {
+    name: 'Your key changed in another tab of this site. Reload to continue.',
+  });
+  await expect(dialog).toBeVisible();
+  await expect(page1.locator('main')).toHaveAttribute('inert', '');
+  await page1
+    .locator('button', { hasText: 'Join this table' })
+    .evaluate((b) => (b as HTMLButtonElement).click());
+  await expect(page1.getByText('Your key changed in this browser; reload.')).toBeVisible();
+  await expect(page1.getByText('You are seated.')).toHaveCount(0);
+  await expect(host.getByText('Every seat is taken.')).toHaveCount(0);
+
+  // The other profile is not affected.
+  await expect(other.getByRole('alertdialog')).toHaveCount(0);
+  await expect(other.locator('.identity .npub')).toHaveText(otherKey);
+
+  // After Reload, tab 1 plays as the stored key, and its old key is kept under Settings → Other keys.
+  await dialog.getByRole('button', { name: 'Reload' }).click();
+  await expect(page1.locator('.identity .npub')).not.toHaveText(oldKey);
+  const settings = await openSettings(page1);
+  await expect(settings.locator('.kept-keys .npub')).toHaveText([oldKey]);
+  await expect(settings.getByRole('button', { name: `Switch to ${oldKey}` })).toBeVisible();
+
+  await context.close();
+  await hostContext.close();
 });

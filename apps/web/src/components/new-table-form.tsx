@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
 import { tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
+import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
  * the page's game.
  */
 export function NewTableForm(props: { game: string }) {
-  const { deps, signer, profile, store } = useApp();
+  const { deps, signer, profile, store, persistent } = useApp();
   const lobby = useLobby();
   const game = props.game;
   const module = deps.modules.get(game);
@@ -27,14 +29,35 @@ export function NewTableForm(props: { game: string }) {
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Before the creator's seat is taken (D057): "Copy your secret key first?", or, when this browser is not saving
+  // the key, a copy and a confirm.
+  const [ask, setAsk] = useState<'backup' | 'unsaved' | null>(null);
 
   const check = checkNewTable({ seats, deadline, inviteText, me: signer.pubkey, range });
   const valid = check.entries.filter((e) => e.error === null).length;
   const bad = check.entries.filter((e) => e.error !== null).length;
 
-  const submit = async (e: Event) => {
+  const submit = (e: Event) => {
     e.preventDefault();
     if (!check.ok || busy || module === undefined) return;
+    const gate = joinGate(profile, store, signer, persistent);
+    if (gate.kind === 'refuse') {
+      signer.rescue?.();
+      return setError(gate.error);
+    }
+    if (gate.kind !== 'go') return setAsk(gate.kind);
+    void create();
+  };
+
+  const create = async () => {
+    setAsk(null);
+    if (!check.ok || busy || module === undefined) return;
+    // Read the stored key again right before the table and its seat are made (D057).
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      return setError(problem);
+    }
     requestPersistenceOnce(profile, store, storageManager());
     setBusy(true);
     setError('');
@@ -147,15 +170,29 @@ export function NewTableForm(props: { game: string }) {
         </p>
       ))}
       {error !== '' && (
-        <p class="error" role="alert">
-          {error}
-        </p>
+        <div class="row">
+          <p class="error" role="alert">
+            {error}
+          </p>
+          <CopyPageKey message={error} />
+        </div>
       )}
-      <div class="row">
-        <button type="submit" class="btn btn-primary" disabled={!check.ok || busy}>
-          {busy ? 'Creating…' : 'Create table'}
-        </button>
-      </div>
+      {ask !== null ? (
+        <JoinBackup
+          mode={ask}
+          action="create"
+          busy={busy}
+          idBase="create-backup"
+          onJoin={() => void create()}
+          onCancel={() => setAsk(null)}
+        />
+      ) : (
+        <div class="row">
+          <button type="submit" class="btn btn-primary" disabled={!check.ok || busy}>
+            {busy ? 'Creating…' : 'Create table'}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

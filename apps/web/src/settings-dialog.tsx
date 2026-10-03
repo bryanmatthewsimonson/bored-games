@@ -114,7 +114,9 @@ function IdentitySection() {
   const [reveal, setReveal] = useState(false);
   const [switchError, setSwitchError] = useState('');
   const npub = npubEncode(signer.pubkey);
-  const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
+  // From memory first (D057): it works when storage refuses writes or holds another key now.
+  const nsec =
+    signer.kind === 'local' && reveal ? (signer.exportNsec?.() ?? exportNsec(profile, store)) : null;
   // Reveal reads the key back from storage; when storage is blocked there is nothing to show.
   const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 
@@ -302,18 +304,31 @@ export function SettingsDialog() {
       }}
     >
       {open && (
-        <div class="dialog-body">
+        <>
+          {/* The head stays in view; only the body scrolls, and never into the page's pull-to-refresh (D057). */}
           <div class="dialog-head">
             <h2 id="settings-h">Settings</h2>
             <button type="button" class="btn" onClick={() => (settingsOpen.value = false)}>
               Close
             </button>
           </div>
-          <ProfileSection />
-          <GameNamesSection />
-          <RelaySection />
-          <IdentitySection />
-        </div>
+          <div class="dialog-body">
+            <ProfileSection />
+            <GameNamesSection />
+            <RelaySection />
+            <IdentitySection />
+            <div class="dialog-foot">
+              <button
+                type="button"
+                class="btn"
+                aria-label="Close settings"
+                onClick={() => (settingsOpen.value = false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </dialog>
   );

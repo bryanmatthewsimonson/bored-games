@@ -100,6 +100,8 @@ async function startChess(a: Player, b: Player, shot?: string): Promise<void> {
   await expect(a.page.getByText('Compare to', { exact: false })).toHaveCount(0);
   if (shot !== undefined) await shoot(a, shot);
   await a.page.getByRole('button', { name: 'Create table' }).click();
+  // A key never backed up is asked first (D057).
+  await a.page.getByRole('button', { name: 'Create anyway' }).click();
   await expect(a.page).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   await expect(a.page.getByRole('heading', { name: 'Chess' })).toBeVisible();
   const share = await a.page.getByLabel('Table link').inputValue();

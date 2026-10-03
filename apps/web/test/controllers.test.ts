@@ -651,6 +651,20 @@ describe('GameController', () => {
     expect(gd.recovered.value).toBeNull();
     expect(gd.view.value?.mySeat).toBeNull();
     expect(gd.canResign.value).toBe(false);
+
+    // Home in seat 2's own browser, after its player key was replaced: the table is another key's, but playable.
+    const lc = lobby(profile(c.deps.profile, c.deps.storage));
+    const entry = await waitFor('the table on Home', () =>
+      lc.myTables.value.find((t) => t.address === address && t.rootId === rootId),
+    );
+    expect(entry.otherKey).toBe(true);
+    expect(entry.savedKeys).toBe(true);
+    // Under its own key it is simply mine.
+    const lb = lobby(b);
+    const own = await waitFor('b’s table on Home', () =>
+      lb.myTables.value.find((t) => t.address === address && t.rootId === rootId),
+    );
+    expect(own).toMatchObject({ otherKey: false, savedKeys: false });
   }, 240_000);
 
   it('sends exactly one move for a double submission, and a rebuilt tab signs nothing new', async () => {

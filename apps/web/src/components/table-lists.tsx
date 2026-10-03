@@ -9,14 +9,17 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
-import { joinBackupNeeded } from '../identity.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
 import { gameHref, tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
-import { JoinBackup } from './join-backup.tsx';
+import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
+
+/** A listed table of another player key whose seat this browser's saved game keys play (D057). */
+export const SAVED_KEYS_DETAIL = 'Playable with saved game keys';
 
 /** A listed table of another player key this profile used (D041). */
 export const OTHER_KEY_DETAIL = 'Under another key: switch to it in Settings to play';
@@ -44,8 +47,10 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
   return (
     <ul class="cards">
       {[...props.tables]
-        .sort((a, b) => Number(a.otherKey) - Number(b.otherKey))
+        .sort((a, b) => Number(a.otherKey && !a.savedKeys) - Number(b.otherKey && !b.savedKeys))
         .map((t) => {
+          // Another key's table, unless this browser's saved game keys play one of its seats (D057).
+          const blocked = t.otherKey && !t.savedKeys;
           // A started game's status comes from what its game screen saved; Home never runs a game session.
           const started = t.rootId !== null || t.table.status === 'started';
           const known =
@@ -64,8 +69,16 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               creator={t.table.creator}
               isCreator={t.role === 'creator'}
               chip={chip}
-              badge={t.otherKey ? null : attentionBadge(t.role, chip, known.status)}
-              detail={t.otherKey ? OTHER_KEY_DETAIL : known.check ? 'Open to check' : seated}
+              badge={blocked ? null : attentionBadge(t.role, chip, known.status)}
+              detail={
+                blocked
+                  ? OTHER_KEY_DETAIL
+                  : known.check
+                    ? 'Open to check'
+                    : t.savedKeys
+                      ? SAVED_KEYS_DETAIL
+                      : seated
+              }
               action={
                 <a
                   class="btn btn-small"
@@ -82,16 +95,23 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
 }
 
 export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empty: ComponentChildren }) {
-  const { profile, store, signer } = useApp();
+  const { profile, store, signer, persistent } = useApp();
   const lobby = useLobby();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ address: string; message: string } | null>(null);
   // The table whose "Copy your secret key first?" prompt is open (D057).
-  const [asking, setAsking] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ address: string; mode: 'backup' | 'unsaved' } | null>(null);
 
   const join = async (t: TableEntry) => {
     if (busy !== null) return;
     setAsking(null);
+    // Read the stored key again right before the seat is taken (D057).
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      setError({ address: t.address, message: problem });
+      return;
+    }
     requestPersistenceOnce(profile, store, storageManager());
     setBusy(t.address);
     setError(null);
@@ -137,8 +157,12 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                   disabled={busy !== null}
                   aria-label={joinButtonLabel(label, t.table.creator)}
                   onClick={() => {
-                    if (joinBackupNeeded(profile, store, signer)) setAsking(t.address);
-                    else void join(t);
+                    const gate = joinGate(profile, store, signer, persistent);
+                    if (gate.kind === 'refuse') {
+                      signer.rescue?.();
+                      setError({ address: t.address, message: gate.error });
+                    } else if (gate.kind === 'go') void join(t);
+                    else setAsking({ address: t.address, mode: gate.kind });
                   }}
                 >
                   {label}
@@ -148,11 +172,14 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                     {failure}
                   </span>
                 )}
+                {failure !== null && <CopyPageKey message={failure} />}
               </>
             }
             below={
-              asking === t.address ? (
+              asking?.address === t.address ? (
                 <JoinBackup
+                  mode={asking.mode}
+                  action="join"
                   busy={busy !== null}
                   idBase={`join-backup-${t.table.tableId}`}
                   onJoin={() => void join(t)}

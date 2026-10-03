@@ -7,11 +7,11 @@ import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
 import { PlayerTag } from '../components/avatar.tsx';
 import { StatusChip } from '../components/chips.tsx';
-import { JoinBackup } from '../components/join-backup.tsx';
+import { CopyPageKey, JoinBackup } from '../components/join-backup.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
-import { joinBackupNeeded } from '../identity.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
@@ -95,7 +95,7 @@ function Picker(props: {
 }
 
 export function TableScreen(props: { creator: string; tableId: string }) {
-  const { deps, signer, profile, store } = useApp();
+  const { deps, signer, profile, store, persistent } = useApp();
   const lobby = useLobby();
   const me = signer.pubkey;
   const address = `37450:${props.creator}:${props.tableId}`;
@@ -105,7 +105,7 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
   // "Copy your secret key first?" before a join with a key never backed up (D057).
-  const [askBackup, setAskBackup] = useState(false);
+  const [askBackup, setAskBackup] = useState<'backup' | 'unsaved' | null>(null);
   const [picks, setPicks] = useState<Hex[] | null>(null);
   const [searchedLong, setSearchedLong] = useState(false);
   // The header's Rules link follows this table's game while the screen is open.
@@ -180,13 +180,23 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   };
 
   const join = () => {
-    setAskBackup(false);
+    setAskBackup(null);
+    // Read the stored key again right before the seat is taken (D057).
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      return setError(problem);
+    }
     requestPersistenceOnce(profile, store, storageManager());
     return run(() => lobby.join(address), 'Could not join this table.');
   };
   const askThenJoin = () => {
-    if (joinBackupNeeded(profile, store, signer)) setAskBackup(true);
-    else void join();
+    const gate = joinGate(profile, store, signer, persistent);
+    if (gate.kind === 'refuse') {
+      signer.rescue?.();
+      setError(gate.error);
+    } else if (gate.kind === 'go') void join();
+    else setAskBackup(gate.kind);
   };
   const start = () =>
     run(async () => {
@@ -226,15 +236,17 @@ export function TableScreen(props: { creator: string; tableId: string }) {
         {t.status === 'open' && view.root === null && (
           <div class="stack">
             {otherKey && <p class="warning">{OTHER_KEY_TABLE}</p>}
-            {check.eligible && !otherKey && askBackup && (
+            {check.eligible && !otherKey && askBackup !== null && (
               <JoinBackup
+                mode={askBackup}
+                action="join"
                 busy={busy}
                 idBase="join-backup"
                 onJoin={() => void join()}
-                onCancel={() => setAskBackup(false)}
+                onCancel={() => setAskBackup(null)}
               />
             )}
-            {check.eligible && !otherKey && !askBackup && (
+            {check.eligible && !otherKey && askBackup === null && (
               <div class="row">
                 <button type="button" class="btn btn-primary" disabled={busy} onClick={askThenJoin}>
                   {busy ? 'Joining…' : check.reason === 'invited' ? 'Accept invitation' : 'Join this table'}
@@ -297,9 +309,12 @@ export function TableScreen(props: { creator: string; tableId: string }) {
           </div>
         )}
         {error !== '' && (
-          <p class="error" role="alert">
-            {error}
-          </p>
+          <div class="row">
+            <p class="error" role="alert">
+              {error}
+            </p>
+            <CopyPageKey message={error} />
+          </div>
         )}
       </section>
 

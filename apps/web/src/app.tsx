@@ -1,9 +1,14 @@
 import { BRAND } from '@bored-games/brand';
 import { useState } from 'preact/hooks';
-import { InAppBanner } from './components/inapp-banner.tsx';
+import { InAppBanner, LostKeyBanner } from './components/inapp-banner.tsx';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
-import { EXTENSION_MISSING_NOTICE } from './identity.ts';
+import {
+  dismissLostKey,
+  EXTENSION_MISSING_NOTICE,
+  KEY_CHANGED_ELSEWHERE,
+  UNSAVED_KEY_BANNER,
+} from './identity.ts';
 import { IN_APP_DISMISSED } from './inapp-model.ts';
 import { creditsHref, route } from './router.ts';
 import { Screen } from './screens.tsx';
@@ -19,9 +24,10 @@ export function App(props: { ctx: AppContext }) {
       </a>
       <Header />
       <Banners />
-      <main id="main" tabIndex={-1}>
+      <main id="main" tabIndex={-1} inert={props.ctx.keyChanged.value}>
         <Screen route={route.value} />
       </main>
+      {props.ctx.keyChanged.value && <KeyChangedDialog onReload={() => window.location.reload()} />}
       <footer class="app-footer">
         {BRAND.name} · <a href={creditsHref()}>Credits</a>
       </footer>
@@ -35,14 +41,25 @@ export function App(props: { ctx: AppContext }) {
  * `?relays=` value, and an in-app browser.
  */
 function Banners() {
-  const { persistent, signer, invalidProfile, profile, ignoredRelays, extensionMissing, inApp } = useApp();
+  const app = useApp();
+  const { persistent, signer, invalidProfile, profile, store, ignoredRelays, extensionMissing, inApp } = app;
+  const [lost, setLost] = useState(app.lostPrevious);
   const dismissKey = storageKey(profile, IN_APP_DISMISSED);
   const [session] = useState(sessionStore);
   const [inAppDismissed, setInAppDismissed] = useState(() => readItem(session, dismissKey) === '1');
   const showInApp = inApp !== null && !inAppDismissed;
-  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing && !showInApp) return null;
+  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing && !showInApp && !lost)
+    return null;
   return (
     <div class="banners">
+      {lost && (
+        <LostKeyBanner
+          onDismiss={() => {
+            dismissLostKey(profile, store);
+            setLost(false);
+          }}
+        />
+      )}
       {showInApp && (
         <InAppBanner
           onDismiss={() => {
@@ -53,8 +70,7 @@ function Banners() {
       )}
       {!persistent && signer.kind === 'local' && (
         <p class="warning" role="alert">
-          <strong>Your key is not being saved.</strong> This browser is blocking site storage, so your key and
-          your games last only until this tab closes. Allow site data, or export your key from Settings.
+          <strong>Your key is not being saved.</strong> {UNSAVED_KEY_BANNER}
         </p>
       )}
       {invalidProfile !== null && (
@@ -73,6 +89,29 @@ function Banners() {
           {IGNORED_RELAYS_NOTICE}
         </p>
       )}
+    </div>
+  );
+}
+
+/** "Your key changed in another tab of this site." (D057, item 10): blocks the page until it is reloaded. */
+export function KeyChangedDialog(props: { onReload: () => void }) {
+  return (
+    <div class="blocking-overlay">
+      <div class="panel" role="alertdialog" aria-modal="true" aria-labelledby="key-changed-h">
+        <p id="key-changed-h">
+          <strong>{KEY_CHANGED_ELSEWHERE}</strong>
+        </p>
+        <p class="muted">
+          This page stopped signing with the old key, so nothing is joined or sent under a key this browser no
+          longer keeps.
+        </p>
+        <div class="row">
+          {/* biome-ignore lint/a11y/noAutofocus: the only control of a blocking dialog. */}
+          <button type="button" class="btn btn-primary" autoFocus onClick={props.onReload}>
+            Reload
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
