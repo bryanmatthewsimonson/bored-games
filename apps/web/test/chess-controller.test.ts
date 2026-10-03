@@ -13,7 +13,7 @@ import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES } from '../src/net.ts';
 import { attestLine, resignedSeats } from '../src/screens/game.tsx';
-import { memoryStorage } from '../src/storage.ts';
+import { loadSecrets, memoryStorage, saveSecrets } from '../src/storage.ts';
 
 const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
 const now = (): number => Math.floor(Date.now() / 1000);
@@ -98,9 +98,14 @@ function queryAt(url: string, ...filters: Filter[]): Promise<NostrEvent[]> {
 }
 
 /** A started 2-seat Chess game: the creator (White) and the joiner (Black), each with a game controller. */
-async function startChess(
-  whiteRelays: readonly string[] = [],
-): Promise<{ rootId: string; white: GameController; black: GameController }> {
+async function startChess(whiteRelays: readonly string[] = []): Promise<{
+  rootId: string;
+  address: string;
+  a: Profile;
+  b: Profile;
+  white: GameController;
+  black: GameController;
+}> {
   const a = profile('a', whiteRelays);
   const b = profile('b');
   const la = lobby(a);
@@ -117,7 +122,7 @@ async function startChess(
   await waitFor('a full table', () => la.table(address).value?.full);
   const rootId = await la.start(address);
   await waitFor('the root', () => lb.table(address).value?.root?.id === rootId);
-  return { rootId, white: game(rootId, a), black: game(rootId, b) };
+  return { rootId, address, a, b, white: game(rootId, a), black: game(rootId, b) };
 }
 
 const move = (seat: number, uci: string) => ({ type: 'move', actor: seat, uci });
@@ -201,5 +206,38 @@ describe('GameController with a deckless game (Chess)', () => {
     await black.resign();
     expect(black.error.value).toMatch(/no longer live/);
     expect(await query({ kinds: [KIND.resign], '#e': [rootId] })).toHaveLength(1);
+  }, 60_000);
+
+  it('a seat recovered from saved game keys plays, resigns and never attests with the wrong key (D057)', async () => {
+    const { rootId, address, b, white, black } = await startChess();
+    black.dispose();
+    // Black's player key is lost; this browser still holds Black's game keys for the table.
+    const saved = loadSecrets(b.deps.profile, b.deps.storage, address);
+    if (saved === null) throw new Error('no saved game keys');
+    const b2 = profile('b-new');
+    expect(saveSecrets(b2.deps.profile, b2.deps.storage, address, saved)).toBe(true);
+    const black2 = game(rootId, b2);
+    await waitFor('the recovered seat', () => black2.recovered.value);
+    expect(black2.recovered.value).toEqual({ seat: 1, npub: b.deps.signer.pubkey });
+    await play(white, 0, 'e2e4', 1);
+    await play(black2, 1, 'e7e5', 2);
+    await waitFor(
+      'the move at White',
+      () => (white.view.value?.state as ChessState | null)?.history.length === 2,
+    );
+    await play(white, 0, 'g1f3', 3);
+    await waitFor("Black's turn", () => black2.status.value === 'your-turn');
+    expect(black2.canResign.value).toBe(true);
+    await black2.resign();
+    expect(black2.error.value).toBeNull();
+    for (const c of [white, black2]) await waitFor('the end', () => c.view.value?.phase === 'done');
+    // White attests; the recovered seat does not, since an attestation is signed by the npub it joined with.
+    await waitFor("White's attestation", () => black2.view.value?.attested.includes(0));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(black2.status.value).toBe('done');
+    expect(white.view.value?.attested).toEqual([0]);
+    const attests = await query({ kinds: [KIND.attest], '#e': [rootId] });
+    expect(attests.map((ev) => ev.pubkey)).not.toContain(b2.deps.signer.pubkey);
+    expect(attests).toHaveLength(1);
   }, 60_000);
 });

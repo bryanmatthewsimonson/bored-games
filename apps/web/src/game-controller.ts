@@ -13,7 +13,14 @@
  *   (`bg:<profile>:seen:<rootId>`) and passes that time to `receive`, so a reopened tab keeps the deadlines. On
  *   load it feeds what it holds in first-seen order, which reproduces the session, a timeout's finality included.
  */
-import { ClientError, type Duty, GameSession, type Identity, type SessionView } from '@bored-games/client';
+import {
+  ClientError,
+  type Duty,
+  GameSession,
+  type Identity,
+  type SessionView,
+  seatForGameKeys,
+} from '@bored-games/client';
 import {
   type EventTemplate,
   type Hex,
@@ -192,6 +199,11 @@ export class GameController {
   readonly tableAddress: Signal<string | null> = signal(null);
   /** The seats the game waits on at the head (`GameSession.waitingFor`, D057), ascending. */
   readonly waiting: Signal<readonly number[]> = signal([]);
+  /**
+   * Set when this player holds a seat through the game keys saved in this browser, not the key in use (D057): the
+   * seat, and the npub it joined with. That npub signs the Result attestation, which this browser then cannot send.
+   */
+  readonly recovered: Signal<{ seat: number; npub: Hex } | null> = signal(null);
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
   readonly clock: Signal<number>;
 
@@ -616,6 +628,7 @@ export class GameController {
         this.error.value = `This game cannot be loaded: ${errorText(e)}`;
         return;
       }
+      this.recovered.value = null;
       try {
         session = GameSession.create({ ...input, me: null });
         this.error.value = 'Your saved keys do not match your seat in this game, so you are watching it.';
@@ -637,11 +650,23 @@ export class GameController {
     this.#maybeSynced();
   }
 
-  /** This player's seat and secrets, or null to watch as a spectator. */
+  /**
+   * This player's seat and secrets, or null to watch as a spectator. The seat is the one the key in use joined
+   * with; failing that (D057), the seat whose session key and deck key both match the game keys this browser saved
+   * for the table, for a player whose key was lost or replaced after joining. Only keys already in this browser's
+   * storage are tried, and `GameSession.create` checks them against the seat again.
+   */
   #identity(root: ParsedRoot): Identity | null {
     const seat = root.seats.findIndex((s) => s.npub === this.#d.signer.pubkey);
-    if (seat < 0) return null;
     const secrets = loadSecrets(this.#d.profile, this.#d.storage, root.tableAddress);
+    if (seat < 0) {
+      if (secrets === null) return null;
+      const deckSecret = BigInt(`0x${bytesToHex(secrets.deckSecret)}`);
+      const saved = seatForGameKeys(root, secrets.sessionSk, deckSecret);
+      if (saved === null) return null;
+      this.recovered.value = { seat: saved, npub: root.seats[saved]?.npub as Hex };
+      return { seat: saved, sessionSk: secrets.sessionSk, deckSecret };
+    }
     if (secrets === null) {
       this.error.value = 'This browser does not hold your keys for this game, so you are watching it.';
       return null;
@@ -754,6 +779,8 @@ export class GameController {
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
     for (const kind of AUTO) {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
+      // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
+      if (kind === 'attest' && this.recovered.value !== null) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;

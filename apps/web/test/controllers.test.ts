@@ -31,6 +31,7 @@ import {
   loadTableList,
   loadTableOwners,
   memoryStorage,
+  saveSecrets,
 } from '../src/storage.ts';
 
 const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
@@ -610,6 +611,46 @@ describe('GameController', () => {
     ).toBe(true);
     await waitFor('the confirmed shuffle', () => savedMove(c, rootId, 3)?.confirmed);
     expect(savedMove(c, rootId, 3)?.event.id).toBe(saved.event.id);
+  }, 240_000);
+
+  it('recovers a seat from the game keys saved in this browser after the player key is lost (D057)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const [a, b, c] = bySeat as [Profile, Profile, Profile];
+    const keysOf = (p: Profile) => loadSecrets(p.deps.profile, p.deps.storage, address);
+    const mine = keysOf(c);
+    const other = keysOf(b);
+    if (mine === null || other === null) throw new Error('no saved game keys');
+    // A fresh device (or storage that lost only the player key): a new key, and seat 2's saved game keys.
+    const fresh = memoryStorage();
+    saveSecrets('c-new', fresh, address, mine);
+    const c2 = profile('c-new', fresh);
+    expect(c2.deps.signer.pubkey).not.toBe(c.deps.signer.pubkey);
+    // Keys that do not match one seat: seat 2's session key with seat 1's deck secret. Nothing is recovered.
+    const mixed = memoryStorage();
+    saveSecrets('mixed', mixed, address, { ...mine, deckSecret: other.deckSecret });
+    const d = profile('mixed', mixed);
+
+    const ga = game(rootId, a.deps);
+    const gb = game(rootId, b.deps);
+    const gc = game(rootId, c2.deps);
+    const gd = game(rootId, d.deps);
+    for (const g of [ga, gb, gc, gd])
+      await waitFor('the play phase', () => g.view.value?.phase === 'play', 120_000);
+    expect(gc.recovered.value).toEqual({ seat: 2, npub: c.deps.signer.pubkey });
+    expect(gc.view.value?.mySeat).toBe(2);
+    expect(
+      handTiles(CHAIN_REACTION_THEME, gc.view.value?.state as ChainReactionState, 2).every(
+        (t) => t.tile !== null,
+      ),
+    ).toBe(true);
+    expect(boardOf(gc)).toEqual(boardOf(ga));
+    // The recovered seat shuffled and dealt with its session key, as any seat does.
+    const evs = await query({ kinds: [KIND.move], '#e': [rootId] });
+    const session2 = getPublicKey(mine.sessionSk);
+    expect(evs.some((ev) => ev.pubkey === session2)).toBe(true);
+    expect(gd.recovered.value).toBeNull();
+    expect(gd.view.value?.mySeat).toBeNull();
+    expect(gd.canResign.value).toBe(false);
   }, 240_000);
 
   it('sends exactly one move for a double submission, and a rebuilt tab signs nothing new', async () => {

@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
 import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
-import { WatchingNotice } from '../components/watching.tsx';
+import { RecoveredNotice, WatchingNotice } from '../components/watching.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { gameTitle } from '../game-names.ts';
@@ -295,9 +295,10 @@ export function GameScreen(props: { rootId: string }) {
 
   // "You're watching this game" when the key in use holds no seat (D057), from this profile's local records.
   const tableAddress = ctl.tableAddress.value;
+  const recovered = ctl.recovered.value;
   const watch: WatchNotice | null = useMemo(
     () =>
-      tableAddress === null
+      tableAddress === null || recovered !== null
         ? null
         : watchNotice({
             seats,
@@ -306,11 +307,13 @@ export function GameScreen(props: { rootId: string }) {
             record: localTableRecord(profile, store, tableAddress),
             myTables: myTableCount(profile, store, signer.pubkey),
           }),
-    [seats, tableAddress, profile, store, signer],
+    [seats, tableAddress, recovered, profile, store, signer],
   );
   const [switchError, setSwitchError] = useState('');
   const watching =
-    watch === null ? null : (
+    recovered !== null ? (
+      <RecoveredNotice seat={recovered.seat} joined={recovered.npub} me={signer.pubkey} />
+    ) : watch === null ? null : (
       <WatchingNotice
         notice={watch}
         me={signer.pubkey}

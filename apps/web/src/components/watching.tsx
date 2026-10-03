@@ -5,7 +5,7 @@
  */
 import type { Hex } from '@bored-games/protocol';
 import { npubEncode, shortNpub } from '../bech32.ts';
-import { type WatchNotice, watchText } from '../watch-model.ts';
+import { recoveredText, type WatchNotice, watchText } from '../watch-model.ts';
 
 export function WatchingNotice(props: {
   notice: WatchNotice;
@@ -39,6 +39,18 @@ export function WatchingNotice(props: {
           {props.switchError}
         </p>
       )}
+    </div>
+  );
+}
+
+/** "Playing seat N with the game keys saved in this browser …" (D057). */
+export function RecoveredNotice(props: { seat: number; joined: Hex; me: Hex }) {
+  const { lead, body } = recoveredText(props.seat, props.joined, props.me);
+  return (
+    <div class="warning watch-notice" role="status">
+      <p>
+        <strong>{lead}</strong> {body}
+      </p>
     </div>
   );
 }

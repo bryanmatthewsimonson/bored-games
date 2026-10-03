@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
-import { WatchingNotice } from '../src/components/watching.tsx';
+import { RecoveredNotice, WatchingNotice } from '../src/components/watching.tsx';
 import { addToTableList, memoryStorage, saveSecrets } from '../src/storage.ts';
 import {
   type LocalTableRecord,
   localTableRecord,
   myTableCount,
+  recoveredText,
   type WatchInput,
   watchNotice,
   watchText,
@@ -147,5 +148,16 @@ describe('watch notice (D057)', () => {
     );
     expect(spokenText(elsewhere)).toContain(`This browser's key (${short(ME)}) isn't one of its players.`);
     expect(findAll(elsewhere, (el) => el.tag === 'button')).toHaveLength(0);
+  });
+
+  it('a seat recovered from saved game keys: names the seat, the joining key and the key in use', () => {
+    const t = recoveredText(2, OLD, ME);
+    expect(t.lead).toBe(
+      `Playing seat 3 with the game keys saved in this browser (you joined as ${short(OLD)}; this browser's key is now ${short(ME)}).`,
+    );
+    expect(t.body).toMatch(/will not sign it/);
+    const tree = renderTree(RecoveredNotice({ seat: 2, joined: OLD, me: ME }));
+    expect((tree[0] as { attrs: Record<string, unknown> }).attrs.role).toBe('status');
+    expect(spokenText(tree)).toBe(`${t.lead} ${t.body}`);
   });
 });

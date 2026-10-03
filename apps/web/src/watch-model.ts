@@ -111,3 +111,15 @@ export function localTableRecord(profile: string, store: KeyValueStore, address:
 export function myTableCount(profile: string, store: KeyValueStore, me: Hex): number {
   return loadTableList(profile, store).filter((a) => tableIsMine(profile, store, a, me)).length;
 }
+
+/**
+ * The notice for a seat played with the game keys saved in this browser, while the key in use is another (D057):
+ * "Playing seat 3 with the game keys saved in this browser (you joined as npub1…; this browser's key is now
+ * npub1…)." The Result attestation is signed by the joining key, so this browser does not send it.
+ */
+export function recoveredText(seat: number, joined: Hex, me: Hex): { lead: string; body: string } {
+  return {
+    lead: `Playing seat ${seat + 1} with the game keys saved in this browser (you joined as ${short(joined)}; this browser's key is now ${short(me)}).`,
+    body: `Your moves are signed with those game keys, so you can play on. Only signing the final result needs the key you joined with, so this browser will not sign it: the result stands without it. To sign it too, import that key in Settings → Use a secret key from elsewhere.`,
+  };
+}
