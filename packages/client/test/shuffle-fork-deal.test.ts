@@ -223,11 +223,26 @@ describe('a shuffle fork during the deal (review F7, D056)', () => {
       const clients = [...players, spectator];
       // The equivocator shows a random rival first to each client; the rest follows in a random order.
       const inbox = clients.map(() => [] as NostrEvent[]);
-      const firstOf = clients.map(() => (rng.int(2) === 0 ? lo : hi));
+      // Runs 0 to 2 fix what the honest seats see first (both the canonical step, one each, both the rival).
+      const fixed = [
+        [lo, lo],
+        [lo, hi],
+        [hi, hi],
+      ][run];
+      const firstOf = clients.map((_, i) => fixed?.[i] ?? (rng.int(2) === 0 ? lo : hi));
       for (const [i, box] of inbox.entries()) {
         const first = firstOf[i] as NostrEvent;
         const mine = first === lo ? eLo : eHi;
-        box.push(s0, s1, first, mine, ...shuffled([lo, hi, eLo, eHi].filter((x) => x !== first && x !== mine), rng));
+        box.push(
+          s0,
+          s1,
+          first,
+          mine,
+          ...shuffled(
+            [lo, hi, eLo, eHi].filter((x) => x !== first && x !== mine),
+            rng,
+          ),
+        );
       }
       const built: NostrEvent[][] = [[], []];
       const taken = clients.map(() => 0);
@@ -257,6 +272,9 @@ describe('a shuffle fork during the deal (review F7, D056)', () => {
       expect(new Set(views).size).toBe(1);
       const v = spectator.view();
       expect(v.equivocators).toEqual([E]);
+      // Both honest seats on the canonical deck: the deal completes and play starts. Otherwise it stalls on E.
+      if (run === 0) expect(v.phase).toBe('play');
+      if (run === 1 || run === 2) expect(v.phase).toBe('deal');
       if (v.phase === 'play') {
         // The deal completed: every honest seat dealt on the canonical deck, so none has a share on a rival deck.
         expect(v.head.id).toBe(lo.id);
