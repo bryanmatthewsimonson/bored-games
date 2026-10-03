@@ -5,8 +5,10 @@ import { App, IdentityError } from './app.tsx';
 import { followBranding } from './brands.ts';
 import { nowSeconds, platformTimers } from './clock.ts';
 import {
+  blockableSigner,
   DEFAULT_PROFILE,
   invalidProfileName,
+  keyChangedElsewhere,
   loadIdentity,
   profileFromLocation,
   readSignerChoice,
@@ -38,9 +40,9 @@ async function main(): Promise<void> {
     (ms) => new Promise((r) => platformTimers.later(ms, r)),
   );
   const extensionMissing = wantsExtension && nostr === undefined;
-  let signer: Awaited<ReturnType<typeof loadIdentity>>;
+  let loaded: Awaited<ReturnType<typeof loadIdentity>>;
   try {
-    signer = await loadIdentity(profile, store, randomBytes, nostr);
+    loaded = await loadIdentity(profile, store, randomBytes, nostr);
   } catch (e) {
     render(
       <IdentityError
@@ -54,6 +56,20 @@ async function main(): Promise<void> {
     );
     return;
   }
+
+  // Another page of this site may replace the key (two pages starting at once on a fresh browser, or an import in
+  // another tab; D057, item 10): this page then stops signing and asks for a reload, at once if it is hidden.
+  const keyChanged = signal(false);
+  const signer = blockableSigner(loaded, () => keyChanged.value);
+  window.addEventListener('storage', (e) => {
+    if (e.storageArea !== (store as unknown) || keyChanged.value) return;
+    if (!keyChangedElsewhere({ key: e.key, newValue: e.newValue }, profile, signer)) return;
+    keyChanged.value = true;
+    if (document.visibilityState === 'hidden') window.location.reload();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (keyChanged.value && document.visibilityState === 'hidden') window.location.reload();
+  });
 
   const settings = createSettings(profile, store, import.meta.env.DEV);
   // The game names this profile chose (D046); licensed packs load only in a build made with them.
@@ -82,6 +98,7 @@ async function main(): Promise<void> {
         lostPrevious: signer.lostPrevious,
         settings,
         settingsOpen: signal(false),
+        keyChanged,
         deps: {
           pool,
           signer,

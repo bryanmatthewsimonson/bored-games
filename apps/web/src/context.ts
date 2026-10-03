@@ -27,6 +27,8 @@ export interface AppContext {
   /** True while "Your previous key was not found" is due (`lostKeyReported`, D057). */
   lostPrevious: boolean;
   settings: Settings;
+  /** Set when another page of this site changed the key (D057): signing stops and the page asks for a reload. */
+  keyChanged: Signal<boolean>;
   /** Whether the Settings dialog is open. */
   settingsOpen: Signal<boolean>;
   /** What the lobby and game controllers are built from. */

@@ -1346,3 +1346,22 @@ input[type="search"] {
   border-width: 2px;
   border-color: var(--danger);
 }
+
+/* "Your key changed in another tab" (D057): covers the page until it is reloaded. */
+.blocking-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  background: rgb(0 0 0 / 0.45);
+}
+
+.blocking-overlay .panel {
+  max-width: 480px;
+}
+
+.blocking-overlay p {
+  margin: 0 0 8px;
+}

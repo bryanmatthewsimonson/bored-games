@@ -102,11 +102,16 @@ function newSecretKey(rnd: RandomBytes): Uint8Array {
   throw new Error('random source produced no valid secret key');
 }
 
-function localSigner(sk: Uint8Array, rnd: RandomBytes): Signer {
+/** A local signer that asks `problem` before every signature, and refuses with its message (D057, item 10). */
+function guardedLocalSigner(sk: Uint8Array, rnd: RandomBytes, problem: () => string | null): Signer {
   return {
     kind: 'local',
     pubkey: getPublicKey(sk),
-    sign: async (t) => finalizeEvent(t, sk, rnd),
+    sign: async (t) => {
+      const p = problem();
+      if (p !== null) throw new Error(p);
+      return finalizeEvent(t, sk, rnd);
+    },
   };
 }
 
@@ -160,14 +165,41 @@ export async function loadIdentity(
     if (previousKeyTraces(profile, store)) writeItem(store, lostKey(profile), '1');
     sk = newSecretKey(rnd);
     writeItem(store, key, bytesToHex(sk));
+    // Two pages of the site starting at once on a fresh browser (D057, item 10) can both find no key and both make
+    // one; the last write wins. Read it back: when storage now holds another valid key, adopt that one, so every
+    // page converges on the stored key. (A write refused by the browser reads back as nothing: ours stays.)
+    const stored = validSecretKey(readItem(store, key));
+    if (stored !== null) sk = stored;
   }
-  const signer = localSigner(sk, rnd);
+  const hex = bytesToHex(sk);
+  // Persistent only if the key reads back from a store that outlives the page.
+  const persistent = isPersistentStore(store) && readItem(store, key) === hex;
+  const saved = readItem(store, key) === hex;
+  const signer = guardedLocalSigner(sk, rnd, () => storedKeyProblem(profile, store, hex, saved));
   // Which local key this profile had, so that its loss can be told from a profile that never had one.
   if (readItem(store, localPubKey(profile)) !== signer.pubkey)
     writeItem(store, localPubKey(profile), signer.pubkey);
-  // Persistent only if the key reads back from a store that outlives the page.
-  const persistent = isPersistentStore(store) && readItem(store, key) === bytesToHex(sk);
   return { ...signer, persistent, lostPrevious: lostKeyReported(profile, store) };
+}
+
+/** Refused when another page of this site changed the profile's key (D057, item 10). */
+export const KEY_CHANGED = 'Your key changed in this browser; reload.';
+
+/**
+ * Why the local key `hex` must not sign now, or null (D057, item 10): storage holds another valid key (another page
+ * of the site made or imported one), or a key that was stored (`saved`) is gone. A key that was never stored (site
+ * data blocked) is checked against nothing.
+ */
+export function storedKeyProblem(
+  profile: string,
+  store: KeyValueStore,
+  hex: string,
+  saved: boolean,
+): string | null {
+  const now = readItem(store, storageKey(profile, 'sk'));
+  if (now === hex) return null;
+  if (validSecretKey(now) !== null) return KEY_CHANGED;
+  return saved ? KEY_NOT_SAVED : null;
 }
 
 const lostKey = (profile: string): string => storageKey(profile, 'key-lost');
@@ -548,4 +580,44 @@ export function joinGate(
   if (signer.kind === 'local' && !persistent) return { kind: 'unsaved' };
   if (joinBackupNeeded(profile, store, signer)) return { kind: 'backup' };
   return { kind: 'go' };
+}
+
+/** The part of a `StorageEvent` that `keyChangedElsewhere` reads. */
+export interface StorageChange {
+  /** The changed key; null when the whole storage was cleared. */
+  key: string | null;
+  newValue: string | null;
+}
+
+/**
+ * Whether a change another page made to this site's storage (a `storage` event on `localStorage`) means this page
+ * no longer plays as the key it loaded with (D057, item 10): the profile's key was replaced, removed or cleared
+ * while this page signs with it, or the signer choice (local key or extension) changed. A write of the same key, or
+ * any other profile's or item's change, is not.
+ */
+export function keyChangedElsewhere(
+  change: StorageChange,
+  profile: string,
+  signer: { kind: SignerKind; pubkey: Hex },
+): boolean {
+  if (change.key === null) return true;
+  if (change.key === storageKey(profile, 'signer'))
+    return (change.newValue === 'nip07' ? 'nip07' : 'local') !== signer.kind;
+  if (change.key !== storageKey(profile, 'sk') || signer.kind !== 'local') return false;
+  const sk = validSecretKey(change.newValue);
+  return sk === null || getPublicKey(sk) !== signer.pubkey;
+}
+
+/** The notice when another page of this site changed the key (D057, item 10). */
+export const KEY_CHANGED_ELSEWHERE = 'Your key changed in another tab of this site. Reload to continue.';
+
+/** `signer`, refusing to sign once `blocked()` (the key changed in another page). */
+export function blockableSigner<S extends Signer>(signer: S, blocked: () => boolean): S {
+  return {
+    ...signer,
+    sign: async (t: EventTemplate) => {
+      if (blocked()) throw new Error(KEY_CHANGED_ELSEWHERE);
+      return signer.sign(t);
+    },
+  };
 }
