@@ -399,7 +399,7 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | The same with the first wording of rule 6(b) (`cutoff: 'path'`) | 3,335,784, complete | **`rating` 13,944** (seat 1; the regression), claim race, post-end | |
 | Two devices, colluder pairs, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | B5A | | B5AV |
 | **Two honest seats on two devices each** (a single adversary, four honest devices), 3 moves | 226,473 over the six coalitions, complete | `attested-void` 112, ended-void, post-end | post-end |
-| The same with a claim, a resign and a deadline | B6B | B6BV | |
+| The same with a claim and a deadline | B6B | B6BV | |
 
 **Never reported anywhere:** `exposure`, `honest-forfeit`, `rating`, `divergence`, `honest-flagged` (other than the two regression rows). **Never for a single adversary with one device per seat:** `attested-void`, `void-forfeit`. With two devices, a single adversary can void an attested result (`attested-void`): the other device of an honest seat had released a share on E's rival, and the anchor clause keeps the result from standing, as it must (§8, row 30; residual 4). `ended-void` with a single adversary is a stop below an end that not every honest seat had attested yet, the window of §5.2. `void-forfeit` and `attested-void` with two colluders are residual 2 (§9). The claim race with two devices includes one seat's two devices ending on different results with no fork held.
 

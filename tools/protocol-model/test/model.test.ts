@@ -945,20 +945,22 @@ describe.runIf(BIG)('bigger scope for round 3 (PROTOCOL_MODEL_BIG=1, several hou
     }
   }, 7_200_000);
 
-  it('two honest seats on two devices each, a single adversary, 3 moves', () => {
-    for (const coalition of [[0], [1], [2]] as Seat[][]) {
-      const r = explore({ ...e3, mode: 'private', length: 3, devices: 2, coalition });
-      expect(r.complete).toBe(true);
-      expectSafe(counts(r));
-      expect(counts(r)['void-forfeit'] ?? 0).toBe(0);
-    }
-  }, 7_200_000);
+  it('two honest seats on two devices each, a single adversary, 3 moves; with a claim and a deadline', () => {
+    // With two devices a single adversary can void an attested result (`attested-void`): the honest seat's other
+    // device released a share on the rival, so the result must not stand (residual 4). Nothing else.
+    for (const extra of [{}, { advClaims: 1, expiries: 1 }])
+      for (const coalition of [[0], [1], [2]] as Seat[][]) {
+        const r = explore({ ...e3, mode: 'private', length: 3, devices: 2, ...extra, coalition });
+        expect(r.complete).toBe(true);
+        expectSafe(counts(r));
+        expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
+        expect(counts(r)['void-forfeit'] ?? 0).toBe(0);
+      }
+  }, 14_400_000);
 
-  it('4 seats, 8 moves, 2 adversary moves, a claim and a deadline: every single adversary (private)', () => {
-    for (const coalition of [[0], [1], [2], [3]] as Seat[][])
-      check(
-        explore({ ...e3, seats: 4, mode: 'private', length: 8, advClaims: 1, expiries: 1, coalition }),
-        true,
-      );
-  }, 7_200_000);
+  it('4 seats, 8 moves, 2 adversary moves, a claim and a deadline: every single adversary (private, public)', () => {
+    for (const mode of ['private', 'public'] as Mode[])
+      for (const coalition of [[0], [1], [2], [3]] as Seat[][])
+        check(explore({ ...e3, seats: 4, mode, length: 8, advClaims: 1, expiries: 1, coalition }), true);
+  }, 14_400_000);
 });
