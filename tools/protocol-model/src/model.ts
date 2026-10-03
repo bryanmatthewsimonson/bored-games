@@ -468,6 +468,8 @@ class Explorer {
       [...c.has].sort().map((id) => st.events.get(id) as Ev),
       c.seat,
     );
+    // A cache, bounded so that big scopes fit in memory.
+    if (this.viewMemo.size >= 300_000) this.viewMemo.clear();
     this.viewMemo.set(memoKey, v);
     return v;
   }
