@@ -59,6 +59,7 @@ describe('engine purity', () => {
   // Pure packages: no clock, randomness, I/O, platform globals or locale-dependent behavior.
   const pure = [
     join(root, 'packages/game-kit/src'),
+    join(root, 'packages/dice/src'),
     join(root, 'packages/deck/src'),
     join(root, 'packages/protocol/src'),
     join(root, 'packages/client/src'),

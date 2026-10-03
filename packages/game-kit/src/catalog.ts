@@ -120,8 +120,9 @@ const isInt = (n: unknown): n is number => Number.isInteger(n);
 /**
  * Every way `entry` disagrees with `module` or with the vocabularies, as messages; empty when it is consistent.
  * Checks: the id; the players against `seatRange(defaultRules())`; the best counts within them; the play time;
- * weight and luck in range; the vocabularies; `hiddenInfo || randomness` exactly when the game has a deck; and
- * BoardGameGeek ids (its own and `compareTo`'s) positive integers, with a `compareTo` title.
+ * weight and luck in range; the vocabularies; `hiddenInfo` exactly when the game has a deck; `randomness` exactly
+ * when it has a deck or rolls dice (`rolls`); and BoardGameGeek ids (its own and `compareTo`'s) positive integers,
+ * with a `compareTo` title.
  */
 export function catalogProblems(
   entry: CatalogEntry,
@@ -151,8 +152,12 @@ export function catalogProblems(
   if (!TURNS.includes(entry.turn)) out.push(`unknown turn structure ${entry.turn}`);
   if (!STATUSES.includes(entry.status)) out.push(`unknown status ${entry.status}`);
   const hasDeck = module.decks(rules).length > 0;
-  if ((entry.hiddenInfo || entry.randomness) !== hasDeck)
-    out.push(`hiddenInfo || randomness must be ${hasDeck}: the game ${hasDeck ? 'has' : 'has no'} deck`);
+  const rollsDice = typeof module.rolls === 'function';
+  if (entry.hiddenInfo !== hasDeck)
+    out.push(`hiddenInfo must be ${hasDeck}: the game ${hasDeck ? 'has' : 'has no'} deck`);
+  const chance = hasDeck || rollsDice;
+  if (entry.randomness !== chance)
+    out.push(`randomness must be ${chance}: chance comes from a deck or from dice`);
   if (entry.tags.some((tag) => tag !== tag.toLowerCase() || tag.trim() === ''))
     out.push('tags are non-empty and lower case');
   const bggOk = (n: number): boolean => isInt(n) && n > 0;

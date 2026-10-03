@@ -3,6 +3,7 @@
  * and the dependencies the lobby and game controllers share. Controllers take these as constructor arguments,
  * so tests run them in Node against the dev relay with local signers and a memory store.
  */
+import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { GameModule } from '@bored-games/game-kit';
@@ -30,6 +31,7 @@ export type ModuleRegistry = ReadonlyMap<string, AnyModule>;
 export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
+  [bank.id, bank],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

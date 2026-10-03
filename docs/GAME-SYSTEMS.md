@@ -73,7 +73,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 |---|---|---|---|
 | §4.1 Private hands and hidden draws | partial: one deck, shuffled once, private and public draws | `packages/deck` (crypto), `packages/client` (session), kit `dealt`/`learn` | every hidden-information game |
 | §4.2 Playing cards | missing | `packages/cards` (pure), `apps/web/src/kit/cards/` | trick-taking, rummy, poker, many euros |
-| §4.3 Dice and fair randomness | missing | `packages/deck/src/beacon.ts` (crypto), session, kit `roll`; `packages/dice` (pure helpers) | dice games, euros, wargames |
+| §4.3 Dice and fair randomness | built for public dice (D058) | `packages/deck/src/beacon.ts`, `packages/dice`, session `deriveBeacon`; Bank | dice games, euros, wargames |
 | §4.4 Secret simultaneous choices | missing | `packages/game-kit/src/sealed.ts`, session duty | auctions, drafting, hidden-role votes |
 | §4.5 Boards and coordinates | missing (Chain Reaction has its own grid) | `packages/boards` (pure), `apps/web/src/kit/board/` | abstracts, tile placement, euros |
 | §4.6 Counters, money, markets, tracks | per-game (Chain Reaction) | conventions now; `packages/game-kit` helpers on the second user | economic games |
@@ -238,6 +238,11 @@ No scheme gives a roll that is unforeseeable to its roller with only the roller 
 | Event decks, card-driven randomness | 2 (it is a deck) | as draws |
 | Solo | designed per game when one comes, with no third party (§4.7, D049) | |
 
+#### 4.3.5 Built: Bank (D058)
+Bank (`packages/games/bank`, `docs/games/bank/RULES.md`) is the first game on option 1b. `packages/deck/src/beacon.ts` builds and checks a contribution (`makeRollShare`, `verifyRollShare`, deck id `roll`). `packages/dice` `faces(seed, count, sides)` draws faces by rejection sampling. The session derives `{type:'rolled', actor:'beacon', id, dice}` once every seat's share of that roll is in (PROTOCOL §6.3a). The engine sees the faces and never the seed, and it imports neither package.
+The departure from §4.3.3 is the last contribution. That section schedules it as an automatic duty. D050 forbids prompt duties, so Bank makes it an ordinary Contribute turn. The roller attaches their share to the Roll move. The other seats contribute in turn, and the last of them is a seat other than the roller (PROTOCOL §6.3a). The web button is "Show the dice". Private dice, a roll scheduled at the end of the previous turn, and a roller who contributes last are still the §4.3.3 design; Bank does not use them.
+The seed is the SHA-256 of each share's `D` as compressed SEC1 bytes, in seat order. §4.3.2's sketch hashed the base64 text of those points; the bytes do not depend on that alphabet. Shares are stored by roll id in the card share store. Bank deals nothing, so the ids do not meet cards. A game that deals and rolls needs a deck id on that store.
+
 ### 4.4 Secret simultaneous choices
 - **What.** Sealed bids, simultaneous action selection, drafting picks, votes: every chooser commits before anyone sees another's choice.
 - **Commitment.** `commit = SHA-256(canonicalJson(['bored-games/seal', seat, round, choice, salt]))` with a fresh 32-byte salt from the injected randomness. Binding the seat and round stops one seat mirroring another's commitment; the salt hides low-entropy choices.
@@ -329,7 +334,7 @@ Ordered by value and by how much each step unblocks; each step names the game th
 **Next (owner, 2026-10-02, D049, D050):**
 1. **Phase G: multi-seat and deck-game Resign.** A Resign with 3 or more seats ends the game, unrated, with the resigner recorded and ranked last; in deck games the Resign carries the resigner's deck secret, the other seats reveal theirs, and a partial audit replays the log up to the resign.
 2. **Phase K: the prompt-reveal protocol (research only, no gameplay code).** A threat model, every source of reorganisation (equivocation, claim and resign races, raced endings, relay withholding), candidate designs, an executable model of event orderings, and **sealed shares** (§4.1.5) with a reference implementation that no game uses yet, all through adversarial review. The output for the owner is "cheat-proof: yes, with this design", or the precise residual. Candidate policy to analyse in K (a proposal, not a rule): **proven equivocation ends the game**, unrated, with the cheater recorded and ranked last, like a multi-seat resign; then any exposure that needs an equivocation happens only in a game that is already over.
-3. **Hanabi** (public name "Hanabi", no safe pack). Its rules spec (`docs/games/hanabi/RULES.md`, Phase J0) comes first; the build is **blocked on K**: with 3 or more players every viewer must see a new card before its next turn, which turn-piggybacked shares cannot guarantee, and cards visible to a set of seats need sealed shares.
+3. **Hanabi** (public name "Hanabi", no safe pack). Its rules spec (`docs/games/hanabi/RULES.md`, Phase J0) comes first; the build is **blocked on K**: with 3 or more players every viewer must see a new card before its next turn, which turn-piggybacked shares cannot guarantee, and cards visible to a set of seats need sealed shares. Bank (D058) was asked for and built in between. It does not change this order: Hanabi still waits for K.
 
 The table below is the longer-term order; rows 7 and 10 now come from Phase K.
 
@@ -342,7 +347,7 @@ The table below is the longer-term order; rows 7 and 10 now come from Phase K.
 | 5 | Playing-cards package and card UI kit | shared | the same trick-taking game | 4 |
 | 6 | Team outcomes (rules-option seat groups) | platform | Spades or Bridge partnerships | 4, 5 |
 | 7 | Sealed shares and the grant model (viewer sets) | shared (deck, protocol) | Hanabi (co-op outcome), Hearts' pass | Phase K (design and reference code), 4 |
-| 8 | Key-committed dice beacon and dice helpers | shared (deck, protocol, kit) | Backgammon without the cube | 1 |
+| 8 | Key-committed dice beacon and dice helpers | shared (deck, protocol, kit) | Bank (D058, done). Backgammon without the cube still later | 1 |
 | 9 | Sealed choices v1 (in chain) | shared (kit, session) | a sealed-bid auction game, or a 2-player simultaneous game | 1 |
 | 10 | Prompt-reveal protocol and prompt duties | platform | Hanabi with 3+ players, Gin Rummy (on-demand draws), the doubling cube | Phase K passing adversarial review (D050) |
 | 11 | Hex and graph boards | shared | a hex game; a route-building euro | 2 |

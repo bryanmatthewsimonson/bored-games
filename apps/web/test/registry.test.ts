@@ -1,6 +1,7 @@
 /*
  * The web game registry (D045): every hosted game has a rules module, a registry entry and an id, and they agree.
  */
+import { BANK_THEME } from '@bored-games/bank/theme';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import { CHESS_THEME } from '@bored-games/chess/theme';
 import { describe, expect, it } from 'vitest';
@@ -31,6 +32,7 @@ describe('game registry', () => {
   it('takes titles from the themes', () => {
     expect(gameTitle('chain-reaction')).toBe(CHAIN_REACTION_THEME.title);
     expect(gameTitle('chess')).toBe(CHESS_THEME.title);
+    expect(gameTitle('bank')).toBe(BANK_THEME.title);
     expect(gameTitle('unknown-game')).toBe('unknown-game');
   });
 
@@ -41,8 +43,10 @@ describe('game registry', () => {
     });
     expect(webGame('chain-reaction')?.setupCopy(false)).toBeNull();
     expect(webGame('chess')?.setupCopy(false)).toBeNull();
-    // The module agrees: Chess is deckless, Chain Reaction has one deck.
+    expect(webGame('bank')?.setupCopy(false)).toBeNull();
+    // The module agrees: Chess and Bank are deckless, Chain Reaction has one deck.
     expect(MODULES.get('chess')?.decks(MODULES.get('chess')?.defaultRules())).toEqual([]);
+    expect(MODULES.get('bank')?.decks(MODULES.get('bank')?.defaultRules())).toEqual([]);
     expect(MODULES.get('chain-reaction')?.decks(MODULES.get('chain-reaction')?.defaultRules())).toHaveLength(
       1,
     );

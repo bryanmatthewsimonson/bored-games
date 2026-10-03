@@ -11,6 +11,7 @@
     "e2e": "node e2e/run.ts"
   },
   "dependencies": {
+    "@bored-games/bank": "workspace:*",
     "@bored-games/brand": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
     "@bored-games/chess": "workspace:*",

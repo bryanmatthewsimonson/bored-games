@@ -1,0 +1,176 @@
+/* Bank screen (D058). The felt is the table. Dice are SVG. A short tumble plays when a roll resolves;
+ * prefers-reduced-motion skips it. Nothing here is wider than its column, so a 390px page does not scroll sideways. */
+
+main:has(.bank-game) {
+  max-width: 980px;
+}
+
+.bank-game {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+  gap: 20px;
+  align-items: start;
+}
+
+.bank-main,
+.bank-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bank-felt {
+  background: #1b4d3e;
+  color: #f6f1e4;
+  border-radius: 18px;
+  padding: 20px 16px 24px;
+  box-shadow: inset 0 0 48px rgb(0 0 0 / 0.35);
+  text-align: center;
+}
+
+.bank-round {
+  margin: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.bank-pot {
+  margin: 4px 0 0;
+  font-size: clamp(3rem, 14vw, 5.5rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.bank-pot-change {
+  margin: 6px 0 0;
+  min-height: 1.5em;
+  font-size: 1.05rem;
+}
+
+.bank-dice {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.bank-die {
+  width: 84px;
+  height: 84px;
+  max-width: 28vw;
+  overflow: visible;
+}
+
+.bank-die-face {
+  fill: #f3e6c8;
+  stroke: #c9b48a;
+  stroke-width: 2;
+}
+
+.bank-die-pip {
+  fill: #1c2230;
+}
+
+.bank-die.tumble {
+  animation: bank-tumble 400ms ease-out;
+}
+
+@keyframes bank-tumble {
+  0% {
+    transform: rotate(-24deg) translateY(8px) scale(0.9);
+  }
+  60% {
+    transform: rotate(10deg) translateY(-4px) scale(1.04);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bank-die.tumble {
+    animation: none;
+  }
+}
+
+.bank-seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.bank-seat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "avatar name score"
+    "avatar state state";
+  column-gap: 8px;
+  row-gap: 0;
+  align-items: center;
+}
+
+.bank-seat-avatar {
+  grid-area: avatar;
+}
+
+.bank-seat-name {
+  grid-area: name;
+  overflow-wrap: anywhere;
+}
+
+.bank-seat-score {
+  grid-area: score;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.bank-seat-state {
+  grid-area: state;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.bank-seat.to-play .bank-seat-state {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.bank-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bank-actions .btn {
+  flex: 1 1 8rem;
+}
+
+.bank-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.bank-log li {
+  overflow-wrap: anywhere;
+}
+
+.bank-winner {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+@media (max-width: 860px) {
+  .bank-game {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

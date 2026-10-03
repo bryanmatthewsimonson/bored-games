@@ -65,7 +65,21 @@ export interface RevealAction {
 export type Pending =
   | { readonly type: 'player'; readonly seat: Seat; readonly decision: string }
   | { readonly type: 'reveal'; readonly deck: string; readonly positions: readonly number[] }
+  /**
+   * A dice roll whose faces are fixed but not yet derived. `id` is the roll. Production applies the `rolled`
+   * action once every seat's beacon share for `id` is in (D058). The fuzzer supplies the faces itself.
+   */
+  | { readonly type: 'beacon'; readonly id: number }
   | { readonly type: 'over' };
+
+/**
+ * One committed dice roll (D058). `id` is never reused. `last` is the seat whose contribution is published last,
+ * and who therefore can learn the faces first.
+ */
+export interface DiceRoll {
+  readonly id: number;
+  readonly last: number;
+}
 
 export interface Outcome {
   /** 1-based finishing place per seat; tied seats share a place (1, 1, 3). */
@@ -154,6 +168,16 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   invariants(state: S): readonly string[];
   /** Optional rare-event tags used by the fuzzer's coverage report. */
   coverage?(state: S, events: readonly E[]): readonly string[];
+  /**
+   * Append-only dice commitments, present only on a game that rolls with the beacon (D058). The list never
+   * drops an entry. Absent on a game that does not roll.
+   */
+  rolls?(state: S): readonly DiceRoll[];
+  /**
+   * The roll id `action` must carry exactly one beacon share for, or null when the action carries none.
+   * Absent on a game that does not roll. Never throws.
+   */
+  beaconOf?(state: S, action: unknown): number | null;
   /**
    * Whether a seat may resign a game with these rules and seats (PROTOCOL §4.9, D052). Absent means yes. A game
    * whose hidden cards the resigner's published deck secret would expose to others (a co-op game, or one where

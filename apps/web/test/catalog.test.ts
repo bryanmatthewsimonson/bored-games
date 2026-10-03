@@ -26,7 +26,9 @@ describe('game catalog', () => {
       expect(catalogProblems(g.entry, module)).toEqual([]);
       const range = module.seatRange(module.defaultRules());
       expect([g.entry.players.min, g.entry.players.max]).toEqual([range.min, range.max]);
-      expect(g.entry.hiddenInfo || g.entry.randomness).toBe(module.decks(module.defaultRules()).length > 0);
+      const hasDeck = module.decks(module.defaultRules()).length > 0;
+      expect(g.entry.hiddenInfo).toBe(hasDeck);
+      expect(g.entry.randomness).toBe(hasDeck || typeof module.rolls === 'function');
     });
 
     it(`${id}: has trademark-safe names`, () => {
@@ -68,6 +70,21 @@ describe('game catalog', () => {
       hiddenInfo: false,
       randomness: false,
     });
+    const bank = CATALOG.get('bank')?.entry;
+    expect(bank?.bggId).toBeNull();
+    expect(bank?.compareTo).toBeNull();
+    expect(bank?.art).toBeNull();
+    expect(bank).toMatchObject({
+      players: { min: 2, max: 6, best: [3, 4, 5] },
+      playMinutes: { min: 10, max: 30 },
+      weight: 1.1,
+      luck: 5,
+      genre: 'party',
+      mechanisms: ['dice-rolling', 'push-your-luck'],
+      hiddenInfo: false,
+      randomness: true,
+      status: 'beta',
+    });
   });
 
   it('shows "Compare to" on the card of a game that compares to another, and only there', () => {
@@ -78,5 +95,6 @@ describe('game catalog', () => {
     };
     expect(card('chain-reaction')).toContain(COMPARE_PHRASE);
     expect(card('chess')).not.toContain('Compare to');
+    expect(card('bank')).not.toContain('Compare to');
   });
 });

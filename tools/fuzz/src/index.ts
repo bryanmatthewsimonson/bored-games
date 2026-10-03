@@ -1,6 +1,8 @@
+import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
+import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
   CHAIN_REACTION_EXPECTED_COVERAGE,
   CHAIN_REACTION_POLICIES,
@@ -35,9 +37,17 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: CHESS_EXPECTED_COVERAGE,
     defaultSeatCounts: [2],
   },
+  bank: {
+    module: bank,
+    policies: BANK_POLICIES,
+    expectedCoverage: BANK_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4, 5, 6],
+  },
 };
 
 export {
+  BANK_EXPECTED_COVERAGE,
+  BANK_POLICIES,
   CHAIN_REACTION_EXPECTED_COVERAGE,
   CHAIN_REACTION_POLICIES,
   CHESS_EXPECTED_COVERAGE,

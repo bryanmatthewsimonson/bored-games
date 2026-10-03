@@ -62,11 +62,16 @@ describe('catalogProblems', () => {
     expect(catalogProblems({ ...ENTRY, ...change }, toy)).not.toEqual([]);
   });
 
-  it('requires perfect information and no chance from a deckless game', () => {
+  it('ties hidden information to a deck and chance to a deck or to dice', () => {
     const deckless = { ...toy, decks: () => [] };
-    expect(catalogProblems(ENTRY, deckless)).toHaveLength(1);
+    expect(catalogProblems(ENTRY, deckless).length).toBeGreaterThan(0);
     expect(catalogProblems({ ...ENTRY, hiddenInfo: false, randomness: false }, deckless)).toEqual([]);
-    // Either flag alone is enough for a game with a deck.
-    expect(catalogProblems({ ...ENTRY, randomness: false }, toy)).toEqual([]);
+    // A deck hides cards and is shuffled, so both flags are required.
+    expect(catalogProblems({ ...ENTRY, randomness: false }, toy)).not.toEqual([]);
+    expect(catalogProblems({ ...ENTRY, hiddenInfo: false }, toy)).not.toEqual([]);
+    const beacon = { ...deckless, rolls: () => [] };
+    expect(catalogProblems({ ...ENTRY, hiddenInfo: false, randomness: true }, beacon)).toEqual([]);
+    expect(catalogProblems({ ...ENTRY, hiddenInfo: false, randomness: false }, beacon)).not.toEqual([]);
+    expect(catalogProblems({ ...ENTRY, hiddenInfo: true, randomness: true }, beacon)).not.toEqual([]);
   });
 });

@@ -714,6 +714,8 @@ export function statusLine(
   const p = chainReaction.pending(s);
   if (p.type === 'over') return 'The game is over.';
   if (p.type === 'reveal') return 'Revealing setup tiles…';
+  // Chain Reaction never pends a dice beacon. The pending type is shared with games that do (D058).
+  if (p.type !== 'player') return 'The game is over.';
   const what = decisionText(theme, s, p.decision);
   if (p.seat === mySeat) return `Your move: ${what}.`;
   return `Waiting for ${seatName(names, p.seat)} to ${what}.`;

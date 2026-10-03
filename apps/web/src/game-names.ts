@@ -1,4 +1,5 @@
 import { gameNames } from './brands.ts';
+import { BANK_META } from './games/bank/meta.ts';
 import { CHAIN_REACTION_META } from './games/chain-reaction/meta.ts';
 import { CHESS_META } from './games/chess/meta.ts';
 import type { GameMeta } from './games/types.ts';
@@ -7,6 +8,7 @@ import type { GameMeta } from './games/types.ts';
 export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [CHAIN_REACTION_META.id, CHAIN_REACTION_META],
   [CHESS_META.id, CHESS_META],
+  [BANK_META.id, BANK_META],
 ]);
 
 /**

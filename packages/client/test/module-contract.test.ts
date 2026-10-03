@@ -43,7 +43,7 @@ describe('modules with a deck pend public reveals only before the first player a
             );
             const pos = [...p.positions].sort((a, b) => a - b)[0] as number;
             action = { type: 'reveal', actor: 'deck', deck: deck.id, pos, card: order[pos] };
-          } else {
+          } else if (p.type === 'player') {
             // Play well into the game before ending it when allowed (review M-c), so mid-game states are covered.
             const legal = module.legalActions(state, p.seat) as readonly { declareEnd?: boolean }[];
             const playOn = legal.filter((a) => a.declareEnd !== true);
@@ -51,6 +51,8 @@ describe('modules with a deck pend public reveals only before the first player a
             action = end ?? rng.pick(playOn.length > 0 ? playOn : legal);
             actions++;
             acted = true;
+          } else {
+            throw new Error(`${module.id} pends a dice beacon, and this check is for decks`);
           }
           const r = module.apply(state, action);
           if (!r.ok) throw new Error(`${r.error.code}: ${r.error.message}`);
