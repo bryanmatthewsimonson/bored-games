@@ -296,34 +296,41 @@ export function GameScreen(props: { rootId: string }) {
   // "You're watching this game" when the key in use holds no seat (D057), from this profile's local records.
   const tableAddress = ctl.tableAddress.value;
   const recovered = ctl.recovered.value;
+  // Only once the session exists and holds no seat: before it, a seat recovered from saved game keys is not known
+  // yet, and the notice would flash.
+  const spectating = view !== null && view.mySeat === null;
+  const kept = useMemo(() => keptKeys(profile, store).map((k) => k.pubkey), [profile, store]);
   const watch: WatchNotice | null = useMemo(
     () =>
-      tableAddress === null || recovered !== null
+      tableAddress === null || !spectating
         ? null
         : watchNotice({
             seats,
             me: signer.pubkey,
-            kept: keptKeys(profile, store).map((k) => k.pubkey),
+            kept,
             record: localTableRecord(profile, store, tableAddress),
             myTables: myTableCount(profile, store, signer.pubkey),
           }),
-    [seats, tableAddress, recovered, profile, store, signer],
+    [seats, tableAddress, spectating, kept, profile, store, signer],
   );
   const [switchError, setSwitchError] = useState('');
+  const onSwitch = (pubkey: string) => {
+    const r = switchToKeptKey(profile, store, pubkey, { current: signer.pubkey, now: deps.now() });
+    if (r.ok) window.location.reload();
+    else setSwitchError(r.error);
+  };
   const watching =
     recovered !== null ? (
-      <RecoveredNotice seat={recovered.seat} joined={recovered.npub} me={signer.pubkey} />
-    ) : watch === null ? null : (
-      <WatchingNotice
-        notice={watch}
+      <RecoveredNotice
+        seat={recovered.seat}
+        joined={recovered.npub}
         me={signer.pubkey}
+        // The joining key is kept here: switching back to it also restores signing the result.
+        onSwitch={kept.includes(recovered.npub) ? onSwitch : null}
         switchError={switchError}
-        onSwitch={(pubkey) => {
-          const r = switchToKeptKey(profile, store, pubkey, { current: signer.pubkey, now: deps.now() });
-          if (r.ok) window.location.reload();
-          else setSwitchError(r.error);
-        }}
       />
+    ) : watch === null ? null : (
+      <WatchingNotice notice={watch} me={signer.pubkey} switchError={switchError} onSwitch={onSwitch} />
     );
   const waiting =
     view === null || status !== 'waiting'

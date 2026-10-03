@@ -2141,11 +2141,12 @@ export class GameSession {
   /**
    * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seat whose shuffle
    * step is next, every seat still missing deal shares, the pending seat in play (or the seats whose shares it
-   * waits for), and at the end every seat whose secret is not in. Empty once nothing is owed. For the screens'
-   * "Waiting for …" lines; a timeout can be claimed only against one of these seats.
+   * waits for), and at the end every seat whose secret is not in. Empty once nothing is owed, and once a timeout
+   * was accepted (its result is final). For the screens' "Waiting for …" lines; a timeout can be claimed only
+   * against one of these seats.
    */
   waitingFor(): number[] {
-    return [...this.stalled()];
+    return this.timedOut === null ? [...this.stalled()] : [];
   }
 
   view(): SessionView {

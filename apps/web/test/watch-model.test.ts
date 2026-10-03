@@ -156,8 +156,22 @@ describe('watch notice (D057)', () => {
       `Playing seat 3 with the game keys saved in this browser (you joined as ${short(OLD)}; this browser's key is now ${short(ME)}).`,
     );
     expect(t.body).toMatch(/will not sign it/);
-    const tree = renderTree(RecoveredNotice({ seat: 2, joined: OLD, me: ME }));
+    expect(t.body).toMatch(/import that key in Settings/);
+    const tree = renderTree(
+      RecoveredNotice({ seat: 2, joined: OLD, me: ME, onSwitch: null, switchError: '' }),
+    );
     expect((tree[0] as { attrs: Record<string, unknown> }).attrs.role).toBe('status');
     expect(spokenText(tree)).toBe(`${t.lead} ${t.body}`);
+    expect(findAll(tree, (el) => el.tag === 'button')).toHaveLength(0);
+    // The joining key is kept here: a Switch button, which also restores signing the result.
+    expect(recoveredText(2, OLD, ME, true).body).toMatch(/kept in this browser: switch back to it/);
+    const switched: string[] = [];
+    const kept = renderTree(
+      RecoveredNotice({ seat: 2, joined: OLD, me: ME, onSwitch: (pk) => switched.push(pk), switchError: '' }),
+    );
+    const buttons = findAll(kept, (el) => el.tag === 'button');
+    expect(buttons.map((b) => spokenText([b]))).toEqual([`Switch to ${short(OLD)} and reload`]);
+    (buttons[0]?.attrs.onClick as (() => void) | undefined)?.();
+    expect(switched).toEqual([OLD]);
   });
 });

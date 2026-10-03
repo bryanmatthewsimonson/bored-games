@@ -1,7 +1,9 @@
 import { parseRoot } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
+import { ClientError } from '../src/errors.ts';
 import { seatForGameKeys } from '../src/recover.ts';
-import { makeGame, newSession } from './helpers.ts';
+import { GameSession } from '../src/session.ts';
+import { makeGame, ROOT_SEEN } from './helpers.ts';
 
 const game = makeGame(3, 'client-recover');
 const root = parseRoot(game.root);
@@ -32,12 +34,26 @@ describe('seat recovery from saved game keys (D057)', () => {
     expect(seatForGameKeys({ seats: [] }, a.sessionSk, a.deckSecret)).toBeNull();
   });
 
-  it('the recovered keys are exactly what a session for that seat accepts', () => {
+  it('a session built from the recovered seat and keys plays that seat', () => {
     const id = game.ids[2];
     if (id === undefined) throw new Error('no seat 2');
     const seat = seatForGameKeys(root, id.sessionSk, id.deckSecret);
-    expect(seat).toBe(2);
-    const s = newSession(game, 2);
+    if (seat === null) throw new Error('not recovered');
+    const input = {
+      modules: game.modules,
+      table: game.table,
+      joins: game.joins,
+      root: game.root,
+      rootSeenAt: ROOT_SEEN,
+    };
+    const s = GameSession.create({
+      ...input,
+      me: { seat, sessionSk: id.sessionSk, deckSecret: id.deckSecret },
+    });
     expect(s.view().mySeat).toBe(2);
+    // Another seat's number with these keys is refused.
+    expect(() =>
+      GameSession.create({ ...input, me: { seat: 1, sessionSk: id.sessionSk, deckSecret: id.deckSecret } }),
+    ).toThrow(ClientError);
   });
 });

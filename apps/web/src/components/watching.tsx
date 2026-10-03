@@ -44,13 +44,32 @@ export function WatchingNotice(props: {
 }
 
 /** "Playing seat N with the game keys saved in this browser …" (D057). */
-export function RecoveredNotice(props: { seat: number; joined: Hex; me: Hex }) {
-  const { lead, body } = recoveredText(props.seat, props.joined, props.me);
+export function RecoveredNotice(props: {
+  seat: number;
+  joined: Hex;
+  me: Hex;
+  /** Set when the joining key is one of this profile's kept keys: switch to it and reload. */
+  onSwitch: ((pubkey: Hex) => void) | null;
+  switchError: string;
+}) {
+  const { lead, body } = recoveredText(props.seat, props.joined, props.me, props.onSwitch !== null);
   return (
     <div class="warning watch-notice" role="status">
       <p>
         <strong>{lead}</strong> {body}
       </p>
+      {props.onSwitch !== null && (
+        <div class="row">
+          <button type="button" class="btn btn-primary" onClick={() => props.onSwitch?.(props.joined)}>
+            Switch to {shortNpub(npubEncode(props.joined))} and reload
+          </button>
+        </div>
+      )}
+      {props.switchError !== '' && (
+        <p class="error" role="alert">
+          {props.switchError}
+        </p>
+      )}
     </div>
   );
 }

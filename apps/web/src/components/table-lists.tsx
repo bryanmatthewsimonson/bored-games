@@ -18,6 +18,9 @@ import { requestPersistenceOnce, storageManager } from '../storage.ts';
 import { JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
 
+/** A listed table of another player key whose seat this browser's saved game keys play (D057). */
+export const SAVED_KEYS_DETAIL = 'Playable with saved game keys';
+
 /** A listed table of another player key this profile used (D041). */
 export const OTHER_KEY_DETAIL = 'Under another key: switch to it in Settings to play';
 
@@ -44,8 +47,10 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
   return (
     <ul class="cards">
       {[...props.tables]
-        .sort((a, b) => Number(a.otherKey) - Number(b.otherKey))
+        .sort((a, b) => Number(a.otherKey && !a.savedKeys) - Number(b.otherKey && !b.savedKeys))
         .map((t) => {
+          // Another key's table, unless this browser's saved game keys play one of its seats (D057).
+          const blocked = t.otherKey && !t.savedKeys;
           // A started game's status comes from what its game screen saved; Home never runs a game session.
           const started = t.rootId !== null || t.table.status === 'started';
           const known =
@@ -64,8 +69,16 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               creator={t.table.creator}
               isCreator={t.role === 'creator'}
               chip={chip}
-              badge={t.otherKey ? null : attentionBadge(t.role, chip, known.status)}
-              detail={t.otherKey ? OTHER_KEY_DETAIL : known.check ? 'Open to check' : seated}
+              badge={blocked ? null : attentionBadge(t.role, chip, known.status)}
+              detail={
+                blocked
+                  ? OTHER_KEY_DETAIL
+                  : known.check
+                    ? 'Open to check'
+                    : t.savedKeys
+                      ? SAVED_KEYS_DETAIL
+                      : seated
+              }
               action={
                 <a
                   class="btn btn-small"

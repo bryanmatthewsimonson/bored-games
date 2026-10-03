@@ -113,9 +113,12 @@ describe('timeouts during the shuffle and the deal', () => {
     expect(watcher.view().phase).toBe('shuffle');
     watcher.tick(ROOT_SEEN + D - 1);
     expect(watcher.view().phase).toBe('shuffle');
+    expect(watcher.waitingFor()).toEqual([0]);
     watcher.tick(ROOT_SEEN + D);
     const v = watcher.view();
     expect(v.phase).toBe('cancelled');
+    // Once the timeout is accepted the game waits on nobody (D057).
+    expect(watcher.waitingFor()).toEqual([]);
     expect(v.outcome).toBeNull();
     expect(v.audit).toBe('pending');
     expect(v.forfeits).toEqual([0]);

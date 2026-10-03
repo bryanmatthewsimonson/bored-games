@@ -10,6 +10,7 @@ import {
   type GameKeys,
   type LobbyView,
   newGameKeys,
+  seatForGameKeys,
 } from '@bored-games/client';
 import { G } from '@bored-games/deck';
 import {
@@ -55,8 +56,13 @@ export interface MyTable extends TableEntry {
   role: 'creator' | 'player';
   /** Null until the Joins have been folded (or when they cannot be). */
   lobby: LobbyView | null;
-  /** True when this profile listed the table under another player key (D041): it cannot be played now. */
+  /** True when this profile listed the table under another player key (D041): it cannot be played now… */
   otherKey: boolean;
+  /**
+   * …unless this browser holds game keys for it that match a seat of its root (D057): the game screen then plays
+   * that seat with them, so Home shows the table as playable.
+   */
+  savedKeys: boolean;
   /** The game's id once a valid root exists. */
   rootId: string | null;
 }
@@ -144,6 +150,8 @@ export class LobbyController {
   /** In-flight `start` and `join` calls per address: a second caller gets the first call's promise. */
   readonly #starting = new Map<string, Promise<string>>();
   readonly #joining = new Map<string, Promise<void>>();
+  /** `#savedSeat` results by root id. */
+  readonly #savedSeats = new Map<string, boolean>();
   readonly #views = new Map<string, Signal<LobbyView | null>>();
   readonly #watches = new Map<string, () => void>();
   #openUnsub: (() => void) | null = null;
@@ -497,6 +505,18 @@ export class LobbyController {
     this.openTables.value = out;
   }
 
+  /** Whether this browser's saved game keys for the table match a seat of `root` (`seatForGameKeys`), cached per root. */
+  #savedSeat(address: string, root: NonNullable<LobbyView['root']> | null): boolean {
+    if (root === null) return false;
+    const cached = this.#savedSeats.get(root.id);
+    if (cached !== undefined) return cached;
+    const s = loadSecrets(this.#d.profile, this.#d.storage, address);
+    const ok =
+      s !== null && seatForGameKeys(root, s.sessionSk, BigInt(`0x${bytesToHex(s.deckSecret)}`)) !== null;
+    this.#savedSeats.set(root.id, ok);
+    return ok;
+  }
+
   #myAddresses(): string[] {
     const mine = [...this.#tables.values()].filter((t) => t.table.creator === this.#me).map((t) => t.address);
     return unionRelays(loadTableList(this.#d.profile, this.#d.storage), mine);
@@ -510,13 +530,15 @@ export class LobbyController {
       if (entry === undefined) continue;
       const { event, table } = entry;
       const lobby = this.#fold(address);
+      const otherKey = !tableIsMine(this.#d.profile, this.#d.storage, address, this.#me);
       out.push({
         address,
         event,
         table,
         role: table.creator === this.#me ? 'creator' : 'player',
         lobby,
-        otherKey: !tableIsMine(this.#d.profile, this.#d.storage, address, this.#me),
+        otherKey,
+        savedKeys: otherKey && this.#savedSeat(address, lobby?.root ?? null),
         rootId: lobby?.root?.id ?? null,
       });
     }
