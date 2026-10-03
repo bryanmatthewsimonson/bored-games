@@ -5,17 +5,21 @@ import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
   attestLine,
   equivocatorsOf,
+  forkLine,
   formatDeadline,
   placesText,
   playerNames,
   resignExplanation,
   resignedSeats,
   resignLine,
+  SendAnyway,
+  SyncNotes,
   setupStep,
   statusNotice,
   timedOutSeats,
   timeoutExplanation,
 } from '../src/screens/game.tsx';
+import { findAll, renderTree, spokenText } from './render-tree.ts';
 
 const viewOf = (v: Partial<SessionView>): SessionView =>
   ({ seats: 3, shuffleSteps: 3, head: { id: 'h', seq: 3 }, ...v }) as SessionView;
@@ -144,6 +148,15 @@ describe('game chrome helpers (D045)', () => {
     expect(placesText(viewOf({ outcome: null }), names)).toBe('');
   });
 
+  it('notes an unrated end that holds only by the freeze (D056)', () => {
+    const outcome = { places: [1, 2, 3], reason: 'forfeit', scores: [3, 2, 1] };
+    expect(forkLine(viewOf({ phase: 'done', outcome }), ['Ann', 'Bo', 'Cy'])).toBeNull();
+    const forked = { ...outcome, unrated: true as const, endedBy: { type: 'fork' as const, seat: 2 } };
+    expect(forkLine(viewOf({ phase: 'done', outcome: forked }), ['Ann', 'Bo', 'Cy'])).toMatch(
+      /^Unrated: Cy signed two rival moves/,
+    );
+  });
+
   it('counts the attestations once there is a result', () => {
     const outcome = { places: [1, 2], reason: 'resign', scores: [1, 1] };
     expect(attestLine(null)).toBeNull();
@@ -167,6 +180,26 @@ describe('game chrome helpers (D045)', () => {
     );
     expect(setupStep(viewOf({ phase: 'deal' }), copy)).toBe('Dealing the tiles…');
     expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
+  });
+
+  it('offers Send anyway with a button that calls back (D056)', () => {
+    let sent = 0;
+    const tree = renderTree(SendAnyway({ onSend: () => sent++ }));
+    const buttons = findAll(tree, (el) => el.tag === 'button');
+    expect(buttons).toHaveLength(1);
+    expect(spokenText(tree)).toMatch(/waiting for every relay/);
+    for (const b of buttons) (b.attrs.onClick as () => void)();
+    expect(sent).toBe(1);
+  });
+
+  it('shows the sync notes in a disclosure, and nothing when there are none (D056)', () => {
+    expect(renderTree(SyncNotes({ lines: [] }))).toEqual([]);
+    const line = 'A move saved on this device was never sent, and it was discarded: the game has moved on.';
+    const tree = renderTree(SyncNotes({ lines: [line, line] }));
+    expect(findAll(tree, (el) => el.tag === 'details')).toHaveLength(1);
+    expect(findAll(tree, (el) => el.tag === 'li')).toHaveLength(2);
+    expect(spokenText(tree)).toMatch(/Sync notes \(2\)/);
+    expect(spokenText(tree)).toContain(line);
   });
 });
 
