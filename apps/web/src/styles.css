@@ -305,29 +305,72 @@ input[aria-invalid="true"] {
 }
 
 /* Settings dialog */
+/*
+ * The dialog fits the visible viewport (dvh, with a vh fallback; less the safe areas), its head stays in view and
+ * only its body scrolls, with overscroll contained so that scrolling up inside it never becomes the page's
+ * pull-to-refresh (D057: on iOS Safari with the address bar at the top, the Close button scrolled away and the
+ * pull-to-refresh reload exposed the key race).
+ */
 .dialog {
   width: min(560px, calc(100vw - 2 * 8px));
-  max-height: calc(100vh - 2 * 8px);
+  max-height: calc(100vh - 2 * 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   padding: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
+@supports (height: 100dvh) {
+  .dialog {
+    max-height: calc(100dvh - 2 * 8px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
 .dialog::backdrop {
   background: rgb(20 24 34 / 0.5);
 }
 
+/* While a modal dialog is open the page behind it does not scroll (nor pull to refresh). */
+html:has(.dialog[open]),
+html:has(.blocking-overlay) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 .dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--gutter);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dialog-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: var(--gutter) var(--gutter) 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
 }
 
 .dialog-head h2 {
@@ -1354,7 +1397,10 @@ input[type="search"] {
   z-index: 100;
   display: grid;
   place-items: center;
-  padding: var(--gutter);
+  padding: max(var(--gutter), env(safe-area-inset-top, 0px)) var(--gutter)
+    max(var(--gutter), env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgb(0 0 0 / 0.45);
 }
 

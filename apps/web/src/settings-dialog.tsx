@@ -302,18 +302,26 @@ export function SettingsDialog() {
       }}
     >
       {open && (
-        <div class="dialog-body">
+        <>
+          {/* The head stays in view; only the body scrolls, and never into the page's pull-to-refresh (D057). */}
           <div class="dialog-head">
             <h2 id="settings-h">Settings</h2>
             <button type="button" class="btn" onClick={() => (settingsOpen.value = false)}>
               Close
             </button>
           </div>
-          <ProfileSection />
-          <GameNamesSection />
-          <RelaySection />
-          <IdentitySection />
-        </div>
+          <div class="dialog-body">
+            <ProfileSection />
+            <GameNamesSection />
+            <RelaySection />
+            <IdentitySection />
+            <div class="dialog-foot">
+              <button type="button" class="btn" onClick={() => (settingsOpen.value = false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </dialog>
   );

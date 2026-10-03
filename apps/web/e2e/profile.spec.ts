@@ -156,7 +156,7 @@ async function saveProfile(page: Page) {
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Save name and picture' }).click();
   await expect(dialog.getByText(/^Saved\./)).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Close' }).first().click();
 }
 
 const seatOf = (page: Page, name: string) => page.locator('.seat-list .seat').filter({ hasText: name });
@@ -295,4 +295,51 @@ test('an in-app browser gets a warning it can dismiss for the tab (D057)', async
   await tab.goto(appUrl('inapp'));
   await expect(tab.getByText("You're in an in-app browser.", { exact: false })).toBeVisible();
   await context.close();
+});
+
+test('the Settings dialog keeps its Close button in view on a phone, however far it scrolls (D057)', async ({
+  browser,
+}) => {
+  for (const viewport of [
+    { width: 390, height: 844 },
+    { width: 390, height: 600 },
+  ]) {
+    const context = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+    const page = await context.newPage();
+    await page.goto(appUrl('phone'));
+    await openSettings(page);
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+    const body = dialog.locator('.dialog-body');
+    // The body scrolls inside the dialog: scroll it to the bottom.
+    expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    await body.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1))
+      .toBe(true);
+    // The page behind did not scroll, and the dialog fits the viewport.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect((box?.y ?? -1) >= 0 && (box?.y ?? 0) + (box?.height ?? 0) <= viewport.height).toBe(true);
+    // Both Close buttons are in the viewport; the head's still works.
+    const [top, bottom] = [
+      dialog.getByRole('button', { name: 'Close' }).first(),
+      dialog.getByRole('button', { name: 'Close' }).last(),
+    ];
+    await expect(top).toBeInViewport();
+    await expect(bottom).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await top.click();
+    await expect(dialog).toBeHidden();
+    // The bottom Close works too.
+    await openSettings(page);
+    await body.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await dialog.getByRole('button', { name: 'Close' }).last().click();
+    await expect(dialog).toBeHidden();
+    await context.close();
+  }
 });
