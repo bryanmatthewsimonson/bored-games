@@ -828,3 +828,109 @@ describe.runIf(BIG)('bigger scope for candidate (e) (PROTOCOL_MODEL_BIG=1)', () 
       );
   }, 7_200_000);
 });
+
+describe.runIf(BIG)('bigger scope for round 3 (PROTOCOL_MODEL_BIG=1, several hours)', () => {
+  const e3 = {
+    ...base,
+    design: 'stop3',
+    advAcks: 0,
+    advAttests: 1,
+    stopScore: 'last',
+    ownCheck: true,
+  } as const;
+  const FINAL = ['attested-void', 'void-forfeit'] as const;
+  const check = (r: Result, single: boolean): void => {
+    expect(r.complete).toBe(true);
+    expectSafe(counts(r));
+    expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
+    if (single) expectSafe(counts(r), FINAL);
+  };
+  const claims = { advClaims: 1, advResigns: 1, expiries: 1 } as const;
+
+  it('3 seats, 3 moves, a claim, a resign and a deadline: every mode and coalition', () => {
+    for (const mode of [...MODES, 'roll'] as Mode[])
+      for (const coalition of COALITIONS)
+        check(explore({ ...e3, mode, length: 3, ...claims, coalition }), coalition.length === 1);
+  }, 7_200_000);
+
+  it('3 seats, 4 moves, 3 adversary moves, multi-draw, a claim, a resign and a deadline (private)', () => {
+    for (const coalition of COALITIONS)
+      check(
+        explore({ ...e3, mode: 'private', length: 4, advMoves: 3, multiDraw: true, ...claims, coalition }),
+        coalition.length === 1,
+      );
+  }, 7_200_000);
+
+  it('2 seats, 4 moves, 3 adversary moves; absent humans with two deadlines', () => {
+    for (const coalition of [[0], [1]] as Seat[][])
+      check(
+        explore({ ...e3, seats: 2, mode: 'private', length: 4, advMoves: 3, ...claims, coalition }),
+        true,
+      );
+    for (const coalition of COALITIONS)
+      check(
+        explore({ ...e3, mode: 'private', length: 4, advClaims: 1, expiries: 2, absence: true, coalition }),
+        coalition.length === 1,
+      );
+  }, 7_200_000);
+
+  it('two devices: colluder pairs with claims, resigns and a stale outbox; A1; 2 seats', () => {
+    const pairs: Seat[][] = [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ];
+    for (const coalition of pairs) {
+      check(
+        explore({
+          ...e3,
+          mode: 'private',
+          length: 3,
+          devices: 2,
+          stale: 1,
+          outboxRule: true,
+          ...claims,
+          coalition,
+        }),
+        false,
+      );
+      // A1's scope: under the cutoff the card is read on a stopped branch (post-end), never exposed.
+      check(
+        explore({ ...e3, mode: 'private', length: 4, advMoves: 3, advResigns: 1, devices: 2, coalition }),
+        false,
+      );
+    }
+    for (const coalition of [[0], [1]] as Seat[][]) {
+      const r = explore({
+        ...e3,
+        seats: 2,
+        mode: 'private',
+        length: 3,
+        devices: 2,
+        stale: 1,
+        outboxRule: true,
+        ...claims,
+        coalition,
+      });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r));
+    }
+  }, 7_200_000);
+
+  it('two honest seats on two devices each, a single adversary, 3 moves', () => {
+    for (const coalition of [[0], [1], [2]] as Seat[][]) {
+      const r = explore({ ...e3, mode: 'private', length: 3, devices: 2, coalition });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r));
+      expect(counts(r)['void-forfeit'] ?? 0).toBe(0);
+    }
+  }, 7_200_000);
+
+  it('4 seats, 8 moves, 2 adversary moves, a claim and a deadline: every single adversary (private)', () => {
+    for (const coalition of [[0], [1], [2], [3]] as Seat[][])
+      check(
+        explore({ ...e3, seats: 4, mode: 'private', length: 8, advClaims: 1, expiries: 1, coalition }),
+        true,
+      );
+  }, 7_200_000);
+});
