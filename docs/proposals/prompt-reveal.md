@@ -102,25 +102,38 @@ Per-seat draw piles cut from the shuffled deck would make each position's owner 
 
 Conclusion: the ElGamal deck with DLEQ shares and verifiable shuffles is the right primitive. What constrained us was the order of operations: releasing a share and then letting the game continue on a branch where that share's owner differed.
 
-## 5. The recommended design: plain stop (candidate (e))
+## 5. The recommended design: plain stop with a cutoff (candidate (e), round 3)
 
 ### 5.1 Rules
+Round 3 changes are marked. They answer the review of round 2 (A1–A3 and the cutoff, §6.7).
 1. **One shared pile, unchanged.** Draws come from the shared pile exactly as the game's rules say; `dealt` is unchanged.
 2. **Prompt release.** When a client holds and validates (PROTOCOL §6.5) a move that grants a position, it releases at once, in a Shares event, every share its seat owes for it: a public share, or sealed shares (§7) within the viewer set. No Ack, no wait. The slow path (shares riding on one's own move, PROTOCOL §6.2) stays as the fallback for a seat that is offline.
+   - **The anchor** *(round 3)*. Every Shares event, and so every prompt-share release, carries its releaser's head as an `e` tag: the chain the releaser was on when it released. A move is anchored on its prev.
 3. **Rolls** bind their point to the requesting move: `H = h2c('roll:' + rootId + ':' + moveId + ':' + n)` (GAME-SYSTEMS §4.3). Contributions go out at once.
-4. **Fork stop.** A held fork (two valid-looking moves signed by one seat on one prev, an equivocation certificate) **stops the game at that prev**: fork choice is gone, no branch is ever picked, and the game never resumes. Shuffle steps count when well-formed. The rule is a function of the held events, and monotone: more events can only reveal an earlier fork.
-5. **The stop is the equivocator's forfeit,** scored like its timeout at the fork: in a 2-seat game a rated win for the opponent; with 3 or more seats the owner's abort policy (unrated, the equivocator recorded, D052). Before the first game action the game is cancelled.
-6. **A stop never overrides a counted claim or resign.** A client that counted one keeps it; a client that had not, and holds the fork, stops. They disagree only within the existing claim and resign races (PROTOCOL §11), and neither ranks an honest seat last. The owner's sketch allowed an override at forks strictly above the claim's head; the model shows a colluder then voids a counted timeout (§6.4, attack 3b).
-7. **Gossip (A3).** Clients rebroadcast every move they hold (both events of any fork, at least) to the root's relays, so a fork reaches every honest client before any deadline can pass.
+4. **Fork stop.** A held fork (two valid-looking moves signed by one seat E on one prev, an equivocation certificate) **stops the game at that prev**, unless a result stands against it (rule 6). Fork choice is gone: no branch is ever picked, and the game never resumes. Shuffle steps count when well-formed.
+5. **The stop is E's forfeit.** In a 2-seat game it is a rated win for the opponent. With 3 or more seats *(round 3)*, **E takes a rated last place and is recorded, and the game is unrated for every other seat**: the owner's abort policy (D052), plus E's rated loss. Round 2 scored it as the abort policy alone; once a stop can override a counted timeout (rule 7), that lets a timed-out seat turn its rated last place into an unrated abort by forking at its own head (the model's `void-forfeit`, §6.7). Scoring the stop as E's timeout at the fork (rated last, the others by standings there) closes it too, but lets E choose the position the others are rated at. Before the first game action the game is cancelled.
+6. **The cutoff** *(round 3; replaces round 2's "a fork found below a finished game's end voids it")*. A *result* is a natural end, a counted timeout claim or a counted resign. An honest client publishes a result attestation (PROTOCOL §4.8, naming the result's head by its log hash) as soon as it has a result **and holds no fork**. A result X **stands** against a fork by E when:
+   - (a) **every seat other than E attested X**, including the forfeiting seat of a claim or resign (unless that seat is E);
+   - (b) **no seat other than E signed a move, or a Shares event, anchored off X's path** (the moves from the root to X's head); and
+   - (c) no other result meets (a) and (b).
 
-Nothing else changes: no new event kind, no Acks, no finality, no flags. It needs a protocol version bump (fork stop replaces fork choice).
+   Then the fork only records E: the result is unchanged and nobody forfeits. Otherwise the fork stops the game (rule 4). The cutoff counts every attestation a seat signed, not only its latest (PROTOCOL §7 keeps the latest by `created_at`, which a seat sets itself), so a later attestation cannot withdraw an earlier one. Like every rule here it is a function of the held events: no clock, no grace period.
+7. **A stop overrides any counted claim or resign that does not stand** *(round 3; replaces round 2's "a stop never overrides a counted claim or resign")*. Round 2's rule let clients diverge for good (A2, §6.7): a client that counted a timeout against C keeps it, while a client whose deadline had not passed when C forked stops, and their attestations never match. Under rules 6 and 7 every client reaches the same result from the same events: the claim if it stands, the stop otherwise.
+8. **Gossip (A3).** Clients rebroadcast every move they hold (both events of any fork, at least) to the root's relays, so a fork reaches every honest client before any deadline can pass.
+9. **Devices** *(round 3; client rules, documented here, built in v1 work after approval)*:
+   - **The outbox rule (A3 of the review).** A saved (outbox) move is published only if its prev is the device's current head once it has synced with the relays, and the relays show no other move by its seat on that prev. Otherwise it is dropped. A move signed offline on a tablet and played differently on a phone is then never published weeks later.
+   - **Check before signing.** Before signing a move, a device fetches its seat's own events (moves, claims, attestations and Shares events) from the relays, with the moves they build on, and acts on what it then holds. A client counts its own seat's timeout claims made on another device. Without this, one device counts a timeout while the other plays on, and the cutoff lets a finished side stand over the counted timeout (a `rating` gain for the opponent in a 2-seat game, §6.7).
+
+Rules 6 and 9 need no new event kind: the result attestation exists (PROTOCOL §4.8), but it must be published as soon as the result is known, before the Secret phase, and it must be accepted from a seat's session key or its npub on any device. It needs a protocol version bump (fork stop replaces fork choice).
 
 ### 5.2 Why it is safe
 - **The leak is never played on.** To read a value through D039, a coalition needs every honest seat's share of it, released on branch A. Each of those honest clients holds A. A rival B that would give the value a different owner is a fork with A: every honest client that sees B stops (rule 4), and A3 makes sure they all see it before a deadline. Honest seats never make a move on B after holding A, so the game the leak would affect is never played; it ends at the fork, as the equivocator's forfeit. Every value read this way was released past the end of the final chain (post-end, §2.2).
-- **An honest seat that never saw A** (a second device, a partitioned client) may move on B until A reaches it. Its moves lie past the fork, so they are voided by the stop, and its shares on B go to B's owners. Nothing it does on B survives.
-- **No branch is picked.** Picking any branch at a fork, even a finished one, lets a coalition play out a rival with what it read on the other side: the model finds exposures as soon as "a finished ending stands" is allowed (§6.4).
-- **Ratings.** The stop is the equivocator's forfeit, and never overrides a counted claim or resign, so no stop leaves the equivocator or its coalition better off than losing on time.
-- **S3.** Stops are a function of the held events, and monotone; the claim and resign races are unchanged (model: prompt shares add no exposure or forfeit to them).
+- **A standing result exposes nothing** *(round 3)*. Every honest release for a grant off X's path is anchored off X's path (its anchor is a descendant of the granting move), and so is every honest move there; by rule 6(b) X cannot stand while either exists. So everything a coalition read from honest seats was granted on X's path, before X's end. This holds for any coalition and any number of devices. Without the anchor clause it fails: a seat's second device attests side B while its first device released a share on side A, and B stands (an `exposure` in the model, §6.7).
+- **What a single adversary can no longer do** *(round 3)*. An honest client attests only a chain with no fork, and its own anchors all lie on that chain. So once every honest seat has attested X, no honest event is anchored off X's path, and with one equivocator X stands forever: E's later forks only record E. The window in which E can still stop a finished game is the time until every honest client has reached the end and attested, at most one deadline after the end (A3). During play a stop remains possible at any time, as a resign is.
+- **An honest seat that never saw A** (a second device, a partitioned client) may move on B until A reaches it. Its moves lie past the fork, so they are voided by the stop, and its shares on B go to B's owners. Nothing it does on B survives, and its anchors on B keep any result on A from standing.
+- **No branch is picked by the protocol.** A result stands only when every seat but E attested it and no seat but E acted off it; picking a side by any other test (a finished side, the lowest id) lets a coalition play out a rival with what it read on the other side (the model finds exposures, §6.4 and §6.7).
+- **Ratings.** The stop is E's rated loss (rule 5). A lone timed-out seat that forks to void its counted timeout gets the same rated last place. In a 2-seat game nothing changes the result in E's favour. With 3 or more seats, a coalition can still void a colluder's counted timeout (residual 2, §9).
+- **S3.** Stops, standing results and overrides are functions of the held events (rules 4, 6 and 7). What remains order-dependent is the claim and resign race with no fork held (PROTOCOL §11), unchanged.
 - **Liveness.** With every seat online a value is readable about one relay round trip after the move; with a seat offline, by the viewer's next turn (slow path). Nothing waits forever, and there is no interim stop to resume from.
 
 ### 5.3 The uses, with one shared pile
@@ -129,32 +142,33 @@ Nothing else changes: no new event kind, no Acks, no finality, no flags. It need
 - **U3, a public reveal of an unknown card (a Hanabi play).** Every seat's public share of the played card goes out at once. An equivocator who plays, reads its own card and plays something else instead stops the game on itself.
 - **U4, dice.** Contributions to a roll bound to the requesting move go out at once; a re-roll needs a rival move, which is a provable forfeit.
 
-### 5.4 The review's attacks under (e)
-1. **One key on two devices.** No votes exist. A second device that never saw A may play on B, but the moment A surfaces every client stops at the fork; the leak is never played on. Model (two devices per honest seat, every coalition): no exposure. What remains is accidental equivocation (§9): one human moving twice on one turn from two devices is a fork, and ends the game as that player's forfeit.
-2. **A stop as a rating escape:** the stop is the equivocator's forfeit (rule 5). Model: no rating gain.
-3. **Voiding a counted timeout or resign:** a stop never overrides one (rule 6). Model: no rating gain; with the "strictly above the head" variant, a colluder voids a counted timeout (regression).
+### 5.4 The reviews' attacks under (e)
+1. **One key on two devices.** No votes exist. A second device that never saw A may play on B, but the moment A surfaces every client stops at the fork; the leak is never played on. Model (two devices per honest seat, every coalition): no exposure. A human moving twice on one turn is prevented by rule 9 (check before signing), except within the seconds a move takes to reach the relays.
+2. **A stop as a rating escape:** the stop is E's rated loss (rule 5). Model: no rating gain.
+3. **Voiding a counted timeout or resign:** round 2 never overrode one, which diverged (A2). Round 3 overrides unless the result stands, and scores the stop as E's rated last place, so a lone seat gains nothing. Model: no rating gain or `void-forfeit` for a single adversary; a coalition can (residual 2).
 4. **Resurrection after a stop:** there is no resume. Honest humans who leave on a stop are never timed out (model, with `absence`).
-5. **Scapegoat abort.** With 3 or more seats, a stop is an unrated abort with the equivocator recorded, the same as a Resign during play. It is more than a Resign in two ways: the stop can be at any of the equivocator's earlier turns (the result is scored at that fork, not at the head), and it works even after the game ended (a Resign that arrives after the end changes nothing). The model reports the second as `ended-void`. Options for the owner (§9).
+5. **Scapegoat abort.** With 3 or more seats E can stop the game during play at any of its earlier turns, as an unrated game for the others and a rated last place for itself. After the end, a single E can do so only until every other seat has attested (rule 6). A colluder who never attests keeps a finished game open to its partner's fork (residual 2).
+6. **Round 2's A1, two devices and a resign.** Under round 2 one device froze on the resign while the other kept releasing shares, so a card of an ended game was read (an `exposure`). Under round 3 the resign does not stand (the resigner's partner never attested it), so the fork stops the game below it and the card is one read on a stopped branch (post-end, residual 1).
+7. **Round 2's A3, the stale outbox.** A tablet's move saved offline and rebroadcast weeks later forks its own seat: under round 2 it voided the finished game as that honest seat's forfeit. Under round 3 the result stands if every other seat attested it, but the honest seat is then recorded as an equivocator; rule 9's outbox rule drops the saved move instead. Model: honest forfeits and honest seats recorded without the rule, none with it.
 
 ### 5.5 Complexity, compared with "final, or stop" (§5B)
-| | (e) plain stop | final, or stop (§5B, round 2) |
+| | (e) plain stop with a cutoff | final, or stop (§5B, round 2) |
 |---|---|---|
-| New event kinds | none | Ack |
-| Automatic signed events per move | 0 (shares are values, not votes) | S−1 Acks, debounced |
+| New event kinds | none (the result attestation exists) | Ack |
+| Automatic signed events per move | 0 (shares are values, not votes); one attestation per seat at the end | S−1 Acks, debounced |
 | Prompt latency | one relay round trip | two |
-| Fork rule | any held fork stops | follow the side every other seat vouched for, unless two are, or a seat vouched for two |
-| Extra rules | none | vouch, finality, double-vouch flags, two deadlines after a fork, Hanabi stall attribution for missing Acks |
-| Multi-device | only a human moving twice on one turn | also automatic Acks from two devices (needs a device policy) |
-| Model state space | small (4 seats with single adversaries complete) | large (did not complete) |
-| Old forks | any equivocation stops the game, even a finished one (§5.4, 5) | a side every seat vouched for is never stopped |
-
-(e) wins everywhere except the last row: "final, or stop" bounds the window in which an equivocation can stop the game, (e) does not.
+| Fork rule | any held fork stops, unless a result stands (rule 6) | follow the side every other seat vouched for, unless two are, or a seat vouched for two |
+| Extra rules | the anchor tag, the cutoff, two device rules | vouch, finality, double-vouch flags, two deadlines after a fork, Hanabi stall attribution for missing Acks |
+| Multi-device | a device checks its own seat's events before signing; the outbox rule | also automatic Acks from two devices (needs a device policy) |
+| Model state space | complete at 4 seats with single adversaries and 8 moves (§6.7) | did not complete at 4 seats |
+| Old forks | during play, any equivocation stops; after the end, only until every other seat attested | a side every seat vouched for is never stopped |
+| Claims after a fork | the cutoff decides, on every client alike | round 2's rule 9 diverges as (e) round 2 did (A2, §6.7) |
 
 ### 5.6 Costs
-- **Events:** up to S−1 Shares events per granting move (as D039); no Acks.
+- **Events:** up to S−1 Shares events per granting move (as D039), each with one more tag; one result attestation per seat, published at the result. No Acks.
 - **Latency:** one relay round trip after the move.
-- **Policy:** any proven equivocation ends the game as the equivocator's forfeit, whenever it is found.
-- **Code** (after approval): fork stop and the stop result in `packages/client` (replacing fork choice), the prompt share duty in the web controller (D039's quiet duty, restored), the roll binding when the beacon is built, rebroadcast of held moves, simulator adversaries for every trace of §6.
+- **Policy:** any proven equivocation during play ends the game as the equivocator's forfeit; after the end, only before every other seat attested.
+- **Code** (after approval): fork stop, the cutoff and the stop result in `packages/client` (replacing fork choice); the anchor tag on Shares events in `packages/protocol`; the prompt share duty, the early attestation, the outbox rule and the check before signing in the web controller; the roll binding when the beacon is built; rebroadcast of held moves; simulator adversaries for every trace of §6.
 
 ## 5B. The alternative: final, or stop (round 2)
 Kept as the alternative to (e), and the place to start if the owner wants a bounded window for equivocation stops (§5.5, last row). Round 2 hardened it against the review; it gets no further model work while (e) holds.
