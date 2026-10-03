@@ -368,7 +368,19 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 - **The cutoff without the anchor clause** (`cutoff: 'attest'`, coalition {0, 2}, honest seat 1 on two devices): seat 0 signs a pass `0p1` to device 1b and a draw `0d0` to device 1a, which releases its share of position 0; on `0p1`, 1b draws position 0 and seat 2 finishes the game; 1b and seat 2 attest the end, which stands: `exposure`. With the anchor clause, 1a's share anchored on `0d0` keeps it from standing, and the game stops.
 - **The cutoff without the forfeiting seat's attestation** (`exemptLoser`, coalition {0, 1}): seat 1 claims a timeout against seat 2 at `0p1/1p1` and attests it, seat 0 forks at the root, and the claim stands with no honest attestation: `honest-forfeit`.
 - **A3, the stale outbox** (2 or 3 seats, honest seats on two devices): device 0b saves `0d1` offline, 0a plays `0d0`, and 0b publishes later: the game stops on honest seat 0's fork (`honest-forfeit`), or after the end is recorded against it (`honest-flagged`). With the outbox rule: no violation.
-- **Two devices and a claim** (2 seats, coalition {1}): device 0b counts seat 1's timeout at `0d0`; seat 1 signs two rivals on `0d0`; device 0a, which never saw the claim, plays on one of them to the end and attests; the end stands over the counted timeout (`rating`). With the check before signing, 0a fetches its seat's claim first and ends there: no violation.
+- **Two devices and a claim** (2 seats, coalition {1}): device 0b counts seat 1's timeout at `0d0`; seat 1 signs two rivals on `0d0`; device 0a, which never saw the claim, plays on one of them to the end and attests. Under the first wording of rule 6(b), 0a's moves past `0d0` block the claim and the end stands over the counted timeout (`rating`). Now the claim and the end lie on one line and neither blocks the other: two results stand (rule 6(c)), and the fork stops the game as seat 1's loss. Without the check before signing, the two devices can still end apart when no fork comes (the claim race, between one seat's devices); with it, 0a fetches its seat's claim first and ends there.
+- **Two devices and a resign** (2 seats, coalition {1}; found by battery B5c after the CI scope passed, so the first wording of rule 6(b) is kept as the regression `cutoff: 'path'`). Two traces, each closed by one half of the new wording:
+  ```
+  seat 0b moves (0d0);  seat 1 resigns naming 0d0 → 0a (which lacks 0d0);  seat 1 signs 0d0/1p1 → 0b;  0b moves (the end)
+  seat 1 signs 0d0/1p0;  deliver the rest   ⇒ 0a counts the resign at 0d0, 0b attested the end
+  first wording: 0b's move past 0d0 blocks the resign, the end stands over 0a's counted resign (rating)
+  now: events past a result's head do not block it; both stand (rule 6(c)), stop, seat 1's loss
+
+  0b moves (0d0);  seat 1 signs 0d0/1p1 → 0b and resigns naming it (0b counts it, attests);  seat 1 signs 0d0/1p0 → 0a
+  0a moves on 0d0/1p0 to the end and attests   ⇒ seat 0 attested two results on two sides
+  first wording (attestations not anchored): the end stands over 0b's counted resign (rating, even with the check)
+  now: 0b's attestation lies on another side of the fork, neither stands, stop, seat 1's loss
+  ```
 - **A1** (`stop`, coalition {0, 1}, honest seat 2 on two devices, a resign): `exposure` and `divergence` under round 2's rule; under `stop3`, post-end only.
 
 **Results.** Design `stop3`, an adversary attestation, the check before signing; every run complete. Counts are states showing the report, summed over the coalitions. The three-seat runs used `timeout` scoring, the CI and the 4-seat runs `last`; for a single adversary the two give the same reports (a lone E's voided forfeit becomes E's own rated last place under both, and an attested result stands under both), and the private row was also run with `last` (identical) and with `abort` (7,296 `void-forfeit` states).

@@ -559,7 +559,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
   });
 
-  it('two devices and a claim (2 seats): attestations count in the anchor clause; devices check their own events', () => {
+  it('two devices and a claim (2 seats): events past a result’s head do not block it; devices check their own events', () => {
     const scope = {
       ...e3,
       seats: 2,
@@ -575,8 +575,8 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     // counted timeout.
     const path = explore({ ...scope, cutoff: 'path', ownCheck: false, stopAt: ['rating'] });
     expect(path.violations.rating).toBeDefined();
-    // Device b's attestation of the claim lies on another side of the fork, so the end cannot stand: the fork
-    // stops the game as the opponent's loss. Without the check the two devices can still end apart (no fork).
+    // Now the counted claim and the end lie on one line and neither blocks the other: two results stand, and the
+    // fork stops the game as the opponent's loss. Without the check the two devices can still end apart (no fork).
     const loose = explore({ ...scope, ownCheck: false });
     expect(loose.complete).toBe(true);
     expectSafe(counts(loose));
@@ -597,8 +597,10 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
       devices: 2,
       advResigns: 1,
     } as const;
-    // Round 3's first wording: device a plays past the head of a resign that device b counted, the resigner forks
-    // after it, and device a's end stands over the counted resign (a 2-seat rating gain).
+    // Round 3's first wording: device a plays to the end past the head of a resign that device b counts late, or on
+    // the other side of the resigner's fork from it, and device a's end stands over the counted resign (a 2-seat
+    // rating gain). Now events past the head do not block the resign, and device b's attestation on the other side
+    // blocks the end.
     const path = explore({ ...scope, cutoff: 'path', stopAt: ['rating'] });
     expect(path.violations.rating).toBeDefined();
     const r = explore(scope);
