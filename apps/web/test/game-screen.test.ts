@@ -5,6 +5,7 @@ import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
   attestLine,
   equivocatorsOf,
+  forkLine,
   formatDeadline,
   placesText,
   playerNames,
@@ -144,6 +145,15 @@ describe('game chrome helpers (D045)', () => {
       'The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann.',
     );
     expect(placesText(viewOf({ outcome: null }), names)).toBe('');
+  });
+
+  it('notes an unrated end that holds only by the freeze (D056)', () => {
+    const outcome = { places: [1, 2, 3], reason: 'forfeit', scores: [3, 2, 1] };
+    expect(forkLine(viewOf({ phase: 'done', outcome }), ['Ann', 'Bo', 'Cy'])).toBeNull();
+    const forked = { ...outcome, unrated: true as const, endedBy: { type: 'fork' as const, seat: 2 } };
+    expect(forkLine(viewOf({ phase: 'done', outcome: forked }), ['Ann', 'Bo', 'Cy'])).toMatch(
+      /^Unrated: Cy signed two rival moves/,
+    );
   });
 
   it('counts the attestations once there is a result', () => {

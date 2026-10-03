@@ -170,6 +170,24 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
       expect(v.phase).toBe('end');
       expect(v.equivocators).toEqual([seat]);
     }
+    // Such an end, holding only by the freeze, is unrated with the forker recorded (D056 fix round 2): a colluder
+    // that reveals its secret early buys no rated result.
+    const secrets = [0, 1, 2].map((k) =>
+      k === honest ? secret : catchUp(game, k, [...beforeDeclare, ev]).buildSecret(game.rnd, LATE),
+    );
+    const frozen = catchUp(game, null, mid);
+    for (const e of [ev, ...secrets]) frozen.receive(e, LATE);
+    expect(frozen.view().phase).toBe('done');
+    expect(frozen.view().outcome?.unrated).toBe(true);
+    expect(frozen.view().outcome?.endedBy).toEqual({ type: 'fork', seat });
+    expect(frozen.view().outcome?.places[seat]).toBe(SEATS);
+    // The same end won without the freeze (the live chain not settled) stays rated.
+    const raced = catchUp(game, null, [...beforeDeclare, ev, ...secrets]);
+    raced.receive(log[beforeDeclare.length] as NostrEvent, LATE);
+    expect(raced.view().phase).toBe('done');
+    expect(raced.view().head.id).toBe(ev.id);
+    expect(raced.view().outcome?.unrated).toBeUndefined();
+    expect(raced.view().outcome?.places[seat]).toBe(SEATS);
     // The ender's own secret freezes nothing: it could otherwise force its rewind alone.
     const own = catchUp(game, seat, [...beforeDeclare, ev]).buildSecret(game.rnd, LATE);
     const watcher = catchUp(game, null, mid);

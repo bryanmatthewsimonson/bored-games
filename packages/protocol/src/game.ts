@@ -99,9 +99,12 @@ export type ParsedSecret = Parsed & SecretSpec;
 
 export type Audit = 'pass' | { fail: number[]; reason: string };
 
-/** Who ended a game outside its rules (PROTOCOL §7, §8.3, D052): for now only a Resign in a game of 3+ seats. */
+/**
+ * Who ended a game outside its rules (PROTOCOL §7, §8.3, D052): a Resign in a game of 3+ seats (`resign`), or an
+ * ending branch that holds only because a deck secret froze its fork (`fork`, D056 fix round 2: the forker).
+ */
 export interface EndedBy {
-  type: 'resign';
+  type: 'resign' | 'fork';
   seat: number;
 }
 
@@ -446,7 +449,8 @@ function outcomeOf(v: unknown): Outcome {
   if (extra.length === 0) return out;
   if (o.unrated !== true) badContent('outcome.unrated: expected true');
   const by = record(o.endedBy, 'outcome.endedBy', ['seat', 'type']);
-  if (by.type !== 'resign') badContent('outcome.endedBy.type: expected "resign"');
+  if (by.type !== 'resign' && by.type !== 'fork')
+    badContent('outcome.endedBy.type: expected "resign" or "fork"');
   if (
     typeof by.seat !== 'number' ||
     !Number.isSafeInteger(by.seat) ||
@@ -454,7 +458,7 @@ function outcomeOf(v: unknown): Outcome {
     by.seat >= places.length
   )
     badContent('outcome.endedBy.seat: expected a seat number');
-  return { ...out, unrated: true, endedBy: { type: 'resign', seat: by.seat as number } };
+  return { ...out, unrated: true, endedBy: { type: by.type as EndedBy['type'], seat: by.seat as number } };
 }
 
 /** Parse a Result attestation: shapes only. Whether it matches the audit is for the client. */

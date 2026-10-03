@@ -110,6 +110,18 @@ export function resignLine(view: SessionView | null, names: readonly string[]): 
 }
 
 /**
+ * The note for an unrated end that holds only because a deck secret froze its fork (D056, `endedBy` type `fork`):
+ * "Unrated: Ann signed two rival moves, and this end holds only because a player's secret was already out."
+ * Null otherwise.
+ */
+export function forkLine(view: SessionView | null, names: readonly string[]): string | null {
+  const by = view?.outcome?.endedBy;
+  if (by?.type !== 'fork') return null;
+  const who = names[by.seat] ?? `Seat ${by.seat + 1}`;
+  return `Unrated: ${who} signed two rival moves, and this end holds only because a player's secret was already out.`;
+}
+
+/**
  * "Result confirmed: signed by both players" (two seats) or "… by all 3 players", or "Result signed by 1 of 2
  * players so far", once the session has a result to attest; null before.
  */
@@ -354,6 +366,7 @@ export function GameScreen(props: { rootId: string }) {
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
   const resigned = resignLine(view, names);
+  const forked = forkLine(view, names);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
   const Component = game.Component;
@@ -379,6 +392,11 @@ export function GameScreen(props: { rootId: string }) {
       {resigned !== null && (
         <p class="warning game-resigned" role="status">
           {resigned}
+        </p>
+      )}
+      {forked !== null && (
+        <p class="warning" role="status">
+          {forked}
         </p>
       )}
       <Component

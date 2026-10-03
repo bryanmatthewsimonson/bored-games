@@ -3,8 +3,8 @@
  * Not a pure package: it holds sockets and timers.
  */
 export {
-  DEFAULT_BACKOFF_MS,
   DEAD_AFTER_MS,
+  DEFAULT_BACKOFF_MS,
   EOSE_TIMEOUT_MS,
   type EoseInfo,
   type Filter,
