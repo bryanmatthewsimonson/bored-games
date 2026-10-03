@@ -156,7 +156,7 @@ async function saveProfile(page: Page) {
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Save name and picture' }).click();
   await expect(dialog.getByText(/^Saved\./)).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close' }).first().click();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
 }
 
 const seatOf = (page: Page, name: string) => page.locator('.seat-list .seat').filter({ hasText: name });
@@ -325,8 +325,8 @@ test('the Settings dialog keeps its Close button in view on a phone, however far
     expect((box?.y ?? -1) >= 0 && (box?.y ?? 0) + (box?.height ?? 0) <= viewport.height).toBe(true);
     // Both Close buttons are in the viewport; the head's still works.
     const [top, bottom] = [
-      dialog.getByRole('button', { name: 'Close' }).first(),
-      dialog.getByRole('button', { name: 'Close' }).last(),
+      dialog.getByRole('button', { name: 'Close', exact: true }),
+      dialog.getByRole('button', { name: 'Close settings' }),
     ];
     await expect(top).toBeInViewport();
     await expect(bottom).toBeInViewport();
@@ -338,8 +338,65 @@ test('the Settings dialog keeps its Close button in view on a phone, however far
     await body.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    await dialog.getByRole('button', { name: 'Close' }).last().click();
+    await dialog.getByRole('button', { name: 'Close settings' }).click();
     await expect(dialog).toBeHidden();
     await context.close();
   }
+});
+
+test('a key changed in another tab blocks this tab, refuses its join, and is kept under Other keys (D057)', async ({
+  browser,
+}) => {
+  // A host in a browser of its own opens a Chess table.
+  const hostContext = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const host = await hostContext.newPage();
+  await host.goto(appUrl('host'));
+  await host.getByRole('link', { name: 'Chess', exact: true }).click();
+  await host.getByRole('button', { name: 'Create table' }).click();
+  await host.getByRole('button', { name: 'Create anyway' }).click();
+  await expect(host).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
+  const share = await host.getByLabel('Table link').inputValue();
+
+  // One browser: two tabs of profile "race" (one on the table), and one of profile "other".
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const page1 = await context.newPage();
+  await page1.goto(appUrl('race', share));
+  await expect(page1.getByRole('button', { name: 'Join this table' })).toBeVisible();
+  const oldKey = await page1.locator('.identity .npub').innerText();
+  const page2 = await context.newPage();
+  await page2.goto(appUrl('race'));
+  await expect(page2.locator('.identity .npub')).toHaveText(oldKey);
+  const other = await context.newPage();
+  await other.goto(appUrl('other'));
+  const otherKey = await other.locator('.identity .npub').innerText();
+
+  // Tab 2 replaces the profile's key, as a second page minting its own would.
+  await page2.evaluate(() => localStorage.setItem('bg:race:sk', '11'.repeat(32)));
+
+  // Tab 1 is blocked at once, and stops signing: even a join started by script is refused.
+  const dialog = page1.getByRole('alertdialog', {
+    name: 'Your key changed in another tab of this site. Reload to continue.',
+  });
+  await expect(dialog).toBeVisible();
+  await expect(page1.locator('main')).toHaveAttribute('inert', '');
+  await page1
+    .locator('button', { hasText: 'Join this table' })
+    .evaluate((b) => (b as HTMLButtonElement).click());
+  await expect(page1.getByText('Your key changed in this browser; reload.')).toBeVisible();
+  await expect(page1.getByText('You are seated.')).toHaveCount(0);
+  await expect(host.getByText('Every seat is taken.')).toHaveCount(0);
+
+  // The other profile is not affected.
+  await expect(other.getByRole('alertdialog')).toHaveCount(0);
+  await expect(other.locator('.identity .npub')).toHaveText(otherKey);
+
+  // After Reload, tab 1 plays as the stored key, and its old key is kept under Settings → Other keys.
+  await dialog.getByRole('button', { name: 'Reload' }).click();
+  await expect(page1.locator('.identity .npub')).not.toHaveText(oldKey);
+  const settings = await openSettings(page1);
+  await expect(settings.locator('.kept-keys .npub')).toHaveText([oldKey]);
+  await expect(settings.getByRole('button', { name: `Switch to ${oldKey}` })).toBeVisible();
+
+  await context.close();
+  await hostContext.close();
 });

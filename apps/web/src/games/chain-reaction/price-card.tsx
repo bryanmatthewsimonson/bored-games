@@ -175,15 +175,18 @@ export function PriceCardDialog(props: {
       }}
     >
       {open && (
-        <div class="dialog-body">
+        <>
+          {/* As in Settings (D057): the head stays in view and only the body scrolls. */}
           <div class="dialog-head">
             <h2 id="cr-price-card-h">Price card</h2>
             <button type="button" class="btn" onClick={onClose}>
               Close
             </button>
           </div>
-          <PriceCard rules={props.rules} theme={props.theme} sizes={props.sizes} />
-        </div>
+          <div class="dialog-body">
+            <PriceCard rules={props.rules} theme={props.theme} sizes={props.sizes} />
+          </div>
+        </>
       )}
     </dialog>
   );

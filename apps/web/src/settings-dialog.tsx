@@ -318,7 +318,12 @@ export function SettingsDialog() {
             <RelaySection />
             <IdentitySection />
             <div class="dialog-foot">
-              <button type="button" class="btn" onClick={() => (settingsOpen.value = false)}>
+              <button
+                type="button"
+                class="btn"
+                aria-label="Close settings"
+                onClick={() => (settingsOpen.value = false)}
+              >
                 Close
               </button>
             </div>

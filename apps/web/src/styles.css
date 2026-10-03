@@ -113,7 +113,9 @@ code {
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-  padding: 10px var(--gutter);
+  /* viewport-fit=cover (D057): keep clear of the notch and the rounded corners. */
+  padding: max(10px, env(safe-area-inset-top, 0px)) max(var(--gutter), env(safe-area-inset-right, 0px)) 10px
+    max(var(--gutter), env(safe-area-inset-left, 0px));
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -177,7 +179,8 @@ main {
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: var(--gutter);
+  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--gutter)
+    max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 main:focus {
@@ -208,7 +211,7 @@ main:focus {
 }
 
 .app-footer {
-  padding: 12px var(--gutter);
+  padding: 12px var(--gutter) max(12px, env(safe-area-inset-bottom, 0px));
   text-align: center;
   font-size: 0.85rem;
   color: var(--muted);
@@ -354,14 +357,18 @@ html:has(.blocking-overlay) {
 }
 
 .dialog-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
-  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* A head that is the dialog's own child (not inside its body) stays at the top while the body scrolls. */
+.dialog > .dialog-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
   padding: var(--gutter) var(--gutter) 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -410,7 +417,8 @@ html:has(.blocking-overlay) {
   width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: var(--gutter) var(--gutter) 0;
+  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right, 0px)) 0
+    max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 .banners .warning {
