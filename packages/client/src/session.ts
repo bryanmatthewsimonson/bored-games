@@ -1865,8 +1865,9 @@ export class GameSession {
    *   client never signs twice;
    * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
    *   never counts.
+   * With `shuffleOnly`, only the shuffle equivocators (the deal's stall attribution, D056).
    */
-  private equivocators(): number[] {
+  private equivocators(shuffleOnly = false): number[] {
     const out = new Set<number>();
     for (const key of this.rivalKeys) {
       const group = byId([...(this.candidates.get(key) as Map<Hex, Candidate>).values()].map((c) => c.m));
@@ -1876,9 +1877,21 @@ export class GameSession {
       const at = first.seq - 1;
       if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
       if (first.content.type === 'shuffle') out.add(seat);
+      else if (shuffleOnly) continue;
       else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
     return ascending(out);
+  }
+
+  /**
+   * Whether `seat` dealt on a rival deck (D056, review F7): a Shares event it signed is held that fails against the
+   * current final deck. An honest client's shares always verify against the deck it built them on, so for this
+   * client's own seat that means it dealt on another branch of a shuffle fork, and it must never deal again: the
+   * equivocating shuffler, knowing both decks' re-encryption factors, could translate its shares between them.
+   */
+  private dealtElsewhere(seat: number): boolean {
+    for (const s of this.badShares.values()) if (this.seatOf.get(s.pubkey) === seat) return true;
+    return false;
   }
 
   /** `m` judged as of its prev; definite judgements are kept. */
@@ -2088,7 +2101,8 @@ export class GameSession {
   /**
    * The seats stalled at the head (D030 R4), ascending:
    * - shuffle: the seat whose step is next;
-   * - deal: every seat whose owed deal positions are not all shared;
+   * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held on the chain:
+   *   then the shuffle equivocators alone (D056, review F7);
    * - play: the pending seat, unless the decision needs a card dealt to it that some other seat has not shared,
    *   in which case those seats; for a pending public reveal, the seats missing a share of it;
    * - end: every seat whose secret is not in;
@@ -2103,6 +2117,10 @@ export class GameSession {
       case 'shuffle':
         return [this.chain.length];
       case 'deal': {
+        // A shuffle fork held during the deal (D056, review F7): the shuffle equivocator is the stalled seat, never
+        // a seat that dealt on a rival deck and, under "never deal twice", will not deal again on this one.
+        const forkers = this.equivocators(true);
+        if (forkers.length > 0) return forkers;
         const dealt = this.module.dealt(this.state);
         return all.filter((k) => this.shares.missing(k, dealt).length > 0);
       }
@@ -2335,9 +2353,11 @@ export class GameSession {
     // After a timeout or a resign only the attestation can be due, and the secret a resign left owed (D052).
     const live = this.timedOut === null && this.ended() === null;
     if (live && this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
+    // Never deal twice (D056, review F7): a seat that dealt on a rival deck of a shuffle fork owes no deal here.
     if (
       live &&
       this.phase === 'deal' &&
+      !this.dealtElsewhere(me.seat) &&
       this.shares.missing(me.seat, this.module.dealt(this.state)).length > 0
     ) {
       return [{ kind: 'deal' }];
@@ -2468,6 +2488,15 @@ export class GameSession {
     // This seat made the proofs, so they need not be verified again.
     this.actionChecked.set(ev.id, null);
     return ev;
+  }
+
+  /**
+   * The ids of the shuffle steps on the canonical chain, in seq order: the deck this seat deals on. The web client
+   * republishes them with its deal (D056), so that every client holding the deal also holds the deck it was built
+   * on, and a shuffle fork the equivocator showed to some seats only is held by all.
+   */
+  deckSteps(): Hex[] {
+    return this.chain.slice(0, Math.min(this.shuffleSteps, this.chain.length)).map((m) => m.id);
   }
 
   /**
