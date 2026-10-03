@@ -185,9 +185,10 @@ describe('game chrome helpers (D045)', () => {
   it('offers Send anyway with a button that calls back (D056)', () => {
     let sent = 0;
     const tree = renderTree(SendAnyway({ onSend: () => sent++ }));
-    const [button] = findAll(tree, (el) => el.tag === 'button');
+    const buttons = findAll(tree, (el) => el.tag === 'button');
+    expect(buttons).toHaveLength(1);
     expect(spokenText(tree)).toMatch(/waiting for every relay/);
-    (button?.attrs.onClick as () => void)();
+    for (const b of buttons) (b.attrs.onClick as () => void)();
     expect(sent).toBe(1);
   });
 
