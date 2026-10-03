@@ -56,6 +56,14 @@ export default defineConfig({
       {
         test: { name: 'fuzz', root: 'tools/fuzz', include: ['test/**/*.test.ts'], testTimeout: 300_000 },
       },
+      {
+        test: {
+          name: 'protocol-model',
+          root: 'tools/protocol-model',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
     ],
   },
 });

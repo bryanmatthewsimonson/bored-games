@@ -1,6 +1,8 @@
 # Proposal: a fast tile reveal ("acknowledge, then share")
 
-**Status: Proposal, not built, and not yet cheat-proof.** Recorded by D042 (2026-10-02). D050 supersedes D042's gate: no prompt duty ships in any game until the prompt-reveal protocol (Phase K, `docs/proposals/prompt-reveal.md` when written) passes adversarial review; this design is one of K's candidates. The goal is a reveal that no seat, alone or with colluders, can use to expose another player's tile. This design is a candidate for that goal, not an established result:
+**Superseded as the main document by [`prompt-reveal.md`](prompt-reveal.md) (Phase K, D055),** which keeps the Acks, drops fork choice in favour of fork stop, and closes the late-Ack and honest-split problems described here. This file is kept as history.
+
+**Status: Proposal, not built, and not yet cheat-proof.** Recorded by D042 (2026-10-02). D050 supersedes D042's gate: no prompt duty ships in any game until the prompt-reveal protocol (Phase K, `docs/proposals/prompt-reveal.md`) passes adversarial review; this design is one of K's candidates. The goal is a reveal that no seat, alone or with colluders, can use to expose another player's tile. This design is a candidate for that goal, not an established result:
 - The first review (Phase A) found a **late-Ack attack** (§4.2) that breaks the base design (§2).
 - The recommended amendments (§5) close that attack as far as we can tell, but leave one case open: **honest splits** (§5.3).
 - Nothing here ships until an adversarial review of the design and of its code signs it off (§7).

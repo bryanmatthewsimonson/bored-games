@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "vectors": "node scripts/vectors.ts",
+    "vectors": "node scripts/vectors.ts && node scripts/sealed-vectors.ts",
     "bench": "node scripts/bench.ts"
   },
   "dependencies": {
