@@ -7,7 +7,6 @@ import { G, q } from '../src/group.ts';
 import { randomScalar } from '../src/random.ts';
 import {
   openAndVerify,
-  openSealedShare,
   proveOpening,
   type SealedOpening,
   type SealedShare,
@@ -48,14 +47,23 @@ const Xk = keys[k] as Point;
 const XT = keys[T] as Point;
 const sealed = sealShare(xk, ct, XT, ctx, rnd);
 
+/** The bare algebra `B − x·A`, unverified: test-only, since `sealed.ts` exports no unverified opening. */
+const rawOpen = (x: bigint, s: Pick<SealedShare, 'A' | 'B'>): Point => s.B.subtract(s.A.multiply(x));
+/** The verified opening, which must succeed here. */
+const open = (x: bigint, from: Point, s: SealedShare): Point => {
+  const D = openAndVerify(x, from, ct, s, ctx);
+  if (D === null) throw new Error('openAndVerify refused a genuine sealed share');
+  return D;
+};
+
 describe('sealed shares: round trip', () => {
   it('verifies, and only the recipient opens it to the sender’s decryption share', () => {
     expect(verifySealedShare(Xk, ct, XT, sealed, ctx)).toBe(true);
-    const D = openSealedShare(xT, sealed);
+    const D = open(xT, Xk, sealed);
     expect(D.equals(ct.a.multiply(xk))).toBe(true);
-    // Any other secret opens it to something else.
-    expect(openSealedShare(secrets[0] as bigint, sealed).equals(D)).toBe(false);
-    expect(openSealedShare(xk, sealed).equals(D)).toBe(false);
+    // Any other secret opens the bare pair to something else (and openAndVerify refuses it, below).
+    expect(rawOpen(secrets[0] as bigint, sealed).equals(D)).toBe(false);
+    expect(rawOpen(xk, sealed).equals(D)).toBe(false);
   });
 
   it('decrypts a card visible to every seat but its owner (a Hanabi-style viewer set)', () => {
@@ -67,12 +75,12 @@ describe('sealed shares: round trip', () => {
     expect(verifySealedShare(keys[2] as Point, ct, keys[1] as Point, s21, ctx)).toBe(true);
     const at1 = combine(ct, [
       owner.D,
-      openSealedShare(secrets[1] as bigint, s21),
+      open(secrets[1] as bigint, keys[2] as Point, s21),
       ownShare(secrets[1] as bigint, ct),
     ]);
     const at2 = combine(ct, [
       owner.D,
-      openSealedShare(secrets[2] as bigint, s12),
+      open(secrets[2] as bigint, keys[1] as Point, s12),
       ownShare(secrets[2] as bigint, ct),
     ]);
     expect(cardOf(table, at1)).toBe(17);
@@ -80,8 +88,8 @@ describe('sealed shares: round trip', () => {
     // The owner holds its own layer and the public share only: the two sealed pairs open to garbage for it.
     const guess = combine(ct, [
       ownShare(secrets[0] as bigint, ct),
-      openSealedShare(secrets[0] as bigint, s12),
-      openSealedShare(secrets[0] as bigint, s21),
+      rawOpen(secrets[0] as bigint, s12),
+      rawOpen(secrets[0] as bigint, s21),
     ]);
     expect(cardOf(table, guess)).toBe(null);
   });
@@ -92,7 +100,7 @@ describe('sealed shares: round trip', () => {
     expect(a.A.equals(b.A) && a.B.equals(b.B) && a.c === b.c && a.s1 === b.s1 && a.s2 === b.s2).toBe(true);
     const c = sealShare(xk, ct, XT, ctx, rnd);
     expect(c.A.equals(sealed.A)).toBe(false);
-    expect(openSealedShare(xT, c).equals(openSealedShare(xT, sealed))).toBe(true);
+    expect(open(xT, Xk, c).equals(open(xT, Xk, sealed))).toBe(true);
   });
 });
 
@@ -138,7 +146,7 @@ describe('sealed shares: tampering and misbinding are rejected', () => {
 
   it('cannot be retargeted: the same pair, or the opened share sealed anew without the sender’s secret, fails', () => {
     // Seat 0 holds nothing of seat 1's secret: re-encrypting the opened D to seat 0 has no valid proof.
-    const D = openSealedShare(xT, sealed);
+    const D = open(xT, Xk, sealed);
     const r = randomScalar(rnd);
     const forged: SealedShare = { ...sealed, A: G.multiply(r), B: D.add((keys[0] as Point).multiply(r)) };
     expect(verifySealedShare(Xk, ct, keys[0] as Point, forged, ctx)).toBe(false);
@@ -180,8 +188,8 @@ describe('sealed shares: tampering and misbinding are rejected', () => {
     expect(() => sealShare(xk, ct, Xk, ctx, rnd)).toThrow(/own key/);
     expect(() => sealShare(xk, { a: Z, b: ct.b }, XT, ctx, rnd)).toThrow(RangeError);
     expect(() => sealShare(xk, ct, XT, { ...ctx, pos: -1 }, rnd)).toThrow(RangeError);
-    expect(() => openSealedShare(0n, sealed)).toThrow(RangeError);
-    expect(() => openSealedShare(xT, { A: Z, B: sealed.B })).toThrow(RangeError);
+    expect(openAndVerify(0n, Xk, ct, sealed, ctx)).toBe(null);
+    expect(openAndVerify(xT, Xk, ct, { ...sealed, A: Z }, ctx)).toBe(null);
   });
 });
 

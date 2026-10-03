@@ -13,7 +13,9 @@ import type { RandomBytes } from './random.ts';
  * Seat k's decryption share `D = x_k·R` of deck position j (ciphertext `(R, S)`) is ElGamal-encrypted to seat T's
  * deck key `X_T`: `(A, B) = (r·G, D + r·X_T)`. A generalized Chaum–Pedersen proof shows knowledge of `(x_k, r)`
  * with `X_k = x_k·G`, `A = r·G` and `B = x_k·R + r·X_T` (three equations, one challenge). Anyone can verify it;
- * only T can open it (`openAndVerify`), and T can later prove what it opened (`proveOpening`).
+ * only T can open it (`openAndVerify`), and T can later prove what it opened (`proveOpening`). There is no
+ * unverified opening: `B − x_T·A` on a pair nobody checked opens to whatever a forger wants (round-3 review), so the
+ * only way to open is `openAndVerify`, and the only way to publish an opening is `proveOpening`, which verifies.
  *
  * Nonces are hedged: each secret scalar is `HS(label, secret, transcript, fresh random bytes)`, so a broken or
  * repeating random source does not reuse a nonce across statements or secrets (round-2 review). The package's
@@ -159,19 +161,6 @@ export function verifySealedShare(
   } catch {
     return false;
   }
-}
-
-/**
- * LOW LEVEL, not exported from the package: `D = B − xT·A` with no check at all. An unverified pair opens to
- * garbage, or to whatever a forger wants it to; callers use `openAndVerify`.
- */
-export function openSealedShare(xT: bigint, sealed: Pick<SealedShare, 'A' | 'B'>): Point {
-  if (!isSecret(xT)) throw new RangeError('openSealedShare: xT must lie in [1, q)');
-  if (!isPoint(sealed.A) || !(sealed.B instanceof PointClass))
-    throw new RangeError('openSealedShare: A and B must be points, A not the identity');
-  const D = sealed.B.subtract(sealed.A.multiply(xT));
-  if (D.is0()) throw new RangeError('openSealedShare: opened to the identity');
-  return D;
 }
 
 /**
