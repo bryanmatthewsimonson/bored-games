@@ -130,9 +130,21 @@ export interface Scope {
   /**
    * `stop3`, 3 or more seats: how a stop scores. `abort` (default, the owner's abort policy): unrated, the
    * equivocator recorded. `timeout`: as the equivocator's timeout at the fork (rated last, the others by standings
-   * there), so a stalled seat that forks at its own head scores exactly as its timeout.
+   * there), so a stalled seat that forks at its own head scores exactly as its timeout. `last`: the equivocator
+   * rated last and recorded, the game unrated for every other seat.
    */
-  readonly stopScore?: 'abort' | 'timeout';
+  readonly stopScore?: 'abort' | 'timeout' | 'last';
+  /**
+   * `stop3` variants, kept as regressions: `cutoff: 'attest'` drops the anchor clause (a result stands once every
+   * seat but E attested it); `exemptLoser` does not ask the forfeiting seat of a claim or resign to attest it.
+   */
+  readonly cutoff?: 'anchor' | 'attest';
+  readonly exemptLoser?: boolean;
+  /**
+   * Device policy (ii), round 3: before signing a move, a device fetches every event its seat published from any
+   * device (as a query to the relays), and a device counts its own seat's claims.
+   */
+  readonly ownCheck?: boolean;
   /** The adversary may also sign moves that draw two positions. */
   readonly multiDraw?: boolean;
   /** Honest humans leave when their client shows a stop, and return one deadline after a resume. */
@@ -553,6 +565,19 @@ class Explorer {
     }
   }
 
+  /** Events signed by `c`'s seat (on any device) that `c` lacks, with the moves they build on. */
+  private ownEvents(st: State, c: Client): string[] {
+    const out = new Set<string>();
+    const get = (id: string) => st.events.get(id) as MoveEv;
+    for (const e of st.events.values()) {
+      if (e.seat !== c.seat || c.has.has(e.id)) continue;
+      out.add(e.id);
+      const at = e.t === 'move' ? e.prev : e.t === 'share' || e.t === 'claim' || e.t === 'resign' || e.t === 'attest' ? e.head : ROOT;
+      if (at !== ROOT && st.events.has(at)) for (const id of pathTo(at, get)) if (!c.has.has(id)) out.add(id);
+    }
+    return [...out];
+  }
+
   /** Client `c` holds every event that some honest client holds. */
   private synced(st: State, c: Client): boolean {
     for (const x of st.clients) for (const id of x.has) if (!c.has.has(id)) return false;
@@ -824,9 +849,17 @@ class Explorer {
    * Honest seat `i` makes its move, if it is pending and has not built on the head: a human decision, so the
    * scheduler picks when. It draws and carries every share it owes as of the head (the slow path, PROTOCOL §6.2).
    */
-  private honestMove(st: State, i: number): State | null {
+  private honestMove(st0: State, i: number): State | null {
+    let st = st0;
+    if ((st.clients[i] as Client).frozen !== null || (st.clients[i] as Client).absent) return null;
+    // `ownCheck` (round 3, device policy (ii)): before signing, the device fetches every event its seat published
+    // from any device (with their prevs) and acts on what it then holds.
+    if (this.s.ownCheck === true) {
+      const ids = this.ownEvents(st, st.clients[i] as Client);
+      if (ids.length > 0) st = this.settle(deliver(st, i, ids));
+    }
     const c = st.clients[i] as Client;
-    if (c.frozen !== null || c.absent) return null;
+    if (c.frozen !== null) return null;
     const v = this.view(st, c);
     const me = c.seat;
     if (v.status !== 'live' || v.pending !== me) return null;
@@ -877,6 +910,17 @@ class Explorer {
       if (e.t === 'resign' && onChain.has(e.head) && (best === null || e.id < best.id)) best = e;
     }
     if (best !== null) return { path: v.path, reason: 'resign', seat: best.seat };
+    // Round 3 (\`stop3\`): a claim by this client's own seat, from another device, at a head on its chain counts
+    // there: that device's deadline passed (device policy (ii), with \`ownCheck\`).
+    if (this.s.design === 'stop3') {
+      const get = (id: string) => v.byId.get(id) as MoveEv;
+      for (const id of c.has) {
+        const e = st.events.get(id) as Ev;
+        if (e.t !== 'claim' || e.seat !== c.seat || !onChain.has(e.head)) continue;
+        const path = e.head === ROOT ? [] : pathTo(e.head, get);
+        if (path.length % this.s.seats !== c.seat) return { path, reason: 'claim', seat: path.length % this.s.seats };
+      }
+    }
     // A claim counts when its head is the head, this client's deadline passed there, and its claimant is not
     // the stalled (pending) seat.
     if (c.expired === v.head && c.expiredCount >= this.claimNeed(c, st)) {
@@ -1025,24 +1069,24 @@ class Explorer {
         // every client). With 2 seats the stop is the same rated loss; with 3 or more, a rated timeout becoming an
         // unrated abort, or the record moving to another coalition seat, is reported apart (an owner question).
         if (s.design === 'stop3') {
-          const head = f.path.at(-1) ?? ROOT;
-          const was = outcomeOf(s, lost.reason, lost.path.at(-1) ?? ROOT, lost.seat);
-          const now = outcomeOf(s, f.end, head, f.end === 'stop' ? (f.view.stopSeat as Seat) : (f.frozen?.seat ?? -1));
-          // Not a gain: the same score, or (`timeout` scoring) a resign's unrated abort becoming the resigner's
-          // own rated last place.
-          const worse = s.stopScore === 'timeout' && lost.reason === 'resign' && now === `timeout:${lost.seat}@${head}`;
-          if (was !== now && !worse) this.report(s.seats === 2 ? 'rating' : 'void-forfeit', detail, trace);
+          // A coalition seat gains when its score changes to anything but a rated last place (a timeout becoming
+          // an unrated abort, a standing moved to another head, the record moved to another seat).
+          const was = scores(s, lost.reason, lost.path.at(-1) ?? ROOT, lost.seat);
+          const now = scores(s, f.end, f.path.at(-1) ?? ROOT, loserOf(f));
+          const gain = [...this.coalition].some((x) => was[x] !== now[x] && now[x] !== 'last');
+          if (gain) this.report(s.seats === 2 ? 'rating' : 'void-forfeit', detail, trace);
         } else if (!sameEffect) this.report('rating', detail, trace);
       }
     }
-    // Finality (round 3): the scored outcome of a result every honest seat attested is the outcome on every honest
-    // client (a label change with the same score, such as a 2-seat timeout of E becoming E's stop, is fine).
+    // Finality (round 3): the scores of a result every honest seat attested are the scores on every honest client
+    // (a label change with the same scores, such as a 2-seat timeout of E becoming E's stop, is fine, and so is a
+    // 2-seat result becoming the equivocator's loss).
     if (s.design === 'stop3') {
       const bySeat = new Map<Seat, Map<string, string>>();
       for (const e of st.events.values())
         if (e.t === 'attest' && !this.coalition.has(e.seat)) {
           const m = bySeat.get(e.seat) ?? new Map<string, string>();
-          m.set(`${e.kind}:${e.head}`, outcomeOf(s, e.kind, e.head, e.loser));
+          m.set(`${e.kind}:${e.head}`, scores(s, e.kind, e.head, e.loser).join(','));
           bySeat.set(e.seat, m);
         }
       const first = bySeat.get(this.honest[0] as Seat);
@@ -1050,9 +1094,10 @@ class Explorer {
         if (!this.honest.every((h) => bySeat.get(h)?.has(r) === true)) continue;
         for (const [i, f] of finals.entries()) {
           const head = f.path.at(-1) ?? ROOT;
-          const loser = f.end === 'stop' ? (f.view.stopSeat as Seat) : (f.frozen?.seat ?? -1);
-          const got = outcomeOf(s, f.end, head, loser);
-          if (got !== score)
+          const now = scores(s, f.end, head, loserOf(f));
+          const got = now.join(',');
+          // A 2-seat stop that turns an attested result into the equivocator's loss harms no honest seat.
+          if (got !== score && !this.honest.every((h) => now[h] === 'first'))
             this.report(
               'attested-void',
               `every honest seat attested ${r} (${score}), but ${this.who(st.clients[i] as Client)} ends on ` +
@@ -1215,16 +1260,27 @@ function hasAcks(d: Design): boolean {
 }
 
 /**
- * A result's score: 2 seats, a timeout, resign or stop of L is L's rated loss; 3 or more, a timeout is L's rated
- * last place at that head (the others by standings there), a resign is an unrated abort recording L (the owner's
- * abort policy), and a stop is either (`stopScore`). A natural end is scored at its head.
+ * A result's score, per seat. 2 seats: a timeout, resign or stop of L is L's rated loss (`last`) and the other's
+ * win. 3 or more: a timeout is L's rated last place at that head, the others by standings there; a resign is an
+ * unrated abort recording L (the owner's abort policy, D052); a stop scores by `stopScore` (`abort` as a resign,
+ * `timeout` as L's timeout at the fork, `last` as L's rated last place with the game unrated for the others). A
+ * natural end is scored by standings at its head.
  */
-function outcomeOf(s: Scope, end: string, head: string, loser: Seat): string {
-  if (end === 'over') return `over@${head}`;
-  if (end === 'live') return `live@${head}`;
-  if (s.seats === 2) return `loss:${loser}`;
-  if (end === 'claim' || (end === 'stop' && s.stopScore === 'timeout')) return `timeout:${loser}@${head}`;
-  return `abort:${loser}`;
+function scores(s: Scope, end: string, head: string, loser: Seat): string[] {
+  return Array.from({ length: s.seats }, (_, x) => {
+    if (end === 'over') return `standing@${head}`;
+    if (end === 'live') return `live@${head}`;
+    if (s.seats === 2) return x === loser ? 'last' : 'first';
+    const stop = end === 'stop' ? (s.stopScore ?? 'abort') : null;
+    if (end === 'claim' || stop === 'timeout') return x === loser ? 'last' : `standing@${head}`;
+    if (stop === 'last') return x === loser ? 'last' : 'unrated';
+    return x === loser ? 'unrated-recorded' : 'unrated';
+  });
+}
+
+/** The forfeiting seat of a client's final result (-1 for a natural end or a live game). */
+function loserOf(f: { readonly end: string; readonly frozen: Frozen | null; readonly view: View }): Seat {
+  return f.end === 'stop' ? (f.view.stopSeat as Seat) : (f.frozen?.seat ?? -1);
 }
 
 /** Designs in which a stop is scored as the equivocator's forfeit (round 2 and candidate (d)). */
@@ -1474,11 +1530,13 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       if (!valid(R)) continue;
       if (!ancestor(R.head, at) && !ks.some((k) => ancestor(k.id, R.head))) continue;
       let all = true;
-      for (let x = 0; x < s.seats; x++) if (x !== E && !g.seats.has(x)) all = false;
+      for (let x = 0; x < s.seats; x++)
+        if (x !== E && !g.seats.has(x) && !(s.exemptLoser === true && x === R.loser)) all = false;
       if (!all) continue;
       const off =
-        [...byId.values()].some((m) => m.seat !== E && !ancestor(m.id, R.head)) ||
-        anchors.some((a) => a.seat !== E && !ancestor(a.head, R.head));
+        s.cutoff !== 'attest' &&
+        ([...byId.values()].some((m) => m.seat !== E && !ancestor(m.id, R.head)) ||
+          anchors.some((a) => a.seat !== E && !ancestor(a.head, R.head)));
       if (off) continue;
       found.add(key);
       one = R;
