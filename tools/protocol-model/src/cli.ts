@@ -15,6 +15,9 @@
  *   --rule9 at-or-past|strict|none         when a stop overrides a counted claim or resign
  *   --attests 1                            stop3: attestations the adversary may sign
  *   --stale 1        --outbox-rule         honest moves saved offline and published late; the controller rule
+ *   --stop-score abort|timeout|last        stop3, 3 or more seats: how a stop scores (default abort)
+ *   --own-check                            stop3: a device fetches its seat's own events before signing a move
+ *   --cutoff anchor|attest   --exempt-loser   stop3 regressions: no anchor clause; the loser need not attest
  *   --max-states 5000000                   give up past this many states per run (reported as incomplete)
  *   --traces                               print the first trace of every violation kind
  *
@@ -49,6 +52,10 @@ const { values } = parseArgs({
     attests: { type: 'string', default: '1' },
     stale: { type: 'string', default: '0' },
     'outbox-rule': { type: 'boolean', default: false },
+    'stop-score': { type: 'string', default: 'abort' },
+    'own-check': { type: 'boolean', default: false },
+    cutoff: { type: 'string', default: 'anchor' },
+    'exempt-loser': { type: 'boolean', default: false },
   },
 });
 
@@ -105,6 +112,10 @@ for (const design of designs) {
         advAttests: num(values.attests, 'attests'),
         stale: num(values.stale, 'stale'),
         outboxRule: values['outbox-rule'],
+        stopScore: values['stop-score'] as 'abort' | 'timeout' | 'last',
+        ownCheck: values['own-check'],
+        cutoff: values.cutoff as 'anchor' | 'attest',
+        exemptLoser: values['exempt-loser'],
         ...(values.rule9 === undefined ? {} : { rule9: values.rule9 as 'at-or-past' | 'strict' | 'none' }),
       });
       states += r.states;
