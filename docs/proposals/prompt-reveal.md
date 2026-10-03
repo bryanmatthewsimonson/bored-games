@@ -431,8 +431,8 @@ Rows 1–16 were tried against "final, or stop" (§5B), by hand and, where marke
 | 18 | **(e) Late-Ack reorg and honest splits** | No Acks and no fork choice: any fork stops. Model (late-Ack depth, every coalition): no exposure, no divergence. |
 | 19 | **(e) Re-roll by equivocating** | A rival move has its own roll point, and is a forfeit. Model (`roll`): no exposure. |
 | 20 | **(e) Read one's own card through a played rival** (Hanabi) | The rival stops the game on the player. Model (`public`): no exposure. |
-| 21 | **(e) Claim and resign races** with prompt shares | Unchanged from v1; a stop never overrides a counted claim or resign. Model: claim race only, no exposure or honest forfeit. |
-| 22 | **(e) A colluder voids a counted timeout** with a fork below its head | Possible if a stop may override a claim at forks strictly above its head (the owner's sketch); closed by never overriding (rule 6). Model: regression. |
+| 21 | **(e) Claim and resign races** with prompt shares | Unchanged from v1; a stop never overrides a counted claim or resign. Model: claim race only, no exposure or honest forfeit. *Round 3: with a fork held this diverges (row 26).* |
+| 22 | **(e) A colluder voids a counted timeout** with a fork below its head | Possible if a stop may override a claim at forks strictly above its head (the owner's sketch); closed by never overriding (round 2's rule 6). Model: regression. *Round 3 overrides again, but only where the result does not stand, and scores the stop as E's rated last place (rows 26, 27, 29).* |
 | 23 | **(e) "A finished ending stands"** | Picking a branch: a coalition finishes its rival after reading on the other side. Model: exposure (regression). Not adopted. |
 | 24 | **(e) Void a finished game** by re-signing an old move (3+ seats) | Works: an unrated, recorded abort after the end (`ended-void`). Owner question (§9). |
 | 25 | **(e) One key on two devices** | A device that never saw A plays on B until A surfaces, then the game stops; the leak is never played on. Model: no exposure. A human moving twice on one turn is an equivocation (§9). |
