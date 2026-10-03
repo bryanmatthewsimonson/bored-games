@@ -79,9 +79,11 @@ import type {
  * kept in a pool until what it depends on arrives, or rejected. After every event the pool is retried until nothing
  * more applies, so every client that holds the same events reaches the same state.
  *
- * The chain is chosen by fork choice (D030 Ruling 5): from the root, at each prev, the successor that heads the
- * longest valid branch, counted in accepted moves, with ties going to the lowest event id. A late rival on an old
- * prev is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
+ * The chain is chosen by fork choice (D030 Rulings 5 and 9, D056): from the root, at each prev, the successor that
+ * heads the best valid branch: one that reaches the module's `over` or is settled (every seat but the forker played
+ * on it; not at a fork frozen by a revealed deck secret) first, then the longest, counted in accepted moves, then
+ * one that reaches `over`, with ties going to the lowest event id. A late rival on an old prev that no other seat
+ * played on is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
  * steps by the step's seat on the chain's prev, proofs or not (Ruling 12). Play goes on, and at the end the
  * flagged seats move to the last places (R5).
