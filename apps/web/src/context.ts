@@ -24,6 +24,8 @@ export interface AppContext {
   signer: Signer;
   /** False when the identity key lives in memory only (site data blocked) and is lost on reload. */
   persistent: boolean;
+  /** True while "Your previous key was not found" is due (`lostKeyReported`, D057). */
+  lostPrevious: boolean;
   settings: Settings;
   /** Whether the Settings dialog is open. */
   settingsOpen: Signal<boolean>;

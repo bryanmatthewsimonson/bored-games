@@ -166,6 +166,9 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   await a.page.getByLabel('Players', { exact: true }).selectOption(String(SEATS));
   await expect(a.page.getByText(`${SEATS - 1} open seats`)).toBeVisible();
   await a.page.getByRole('button', { name: 'Create table' }).click();
+  // A key never backed up is asked first (D057); a ticks "Don't ask again for this key".
+  await a.page.getByLabel("Don't ask again for this key").check();
+  await a.page.getByRole('button', { name: 'Create anyway' }).click();
   await expect(a.page).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.page.getByLabel('Table link').inputValue();
   expect(share).not.toContain('profile=');

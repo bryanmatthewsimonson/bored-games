@@ -33,8 +33,11 @@ export interface Signer {
   kind: SignerKind;
 }
 
-/** A loaded identity: its signer, and whether its key survives a reload (NIP-07 keys always do). */
-export type LoadedSigner = Signer & { persistent: boolean };
+/**
+ * A loaded identity: its signer, whether its key survives a reload (NIP-07 keys always do), and whether a lost
+ * key is still to be reported (`lostKeyReported`, D057).
+ */
+export type LoadedSigner = Signer & { persistent: boolean; lostPrevious: boolean };
 
 /** The parts of the NIP-07 `window.nostr` object that this app uses. */
 export interface Nip07 {
@@ -149,17 +152,61 @@ export async function loadIdentity(
   nostr?: Nip07,
 ): Promise<LoadedSigner> {
   if (nostr !== undefined && readSignerChoice(profile, store) === 'nip07')
-    return { ...(await nip07Signer(nostr)), persistent: true };
+    return { ...(await nip07Signer(nostr)), persistent: true, lostPrevious: lostKeyReported(profile, store) };
   const key = storageKey(profile, 'sk');
   let sk = validSecretKey(readItem(store, key));
   if (sk === null) {
+    // A new key where this profile has traces of an older one: that key was lost (D057). Say so until dismissed.
+    if (previousKeyTraces(profile, store)) writeItem(store, lostKey(profile), '1');
     sk = newSecretKey(rnd);
     writeItem(store, key, bytesToHex(sk));
   }
+  const signer = localSigner(sk, rnd);
+  // Which local key this profile had, so that its loss can be told from a profile that never had one.
+  if (readItem(store, localPubKey(profile)) !== signer.pubkey)
+    writeItem(store, localPubKey(profile), signer.pubkey);
   // Persistent only if the key reads back from a store that outlives the page.
   const persistent = isPersistentStore(store) && readItem(store, key) === bytesToHex(sk);
-  return { ...localSigner(sk, rnd), persistent };
+  return { ...signer, persistent, lostPrevious: lostKeyReported(profile, store) };
 }
+
+const lostKey = (profile: string): string => storageKey(profile, 'key-lost');
+/** The public key of the local key this profile last loaded (D057). */
+const localPubKey = (profile: string): string => storageKey(profile, 'sk-pub');
+
+/**
+ * Whether this profile shows signs of a local key it no longer has (D057), read before a new key is made: a stored
+ * key that is malformed, the recorded public key of a local key, kept keys (or the older single kept key), a
+ * backup record, or tables listed while the extension was never chosen (a profile that switched from the extension
+ * has tables of the extension's key, so its tables alone say nothing). A profile that never had a key has none.
+ */
+export function previousKeyTraces(profile: string, store: KeyValueStore): boolean {
+  return (
+    readItem(store, storageKey(profile, 'sk')) !== null ||
+    readItem(store, localPubKey(profile)) !== null ||
+    readItem(store, historyKey(profile)) !== null ||
+    readItem(store, legacyPreviousKey(profile)) !== null ||
+    readItem(store, backupKey(profile)) !== null ||
+    (readItem(store, storageKey(profile, 'signer')) === null && loadTableList(profile, store).length > 0)
+  );
+}
+
+/** True while the "previous key was not found" banner is due: set when a key is lost, cleared by dismissing it. */
+export function lostKeyReported(profile: string, store: KeyValueStore): boolean {
+  return readItem(store, lostKey(profile)) === '1';
+}
+
+export function dismissLostKey(profile: string, store: KeyValueStore): void {
+  removeItem(store, lostKey(profile));
+}
+
+/** The rest of the page banner for a key that is not being saved (D057: a reload loses it too). */
+export const UNSAVED_KEY_BANNER =
+  'This browser is blocking site storage, so a reload or a closed tab loses your key and your seats. Allow site data, or back up your key from Settings.';
+
+/** The lost-key banner (D057). */
+export const LOST_KEY_NOTICE =
+  'Your previous key was not found in this browser, so a new one was made. Games you joined before may need it.';
 
 /** The notice shown when the extension was chosen in Settings but is not there at load. */
 export const EXTENSION_MISSING_NOTICE = "Browser extension not found; using this profile's local key.";
@@ -433,13 +480,72 @@ export function backupReminderVisible(
 }
 
 /**
- * Before joining a table (D057): ask a player whose local key was never backed up to copy it first, since the seat
- * belongs to that key. Never for the extension, which keeps its own key.
+ * Before joining a table or creating one (D057): ask a player whose local key was never backed up to copy it first,
+ * since the seat belongs to that key, unless they chose "Don't ask again for this key". Never for the extension,
+ * which keeps its own key.
  */
 export function joinBackupNeeded(
   profile: string,
   store: KeyValueStore,
   signer: { kind: SignerKind; pubkey: Hex },
 ): boolean {
-  return signer.kind === 'local' && !isBackedUp(profile, store, signer.pubkey);
+  return (
+    signer.kind === 'local' &&
+    !isBackedUp(profile, store, signer.pubkey) &&
+    !pubkeySet(store, backupSkipKey(profile)).includes(signer.pubkey)
+  );
+}
+
+const backupSkipKey = (profile: string): string => storageKey(profile, 'backup-skip');
+
+/** "Don't ask again for this key" (D057): no backup prompt before joins or new tables with `pubkey`. */
+export function skipBackupPrompt(profile: string, store: KeyValueStore, pubkey: Hex): boolean {
+  return addToPubkeySet(store, backupSkipKey(profile), pubkey);
+}
+
+/** Refused at a join or a table creation when the key in use is no longer the one stored (D057). */
+export const KEY_NOT_SAVED = 'Your key is no longer saved in this browser. Reload, then back it up.';
+
+/** Shown before a join or a table creation when this browser is not saving site data (D057). */
+export const UNSAVED_KEY =
+  "This browser isn't saving your key, so you could lose your seat. Allow site data (not a private tab), or back up your key first.";
+
+/**
+ * Whether the key in use is still the one stored for this profile (`bg:<profile>:sk`), read again now: a seat
+ * taken with a key that is gone from storage is lost on the next reload. Always true for the extension.
+ */
+export function keyStillSaved(
+  profile: string,
+  store: KeyValueStore,
+  signer: { kind: SignerKind; pubkey: Hex },
+): boolean {
+  if (signer.kind !== 'local') return true;
+  const sk = validSecretKey(readItem(store, storageKey(profile, 'sk')));
+  return sk !== null && getPublicKey(sk) === signer.pubkey;
+}
+
+/**
+ * What happens when the player asks to join a table or create one (D057):
+ * - `refuse`: the key in use is no longer stored (`KEY_NOT_SAVED`);
+ * - `unsaved`: this browser is not saving site data: only after copying the key and confirming (`UNSAVED_KEY`);
+ * - `backup`: a local key never backed up: "Copy your secret key first?" (a new table seats its creator, so it is
+ *   asked too);
+ * - `go`: go ahead.
+ */
+export type JoinGate =
+  | { kind: 'go' }
+  | { kind: 'refuse'; error: string }
+  | { kind: 'unsaved' }
+  | { kind: 'backup' };
+
+export function joinGate(
+  profile: string,
+  store: KeyValueStore,
+  signer: { kind: SignerKind; pubkey: Hex },
+  persistent: boolean,
+): JoinGate {
+  if (!keyStillSaved(profile, store, signer)) return { kind: 'refuse', error: KEY_NOT_SAVED };
+  if (signer.kind === 'local' && !persistent) return { kind: 'unsaved' };
+  if (joinBackupNeeded(profile, store, signer)) return { kind: 'backup' };
+  return { kind: 'go' };
 }

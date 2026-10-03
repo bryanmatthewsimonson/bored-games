@@ -79,6 +79,7 @@ async function main(): Promise<void> {
         nostr,
         signer,
         persistent: signer.persistent,
+        lostPrevious: signer.lostPrevious,
         settings,
         settingsOpen: signal(false),
         deps: {

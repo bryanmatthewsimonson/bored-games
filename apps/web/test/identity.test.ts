@@ -4,22 +4,28 @@ import { decodeNostrKey, npubEncode, nsecEncode } from '../src/bech32.ts';
 import { hexToBytes } from '../src/hex.ts';
 import {
   backupReminderVisible,
+  dismissLostKey,
   exportNsec,
   gamesInProgress,
   importSecretKey,
   invalidProfileName,
   isBackedUp,
   joinBackupNeeded,
+  joinGate,
   KEPT_KEYS_SOFT_CAP,
   KEY_ERRORS,
+  KEY_NOT_SAVED,
   keptKeys,
+  keyStillSaved,
   loadIdentity,
   markBackedUp,
   type Nip07,
   parseSecretKeyInput,
+  previousKeyTraces,
   profileFromLocation,
   pruneKeptKeys,
   readSignerChoice,
+  skipBackupPrompt,
   switchToKeptKey,
   waitForNostr,
   writeSignerChoice,
@@ -490,5 +496,104 @@ describe('key import (D041)', () => {
     expect(markBackedUp('p', store, PK_B)).toBe(true);
     expect(joinBackupNeeded('p', store, me)).toBe(false);
     expect(joinBackupNeeded('p', store, { kind: 'local', pubkey: 'cd'.repeat(32) })).toBe(true);
+  });
+});
+
+describe('a lost key, a key no longer saved, and the join gate (D057)', () => {
+  const SK_B = '33'.repeat(32);
+  const PK_B = getPublicKey(hexToBytes(SK_B));
+  it('a first key is not a lost one; a new key where an older one left traces is, until dismissed', async () => {
+    const store = memoryStorage();
+    const first = await loadIdentity('alice', store, seeded());
+    expect(first.lostPrevious).toBe(false);
+    expect(previousKeyTraces('alice', store)).toBe(true); // the key itself, and its recorded public key
+    expect((await loadIdentity('alice', store, seeded(9))).lostPrevious).toBe(false);
+    // The key vanishes from storage, everything else stays: the next load makes a new key and reports the loss.
+    store.removeItem('bg:alice:sk');
+    const next = await loadIdentity('alice', store, seeded(77));
+    expect(next.pubkey).not.toBe(first.pubkey);
+    expect(next.lostPrevious).toBe(true);
+    // Still reported on later loads, until dismissed.
+    expect((await loadIdentity('alice', store, seeded(5))).lostPrevious).toBe(true);
+    dismissLostKey('alice', store);
+    expect((await loadIdentity('alice', store, seeded(5))).lostPrevious).toBe(false);
+    // Another profile is not affected.
+    expect((await loadIdentity('bob', store, seeded(3))).lostPrevious).toBe(false);
+  });
+
+  it('reads every trace of an older local key, and not the tables of an extension user', () => {
+    const traces = (fill: (s: KeyValueStore) => void) => {
+      const s = memoryStorage();
+      fill(s);
+      return previousKeyTraces('p', s);
+    };
+    expect(traces(() => {})).toBe(false);
+    expect(traces((s) => s.setItem('bg:p:sk', 'garbage'))).toBe(true);
+    expect(traces((s) => s.setItem('bg:p:sk-pub', PK_B))).toBe(true);
+    expect(traces((s) => s.setItem('bg:p:sk-history', '[]'))).toBe(true);
+    expect(traces((s) => s.setItem('bg:p:sk-previous', SK_B))).toBe(true);
+    expect(traces((s) => markBackedUp('p', s, PK_B))).toBe(true);
+    expect(traces((s) => addToTableList('p', s, '37450:a:1', PK_B))).toBe(true);
+    // Tables listed after a switch from the extension belong to the extension's key.
+    expect(
+      traces((s) => {
+        addToTableList('p', s, '37450:a:1', PK_B);
+        writeSignerChoice('p', s, 'local');
+      }),
+    ).toBe(false);
+    // Another profile's traces do not count.
+    expect(traces((s) => s.setItem('bg:q:sk-pub', PK_B))).toBe(false);
+  });
+
+  it('an extension key reports no loss of its own', async () => {
+    const store = memoryStorage();
+    writeSignerChoice('alice', store, 'nip07');
+    addToTableList('alice', store, '37450:a:1', PK_B);
+    const sk = hexToBytes(SK_B);
+    const ext: Nip07 = {
+      getPublicKey: async () => getPublicKey(sk),
+      signEvent: async (t) => finalizeEvent(t, sk, seeded()),
+    };
+    expect((await loadIdentity('alice', store, seeded(), ext)).lostPrevious).toBe(false);
+  });
+
+  it('checks that the key in use is still the stored one', async () => {
+    const store = memoryStorage();
+    const me = await loadIdentity('alice', store, seeded());
+    expect(keyStillSaved('alice', store, me)).toBe(true);
+    expect(keyStillSaved('alice', store, { kind: 'local', pubkey: PK_B })).toBe(false);
+    expect(keyStillSaved('alice', store, { kind: 'nip07', pubkey: PK_B })).toBe(true);
+    store.setItem('bg:alice:sk', SK_B);
+    expect(keyStillSaved('alice', store, me)).toBe(false);
+    store.removeItem('bg:alice:sk');
+    expect(keyStillSaved('alice', store, me)).toBe(false);
+  });
+
+  it('gates a join or a new table: refuse a key gone from storage, then an unsaved key, then the backup', () => {
+    const store = memoryStorage();
+    store.setItem('bg:p:sk', SK_B);
+    const me = { kind: 'local' as const, pubkey: PK_B };
+    expect(joinGate('p', store, me, true)).toEqual({ kind: 'backup' });
+    expect(joinGate('p', store, me, false)).toEqual({ kind: 'unsaved' });
+    expect(joinGate('p', store, { kind: 'local', pubkey: 'ab'.repeat(32) }, true)).toEqual({
+      kind: 'refuse',
+      error: KEY_NOT_SAVED,
+    });
+    expect(joinGate('p', store, { kind: 'nip07', pubkey: 'ab'.repeat(32) }, true)).toEqual({ kind: 'go' });
+    markBackedUp('p', store, PK_B);
+    expect(joinGate('p', store, me, true)).toEqual({ kind: 'go' });
+    // A backup does not make an unsaved key safe: it is still asked.
+    expect(joinGate('p', store, me, false)).toEqual({ kind: 'unsaved' });
+  });
+
+  it('"Don\'t ask again for this key" skips the backup prompt for that key only', () => {
+    const store = memoryStorage();
+    const me = { kind: 'local' as const, pubkey: PK_B };
+    expect(joinBackupNeeded('p', store, me)).toBe(true);
+    expect(skipBackupPrompt('p', store, PK_B)).toBe(true);
+    expect(joinBackupNeeded('p', store, me)).toBe(false);
+    expect(isBackedUp('p', store, PK_B)).toBe(false);
+    expect(joinBackupNeeded('p', store, { kind: 'local', pubkey: 'ab'.repeat(32) })).toBe(true);
+    expect(joinBackupNeeded('q', store, me)).toBe(true);
   });
 });

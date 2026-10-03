@@ -226,6 +226,8 @@ test('players set a name and picture, and see each other’s on the table seats'
 
   await a.getByRole('link', { name: 'Chain Reaction', exact: true }).click();
   await a.getByRole('button', { name: 'Create table' }).click();
+  // A key never backed up is asked first (D057).
+  await a.getByRole('button', { name: 'Create anyway' }).click();
   await expect(a).toHaveURL(/#\/t\/[0-9a-f]{64}\//);
   const share = await a.getByLabel('Table link').inputValue();
 
@@ -283,7 +285,7 @@ test('an in-app browser gets a warning it can dismiss for the tab (D057)', async
   await expect(banner).toBeVisible();
   // No horizontal scroll at phone width.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.getByRole('button', { name: 'Dismiss' }).click();
+  await page.getByRole('button', { name: 'Dismiss the in-app browser warning' }).click();
   await expect(banner).toHaveCount(0);
   // Dismissed for this tab: a reload keeps it hidden, a new tab shows it again.
   await page.reload();

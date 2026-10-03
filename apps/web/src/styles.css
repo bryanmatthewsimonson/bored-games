@@ -1340,3 +1340,9 @@ input[type="search"] {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* The lost-key banner (D057): louder than the other page warnings. */
+.banner-loud {
+  border-width: 2px;
+  border-color: var(--danger);
+}

@@ -1,9 +1,9 @@
 import { BRAND } from '@bored-games/brand';
 import { useState } from 'preact/hooks';
-import { InAppBanner } from './components/inapp-banner.tsx';
+import { InAppBanner, LostKeyBanner } from './components/inapp-banner.tsx';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
-import { EXTENSION_MISSING_NOTICE } from './identity.ts';
+import { dismissLostKey, EXTENSION_MISSING_NOTICE, UNSAVED_KEY_BANNER } from './identity.ts';
 import { IN_APP_DISMISSED } from './inapp-model.ts';
 import { creditsHref, route } from './router.ts';
 import { Screen } from './screens.tsx';
@@ -35,14 +35,25 @@ export function App(props: { ctx: AppContext }) {
  * `?relays=` value, and an in-app browser.
  */
 function Banners() {
-  const { persistent, signer, invalidProfile, profile, ignoredRelays, extensionMissing, inApp } = useApp();
+  const app = useApp();
+  const { persistent, signer, invalidProfile, profile, store, ignoredRelays, extensionMissing, inApp } = app;
+  const [lost, setLost] = useState(app.lostPrevious);
   const dismissKey = storageKey(profile, IN_APP_DISMISSED);
   const [session] = useState(sessionStore);
   const [inAppDismissed, setInAppDismissed] = useState(() => readItem(session, dismissKey) === '1');
   const showInApp = inApp !== null && !inAppDismissed;
-  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing && !showInApp) return null;
+  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing && !showInApp && !lost)
+    return null;
   return (
     <div class="banners">
+      {lost && (
+        <LostKeyBanner
+          onDismiss={() => {
+            dismissLostKey(profile, store);
+            setLost(false);
+          }}
+        />
+      )}
       {showInApp && (
         <InAppBanner
           onDismiss={() => {
@@ -53,8 +64,7 @@ function Banners() {
       )}
       {!persistent && signer.kind === 'local' && (
         <p class="warning" role="alert">
-          <strong>Your key is not being saved.</strong> This browser is blocking site storage, so your key and
-          your games last only until this tab closes. Allow site data, or export your key from Settings.
+          <strong>Your key is not being saved.</strong> {UNSAVED_KEY_BANNER}
         </p>
       )}
       {invalidProfile !== null && (

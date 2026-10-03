@@ -9,7 +9,7 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
-import { joinBackupNeeded } from '../identity.ts';
+import { joinGate, KEY_NOT_SAVED, keyStillSaved } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
@@ -82,16 +82,21 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
 }
 
 export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empty: ComponentChildren }) {
-  const { profile, store, signer } = useApp();
+  const { profile, store, signer, persistent } = useApp();
   const lobby = useLobby();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ address: string; message: string } | null>(null);
   // The table whose "Copy your secret key first?" prompt is open (D057).
-  const [asking, setAsking] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ address: string; mode: 'backup' | 'unsaved' } | null>(null);
 
   const join = async (t: TableEntry) => {
     if (busy !== null) return;
     setAsking(null);
+    // Read the stored key again right before the seat is taken (D057).
+    if (!keyStillSaved(profile, store, signer)) {
+      setError({ address: t.address, message: KEY_NOT_SAVED });
+      return;
+    }
     requestPersistenceOnce(profile, store, storageManager());
     setBusy(t.address);
     setError(null);
@@ -137,8 +142,10 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                   disabled={busy !== null}
                   aria-label={joinButtonLabel(label, t.table.creator)}
                   onClick={() => {
-                    if (joinBackupNeeded(profile, store, signer)) setAsking(t.address);
-                    else void join(t);
+                    const gate = joinGate(profile, store, signer, persistent);
+                    if (gate.kind === 'refuse') setError({ address: t.address, message: gate.error });
+                    else if (gate.kind === 'go') void join(t);
+                    else setAsking({ address: t.address, mode: gate.kind });
                   }}
                 >
                   {label}
@@ -151,8 +158,10 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
               </>
             }
             below={
-              asking === t.address ? (
+              asking?.address === t.address ? (
                 <JoinBackup
+                  mode={asking.mode}
+                  action="join"
                   busy={busy !== null}
                   idBase={`join-backup-${t.table.tableId}`}
                   onJoin={() => void join(t)}
