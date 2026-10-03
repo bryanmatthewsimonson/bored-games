@@ -121,7 +121,7 @@ describe('in-app browsers (D057)', () => {
     expect(spokenText(tree)).toBe(`${IN_APP_NOTICE} Dismiss`);
     const [button] = findAll(tree, (el) => el.tag === 'button');
     expect(button?.attrs.type).toBe('button');
-    (button?.attrs.onClick as () => void)();
+    (button?.attrs.onClick as (() => void) | undefined)?.();
     expect(dismissed).toBe(1);
   });
 });

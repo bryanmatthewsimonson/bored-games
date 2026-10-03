@@ -123,7 +123,7 @@ describe('watch notice (D057)', () => {
     expect(buttons).toHaveLength(1);
     expect(buttons[0]?.attrs.type).toBe('button');
     expect(spokenText(buttons)).toBe(`Switch to ${short(OLD)} and reload`);
-    (buttons[0]?.attrs.onClick as () => void)();
+    (buttons[0]?.attrs.onClick as (() => void) | undefined)?.();
     expect(switched).toEqual([OLD]);
 
     const failed = renderTree(
