@@ -148,7 +148,7 @@ Rules 6 and 9 need no new event kind: the result attestation exists (PROTOCOL §
 3. **Voiding a counted timeout or resign:** round 2 never overrode one, which diverged (A2). Round 3 overrides unless the result stands, and scores the stop as E's rated last place, so a lone seat gains nothing. Model: no rating gain or `void-forfeit` for a single adversary; a coalition can (residual 2).
 4. **Resurrection after a stop:** there is no resume. Honest humans who leave on a stop are never timed out (model, with `absence`).
 5. **Scapegoat abort.** With 3 or more seats E can stop the game during play at any of its earlier turns, as an unrated game for the others and a rated last place for itself. After the end, a single E can do so only until every other seat has attested (rule 6). A colluder who never attests keeps a finished game open to its partner's fork (residual 2).
-6. **Round 2's A1, two devices and a resign.** Under round 2 one device froze on the resign while the other kept releasing shares, so a card of an ended game was read (an `exposure`). Under round 3 the resign does not stand (the resigner's partner never attested it), so the fork stops the game below it and the card is one read on a stopped branch (post-end, residual 1).
+6. **Round 2's A1, two devices and a resign.** Under round 2 one device froze on the resign while the other kept releasing shares, so a card of an ended game was read (an `exposure`). Under round 3 the resign stands only if every seat but the equivocator attested it and nothing by another seat is anchored off it; in A1's trace the honest seat's second device moved past the resign's head, so it does not stand, the fork stops the game on every client (no divergence), and the card is one read on a stopped branch (post-end, residual 1).
 7. **Round 2's A3, the stale outbox.** A tablet's move saved offline and rebroadcast weeks later forks its own seat: under round 2 it voided the finished game as that honest seat's forfeit. Under round 3 the result stands if every other seat attested it, but the honest seat is then recorded as an equivocator; rule 9's outbox rule drops the saved move instead. Model: honest forfeits and honest seats recorded without the rule, none with it.
 
 ### 5.5 Complexity, compared with "final, or stop" (§5B)
@@ -353,6 +353,32 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | Liveness, honest seats, every mode, with and without a lazy seat | small | none: every grant readable once the network is quiet |
 
 **The owner's sketch, as written, fails two checks** (both CI regressions): with a stop allowed to override a counted claim at forks strictly above its head, a colluder voids a counted timeout (`rating`, 3 seats, 389 states); and with "a finished side stands", a coalition finishes its rival after reading on the other side (`exposure`, two colluders at 5 moves). Hence rules 4 and 6 of §5.1.
+
+### 6.7 Round 3: candidate (e) with the cutoff (`stop3`)
+**Regressions first** (each a CI test):
+- **A2.** `stop` and `fgr2`, coalition {1}, 3 moves, a deadline: seat 2's deadline passes and it counts seat 1's timeout at `0d0`; seat 1 then signs `0d0/1p1` and `0d0/1p0`, and seat 0, whose deadline had not passed, stops. Results `stop:0d0` and `claim:0d0` forever: a `divergence`. Under `stop3` the stop overrides the timeout on every client.
+  ```
+  seat 0 moves;  deliver 0d0 to seat 2;  deadline passes for seat 2 at 0d0 (claim)
+  seat 1 signs 0d0/1p1, then 0d0/1p0;  deliver both, and seat 2's claim, to seat 0
+  ⇒ stop: divergence (seat 0 stop:0d0, seat 2 claim:0d0);  stop3: stop:0d0 on both
+  ```
+- **The stop scored as an abort alone** (3 seats): the same trace turns seat 1's rated last place into an unrated abort (`void-forfeit`, 7,296 states over the three single adversaries of the scope below). Scored as E's rated last place (`last`) or E's timeout at the fork (`timeout`): none.
+- **The cutoff without the anchor clause** (`cutoff: 'attest'`, coalition {0, 2}, honest seat 1 on two devices): seat 0 signs a pass `0p1` to device 1b and a draw `0d0` to device 1a, which releases its share of position 0; on `0p1`, 1b draws position 0 and seat 2 finishes the game; 1b and seat 2 attest the end, which stands: `exposure`. With the anchor clause, 1a's share anchored on `0d0` keeps it from standing, and the game stops.
+- **The cutoff without the forfeiting seat's attestation** (`exemptLoser`, coalition {0, 1}): seat 1 claims a timeout against seat 2 at `0p1/1p1` and attests it, seat 0 forks at the root, and the claim stands with no honest attestation: `honest-forfeit`.
+- **A3, the stale outbox** (2 or 3 seats, honest seats on two devices): device 0b saves `0d1` offline, 0a plays `0d0`, and 0b publishes later: the game stops on honest seat 0's fork (`honest-forfeit`), or after the end is recorded against it (`honest-flagged`). With the outbox rule: no violation.
+- **Two devices and a claim** (2 seats, coalition {1}): device 0b counts seat 1's timeout at `0d0`; seat 1 signs two rivals on `0d0`; device 0a, which never saw the claim, plays on one of them to the end and attests; the end stands over the counted timeout (`rating`). With the check before signing, 0a fetches its seat's claim first and ends there: no violation.
+- **A1** (`stop`, coalition {0, 1}, honest seat 2 on two devices, a resign): `exposure` and `divergence` under round 2's rule; under `stop3`, post-end only.
+
+**Results.** Design `stop3`, an adversary attestation, the check before signing; every run complete. Counts are states showing the report, summed over the coalitions. The three-seat runs used `timeout` scoring, the CI and the 4-seat runs `last`; for a single adversary the two give the same reports (a lone E's voided forfeit becomes E's own rated last place under both, and an attested result stands under both), and the private row was also run with `last` (identical) and with `abort` (7,296 `void-forfeit` states).
+
+| Scope (3 seats unless marked) | States | Single adversaries | Coalitions of two |
+|---|---|---|---|
+| 3 moves, 2 adversary moves, a claim, a resign, a deadline: private / viewers / public / roll | 1,474,578 / 1,718,260 / 1,949,332 / 1,932,260 | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
+| 4 moves, 3 adversary moves, multi-draw, a claim, a resign, a deadline (private) | B2_STATES | B2_SINGLE | `void-forfeit`, `attested-void`, ended-void, post-end |
+| 2 seats, 4 moves, 3 adversary moves, a claim, a resign, a deadline | 51,274 | post-end only | |
+| Absent humans, 4 moves, two deadlines, a claim | 115,462 | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
+B5_ROWS
+**Never reported anywhere:** `exposure`, `honest-forfeit`, `rating`, `divergence`, `honest-flagged`. **Never for a single adversary:** `attested-void`, `void-forfeit`. `ended-void` with a single adversary is a stop below an end that not every honest seat had attested yet, the window of §5.2. `void-forfeit` and `attested-void` with two colluders are residual 2 (§9).
 
 ## 7. Sealed shares (K5)
 Reference implementation: `packages/deck/src/sealed.ts`, codecs in `wire.ts`, tests in `test/sealed.test.ts`, vectors in `test/vectors/sealed-v1.json` (`test/sealed-vectors.test.ts`). **Unused by gameplay** until the owner approves; nothing in `packages/client` or `packages/protocol` imports it.
