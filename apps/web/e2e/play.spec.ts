@@ -181,6 +181,8 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
     const prompt = p.page.getByRole('alertdialog', { name: 'Copy your secret key first?' });
     await expect(prompt).toBeVisible();
     if (p === b) {
+      if (SHOTS !== undefined && SHOTS !== '')
+        await p.page.screenshot({ path: `${SHOTS}/e2e-join-backup.png` });
       await p.page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
       await prompt.getByRole('button', { name: 'Copy secret key' }).click();
       await expect(prompt.getByText(/^Copied\./)).toBeVisible();
@@ -218,6 +220,11 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   )
     .toBeVisible({ timeout: MOVE_MS })
     .catch(() => log('w: the setup finished before a waiting line showed'));
+  // At phone width the notice wraps: no horizontal scroll.
+  await w.page.setViewportSize({ width: 390, height: 844 });
+  expect(await w.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  if (SHOTS !== undefined && SHOTS !== '')
+    await w.page.screenshot({ path: `${SHOTS}/e2e-watching-phone.png`, fullPage: true });
   await w.page.context().close();
   for (const p of players) await expect(p.page.getByText("You're watching this game.")).toHaveCount(0);
   log('an unseated browser saw "You\'re watching this game"');
