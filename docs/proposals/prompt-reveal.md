@@ -383,16 +383,25 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
   ```
 - **A1** (`stop`, coalition {0, 1}, honest seat 2 on two devices, a resign): `exposure` and `divergence` under round 2's rule; under `stop3`, post-end only.
 
-**Results.** Design `stop3`, an adversary attestation, the check before signing; every run complete. Counts are states showing the report, summed over the coalitions. The three-seat runs used `timeout` scoring, the CI and the 4-seat runs `last`; for a single adversary the two give the same reports (a lone E's voided forfeit becomes E's own rated last place under both, and an attested result stands under both), and the private row was also run with `last` (identical) and with `abort` (7,296 `void-forfeit` states).
+**Results** (rerun in full after the amendment to rule 6(b); scratchpad batteries, the same parameters as `PROTOCOL_MODEL_BIG=1`). Design `stop3`, the stop scored `last`, an adversary attestation, the check before signing. Counts are states showing the report, summed over the runs. A run is one coalition; "complete" means the whole bounded space was explored.
 
 | Scope (3 seats unless marked) | States | Single adversaries | Coalitions of two |
 |---|---|---|---|
-| 3 moves, 2 adversary moves, a claim, a resign, a deadline: private / viewers / public / roll | 1,474,578 / 1,718,260 / 1,949,332 / 1,932,260 | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
-| 4 moves, 3 adversary moves, multi-draw, a claim, a resign, a deadline (private) | B2_STATES | B2_SINGLE | `void-forfeit`, `attested-void`, ended-void, post-end |
-| 2 seats, 4 moves, 3 adversary moves, a claim, a resign, a deadline | 51,274 | post-end only | |
-| Absent humans, 4 moves, two deadlines, a claim | 115,462 | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
-B5_ROWS
-**Never reported anywhere:** `exposure`, `honest-forfeit`, `rating`, `divergence`, `honest-flagged`. **Never for a single adversary:** `attested-void`, `void-forfeit`. `ended-void` with a single adversary is a stop below an end that not every honest seat had attested yet, the window of §5.2. `void-forfeit` and `attested-void` with two colluders are residual 2 (§9).
+| 3 moves, 2 adversary moves, a claim, a resign, a deadline, every coalition: private / viewers / public / roll | 1,474,578 / 1,718,260 / 1,949,332 / 1,932,260, complete | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
+| The same, private, the stop scored `abort` (single adversaries) | 1,385,876, complete | **`void-forfeit` 7,296** (the regression), claim race, post-end, ended-void | |
+| 4 moves, 3 adversary moves, multi-draw, a claim, a resign, a deadline, every coalition (private) | 37,941,256, complete (seat 0 alone: 30,471,468) | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, ended-void, post-end |
+| 2 seats, 4 moves, 3 adversary moves, a claim, a resign, a deadline | 51,274, complete | post-end only | |
+| Absent humans, 4 moves, two deadlines, a claim, every coalition | 115,462, complete | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
+| **4 seats, 8 moves**, 2 adversary moves, a claim, a deadline, every single adversary: private | 1,990,876 / 2,525,787 / 2,873,179 / 2,955,833 (seats 0–3), complete | claim race, post-end | |
+| 4 seats, 8 moves, the same, public | B7PUB | claim race, post-end | |
+| Two devices per honest seat, A1's scope (4 moves, 3 adversary moves, a resign), every colluder pair | 4,286,103, complete | | `void-forfeit`, `attested-void`, claim race, ended-void, post-end |
+| Two devices, 2 seats, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,337,436, complete | claim race, post-end | |
+| The same with the first wording of rule 6(b) (`cutoff: 'path'`) | 3,335,784, complete | **`rating` 13,944** (seat 1; the regression), claim race, post-end | |
+| Two devices, colluder pairs, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | B5A | | B5AV |
+| **Two honest seats on two devices each** (a single adversary, four honest devices), 3 moves | 226,473 over the six coalitions, complete | `attested-void` 112, ended-void, post-end | post-end |
+| The same with a claim, a resign and a deadline | B6B | B6BV | |
+
+**Never reported anywhere:** `exposure`, `honest-forfeit`, `rating`, `divergence`, `honest-flagged` (other than the two regression rows). **Never for a single adversary with one device per seat:** `attested-void`, `void-forfeit`. With two devices, a single adversary can void an attested result (`attested-void`): the other device of an honest seat had released a share on E's rival, and the anchor clause keeps the result from standing, as it must (§8, row 30; residual 4). `ended-void` with a single adversary is a stop below an end that not every honest seat had attested yet, the window of §5.2. `void-forfeit` and `attested-void` with two colluders are residual 2 (§9). The claim race with two devices includes one seat's two devices ending on different results with no fork held.
 
 ## 7. Sealed shares (K5)
 Reference implementation: `packages/deck/src/sealed.ts`, codecs in `wire.ts`, tests in `test/sealed.test.ts`, vectors in `test/vectors/sealed-v1.json` (`test/sealed-vectors.test.ts`). **Unused by gameplay** until the owner approves; nothing in `packages/client` or `packages/protocol` imports it.
