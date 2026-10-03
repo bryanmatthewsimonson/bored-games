@@ -397,9 +397,9 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | Two devices per honest seat, A1's scope (4 moves, 3 adversary moves, a resign), every colluder pair | 4,286,103, complete | | `void-forfeit`, `attested-void`, claim race, ended-void, post-end |
 | Two devices, 2 seats, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,337,436, complete | claim race, post-end | |
 | The same with the first wording of rule 6(b) (`cutoff: 'path'`) | 3,335,784, complete | **`rating` 13,944** (seat 1; the regression), claim race, post-end | |
-| Two devices, colluder pairs, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | B5A | | B5AV |
+| Two devices, colluder pairs, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,021,732 / 10,071,576 / 14,482,399 (pairs {0,1}, {0,2}, {1,2}), complete | | `void-forfeit`, `attested-void`, claim race, post-end |
 | **Two honest seats on two devices each** (a single adversary, four honest devices), 3 moves | 226,473 over the six coalitions, complete | `attested-void` 112, ended-void, post-end | post-end |
-| The same with a claim and a deadline | B6B | B6BV | |
+| The same with a claim and a deadline | 25,007,602 / 28,718,059 / 8,458,547 (seats 0–2), complete | `attested-void` 616, claim race, ended-void, post-end | |
 
 **Never reported anywhere:** `exposure`, `honest-forfeit`, `rating`, `divergence`, `honest-flagged` (other than the two regression rows). **Never for a single adversary with one device per seat:** `attested-void`, `void-forfeit`. With two devices, a single adversary can void an attested result (`attested-void`): the other device of an honest seat had released a share on E's rival, and the anchor clause keeps the result from standing, as it must (§8, row 30; residual 4). `ended-void` with a single adversary is a stop below an end that not every honest seat had attested yet, the window of §5.2. `void-forfeit` and `attested-void` with two colluders are residual 2 (§9). The claim race with two devices includes one seat's two devices ending on different results with no fork held.
 
