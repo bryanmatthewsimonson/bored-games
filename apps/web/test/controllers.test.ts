@@ -191,6 +191,31 @@ const savedMove = (p: Profile, rootId: string, seq: number) =>
     slot.startsWith(`move:${seq}:`),
   )?.[1];
 
+/** The same player on another device: the same signer and game keys for `address`, and storage of its own. */
+function secondDevice(p: Profile, address: string): Profile {
+  const store = memoryStorage();
+  const key = `bg:${p.name}:secrets:${address}`;
+  store.setItem(key, p.deps.storage.getItem(key) as string);
+  return profile(p.name, store, p.deps.signer);
+}
+
+/** A pool whose publishing can be cut off (`offline`), recording what it did publish. */
+function switchable(real: PoolLike) {
+  const net = {
+    offline: true,
+    published: [] as string[],
+    pool: {
+      subscribe: (...args: Parameters<PoolLike['subscribe']>) => real.subscribe(...args),
+      publish: async (ev: NostrEvent, urls?: readonly string[]) => {
+        if (net.offline) return [{ url: relay.url, ok: false, message: 'offline' }];
+        net.published.push(ev.id);
+        return real.publish(ev, urls);
+      },
+    } as PoolLike,
+  };
+  return net;
+}
+
 const boardOf = (c: GameController) => (c.view.value?.state as ChainReactionState | null)?.board ?? null;
 
 beforeEach(async () => {
@@ -527,8 +552,8 @@ describe('GameController', () => {
       expect(entry?.orphan).toBe(false);
     }
 
-    // A saved event the session refuses (here: a move on the root signed by a key with no seat) is marked an
-    // orphan on reload and never republished.
+    // A saved unconfirmed move that no longer fits (here: a move on the root signed by a key with no seat, where
+    // the relays hold this seat's own move on the root) is discarded on reload, logged, and never published (D056).
     const p0 = bySeat[0] as Profile;
     const stray = finalizeEvent(
       {
@@ -567,7 +592,8 @@ describe('GameController', () => {
     );
     expect(reopened.view.value?.head).toEqual(head);
     expect(savedMove(p0, rootId, 1)).toBeDefined();
-    expect(loadOutbox(p0.deps.storage, p0.name, rootId).get(`move:1:${'0'.repeat(64)}`)?.orphan).toBe(true);
+    expect(loadOutbox(p0.deps.storage, p0.name, rootId).has(`move:1:${'0'.repeat(64)}`)).toBe(false);
+    expect(reopened.log.value).toHaveLength(1);
     expect(published).not.toContain(stray.id);
   }, 180_000);
 
@@ -740,6 +766,116 @@ describe('GameController', () => {
     await waitFor('the session from the older version', () => other.view.value !== null);
     expect(loadTable(watcher.deps.storage, watcher.name, rootId, address)?.id).toBe(original.id);
   }, 180_000);
+
+  it('publishes a saved offline move whose parent is still the head, and discards a stale one (D056)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const p = bySeat[players.indexOf(phone)] as Profile;
+    // The same player's tablet: the same keys, its own storage, and no network for publishing.
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head1 = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const fresh = savedMove(tablet, rootId, head1.seq + 1);
+    expect(fresh?.confirmed).toBe(false);
+    t.dispose();
+
+    // Back online, the tablet reloads: the move's parent is still the head and the relays hold no other move of
+    // this seat there, so it is published and every client takes it.
+    net.offline = false;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    for (const g of [...players, t])
+      await waitFor('the tablet move everywhere', () => g.view.value?.head.id === fresh?.event.id);
+    await waitFor('the confirmed move', () => savedMove(tablet, rootId, head1.seq + 1)?.confirmed);
+    expect(t.log.value).toEqual([]);
+    t.dispose();
+
+    // Offline again, the tablet saves this seat's next decision; the phone then plays that decision differently.
+    net.offline = true;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor(
+      'the next tablet decision',
+      () => t.status.value === 'your-turn' && t.legal.value.length > 0,
+    );
+    const head2 = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const stale = savedMove(tablet, rootId, head2.seq + 1);
+    expect(stale?.event.tags).toContainEqual(['e', head2.id, '', 'prev']);
+    t.dispose();
+    await waitFor(
+      'the phone decision',
+      () => phone.view.value?.head.id === head2.id && phone.legal.value.length > 0,
+    );
+    // A move with no shares or reveals carries no randomness: the same action built in the same second is the very
+    // same event, and no equivocation. The phone plays a second later.
+    await new Promise((r) => setTimeout(r, 1100));
+    await phone.act(phone.legal.value[0]);
+    for (const g of players) await waitFor('the phone move', () => g.view.value?.head.seq === head2.seq + 1);
+    const moved = players[0]?.view.value?.head;
+
+    // Weeks later the tablet comes back: its saved move is never published, but discarded and logged.
+    net.offline = false;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor(
+      'the tablet to catch up',
+      () => t.view.value?.head.id === moved?.id && t.status.value !== 'syncing',
+    );
+    await waitFor('the discard', () => t.log.value.length === 1);
+    expect(t.log.value[0]).toMatch(/move saved on this device was never sent/);
+    expect(net.published).not.toContain(stale?.event.id);
+    expect(savedMove(tablet, rootId, head2.seq + 1)).toBeUndefined();
+    const atSeq = (await query({ kinds: [KIND.move], '#e': [head2.id] })).filter((ev) =>
+      ev.tags.some((tag) => tag[0] === 'e' && tag[1] === head2.id && tag[3] === 'prev'),
+    );
+    expect(atSeq.map((ev) => ev.id)).not.toContain(stale?.event.id);
+    expect(atSeq).toHaveLength(1);
+    for (const g of [...players, t]) expect(g.view.value?.equivocators).toEqual([]);
+  }, 240_000);
+
+  it('discards a move saved offline in an open tab once the relays show this seat played otherwise (D056)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const seat = players.indexOf(phone);
+    const p = bySeat[seat] as Profile;
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    const t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const saved = savedMove(tablet, rootId, head.seq + 1);
+    expect(saved?.confirmed).toBe(false);
+    expect(t.view.value?.head.id).toBe(saved?.event.id);
+
+    // The phone plays the same decision a second later (another event, even for a move with no shares); the open
+    // tablet receives that move and, holding both, flags its own seat.
+    await new Promise((r) => setTimeout(r, 1100));
+    await phone.act(phone.legal.value[0]);
+    await waitFor('the local flag', () => t.view.value?.equivocators.includes(seat));
+
+    // The network comes back. Before republishing, the tablet asks the relays, finds the phone's move on the same
+    // parent, discards its own, and rebuilds its session without it.
+    net.offline = false;
+    t.tick();
+    await waitFor('the discard', () => t.log.value.length === 1);
+    await waitFor('the rebuilt session', () => t.view.value?.equivocators.length === 0);
+    expect(t.view.value?.head).toEqual(phone.view.value?.head);
+    expect(net.published).not.toContain(saved?.event.id);
+    expect(savedMove(tablet, rootId, head.seq + 1)).toBeUndefined();
+    for (const g of players) expect(g.view.value?.equivocators).toEqual([]);
+  }, 240_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {
     const p = profile('solo');

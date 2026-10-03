@@ -5,10 +5,15 @@
  *   secrets) or as a spectator, and folds in every game event from the relays.
  * - It performs this seat's automatic duties one at a time (shuffle, deal, secret, attest). Only `decide` waits
  *   for the player, through `act`.
- * - Every event it builds is saved to an outbox in storage before it is published. A reopened tab republishes
- *   an unconfirmed event, and a duty whose event is already in the outbox reuses it: nothing is signed twice.
- *   A move is kept under the head it was built on, and one the session no longer accepts (an orphan, after the
- *   chain moved on) is never republished.
+ * - Every event it builds is saved to an outbox in storage before it is published. A duty whose event is already
+ *   in the outbox reuses it: nothing is signed twice. A move is kept under the head it was built on, and one the
+ *   session no longer accepts (an orphan, after the chain moved on) is never republished.
+ * - A saved event that could conflict with what the seat did on another device (a move, the deal, a Resign) is
+ *   republished only after the relays have been asked what this seat already published (D056, the stale outbox):
+ *   a move only on the current head with no other move of this seat on its parent, the deal only if no other deal
+ *   of this seat is out, a Resign only on the current head. Otherwise it is discarded and logged (`log`).
+ * - The deal is built at most once per game (D056, review F7): a seat that dealt on a rival deck of a shuffle fork
+ *   never deals again, and the shuffle steps it dealt on are republished with its deal.
  * - Timeouts run on local receipt time (D030 Ruling 10): the controller saves when it first saw each event
  *   (`bg:<profile>:seen:<rootId>`) and passes that time to `receive`, so a reopened tab keeps the deadlines. On
  *   load it feeds what it holds in first-seen order, which reproduces the session, a timeout's finality included.
@@ -25,7 +30,7 @@ import {
   parseTable,
   verifyEvent,
 } from '@bored-games/protocol';
-import type { Filter } from '@bored-games/relay';
+import type { EoseInfo, Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
@@ -72,6 +77,12 @@ export interface OutboxEntry {
   confirmed: boolean;
   orphan: boolean;
 }
+
+/** Outbox slots whose saved events can conflict with what this seat did elsewhere, so they are vetted (D056). */
+const vetted = (slot: string): boolean => slot.startsWith('move:') || slot === 'deal' || slot === 'resign';
+
+/** The most entries `GameController.log` keeps. */
+const MAX_LOG = 20;
 
 /** The outbox slot of a move: its seq and the head (`prev`) it was built on. */
 export const moveSlot = (seq: number, prevId: string): string => `move:${seq}:${prevId}`;
@@ -145,6 +156,10 @@ export function loadOutbox(
 const prevOf = (ev: NostrEvent): string | null =>
   ev.tags.find((t) => t[0] === 'e' && t[3] === 'prev')?.[1] ?? null;
 
+/** The head a Resign names. */
+const headOf = (ev: NostrEvent): string | null =>
+  ev.tags.find((t) => t[0] === 'e' && t[3] === 'head')?.[1] ?? null;
+
 /**
  * The session's attestation builder, typed as optional: `attestTemplate(createdAt)` (Phase 2d Task 4) returns
  * the unsigned attestation, which the npub signer signs. Until the session has it, this seat does not attest.
@@ -175,8 +190,13 @@ export class GameController {
   readonly busy: Signal<boolean> = signal(false);
   /** The last problem worth showing: loading, an automatic duty or a submitted move failed. */
   readonly error: Signal<string | null> = signal(null);
-  /** Delivery state: set while one of this player's events has reached no relay yet. */
+  /** Delivery state: set while one of this player's events has reached no relay yet, or after one was discarded. */
   readonly notice: Signal<string | null> = signal(null);
+  /**
+   * Saved events this controller discarded instead of publishing (D056): a move, deal or Resign saved on this
+   * device that the game no longer fits, newest last, at most `MAX_LOG`.
+   */
+  readonly log: Signal<readonly string[]> = signal([]);
   /** This seat's legal actions now (empty unless it is this player's decision). */
   readonly legal: Signal<readonly unknown[]> = signal([]);
   /** A seat this player may claim a timeout against now, or null. */
@@ -214,6 +234,28 @@ export class GameController {
   readonly #echoed = new Set<string>();
   /** Ids of the game events received, for paging. */
   readonly #got = new Set<string>();
+  /** The seated game events the relays sent, by id, so the session can be rebuilt without a discarded event. */
+  readonly #events = new Map<string, NostrEvent>();
+  /** This player's session key in the game, or null for a spectator. */
+  #mySession: string | null = null;
+  /**
+   * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
+   * on a parent, `shares` for its Shares events, `resign` for its Resigns.
+   */
+  readonly #mine = new Map<string, Set<string>>();
+  /**
+   * Outbox slots loaded from storage with an unconfirmed move, deal or Resign: held back, neither folded in nor
+   * published, until the relays have shown what this seat already published (`#vetSaved`).
+   */
+  readonly #unvetted = new Set<string>();
+  /** Outbox events folded into the current session. */
+  readonly #fed = new Set<string>();
+  /** Whether a relay answered the initial sync with EOSE (not only the timeout). */
+  #relayAnswered = false;
+  /** A vetting query is in flight. */
+  #vetting = false;
+  /** Shuffle steps republished with this seat's deal (D056). */
+  readonly #echoedSteps = new Set<string>();
   /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
   #seen = new Map<string, number>();
   /** First-seen times not saved yet. */
@@ -250,6 +292,9 @@ export class GameController {
     if (this.#started || this.#disposed) return;
     this.#started = true;
     this.#outbox = loadOutbox(this.#d.storage, this.#d.profile, this.rootId);
+    // Saved events that could conflict with what this seat did on another device wait for the relays (D056).
+    for (const [slot, e] of this.#outbox)
+      if (vetted(slot) && !e.confirmed && !e.orphan) this.#unvetted.add(slot);
     this.#seen = loadSeen(this.#d.storage, this.#d.profile, this.rootId);
     // The root first; the game's events are asked for once the root names the seats (`#subscribeGame`).
     this.#stops.push(this.#d.pool.subscribe([{ ids: [this.rootId] }], (ev) => this.#onEvent(ev)));
@@ -285,6 +330,7 @@ export class GameController {
       if (this.#disposed) throw new Error('The game screen was closed.');
       const head = session.view().head;
       const slot = moveSlot(head.seq + 1, head.id);
+      if (this.#unvetted.has(slot)) throw new Error('a move saved on this device is still being checked');
       // Never build twice for one decision: fresh randomness would make a rival move (equivocation).
       const ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, this.#d.now());
       this.#commit(slot, ev);
@@ -334,6 +380,8 @@ export class GameController {
     try {
       await this.#yield();
       if (this.#disposed) throw new Error('The game screen was closed.');
+      if (this.#unvetted.has('resign'))
+        throw new Error('a resignation saved on this device is still being checked');
       const saved = this.#live('resign');
       if (saved === null && !session.canResign()) throw new Error('the game is no longer live');
       this.#commit('resign', saved ?? session.buildResign(this.#d.rnd, this.#d.now()));
@@ -358,7 +406,9 @@ export class GameController {
     // Relays are not trusted to filter: only seated keys' game events are taken (PROTOCOL §11).
     if (!this.#seated(ev)) return;
     this.#got.add(ev.id);
+    if (this.#events.size < MAX_BUFFER) this.#events.set(ev.id, ev);
     if (ev.kind === KIND.resign) this.#resigns.set(ev.id, ev);
+    if (ev.pubkey === this.#mySession) this.#noteMine(ev);
     const entry = [...this.#outbox.entries()].find(([, e]) => e.event.id === ev.id);
     if (entry !== undefined) this.#confirm(entry[0]);
     // Until the relays have sent what they hold, events wait, so they can be fed in first-seen order.
@@ -381,6 +431,31 @@ export class GameController {
     const r = session.receive(ev, first ?? now);
     if (first === undefined && r.status !== 'rejected') this.#noteSeen(ev.id, now);
     return r;
+  }
+
+  /** Record one of this seat's own events the relays sent, by what it could conflict with (D056). */
+  #noteMine(ev: NostrEvent): void {
+    const key =
+      ev.kind === KIND.move
+        ? `move:${prevOf(ev)}`
+        : ev.kind === KIND.shares
+          ? 'shares'
+          : ev.kind === KIND.resign
+            ? 'resign'
+            : null;
+    if (key === null) return;
+    let ids = this.#mine.get(key);
+    if (ids === undefined) {
+      ids = new Set();
+      this.#mine.set(key, ids);
+    }
+    ids.add(ev.id);
+  }
+
+  /** Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`). */
+  #otherMine(key: string, ev: NostrEvent): boolean {
+    for (const id of this.#mine.get(key) ?? []) if (id !== ev.id) return true;
+    return false;
   }
 
   #noteSeen(id: string, at: number): void {
@@ -411,13 +486,18 @@ export class GameController {
   /**
    * Feed this seat's saved events and the events held back while loading, in first-seen order (events never seen
    * before last). A saved event the session refuses is an orphan: it is kept (so its slot is never signed again)
-   * but never republished.
+   * but never republished. A refused event a relay confirmed is public anyway, so it is still fed: a deal on a
+   * rival deck must count as this seat's deal (D056). An unconfirmed move, deal or Resign loaded from storage is
+   * held back: once the relays have answered, `#vetSaved` folds it in and republishes it, or discards it (D056).
    */
   #feedHeld(): void {
     const session = this.#session;
     if (session === null) return;
     const held: { ev: NostrEvent; slot: string | null }[] = [];
-    for (const [slot, entry] of this.#outbox) if (!entry.orphan) held.push({ ev: entry.event, slot });
+    for (const [slot, entry] of this.#outbox) {
+      if (this.#unvetted.has(slot) || (entry.orphan && !entry.confirmed)) continue;
+      held.push({ ev: entry.event, slot });
+    }
     for (const ev of this.#buffer.splice(0)) held.push({ ev, slot: null });
     const at = (ev: NostrEvent): number => this.#seen.get(ev.id) ?? Number.POSITIVE_INFINITY;
     // Among events seen at the same time (or never, on a fresh load) a resign goes last. The session would wait for
@@ -426,12 +506,157 @@ export class GameController {
     const rank = (ev: NostrEvent): number => (ev.kind === KIND.resign ? 1 : 0);
     held.sort((a, b) => at(a.ev) - at(b.ev) || rank(a.ev) - rank(b.ev));
     for (const { ev, slot } of held) {
+      if (slot !== null) this.#fed.add(ev.id);
       if (this.#receive(session, ev).status !== 'rejected' || slot === null) continue;
       const entry = this.#outbox.get(slot);
-      if (entry === undefined) continue;
+      if (entry === undefined || entry.orphan) continue;
       entry.orphan = true;
       this.#persist(slot);
     }
+    if (this.#relayAnswered) this.#vetSaved();
+  }
+
+  /**
+   * Vet this seat's unconfirmed saved moves, deal and Resign against what the relays sent (D056, the stale outbox),
+   * moves in seq order first, so a run of this seat's own moves is vetted one on top of the other:
+   * - a move is republished only if no other move of this seat on its parent is at the relays and, when it is not
+   *   folded in yet (it was loaded from storage), its parent is the current head;
+   * - the deal only if no other Shares event of this seat is at the relays;
+   * - a Resign only if no other Resign of this seat is at the relays and it names the current head.
+   * An event not folded in yet must then be accepted by the session. Anything else is discarded: removed from the
+   * outbox and storage, and logged. A discarded event the session had already folded in (built in this tab while
+   * offline) leaves the session holding an event nobody else will, so the session is rebuilt without it.
+   * An event the session now refuses outright is an orphan, as in `#retryUndelivered`.
+   */
+  #vetSaved(): void {
+    const session = this.#session;
+    if (session === null || this.#disposed) return;
+    const rank = (slot: string): number =>
+      slot.startsWith('move:') ? Number(slot.split(':')[1]) : slot === 'deal' ? 1e12 : 2e12;
+    const slots = [...this.#outbox]
+      .filter(([slot, e]) => vetted(slot) && !e.confirmed && !e.orphan)
+      .map(([slot]) => slot)
+      .sort((a, b) => rank(a) - rank(b));
+    let rebuild = false;
+    for (const slot of slots) {
+      const entry = this.#outbox.get(slot);
+      if (entry === undefined) continue;
+      const ev = entry.event;
+      const fed = this.#fed.has(ev.id);
+      this.#unvetted.delete(slot);
+      if (fed && this.#receive(session, ev).status === 'rejected') {
+        entry.orphan = true;
+        this.#persist(slot);
+        continue;
+      }
+      let why = this.#stale(session, slot, ev, fed);
+      if (why === null && !fed) {
+        this.#fed.add(ev.id);
+        const r = this.#receive(session, ev);
+        if (r.status === 'rejected') why = `the game refuses it (${r.reason})`;
+      }
+      if (why === null) {
+        void this.#publish(slot);
+        continue;
+      }
+      if (fed) rebuild = true;
+      this.#discard(slot, why);
+    }
+    if (rebuild) this.#rebuild();
+  }
+
+  /** Why a saved move, deal or Resign no longer fits the game (`#vetSaved`), or null when it may be published. */
+  #stale(session: GameSession, slot: string, ev: NostrEvent, fed: boolean): string | null {
+    const head = session.view().head;
+    if (slot.startsWith('move:')) {
+      const prev = prevOf(ev);
+      if (this.#otherMine(`move:${prev}`, ev)) return 'another move of yours at that point is on the relays';
+      if (!fed && (prev !== head.id || Number(slot.split(':')[1]) !== head.seq + 1))
+        return 'the game has moved on';
+      return null;
+    }
+    if (slot === 'deal')
+      return this.#otherMine('shares', ev) ? 'another deal of yours is on the relays' : null;
+    if (this.#otherMine('resign', ev)) return 'another resignation of yours is on the relays';
+    if (headOf(ev) !== head.id) return 'the game has moved on';
+    if (!fed && !session.canResign()) return 'the game is over';
+    return null;
+  }
+
+  /** Remove a saved event from the outbox and storage without publishing it, and log why (D056). */
+  #discard(slot: string, why: string): void {
+    const entry = this.#outbox.get(slot);
+    this.#outbox.delete(slot);
+    this.#unvetted.delete(slot);
+    if (entry === undefined) return;
+    const key = outboxKey(this.#d.profile, this.rootId);
+    const stored = readJson(this.#d.storage, key);
+    if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
+      const all = { ...(stored as Record<string, unknown>) };
+      const there = all[slot] as { event?: { id?: unknown } } | undefined;
+      if (there?.event?.id === entry.event.id) {
+        delete all[slot];
+        writeJson(this.#d.storage, key, all);
+      }
+    }
+    const what = slot === 'deal' ? 'deal' : slot === 'resign' ? 'resignation' : 'move';
+    const line = `A ${what} saved on this device was never sent, and it was discarded: ${why}.`;
+    this.log.value = [...this.log.value, line].slice(-MAX_LOG);
+    this.notice.value = line;
+  }
+
+  /** Build the session again from the relays' events and the outbox, after a folded-in event was discarded. */
+  #rebuild(): void {
+    if (this.#session === null || this.#disposed) return;
+    this.#session = null;
+    this.#fed.clear();
+    this.#buffer = [...this.#events.values()];
+    this.#tryCreate();
+  }
+
+  /**
+   * Ask the relays again for this seat's own events before republishing an unconfirmed move, deal or Resign (D056):
+   * its moves on the parents those moves name, its Shares events and Resigns, and, while a saved event is not folded
+   * in yet, the whole game. Once a relay has answered, `#vetSaved` decides; with no answer, nothing is published.
+   */
+  #startVet(): void {
+    const root = this.#root;
+    const me = this.#mySession;
+    if (this.#vetting || this.#disposed || !this.#synced || root === null || me === null) return;
+    const saved = [...this.#outbox].filter(([slot, e]) => vetted(slot) && !e.confirmed && !e.orphan);
+    if (saved.length === 0) return;
+    this.#vetting = true;
+    const prevs = new Set<string>();
+    for (const [, e] of saved) {
+      const prev = e.event.kind === KIND.move ? prevOf(e.event) : null;
+      if (prev !== null) prevs.add(prev);
+    }
+    const filters: Filter[] = [{ kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] }];
+    if (prevs.size > 0) filters.push({ kinds: [KIND.move], authors: [me], '#e': [...prevs] });
+    if (saved.some(([slot]) => this.#unvetted.has(slot)))
+      filters.push({
+        kinds: [...SESSION_KINDS],
+        authors: [...this.#sessionKeys],
+        '#e': [this.rootId],
+        limit: this.#page,
+      });
+    let stop = (): void => {};
+    stop = this.#d.pool.subscribe(
+      filters,
+      (ev) => this.#onEvent(ev),
+      (info) => {
+        stop();
+        this.#vetting = false;
+        if (this.#disposed) return;
+        if (info.eose > 0) {
+          this.#relayAnswered = true;
+          this.#vetSaved();
+        }
+        this.#refresh();
+        this.#queueDuties();
+      },
+    );
+    this.#stops.push(stop);
   }
 
   /** Whether `ev` is a game event of this game signed by the key its kind needs: a seat's session key or npub. */
@@ -471,8 +696,9 @@ export class GameController {
         }
         this.#onEvent(ev);
       };
-      const onEose = (): void => {
+      const onEose = (info: EoseInfo): void => {
         if (this.#disposed) return;
+        if (info.eose > 0) this.#relayAnswered = true;
         if (until !== null) stop();
         if (fresh > 0 && Number.isFinite(oldest)) {
           page(oldest);
@@ -503,6 +729,7 @@ export class GameController {
     this.#noteSeen(ev.id, this.#d.now());
     this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
     if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
+    this.#mySession = root.seats.find((s) => s.npub === this.#d.signer.pubkey)?.session ?? null;
     this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
@@ -747,9 +974,23 @@ export class GameController {
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
     for (const kind of AUTO) {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
+      if (this.#blocked(kind, v)) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
+  }
+
+  /**
+   * Whether an automatic duty must not be built now (D056): its saved event is still being vetted, or, for the deal,
+   * this seat's deal already reached a relay and the session refuses it (it is on a rival deck of a shuffle fork):
+   * a seat never deals twice.
+   */
+  #blocked(kind: Duty['kind'], v: SessionView): boolean {
+    if (kind === 'shuffle') return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
+    if (kind !== 'deal') return false;
+    if (this.#unvetted.has('deal')) return true;
+    const held = this.#outbox.get('deal');
+    return held?.confirmed === true && held.orphan && held.event.pubkey === this.#mySession;
   }
 
   #queueDuties(): void {
@@ -803,9 +1044,11 @@ export class GameController {
       const slot = moveSlot(head.seq + 1, head.id);
       return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildShuffle(rnd, now()));
     }
-    // A deal, secret or attestation the session refused (an orphan: after a shuffle fork, or a changed result) is
-    // built anew. None of them is a chain move, so a second one is never equivocation: a seat's later shares of a
-    // position are ignored, its secret is one value, and its latest attestation is the one that counts.
+    // A secret or attestation the session refused (an orphan: a changed result) is built anew: a seat's secret is
+    // one value, and its latest attestation is the one that counts. A deal is not (D056, review F7): a seat deals
+    // at most once per game, since the shuffle equivocator could translate shares between rival decks. A refused
+    // deal is rebuilt only if it never left this device (no relay confirmed it) and is not this seat's (a stray
+    // event in storage); the session itself owes no deal once it holds this seat's deal on a rival deck.
     if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
@@ -824,7 +1067,10 @@ export class GameController {
     try {
       return this.#commit(slot, this.#live(slot) ?? (await build()));
     } catch (e) {
-      if (!(e instanceof ClientError) || this.#outbox.get(slot)?.orphan !== true) throw e;
+      const refused = this.#outbox.get(slot);
+      if (!(e instanceof ClientError) || refused?.orphan !== true) throw e;
+      // Never deal twice (D056): a refused deal of this seat's that a relay has is its deal for the game.
+      if (slot === 'deal' && refused.confirmed && refused.event.pubkey === this.#mySession) throw e;
     }
     return this.#commit(slot, await build());
   }
@@ -887,6 +1133,8 @@ export class GameController {
       }
       this.notice.value = 'This browser could not save your last event; keep this tab open until it is sent.';
     }
+    this.#unvetted.delete(slot);
+    this.#fed.add(ev.id);
     const r = this.#receive(session, ev);
     if (r.status === 'rejected') {
       entry.orphan = true;
@@ -914,6 +1162,8 @@ export class GameController {
 
   #confirm(slot: string): void {
     const entry = this.#outbox.get(slot);
+    // A relay has it: it is public, so there is nothing left to vet (D056).
+    this.#unvetted.delete(slot);
     if (entry === undefined || entry.confirmed) return;
     entry.confirmed = true;
     this.#persist(slot);
@@ -928,6 +1178,7 @@ export class GameController {
       return;
     this.#inFlight.add(slot);
     try {
+      if (slot === 'deal' && this.#session !== null) this.#echoDeck(this.#session, root);
       const results = await this.#d.pool.publish(entry.event, unionRelays(root.relays, this.#d.relays()));
       if (this.#disposed) return;
       if (results.some((r) => r.ok)) this.#confirm(slot);
@@ -938,13 +1189,37 @@ export class GameController {
   }
 
   /**
+   * Republish the shuffle steps this seat deals on, before its deal (D056): every client that receives the deal
+   * then holds the deck it was built on, so a shuffle fork the equivocator showed to some seats only is held by
+   * every client the deal reaches, and the stall falls on the equivocator there too. Once per step per load.
+   */
+  #echoDeck(session: GameSession, root: ParsedRoot): void {
+    for (const id of session.deckSteps()) {
+      if (this.#echoedSteps.has(id)) continue;
+      const ev = this.#events.get(id) ?? [...this.#outbox.values()].find((e) => e.event.id === id)?.event;
+      if (ev === undefined) continue;
+      this.#echoedSteps.add(id);
+      void this.#d.pool.publish(ev, unionRelays(root.relays, this.#d.relays())).catch(() => {
+        // Best effort: the deal itself is what this seat owes.
+      });
+    }
+  }
+
+  /**
    * Republish what no relay has confirmed. Each event is first fed to the session again: one it has since
-   * refused (a pooled move whose parent lost, for example) becomes an orphan and is retried no more.
+   * refused (a pooled move whose parent lost, for example) becomes an orphan and is retried no more. A move, deal
+   * or Resign is republished only once the relays have been asked again what this seat published (D056).
    */
   #retryUndelivered(): void {
     const session = this.#session;
+    let vet = false;
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
+      if (vetted(slot)) {
+        // Just vetted and being published (after a load): no need to ask the relays again yet.
+        if (!this.#inFlight.has(slot)) vet = true;
+        continue;
+      }
       if (session !== null && this.#receive(session, entry.event).status === 'rejected') {
         entry.orphan = true;
         this.#persist(slot);
@@ -952,6 +1227,7 @@ export class GameController {
       }
       void this.#publish(slot);
     }
+    if (vet) this.#startVet();
   }
 
   #yield(): Promise<void> {
