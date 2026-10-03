@@ -1259,6 +1259,51 @@ describe('GameController', () => {
     expect(await reveals()).toHaveLength(1);
   }, 300_000);
 
+  it('discards a saved move built on a discarded one, and holds nothing after (D056, follow-up 2)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const p = bySeat[players.indexOf(phone)] as Profile;
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head = t.view.value?.head as { id: string; seq: number };
+    // Offline, the tablet saves M1 (the tile) and then M2 on top of it (the end of the same turn).
+    await t.act(t.legal.value[0]);
+    const m1 = savedMove(tablet, rootId, head.seq + 1);
+    await waitFor(
+      'the second decision of the turn',
+      () =>
+        t.view.value?.head.id === m1?.event.id && t.status.value === 'your-turn' && t.legal.value.length > 0,
+    );
+    await t.act(t.legal.value[0]);
+    const m2 = savedMove(tablet, rootId, head.seq + 2);
+    expect(m2?.event.tags).toContainEqual(['e', m1?.event.id, '', 'prev']);
+    t.dispose();
+    // The phone plays that first decision otherwise.
+    await new Promise((r) => setTimeout(r, 1100));
+    await phone.act(phone.legal.value[0]);
+    for (const g of players) await waitFor('the phone move', () => g.view.value?.head.seq === head.seq + 1);
+
+    // On reload M1 is discarded (another move of this seat on its parent), and M2 with it: nothing waits, nothing
+    // is held, and neither is ever published.
+    net.offline = false;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('both discarded', () => t.log.value.length === 2);
+    expect(t.log.value[1]).toMatch(/follows a saved move that was discarded/);
+    expect(savedMove(tablet, rootId, head.seq + 1)).toBeUndefined();
+    expect(savedMove(tablet, rootId, head.seq + 2)).toBeUndefined();
+    expect(net.published).not.toContain(m1?.event.id);
+    expect(net.published).not.toContain(m2?.event.id);
+    expect(t.canSendAnyway.value).toBe(false);
+    for (const g of [...players, t]) expect(g.view.value?.equivocators).toEqual([]);
+  }, 240_000);
+
   it('rejects a move while one is in flight and when nothing is loaded', async () => {
     const p = profile('solo');
     const g = new GameController('f'.repeat(64), p.deps);

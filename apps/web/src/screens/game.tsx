@@ -257,7 +257,9 @@ export function ResignButton(props: { explanation: string; busy: boolean; onResi
 export function SendAnyway(props: { onSend: () => void }) {
   return (
     <p class="warning send-anyway" role="status">
-      Something saved on this device is still waiting for every relay to answer before it is sent.{' '}
+      Something saved on this device is still waiting for every relay to answer before it is sent. If you
+      already played this turn on another device, sending it counts as signing two moves for one turn, and you
+      forfeit.{' '}
       <button type="button" class="btn btn-small" onClick={props.onSend}>
         Send anyway
       </button>

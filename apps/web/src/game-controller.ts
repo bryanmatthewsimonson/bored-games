@@ -273,8 +273,10 @@ export class GameController {
   readonly #ignoredParents = new Set<string>();
   /** Missing parents asked for by id (`#resolveMissing`), so each is asked once per load. */
   readonly #askedParents = new Set<string>();
-  /** When the current hold began (Unix s), or null while nothing is held (`HOLD_CAP_S`). */
+  /** When the current hold of a saved event began (Unix s), or null while none is held (`HOLD_CAP_S`). */
   #holdSince: number | null = null;
+  /** When the Secret reveal began to be held back (Unix s), or null; its own cap, apart from saved events'. */
+  #secretSince: number | null = null;
   /** Set by `sendAnyway`: vetting goes ahead on the answers held, and the Secret reveal is no longer held. */
   #forced = false;
   /** A vetting query is in flight. */
@@ -605,17 +607,28 @@ export class GameController {
       slot.startsWith('move:') ? Number(slot.split(':')[1]) : slot === 'deal' ? 1e12 : 2e12;
     const slots = this.#toVet().sort((a, b) => rank(a) - rank(b));
     let rebuild = false;
+    // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
+    // than waiting for ever on a parent that will never come.
+    const dropped = new Set<string>();
     for (const slot of slots) {
       const entry = this.#outbox.get(slot);
       if (entry === undefined) continue;
       const ev = entry.event;
       const fed = this.#fed.has(ev.id);
+      const parent = ev.kind === KIND.move ? prevOf(ev) : null;
+      if (parent !== null && dropped.has(parent)) {
+        if (fed) rebuild = true;
+        dropped.add(ev.id);
+        this.#discard(slot, 'it follows a saved move that was discarded');
+        continue;
+      }
       if (slot === 'deal' && this.#ownDeal(slot, entry)) {
         this.#vetDeal(session, entry, fed);
         continue;
       }
       if (fed && this.#receive(session, ev).status === 'rejected') {
         this.#unvetted.delete(slot);
+        if (ev.kind === KIND.move) dropped.add(ev.id);
         entry.orphan = true;
         this.#persist(slot);
         continue;
@@ -633,6 +646,7 @@ export class GameController {
         continue;
       }
       if (fed) rebuild = true;
+      if (ev.kind === KIND.move) dropped.add(ev.id);
       this.#discard(slot, verdict);
     }
     if (rebuild) this.#rebuild();
@@ -708,7 +722,6 @@ export class GameController {
 
   /** Show that a saved event waits to be vetted, unless a log line is showing. */
   #holding(why: string): void {
-    this.#holdSince ??= this.#d.now();
     if (this.notice.value !== null && this.log.value.includes(this.notice.value)) return;
     this.notice.value = `An event saved on this device is not sent yet: ${why}. Retrying.`;
   }
@@ -743,15 +756,20 @@ export class GameController {
   }
 
   /**
-   * Whether `info` answers for every relay that counts (D056, fix round 2): the root's relays and this player's,
-   * less those the pool reports dead (unreachable for `deadAfterMs`, with no connection since). Other relays the
-   * shared pool holds (another game's) do not count. With no counted relay alive, nothing is full.
+   * Whether `info` answers for every relay that counts (D056, fix round 2): every root relay, and this player's own
+   * relays less those the pool reports dead (not open for `deadAfterMs`). Other relays the shared pool holds
+   * (another game's) do not count.
    */
   #fullAnswer(info: EoseInfo): boolean {
     if (info.eosedUrls === undefined) return info.eose === info.relays;
     const dead = new Set(info.deadUrls ?? []);
     const eosed = new Set(info.eosedUrls);
-    const counted = unionRelays(this.#root?.relays ?? [], this.#d.relays()).filter((u) => !dead.has(u));
+    // The root's relays always count, dead or not: the other device's move may be on one of them only, so a dead
+    // root relay leads to the hold cap and Send anyway, never to vetting without it. Only the player's own relays
+    // are left out once dead.
+    const rootRelays = this.#root?.relays ?? [];
+    const own = this.#d.relays().filter((u) => !rootRelays.includes(u) && !dead.has(u));
+    const counted = unionRelays(rootRelays, own);
     return counted.length > 0 && counted.every((u) => eosed.has(u));
   }
 
@@ -806,7 +824,7 @@ export class GameController {
     const session = this.#session;
     if (session === null || this.#forced || !session.duties().some((d) => d.kind === 'secret')) return false;
     if (this.#viewFull && !this.#behind(session)) return false;
-    return this.#holdSince === null || this.#d.now() - this.#holdSince < HOLD_CAP_S;
+    return this.#secretSince === null || this.#d.now() - this.#secretSince < HOLD_CAP_S;
   }
 
   /** Republish the rival shuffle steps of a held shuffle fork (`GameSession.forkSteps`), once each per load. */
@@ -1140,14 +1158,13 @@ export class GameController {
     const secretDue = session?.duties().some((d) => d.kind === 'secret') === true;
     const secretWaits =
       secretDue && !this.#forced && !(this.#viewFull && session !== null && !this.#behind(session));
-    const held = this.#synced && (this.#unvetted.size > 0 || secretWaits);
-    if (!held) {
-      this.#holdSince = null;
-      this.canSendAnyway.value = false;
-      return;
-    }
-    this.#holdSince ??= now;
-    this.canSendAnyway.value = now - this.#holdSince >= HOLD_CAP_S;
+    if (this.#synced && secretWaits) this.#secretSince ??= now;
+    else this.#secretSince = null;
+    const held = this.#synced && this.#unvetted.size > 0;
+    if (held) this.#holdSince ??= now;
+    else this.#holdSince = null;
+    const capped = (since: number | null): boolean => since !== null && now - since >= HOLD_CAP_S;
+    this.canSendAnyway.value = capped(this.#holdSince) || (secretWaits && capped(this.#secretSince));
   }
 
   /**
