@@ -36,11 +36,13 @@
  *   or more seats, turns a finished game into an unrated abort (`ended-void`, reported apart: a residual of `stop`).
  * - Flags: an honest seat (one key, possibly on two devices) is never flagged for vouching for two sides, nor
  *   recorded as an equivocator (`honest-flagged`).
- * - Finality (round 3, `stop3`): a result that every honest seat attested is the final result on every honest
- *   client; otherwise `attested-void` (reported apart: with a single adversary and one device per seat it must not
- *   happen). A stop that voids a counted timeout or resign of a coalition seat, where a stop is not the same score
- *   (3 or more seats: a rated timeout becomes an unrated abort, or the record moves to another seat), is
- *   `void-forfeit` (reported apart: the price of convergence, an owner question).
+ * - Finality (round 3, `stop3`): a result that every honest seat attested, while no honest seat attested another,
+ *   is the final result on every honest client; otherwise `attested-void` (reported apart: with a single adversary
+ *   and one device per seat it must not happen; a 2-seat result that becomes the equivocator's loss is fine). A
+ *   stop that voids a counted timeout or resign of a coalition seat and leaves a coalition seat with a score other
+ *   than the same or a rated last place (3 or more seats: a timeout becoming an unrated abort, a standing moved to
+ *   another head, the record moved to another seat) is `void-forfeit` (reported apart: needs a coalition once a
+ *   stop scores as the equivocator's timeout, `stopScore`).
  *
  * Round-2 options: honest seats on two devices that share one key with independent delivery (`devices`), moves
  * that draw two positions (`multiDraw`), and honest humans who leave when their client shows a stop and come back
@@ -85,7 +87,17 @@ export type Mode = 'private' | 'viewers' | 'public' | 'roll';
  */
 export type Design = 'v1' | 'd039' | 'ack' | 'ack-lock' | 'fs' | 'fgr' | 'fgr2' | 'stop' | 'stop3';
 
-export const DESIGNS: readonly Design[] = ['v1', 'd039', 'ack', 'ack-lock', 'fs', 'fgr', 'fgr2', 'stop', 'stop3'];
+export const DESIGNS: readonly Design[] = [
+  'v1',
+  'd039',
+  'ack',
+  'ack-lock',
+  'fs',
+  'fgr',
+  'fgr2',
+  'stop',
+  'stop3',
+];
 export const MODES: readonly Mode[] = ['private', 'viewers', 'public'];
 
 export interface Scope {
@@ -410,7 +422,10 @@ class Explorer {
       (c) =>
         `${setKey(c.has)}|${c.frozen === null ? '' : `${c.frozen.reason}${c.frozen.path.at(-1) ?? ROOT}`}|${c.expired ?? ''}:${c.expiredCount}|${c.sawStop ? 's' : ''}${c.absent ? 'a' : ''}`,
     );
-    const saved = [...st.saved.entries()].map(([id, x]) => `${id}@${x.client}`).sort().join(',');
+    const saved = [...st.saved.entries()]
+      .map(([id, x]) => `${id}@${x.client}`)
+      .sort()
+      .join(',');
     const full = `${evs}#${cl.join('#')}#${st.expiries}#${saved}`;
     return this.s.exactKeys === true ? full : compact(full);
   }
@@ -533,10 +548,14 @@ class Explorer {
         if (v.status !== 'live' || v.pending !== me) continue;
         const depth = v.path.length + 1;
         // The human takes each turn once per device; it has not played this one anywhere it can see yet.
-        if ([...st.events.values()].some((e) => e.t === 'move' && e.seat === me && e.depth === depth)) continue;
+        if ([...st.events.values()].some((e) => e.t === 'move' && e.seat === me && e.depth === depth))
+          continue;
         if ([...st.saved.values()].some((x) => x.ev.seat === me && x.ev.depth === depth)) continue;
         const ev = { ...this.honestEvent(st, c, v, 1), stale: true };
-        out.push([`${this.who(c)} saves ${ev.id} offline`, { ...st, saved: new Map(st.saved).set(ev.id, { ev, client: i }) }]);
+        out.push([
+          `${this.who(c)} saves ${ev.id} offline`,
+          { ...st, saved: new Map(st.saved).set(ev.id, { ev, client: i }) },
+        ]);
       }
     }
     for (const [id, x] of st.saved) {
@@ -572,7 +591,12 @@ class Explorer {
     for (const e of st.events.values()) {
       if (e.seat !== c.seat || c.has.has(e.id)) continue;
       out.add(e.id);
-      const at = e.t === 'move' ? e.prev : e.t === 'share' || e.t === 'claim' || e.t === 'resign' || e.t === 'attest' ? e.head : ROOT;
+      const at =
+        e.t === 'move'
+          ? e.prev
+          : e.t === 'share' || e.t === 'claim' || e.t === 'resign' || e.t === 'attest'
+            ? e.head
+            : ROOT;
       if (at !== ROOT && st.events.has(at)) for (const id of pathTo(at, get)) if (!c.has.has(id)) out.add(id);
     }
     return [...out];
@@ -589,7 +613,8 @@ class Explorer {
     const me = c.seat;
     const released = this.releasedBy(c, st);
     const rel: string[] = [];
-    for (const g of v.grants) for (const o of owed(g, me)) if (!released.has(o) && !rel.includes(o)) rel.push(o);
+    for (const g of v.grants)
+      for (const o of owed(g, me)) if (!released.has(o) && !rel.includes(o)) rel.push(o);
     return {
       t: 'move',
       id: moveId(v.head, me, 'draw', variant),
@@ -684,7 +709,8 @@ class Explorer {
         results.set(`${r.kind}@${r.head}:${r.loser}`, r);
       };
       for (const e of evs) {
-        if (e.t === 'attest' && !this.coalition.has(e.seat)) add({ kind: e.kind, head: e.head, loser: e.loser });
+        if (e.t === 'attest' && !this.coalition.has(e.seat))
+          add({ kind: e.kind, head: e.head, loser: e.loser });
         if (e.t === 'move' && e.depth >= s.length) add({ kind: 'over', head: e.id, loser: -1 });
         if (e.t === 'claim') {
           const depth = e.head === ROOT ? 0 : (st.events.get(e.head) as MoveEv | undefined)?.depth;
@@ -696,7 +722,10 @@ class Explorer {
         for (const [key, r] of results) {
           const id = `T${a}:${key}`;
           if (st.events.has(id)) continue;
-          const next: State = { ...st, events: new Map(st.events).set(id, { t: 'attest', id, seat: a, ...r }) };
+          const next: State = {
+            ...st,
+            events: new Map(st.events).set(id, { t: 'attest', id, seat: a, ...r }),
+          };
           out.push([`seat ${a} attests ${key}`, this.settle(everyone(next, id))]);
         }
       }
@@ -748,11 +777,12 @@ class Explorer {
     // carries the log hash, so it names the chain).
     if (s.design === 'stop3') {
       const v0 = this.view(st, c);
-      const r = c.frozen !== null
-        ? { kind: c.frozen.reason, head: c.frozen.path.at(-1) ?? ROOT, loser: c.frozen.seat }
-        : v0.status === 'over'
-          ? { kind: 'over' as const, head: v0.head, loser: -1 }
-          : null;
+      const r =
+        c.frozen !== null
+          ? { kind: c.frozen.reason, head: c.frozen.path.at(-1) ?? ROOT, loser: c.frozen.seat }
+          : v0.status === 'over'
+            ? { kind: 'over' as const, head: v0.head, loser: -1 }
+            : null;
       if (r !== null && !v0.forked) {
         const id = `T${c.seat}:${r.kind}@${r.head}:${r.loser}`;
         if (!c.has.has(id)) {
@@ -918,7 +948,8 @@ class Explorer {
         const e = st.events.get(id) as Ev;
         if (e.t !== 'claim' || e.seat !== c.seat || !onChain.has(e.head)) continue;
         const path = e.head === ROOT ? [] : pathTo(e.head, get);
-        if (path.length % this.s.seats !== c.seat) return { path, reason: 'claim', seat: path.length % this.s.seats };
+        if (path.length % this.s.seats !== c.seat)
+          return { path, reason: 'claim', seat: path.length % this.s.seats };
       }
     }
     // A claim counts when its head is the head, this client's deadline passed there, and its claimant is not
@@ -988,7 +1019,8 @@ class Explorer {
       if (v.status === 'stood' && v.standing !== null) {
         // Round 3: the result that stood at the fork, on every client; a different counted one is voided.
         const R = v.standing;
-        const frozen: Frozen | null = R.kind === 'over' ? null : { path: v.path, reason: R.kind, seat: R.loser };
+        const frozen: Frozen | null =
+          R.kind === 'over' ? null : { path: v.path, reason: R.kind, seat: R.loser };
         const same =
           c.frozen !== null && c.frozen.reason === R.kind && (c.frozen.path.at(-1) ?? ROOT) === R.head;
         const voided = c.frozen !== null && !same ? c.frozen : null;
@@ -1092,6 +1124,9 @@ class Explorer {
       const first = bySeat.get(this.honest[0] as Seat);
       for (const [r, score] of first ?? []) {
         if (!this.honest.every((h) => bySeat.get(h)?.has(r) === true)) continue;
+        // An honest seat that also attested a rival result (two devices on two sides) leaves two results attested:
+        // neither stands, by design.
+        if (this.honest.some((h) => [...(bySeat.get(h)?.keys() ?? [])].some((x) => x !== r))) continue;
         for (const [i, f] of finals.entries()) {
           const head = f.path.at(-1) ?? ROOT;
           const now = scores(s, f.end, head, loserOf(f));
@@ -1298,7 +1333,10 @@ function isFgr(d: Design): boolean {
  * depends on when one arrives, and the adversary sees every event at once anyway.
  */
 function everyone(st: State, id: string): State {
-  return { ...st, clients: st.clients.map((c) => (c.has.has(id) ? c : { ...c, has: new Set(c.has).add(id) })) };
+  return {
+    ...st,
+    clients: st.clients.map((c) => (c.has.has(id) ? c : { ...c, has: new Set(c.has).add(id) })),
+  };
 }
 
 function deliver(st: State, i: number, ids: string[]): State {
@@ -1501,7 +1539,10 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   for (const e of evs) {
     if (e.t !== 'attest') continue;
     const key = `${e.kind}@${e.head}:${e.loser}`;
-    const g = attests.get(key) ?? { r: { kind: e.kind, head: e.head, loser: e.loser }, seats: new Set<Seat>() };
+    const g = attests.get(key) ?? {
+      r: { kind: e.kind, head: e.head, loser: e.loser },
+      seats: new Set<Seat>(),
+    };
     g.seats.add(e.seat);
     attests.set(key, g);
   }
@@ -1513,7 +1554,10 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     if (r.kind === 'over') return depth >= s.length && r.loser === -1;
     if (depth >= s.length) return false;
     if (r.kind === 'claim')
-      return r.loser === depth % s.seats && evs.some((e) => e.t === 'claim' && e.head === r.head && e.seat !== r.loser);
+      return (
+        r.loser === depth % s.seats &&
+        evs.some((e) => e.t === 'claim' && e.head === r.head && e.seat !== r.loser)
+      );
     // A resign counts at a head of the resigner's choosing on or past the head it names (PROTOCOL §8.3).
     return evs.some((e) => e.t === 'resign' && e.seat === r.loser && ancestor(e.head, r.head));
   };
