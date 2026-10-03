@@ -165,13 +165,13 @@ Rules 6 and 9 need either a new content variant of the result attestation (PROTO
 | Extra rules | the anchor tag, the cutoff, two device rules | vouch, finality, double-vouch flags, two deadlines after a fork, Hanabi stall attribution for missing Acks |
 | Multi-device | a device checks its own seat's events before signing; the outbox rule | also automatic Acks from two devices (needs a device policy) |
 | Model state space | complete at 4 seats with single adversaries and 8 moves (§6.7) | did not complete at 4 seats |
-| Old forks | during play, any equivocation stops; after the end, only until every other seat attested | a side every seat vouched for is never stopped |
+| Old forks | during play, any equivocation stops; after the end, only until every other seat attested (an absent seat may never attest, F1) | a side every seat vouched for is never stopped |
 | Claims after a fork | the cutoff decides, on every client alike | round 2's rule 9 diverges as (e) round 2 did (A2, §6.7) |
 
 ### 5.6 Costs
 - **Events:** up to S−1 Shares events per granting move (as D039), each with one more tag; one result attestation per seat, published at the result. No Acks.
 - **Latency:** one relay round trip after the move.
-- **Policy:** any proven equivocation during play ends the game as the equivocator's forfeit; after the end, only before every other seat attested.
+- **Policy:** any proven equivocation during play ends the game as the equivocator's forfeit; after the end, only before every other seat attested. An absent seat may never attest, so the window after the end can stay open (F1, §9 residual 3).
 - **Code** (after approval): fork stop, the cutoff and the stop result in `packages/client` (replacing fork choice); the anchor tag on Shares events in `packages/protocol`; the prompt share duty, the early attestation, the outbox rule and the check before signing in the web controller; the roll binding when the beacon is built; rebroadcast of held moves; simulator adversaries for every trace of §6.
 
 ## 5B. The alternative: final, or stop (round 2)
