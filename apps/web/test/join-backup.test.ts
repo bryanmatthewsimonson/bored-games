@@ -14,6 +14,8 @@ const base: Props = {
   idBase: 'jb',
   dontAsk: false,
   onDontAsk: () => {},
+  nsec: 'nsec1secretsecretsecret',
+  onSavedByHand: () => {},
   onCopy: () => {},
   onJoin: () => {},
   onCancel: () => {},
@@ -21,8 +23,12 @@ const base: Props = {
 const tree = (over: Partial<Props>) => renderTree(JoinBackupPrompt({ ...base, ...over }));
 const buttons = (over: Partial<Props>) =>
   findAll(tree(over), (el) => el.tag === 'button').map((b) => spokenText([b]));
-const checkboxes = (over: Partial<Props>) =>
-  findAll(tree(over), (el) => el.tag === 'input' && el.attrs.type === 'checkbox');
+/** The checkboxes whose label reads `name`. */
+const checkboxes = (over: Partial<Props>, name = "Don't ask again for this key") =>
+  findAll(tree(over), (el) => el.tag === 'label' && spokenText([el]) === name).flatMap((label) =>
+    findAll(label.children, (el) => el.tag === 'input' && el.attrs.type === 'checkbox'),
+  );
+const SAVED_BY_HAND = "I've saved it somewhere safe";
 
 describe('backup before joining or creating a table (D057)', () => {
   it('offers Copy secret key, Join anyway and Cancel, named by its heading', () => {
@@ -77,12 +83,39 @@ describe('backup before joining or creating a table (D057)', () => {
       'Cancel',
     ]);
     expect(checkboxes({ mode: 'unsaved' })).toHaveLength(0);
+    expect(checkboxes({ mode: 'unsaved' }, SAVED_BY_HAND)).toHaveLength(1);
     expect(proceedLabel('unsaved', 'join', 'idle')).toBeNull();
   });
 
   it('disables every control while the join is under way', () => {
     const t = tree({ busy: true });
-    for (const b of findAll(t, (el) => el.tag === 'button' || el.tag === 'input'))
+    for (const b of findAll(t, (el) => el.tag === 'button' || el.attrs.type === 'checkbox'))
       expect(b.attrs.disabled).toBe(true);
+  });
+
+  it('shows the key from memory on request, with "I\'ve saved it somewhere safe" as an alternative to the clipboard', () => {
+    const t = tree({});
+    const [details] = findAll(t, (el) => el.tag === 'details');
+    expect(details?.attrs.open).toBe(false);
+    expect(spokenText(t)).toContain('Show the secret key instead');
+    const [input] = findAll(t, (el) => el.tag === 'input' && el.attrs.type === 'text');
+    expect(input?.attrs.value).toBe('nsec1secretsecretsecret');
+    expect(input?.attrs.readOnly).toBe(true);
+    let saved = 0;
+    const [box] = checkboxes({ onSavedByHand: () => saved++ }, SAVED_BY_HAND);
+    (box?.attrs.onChange as ((e: unknown) => void) | undefined)?.({ currentTarget: { checked: true } });
+    expect(saved).toBe(1);
+    // A failed copy opens it, so the key can be saved by hand; a key that is not being saved too.
+    expect(findAll(tree({ copy: 'failed' }), (el) => el.tag === 'details')[0]?.attrs.open).toBe(true);
+    expect(spokenText(tree({ mode: 'unsaved', copy: 'failed' }))).toContain("I've saved it somewhere safe");
+  });
+
+  it('a key saved by hand goes on like a copied one', () => {
+    expect(buttons({ copy: 'saved' })).toEqual(['Join', 'Cancel']);
+    expect(buttons({ mode: 'unsaved', copy: 'saved' })).toEqual(["I've saved it: join", 'Cancel']);
+    expect(spokenText(tree({ copy: 'saved' }))).toContain(COPY_NOTE.saved);
+    expect(findAll(tree({ copy: 'saved' }), (el) => el.tag === 'details')).toHaveLength(0);
+    // Without a key to show (the extension), there is nothing to show.
+    expect(findAll(tree({ nsec: null }), (el) => el.tag === 'details')).toHaveLength(0);
   });
 });

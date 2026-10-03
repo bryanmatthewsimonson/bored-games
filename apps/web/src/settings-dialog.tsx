@@ -114,7 +114,9 @@ function IdentitySection() {
   const [reveal, setReveal] = useState(false);
   const [switchError, setSwitchError] = useState('');
   const npub = npubEncode(signer.pubkey);
-  const nsec = signer.kind === 'local' && reveal ? exportNsec(profile, store) : null;
+  // From memory first (D057): it works when storage refuses writes or holds another key now.
+  const nsec =
+    signer.kind === 'local' && reveal ? (signer.exportNsec?.() ?? exportNsec(profile, store)) : null;
   // Reveal reads the key back from storage; when storage is blocked there is nothing to show.
   const revealFailed = signer.kind === 'local' && reveal && nsec === null;
 

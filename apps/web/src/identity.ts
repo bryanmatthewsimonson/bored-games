@@ -31,13 +31,32 @@ export interface Signer {
   pubkey: Hex;
   sign(t: EventTemplate): Promise<NostrEvent>;
   kind: SignerKind;
+  /**
+   * The local key this page signs with, as `nsec1…`, from memory (D057): it works when storage refuses writes or
+   * holds another key now. Absent for the extension.
+   */
+  exportNsec?: () => string;
+  /** Keep this page's local key among the kept keys if storage no longer holds it (`LoadedSigner.rescue`). */
+  rescue?: () => boolean;
+}
+
+/** The parts of the Web Locks API (`navigator.locks`) that `loadIdentity` uses. */
+export interface LockManagerLike {
+  request<T>(name: string, options: { mode: 'exclusive' }, callback: () => Promise<T> | T): Promise<T>;
+}
+
+/** What `loadIdentity` may be given besides the store: the Web Locks manager and the clock (Unix seconds). */
+export interface IdentityOptions {
+  locks?: LockManagerLike | undefined;
+  now?: () => number;
 }
 
 /**
- * A loaded identity: its signer, whether its key survives a reload (NIP-07 keys always do), and whether a lost
- * key is still to be reported (`lostKeyReported`, D057).
+ * A loaded identity: its signer, whether its key survives a reload (NIP-07 keys always do), whether a lost key is
+ * still to be reported (`lostKeyReported`, D057), and `rescue`, which keeps this page's local key among the kept
+ * keys when storage no longer holds it (another page replaced or removed it; a no-op otherwise).
  */
-export type LoadedSigner = Signer & { persistent: boolean; lostPrevious: boolean };
+export type LoadedSigner = Signer & { persistent: boolean; lostPrevious: boolean; rescue: () => boolean };
 
 /** The parts of the NIP-07 `window.nostr` object that this app uses. */
 export interface Nip07 {
@@ -103,15 +122,25 @@ function newSecretKey(rnd: RandomBytes): Uint8Array {
 }
 
 /** A local signer that asks `problem` before every signature, and refuses with its message (D057, item 10). */
-function guardedLocalSigner(sk: Uint8Array, rnd: RandomBytes, problem: () => string | null): Signer {
+function guardedLocalSigner(
+  sk: Uint8Array,
+  rnd: RandomBytes,
+  problem: () => string | null,
+  rescue: () => boolean,
+): Signer {
   return {
     kind: 'local',
     pubkey: getPublicKey(sk),
     sign: async (t) => {
       const p = problem();
-      if (p !== null) throw new Error(p);
+      if (p !== null) {
+        // Keep this page's key before refusing, so the player can switch back to it (Settings → Other keys).
+        rescue();
+        throw new Error(p);
+      }
       return finalizeEvent(t, sk, rnd);
     },
+    exportNsec: () => nsecEncode(bytesToHex(sk)),
   };
 }
 
@@ -155,31 +184,58 @@ export async function loadIdentity(
   store: KeyValueStore,
   rnd: RandomBytes,
   nostr?: Nip07,
+  opts: IdentityOptions = {},
 ): Promise<LoadedSigner> {
   if (nostr !== undefined && readSignerChoice(profile, store) === 'nip07')
-    return { ...(await nip07Signer(nostr)), persistent: true, lostPrevious: lostKeyReported(profile, store) };
+    return {
+      ...(await nip07Signer(nostr)),
+      persistent: true,
+      lostPrevious: lostKeyReported(profile, store),
+      rescue: () => false,
+    };
   const key = storageKey(profile, 'sk');
-  let sk = validSecretKey(readItem(store, key));
-  if (sk === null) {
+  // Two pages of the site starting at once on a fresh browser (D057, item 10) could each find no key and each make
+  // one. Where the Web Locks API exists, finding and making the key is one critical section across every tab and
+  // process of the origin, so the second page finds the first page's key. Without it, the key is read back after
+  // the write (which catches a write already visible here), and the signer and the storage event guard the rest.
+  const ensure = (): Uint8Array => {
+    const found = validSecretKey(readItem(store, key));
+    if (found !== null) return found;
     // A new key where this profile has traces of an older one: that key was lost (D057). Say so until dismissed.
     if (previousKeyTraces(profile, store)) writeItem(store, lostKey(profile), '1');
-    sk = newSecretKey(rnd);
-    writeItem(store, key, bytesToHex(sk));
-    // Two pages of the site starting at once on a fresh browser (D057, item 10) can both find no key and both make
-    // one; the last write wins. Read it back: when storage now holds another valid key, adopt that one, so every
-    // page converges on the stored key. (A write refused by the browser reads back as nothing: ours stays.)
-    const stored = validSecretKey(readItem(store, key));
-    if (stored !== null) sk = stored;
-  }
+    const made = newSecretKey(rnd);
+    writeItem(store, key, bytesToHex(made));
+    // A write refused by the browser reads back as nothing: ours stays.
+    return validSecretKey(readItem(store, key)) ?? made;
+  };
+  let sk = validSecretKey(readItem(store, key));
+  if (sk === null)
+    sk = opts.locks === undefined ? ensure() : await opts.locks.request(key, { mode: 'exclusive' }, ensure);
   const hex = bytesToHex(sk);
   // Persistent only if the key reads back from a store that outlives the page.
   const persistent = isPersistentStore(store) && readItem(store, key) === hex;
   const saved = readItem(store, key) === hex;
-  const signer = guardedLocalSigner(sk, rnd, () => storedKeyProblem(profile, store, hex, saved));
+  const now = opts.now ?? (() => 0);
+  const rescue = (): boolean => keepReplacedKey(profile, store, hex, now());
+  const signer = guardedLocalSigner(sk, rnd, () => storedKeyProblem(profile, store, hex, saved), rescue);
   // Which local key this profile had, so that its loss can be told from a profile that never had one.
   if (readItem(store, localPubKey(profile)) !== signer.pubkey)
     writeItem(store, localPubKey(profile), signer.pubkey);
-  return { ...signer, persistent, lostPrevious: lostKeyReported(profile, store) };
+  return { ...signer, persistent, lostPrevious: lostKeyReported(profile, store), rescue };
+}
+
+/**
+ * Keep the local key `hex` among this profile's kept keys (`sk-history`) when storage no longer holds it as the
+ * current key (D057): another page replaced or removed it while this page played with it. Then Settings → Other
+ * keys, Switch and the recovered-seat notice can always bring it back. Nothing is written when it is the stored key
+ * or already kept; false only when a needed write failed.
+ */
+export function keepReplacedKey(profile: string, store: KeyValueStore, hex: string, at: number): boolean {
+  const bytes = validSecretKey(hex);
+  if (bytes === null || readItem(store, storageKey(profile, 'sk')) === hex) return true;
+  const list = keptKeys(profile, store);
+  if (list.some((k) => k.sk === hex)) return true;
+  return saveKeptKeys(profile, store, [{ pubkey: getPublicKey(bytes), sk: hex, at }, ...list]);
 }
 
 /** Refused when another page of this site changed the profile's key (D057, item 10). */
@@ -551,14 +607,27 @@ export function keyStillSaved(
   store: KeyValueStore,
   signer: { kind: SignerKind; pubkey: Hex },
 ): boolean {
-  if (signer.kind !== 'local') return true;
+  return keyProblem(profile, store, signer) === null;
+}
+
+/**
+ * Why the key in use cannot take a seat now, or null: storage holds another valid key (`KEY_CHANGED`: another
+ * page made or imported one), or no key (`KEY_NOT_SAVED`). Never for the extension.
+ */
+export function keyProblem(
+  profile: string,
+  store: KeyValueStore,
+  signer: { kind: SignerKind; pubkey: Hex },
+): string | null {
+  if (signer.kind !== 'local') return null;
   const sk = validSecretKey(readItem(store, storageKey(profile, 'sk')));
-  return sk !== null && getPublicKey(sk) === signer.pubkey;
+  if (sk === null) return KEY_NOT_SAVED;
+  return getPublicKey(sk) === signer.pubkey ? null : KEY_CHANGED;
 }
 
 /**
  * What happens when the player asks to join a table or create one (D057):
- * - `refuse`: the key in use is no longer stored (`KEY_NOT_SAVED`);
+ * - `refuse`: the key in use is no longer the stored one (`KEY_CHANGED`) or none is stored (`KEY_NOT_SAVED`);
  * - `unsaved`: this browser is not saving site data: only after copying the key and confirming (`UNSAVED_KEY`);
  * - `backup`: a local key never backed up: "Copy your secret key first?" (a new table seats its creator, so it is
  *   asked too);
@@ -576,7 +645,8 @@ export function joinGate(
   signer: { kind: SignerKind; pubkey: Hex },
   persistent: boolean,
 ): JoinGate {
-  if (!keyStillSaved(profile, store, signer)) return { kind: 'refuse', error: KEY_NOT_SAVED };
+  const problem = keyProblem(profile, store, signer);
+  if (problem !== null) return { kind: 'refuse', error: problem };
   if (signer.kind === 'local' && !persistent) return { kind: 'unsaved' };
   if (joinBackupNeeded(profile, store, signer)) return { kind: 'backup' };
   return { kind: 'go' };

@@ -9,6 +9,7 @@ import {
   DEFAULT_PROFILE,
   invalidProfileName,
   keyChangedElsewhere,
+  type LockManagerLike,
   loadIdentity,
   profileFromLocation,
   readSignerChoice,
@@ -42,7 +43,9 @@ async function main(): Promise<void> {
   const extensionMissing = wantsExtension && nostr === undefined;
   let loaded: Awaited<ReturnType<typeof loadIdentity>>;
   try {
-    loaded = await loadIdentity(profile, store, randomBytes, nostr);
+    // Web Locks (where the browser has them) make finding or making the key one step across every tab (D057).
+    const locks = (navigator as { locks?: LockManagerLike }).locks;
+    loaded = await loadIdentity(profile, store, randomBytes, nostr, { locks, now: nowSeconds });
   } catch (e) {
     render(
       <IdentityError
@@ -64,6 +67,8 @@ async function main(): Promise<void> {
   window.addEventListener('storage', (e) => {
     if (e.storageArea !== (store as unknown) || keyChanged.value) return;
     if (!keyChangedElsewhere({ key: e.key, newValue: e.newValue }, profile, signer)) return;
+    // Keep this page's key under Settings → Other keys before blocking, so it can always be switched back to.
+    loaded.rescue();
     keyChanged.value = true;
     if (document.visibilityState === 'hidden') window.location.reload();
   });

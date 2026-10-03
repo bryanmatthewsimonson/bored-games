@@ -9,13 +9,13 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
-import { joinGate, KEY_NOT_SAVED, keyStillSaved } from '../identity.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
 import { gameHref, tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
-import { JoinBackup } from './join-backup.tsx';
+import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
 
 /** A listed table of another player key whose seat this browser's saved game keys play (D057). */
@@ -106,8 +106,10 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
     if (busy !== null) return;
     setAsking(null);
     // Read the stored key again right before the seat is taken (D057).
-    if (!keyStillSaved(profile, store, signer)) {
-      setError({ address: t.address, message: KEY_NOT_SAVED });
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      setError({ address: t.address, message: problem });
       return;
     }
     requestPersistenceOnce(profile, store, storageManager());
@@ -156,8 +158,10 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                   aria-label={joinButtonLabel(label, t.table.creator)}
                   onClick={() => {
                     const gate = joinGate(profile, store, signer, persistent);
-                    if (gate.kind === 'refuse') setError({ address: t.address, message: gate.error });
-                    else if (gate.kind === 'go') void join(t);
+                    if (gate.kind === 'refuse') {
+                      signer.rescue?.();
+                      setError({ address: t.address, message: gate.error });
+                    } else if (gate.kind === 'go') void join(t);
                     else setAsking({ address: t.address, mode: gate.kind });
                   }}
                 >
@@ -168,6 +172,7 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                     {failure}
                   </span>
                 )}
+                {failure !== null && <CopyPageKey message={failure} />}
               </>
             }
             below={

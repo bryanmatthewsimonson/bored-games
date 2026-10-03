@@ -7,11 +7,11 @@ import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
 import { PlayerTag } from '../components/avatar.tsx';
 import { StatusChip } from '../components/chips.tsx';
-import { JoinBackup } from '../components/join-backup.tsx';
+import { CopyPageKey, JoinBackup } from '../components/join-backup.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
-import { joinGate, KEY_NOT_SAVED, keyStillSaved } from '../identity.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
@@ -182,14 +182,20 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const join = () => {
     setAskBackup(null);
     // Read the stored key again right before the seat is taken (D057).
-    if (!keyStillSaved(profile, store, signer)) return setError(KEY_NOT_SAVED);
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      return setError(problem);
+    }
     requestPersistenceOnce(profile, store, storageManager());
     return run(() => lobby.join(address), 'Could not join this table.');
   };
   const askThenJoin = () => {
     const gate = joinGate(profile, store, signer, persistent);
-    if (gate.kind === 'refuse') setError(gate.error);
-    else if (gate.kind === 'go') void join();
+    if (gate.kind === 'refuse') {
+      signer.rescue?.();
+      setError(gate.error);
+    } else if (gate.kind === 'go') void join();
     else setAskBackup(gate.kind);
   };
   const start = () =>
@@ -303,9 +309,12 @@ export function TableScreen(props: { creator: string; tableId: string }) {
           </div>
         )}
         {error !== '' && (
-          <p class="error" role="alert">
-            {error}
-          </p>
+          <div class="row">
+            <p class="error" role="alert">
+              {error}
+            </p>
+            <CopyPageKey message={error} />
+          </div>
         )}
       </section>
 

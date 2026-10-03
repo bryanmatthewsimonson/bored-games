@@ -13,6 +13,7 @@ import {
   joinBackupNeeded,
   joinGate,
   KEPT_KEYS_SOFT_CAP,
+  KEY_CHANGED,
   KEY_ERRORS,
   KEY_NOT_SAVED,
   keptKeys,
@@ -575,10 +576,12 @@ describe('a lost key, a key no longer saved, and the join gate (D057)', () => {
     const me = { kind: 'local' as const, pubkey: PK_B };
     expect(joinGate('p', store, me, true)).toEqual({ kind: 'backup' });
     expect(joinGate('p', store, me, false)).toEqual({ kind: 'unsaved' });
+    // Storage holds another key: the "changed" wording; no key at all: "no longer saved".
     expect(joinGate('p', store, { kind: 'local', pubkey: 'ab'.repeat(32) }, true)).toEqual({
       kind: 'refuse',
-      error: KEY_NOT_SAVED,
+      error: KEY_CHANGED,
     });
+    expect(joinGate('p', memoryStorage(), me, true)).toEqual({ kind: 'refuse', error: KEY_NOT_SAVED });
     expect(joinGate('p', store, { kind: 'nip07', pubkey: 'ab'.repeat(32) }, true)).toEqual({ kind: 'go' });
     markBackedUp('p', store, PK_B);
     expect(joinGate('p', store, me, true)).toEqual({ kind: 'go' });

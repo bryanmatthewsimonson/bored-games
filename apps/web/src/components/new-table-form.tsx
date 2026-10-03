@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
-import { joinGate, KEY_NOT_SAVED, keyStillSaved } from '../identity.ts';
+import { joinGate, keyProblem } from '../identity.ts';
 import { splitAddress } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts';
 import { tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
-import { JoinBackup } from './join-backup.tsx';
+import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
@@ -41,7 +41,10 @@ export function NewTableForm(props: { game: string }) {
     e.preventDefault();
     if (!check.ok || busy || module === undefined) return;
     const gate = joinGate(profile, store, signer, persistent);
-    if (gate.kind === 'refuse') return setError(gate.error);
+    if (gate.kind === 'refuse') {
+      signer.rescue?.();
+      return setError(gate.error);
+    }
     if (gate.kind !== 'go') return setAsk(gate.kind);
     void create();
   };
@@ -50,7 +53,11 @@ export function NewTableForm(props: { game: string }) {
     setAsk(null);
     if (!check.ok || busy || module === undefined) return;
     // Read the stored key again right before the table and its seat are made (D057).
-    if (!keyStillSaved(profile, store, signer)) return setError(KEY_NOT_SAVED);
+    const problem = keyProblem(profile, store, signer);
+    if (problem !== null) {
+      signer.rescue?.();
+      return setError(problem);
+    }
     requestPersistenceOnce(profile, store, storageManager());
     setBusy(true);
     setError('');
@@ -163,9 +170,12 @@ export function NewTableForm(props: { game: string }) {
         </p>
       ))}
       {error !== '' && (
-        <p class="error" role="alert">
-          {error}
-        </p>
+        <div class="row">
+          <p class="error" role="alert">
+            {error}
+          </p>
+          <CopyPageKey message={error} />
+        </div>
       )}
       {ask !== null ? (
         <JoinBackup
