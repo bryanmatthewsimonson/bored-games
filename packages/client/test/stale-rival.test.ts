@@ -1,6 +1,6 @@
 import { chainReaction } from '@bored-games/chain-reaction';
 import { canonicalJson, createRng, type Rng } from '@bored-games/game-kit';
-import { finalizeEvent, type NostrEvent } from '@bored-games/protocol';
+import { finalizeEvent, moveTemplate, type NostrEvent } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { rankWithForfeits } from '../src/audit.ts';
 import type { GameSession } from '../src/session.ts';
@@ -116,6 +116,31 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
     expect(v.head).toEqual(head);
     expect(v.equivocators).toEqual([seat]);
     expect(v.forfeits).toEqual([seat]);
+    // Where events sit (D056, the web client's vetting): the rival is on a side branch, the head on the chain.
+    expect(watcher.branchOf(ev.id)).toBe('side');
+    expect(watcher.branchOf(head.id)).toBe('chain');
+    expect(watcher.branchOf('ab'.repeat(32))).toBe('unknown');
+    expect(watcher.missingParents()).toEqual([]);
+    expect(watcher.aheadOfHead()).toBe(false);
+    // A well-formed move naming a parent nobody holds, above the head: a gap (or junk) the client may ask about.
+    const missing = 'cd'.repeat(32);
+    const gap = finalizeEvent(
+      moveTemplate(
+        {
+          rootId: game.rootId,
+          prevId: missing,
+          seq: head.seq + 5,
+          content: { type: 'action', action: { type: 'skipPlace', actor: 0 }, shares: [], reveals: [] },
+        },
+        LATE,
+      ),
+      (game.ids[0] as { sessionSk: Uint8Array }).sessionSk,
+      game.rnd,
+    );
+    expect(watcher.receive(gap, LATE).status).toBe('stored');
+    expect(watcher.missingParents()).toEqual([missing]);
+    expect(watcher.branchOf(gap.id)).toBe('unknown');
+    expect(watcher.view().head).toEqual(head);
   });
 
   /** The seats that signed a move in `events` from index `from` on. */
