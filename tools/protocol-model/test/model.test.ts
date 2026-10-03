@@ -444,8 +444,9 @@ describe('candidate (e), plain stop: no exposure, honest forfeit, rating gain or
  * Round 3 (prompt-reveal.md §5, as amended): candidate (e) with the attestation-and-anchor cutoff (`stop3`). A
  * result stands against a later fork by E when every seat but E attested it and no seat but E signed a move, or a
  * Shares event anchored on a head, off its path; otherwise the fork stops the game, overriding any counted claim or
- * resign, so clients converge (A2). A stop scores as E's timeout at the fork. Devices fetch their own seat's events
- * before signing a move (device policy (ii)); a saved move is published only under the controller rule (A3).
+ * resign, so clients converge (A2). A stop is E's rated last place, the game unrated for the others (`last`; E's
+ * timeout at the fork, `timeout`, also works). Devices fetch their own seat's events before signing a move (device
+ * policy (ii)); a saved move is published only under the controller rule (A3).
  */
 describe('candidate (e), round 3 (stop3): the cutoff converges, and no single adversary gains', () => {
   const e3 = {
@@ -453,7 +454,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     design: 'stop3',
     advAcks: 0,
     advAttests: 1,
-    stopScore: 'timeout',
+    stopScore: 'last',
     ownCheck: true,
   } as const;
   const SINGLE: Seat[][] = [[0], [1], [2]];
@@ -482,8 +483,9 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     expect(r3.complete).toBe(true);
     expectSafe(counts(r3));
     expectSafe(counts(r3), FINAL);
+    expectSafe(counts(explore({ ...e3, ...scope, stopScore: 'timeout' })), FINAL);
     // The price of convergence: scored as the owner's abort, the stop turns seat 1's rated timeout into an unrated
-    // abort (3 or more seats), so a stop scores as the equivocator's timeout at the fork.
+    // abort (3 or more seats), so the equivocator also takes a rated last place.
     const abort = explore({ ...e3, ...scope, stopScore: 'abort', stopAt: ['void-forfeit'] });
     expect(abort.violations['void-forfeit']?.first.detail).toMatch(/voids seat 1's counted claim/);
   });
