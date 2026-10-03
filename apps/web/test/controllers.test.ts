@@ -1003,15 +1003,13 @@ describe('GameController', () => {
     net.offline = false;
     net.hidden = new Set([moved.id]);
     t = game(rootId, { ...tablet.deps, pool: net.pool });
-    await waitFor(
-      'the tablet loaded',
-      () => t.view.value?.head.id === head.id && t.status.value !== 'syncing',
-    );
+    await waitFor('the tablet loaded', () => t.view.value !== null && t.status.value !== 'syncing');
     for (let i = 0; i < 3; i++) {
       t.tick();
       await new Promise((r) => setTimeout(r, 300));
     }
     expect(net.published).not.toContain(stale?.event.id);
+    expect(t.view.value?.head.id).toBe(head.id);
     expect(savedMove(tablet, rootId, head.seq + 1)?.event.id).toBe(stale?.event.id);
     expect(t.log.value).toEqual([]);
     await expect(t.act(t.legal.value[0] ?? null)).rejects.toThrow();
