@@ -4,6 +4,7 @@
  */
 export {
   DEFAULT_BACKOFF_MS,
+  DEAD_AFTER_MS,
   EOSE_TIMEOUT_MS,
   type EoseInfo,
   type Filter,
