@@ -269,12 +269,6 @@ describe('final, or stop, round 2 (fgr2): no exposure, forfeit, divergence or ra
     }
   });
 
-  it('moves that draw two positions', () => {
-    const s = sweep({ ...base, design: 'fgr2', mode: 'private', length: 3, multiDraw: true });
-    expect(s.complete).toBe(true);
-    expectSafe(s.counts);
-  });
-
   it('honest humans who leave on a stop, with two deadlines', () => {
     const s = sweep({ ...base, design: 'fgr2', mode: 'private', length: 3, absence: true, expiries: 2 });
     expect(s.complete).toBe(true);
@@ -315,19 +309,6 @@ describe('final, or stop, round 2 (fgr2): no exposure, forfeit, divergence or ra
       if (ackDevice === 'checked') expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
     }
   });
-
-  it('at a late-Ack depth: two colluders, 5 moves, 5 adversary moves', () => {
-    const r = explore({
-      ...base,
-      design: 'fgr2',
-      mode: 'private',
-      length: 5,
-      advMoves: 5,
-      coalition: [0, 1],
-    });
-    expect(r.complete).toBe(true);
-    expectSafe(counts(r));
-  });
 });
 
 /*
@@ -343,14 +324,6 @@ describe('candidate (e), plain stop: no exposure, honest forfeit, rating gain or
       const s = sweep({ ...stop, mode, length: 3 });
       expect(s.complete, mode).toBe(true);
       expectSafe(s.counts);
-    }
-  });
-
-  it('claims, resigns and a deadline; moves that draw two positions', () => {
-    for (const extra of [{ advClaims: 1, advResigns: 1, expiries: 1 }, { multiDraw: true }]) {
-      const s = sweep({ ...stop, mode: 'private', length: 3, ...extra });
-      expect(s.complete).toBe(true);
-      expectSafe(s.counts, SAFETY2);
     }
   });
 
@@ -689,6 +662,31 @@ describe.runIf(BIG)('bigger scope for round 2 (PROTOCOL_MODEL_BIG=1, about an ho
     expect(r.complete).toBe(true);
     expectSafe(counts(r));
   };
+
+  it('fgr2: moves that draw two positions; two colluders at a late-Ack depth (moved from CI)', () => {
+    const s = sweep({ ...base, design: 'fgr2', mode: 'private', length: 3, multiDraw: true });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts);
+    const r = explore({
+      ...base,
+      design: 'fgr2',
+      mode: 'private',
+      length: 5,
+      advMoves: 5,
+      coalition: [0, 1],
+    });
+    expect(r.complete).toBe(true);
+    expectSafe(counts(r));
+  }, 7_200_000);
+
+  it('stop (round 2): claims, resigns and a deadline; moves that draw two positions (moved from CI)', () => {
+    const stop = { ...base, design: 'stop', advAcks: 0 } as const;
+    for (const extra of [{ advClaims: 1, advResigns: 1, expiries: 1 }, { multiDraw: true }]) {
+      const s = sweep({ ...stop, mode: 'private', length: 3, ...extra });
+      expect(s.complete).toBe(true);
+      expectSafe(s.counts, SAFETY2);
+    }
+  }, 7_200_000);
 
   it('fgr2: every mode and coalition, a claim and a deadline', () => {
     for (const mode of MODES) {
