@@ -25,6 +25,22 @@
 
 ## Status
 
+**Known bugs (owner reports, 2026-10-03; not yet fixed):**
+1. **The same player key on a second device only watches.** The owner's desktop browser, using the same nsec as the phone that joined, shows "This browser does not hold your keys for this game, so you are watching it" in a Chain Reaction game during the deal.
+   - **Likely cause:** the seat's game keys (session key and deck secret) live only in the browser that joined. The NIP-78 self-backup that ARCHITECTURE §Backup promises ("so another device can resume") was never built; ARCHITECTURE's status line lists it as missing from Phase 2e.
+   - **Still to do:**
+     - confirm this is not a regression from D056/D057;
+     - build the encrypted backup and restore;
+     - change the message so it tells the player what to do (open the game on the device that joined, or restore the backup).
+   - Two live devices per seat also bring in the multi-device questions of D055/D056: the outbox rule applies.
+2. **"Other keys" in Settings doesn't list a key whose games are in this browser.** On player 3's phone (the D057 incident), Home lists the game "Under another key: switch to it in Settings to play", but Settings shows no Other keys entry, so the player has no way to act on that text.
+   - **Likely cause:** "Other keys" lists only `sk-history`. The race kept the original player key in memory only, so storage holds that seat's game keys (owner A) but never key A itself.
+   - **Still to do:**
+     - from this browser's saved game keys, list every owner whose games are under another key, even when that key is gone;
+     - offer seat recovery (`seatForGameKeys`, D057) from Home and Settings;
+     - fix the Home text, which promises a switch that may be impossible;
+     - check whether player 3's phone ever recovered the seat after the PR #17 deploy.
+
 | Phase | State |
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
