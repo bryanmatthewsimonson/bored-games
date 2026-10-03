@@ -1,9 +1,10 @@
 import { BRAND } from '@bored-games/brand';
 import { useState } from 'preact/hooks';
+import { InAppBanner } from './components/inapp-banner.tsx';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
 import { EXTENSION_MISSING_NOTICE } from './identity.ts';
-import { IN_APP_DISMISSED, IN_APP_NOTICE } from './inapp-model.ts';
+import { IN_APP_DISMISSED } from './inapp-model.ts';
 import { creditsHref, route } from './router.ts';
 import { Screen } from './screens.tsx';
 import { IGNORED_RELAYS_NOTICE } from './settings.ts';
@@ -26,21 +27,6 @@ export function App(props: { ctx: AppContext }) {
       </footer>
       <SettingsDialog />
     </AppCtx.Provider>
-  );
-}
-
-/**
- * "You're in an in-app browser" (D057), until dismissed for this tab (sessionStorage). Hookless, for the render
- * tests: `Banners` holds the state.
- */
-export function InAppBanner(props: { onDismiss: () => void }) {
-  return (
-    <div class="warning banner-dismissible" role="status">
-      <p>{IN_APP_NOTICE}</p>
-      <button type="button" class="btn btn-small" onClick={props.onDismiss}>
-        Dismiss
-      </button>
-    </div>
   );
 }
 

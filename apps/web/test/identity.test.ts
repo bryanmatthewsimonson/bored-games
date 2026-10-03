@@ -9,6 +9,7 @@ import {
   importSecretKey,
   invalidProfileName,
   isBackedUp,
+  joinBackupNeeded,
   KEPT_KEYS_SOFT_CAP,
   KEY_ERRORS,
   keptKeys,
@@ -474,5 +475,20 @@ describe('key import (D041)', () => {
     expect(isBackedUp('p', store, PK_B)).toBe(true);
     store.setItem('bg:p:backup', 'cd'.repeat(32));
     expect(isBackedUp('p', store, 'cd'.repeat(32))).toBe(true);
+  });
+
+  it('asks a local key never backed up to copy it before joining, never the extension (D057)', () => {
+    const store = memoryStorage();
+    const me = { kind: 'local' as const, pubkey: PK_B };
+    // Unlike the Home reminder, a key with no table yet is asked: the join is what gives it a seat.
+    expect(joinBackupNeeded('p', store, me)).toBe(true);
+    expect(joinBackupNeeded('p', store, { ...me, kind: 'nip07' })).toBe(false);
+    // Another key's backup, or the same key's in another profile, does not count.
+    markBackedUp('p', store, 'ab'.repeat(32));
+    markBackedUp('q', store, PK_B);
+    expect(joinBackupNeeded('p', store, me)).toBe(true);
+    expect(markBackedUp('p', store, PK_B)).toBe(true);
+    expect(joinBackupNeeded('p', store, me)).toBe(false);
+    expect(joinBackupNeeded('p', store, { kind: 'local', pubkey: 'cd'.repeat(32) })).toBe(true);
   });
 });
