@@ -15,6 +15,8 @@ export interface AppContext {
   ignoredRelays: boolean;
   /** True when the extension was chosen in Settings but `window.nostr` is absent, so the local key is in use. */
   extensionMissing: boolean;
+  /** The in-app browser the user agent names (`inAppBrowser`, D057), or null; read once in main.tsx. */
+  inApp: string | null;
   store: KeyValueStore;
   /** Set when `window.nostr` is present: the Settings dialog then offers the extension. */
   nostr: Nip07 | undefined;

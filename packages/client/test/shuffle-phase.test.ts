@@ -51,6 +51,8 @@ describe('shuffle phase', () => {
     steps = [];
     for (const [k, s] of players.entries()) {
       expect(s.duties()).toEqual([{ kind: 'shuffle' }]);
+      // Every session, the spectator's too, names the seat whose step is next (D057).
+      for (const x of all) expect(x.waitingFor()).toEqual([k]);
       const ev = s.buildShuffle(game.rnd, T0 + 100 + k);
       expect(statuses(deliver(all, [ev]))).toEqual(['accepted', 'accepted', 'accepted', 'accepted']);
       steps.push(ev);

@@ -431,3 +431,15 @@ export function backupReminderVisible(
     !isBackedUp(profile, store, signer.pubkey)
   );
 }
+
+/**
+ * Before joining a table (D057): ask a player whose local key was never backed up to copy it first, since the seat
+ * belongs to that key. Never for the extension, which keeps its own key.
+ */
+export function joinBackupNeeded(
+  profile: string,
+  store: KeyValueStore,
+  signer: { kind: SignerKind; pubkey: Hex },
+): boolean {
+  return signer.kind === 'local' && !isBackedUp(profile, store, signer.pubkey);
+}

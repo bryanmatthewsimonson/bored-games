@@ -84,6 +84,7 @@ describe('a deckless session (Chess)', () => {
     expect(t.players[0]?.duties()).toEqual([{ kind: 'decide' }]);
     expect(t.players[1]?.duties()).toEqual([]);
     expect(t.players[0]?.legalActions()).toHaveLength(40);
+    for (const s of t.all) expect(s.waitingFor()).toEqual([0]);
   });
 
   it("plays Fool's mate to done at once, with a passing audit, and both seats attest", () => {
@@ -94,8 +95,9 @@ describe('a deckless session (Chess)', () => {
       expect(v).toMatchObject({ phase: 'done', audit: 'pass', forfeits: [], head: { seq: 4 } });
       expect(v.outcome).toEqual({ places: [2, 1], reason: 'checkmate', scores: [0, 2] });
     }
-    // No secret is owed: the attestation is the only duty.
+    // No secret is owed: the attestation is the only duty, and the game waits on nobody.
     expect(t.players.map((s) => s.duties())).toEqual([[{ kind: 'attest' }], [{ kind: 'attest' }]]);
+    for (const s of t.all) expect(s.waitingFor()).toEqual([]);
     attestAll(t);
     for (const s of t.all) expect(s.view().attested).toEqual([0, 1]);
     expect(t.players.map((s) => s.duties())).toEqual([[], []]);

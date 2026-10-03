@@ -7,9 +7,11 @@ import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
 import { PlayerTag } from '../components/avatar.tsx';
 import { StatusChip } from '../components/chips.tsx';
+import { JoinBackup } from '../components/join-backup.tsx';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
 import { CopyButton } from '../header.tsx';
+import { joinBackupNeeded } from '../identity.ts';
 import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
@@ -102,6 +104,8 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
+  // "Copy your secret key first?" before a join with a key never backed up (D057).
+  const [askBackup, setAskBackup] = useState(false);
   const [picks, setPicks] = useState<Hex[] | null>(null);
   const [searchedLong, setSearchedLong] = useState(false);
   // The header's Rules link follows this table's game while the screen is open.
@@ -176,8 +180,13 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   };
 
   const join = () => {
+    setAskBackup(false);
     requestPersistenceOnce(profile, store, storageManager());
     return run(() => lobby.join(address), 'Could not join this table.');
+  };
+  const askThenJoin = () => {
+    if (joinBackupNeeded(profile, store, signer)) setAskBackup(true);
+    else void join();
   };
   const start = () =>
     run(async () => {
@@ -217,9 +226,17 @@ export function TableScreen(props: { creator: string; tableId: string }) {
         {t.status === 'open' && view.root === null && (
           <div class="stack">
             {otherKey && <p class="warning">{OTHER_KEY_TABLE}</p>}
-            {check.eligible && !otherKey && (
+            {check.eligible && !otherKey && askBackup && (
+              <JoinBackup
+                busy={busy}
+                idBase="join-backup"
+                onJoin={() => void join()}
+                onCancel={() => setAskBackup(false)}
+              />
+            )}
+            {check.eligible && !otherKey && !askBackup && (
               <div class="row">
-                <button type="button" class="btn btn-primary" disabled={busy} onClick={() => void join()}>
+                <button type="button" class="btn btn-primary" disabled={busy} onClick={askThenJoin}>
                   {busy ? 'Joining…' : check.reason === 'invited' ? 'Accept invitation' : 'Join this table'}
                 </button>
                 <span class="muted">

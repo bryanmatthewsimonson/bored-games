@@ -13,6 +13,7 @@ import {
   waitForNostr,
   writeSignerChoice,
 } from './identity.ts';
+import { inAppBrowser } from './inapp-model.ts';
 import { loadLicensedBrands } from './licensed-brands.ts';
 import { appPool, MODULES } from './net.ts';
 import { randomBytes } from './random.ts';
@@ -73,6 +74,7 @@ async function main(): Promise<void> {
         invalidProfile: invalidProfileName(window.location),
         ignoredRelays: urlRelays.kind === 'ignored',
         extensionMissing,
+        inApp: inAppBrowser(navigator.userAgent),
         store,
         nostr,
         signer,

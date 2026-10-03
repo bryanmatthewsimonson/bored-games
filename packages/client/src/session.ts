@@ -2138,6 +2138,16 @@ export class GameSession {
 
   /* -------------------------------------------------------------------------------------------- views */
 
+  /**
+   * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seat whose shuffle
+   * step is next, every seat still missing deal shares, the pending seat in play (or the seats whose shares it
+   * waits for), and at the end every seat whose secret is not in. Empty once nothing is owed. For the screens'
+   * "Waiting for …" lines; a timeout can be claimed only against one of these seats.
+   */
+  waitingFor(): number[] {
+    return [...this.stalled()];
+  }
+
   view(): SessionView {
     const status = this.status();
     return {

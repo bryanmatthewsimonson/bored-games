@@ -5,18 +5,23 @@
  * player's decisions go to `act`.
  */
 import type { SessionView } from '@bored-games/client';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
 import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
+import { RecoveredNotice, WatchingNotice } from '../components/watching.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { gameTitle } from '../game-names.ts';
 import { webGame } from '../games/registry.ts';
 import type { Audit, SetupCopy } from '../games/types.ts';
+import { keptKeys, switchToKeptKey } from '../identity.ts';
 import type { ProfileInfo } from '../profile-model.ts';
 import { usePlayerProfiles } from '../profiles.ts';
 import { activeGame, homeHref } from '../router.ts';
+import { waitingLine } from '../waiting-model.ts';
+import { localTableRecord, myTableCount, type WatchNotice, watchNotice } from '../watch-model.ts';
 
 /** "2d 4h left", "3h 10m left", "overdue", from seconds remaining. */
 export function formatDeadline(secondsLeft: number): string {
@@ -163,6 +168,9 @@ export function setupStep(view: SessionView | null, copy: SetupCopy | null): str
   return 'Loading the game…';
 }
 
+/** "Waiting for the other players' clients.": only when the session cannot say whom it waits for. */
+export const WAITING_FALLBACK = "Waiting for the other players' clients.";
+
 function SetupProgress(props: {
   title: string;
   view: SessionView | null;
@@ -170,10 +178,15 @@ function SetupProgress(props: {
   status: GameStatus;
   error: string | null;
   claim: { explanation: string; busy: boolean; onClaim: () => void } | null;
+  /** Who the setup waits for (`waitingLine`), or null. */
+  waiting: string | null;
+  /** "You're watching this game", when the key in use holds no seat (D057). */
+  watching: ComponentChildren;
 }) {
   return (
     <section class="panel game-loading" aria-labelledby="game-title" aria-busy={props.status !== 'waiting'}>
       <h1 id="game-title">{props.title}</h1>
+      {props.watching}
       <p role="status">{setupStep(props.view, props.copy)}</p>
       {props.status === 'working' && <p class="muted">Working… this can take a few seconds.</p>}
       {props.status === 'stuck' && (
@@ -181,7 +194,7 @@ function SetupProgress(props: {
           An automatic step failed. Reload the page to retry.
         </p>
       )}
-      {props.status === 'waiting' && <p class="muted">Waiting for the other players' clients.</p>}
+      {props.status === 'waiting' && <p class="muted">{props.waiting ?? WAITING_FALLBACK}</p>}
       {props.claim !== null && (
         <div class="row">
           <ClaimTimeout {...props.claim} />
@@ -246,7 +259,7 @@ export function placesText(view: SessionView, names: readonly string[]): string 
 }
 
 export function GameScreen(props: { rootId: string }) {
-  const { deps } = useApp();
+  const { deps, profile, store, signer } = useApp();
   const ctl = useMemo(() => new GameController(props.rootId, deps), [props.rootId, deps]);
   useEffect(() => {
     ctl.start();
@@ -280,6 +293,49 @@ export function GameScreen(props: { rootId: string }) {
   );
   const nameOf = (seat: number): string => names[seat] ?? `Seat ${seat + 1}`;
 
+  // "You're watching this game" when the key in use holds no seat (D057), from this profile's local records.
+  const tableAddress = ctl.tableAddress.value;
+  const recovered = ctl.recovered.value;
+  const watch: WatchNotice | null = useMemo(
+    () =>
+      tableAddress === null || recovered !== null
+        ? null
+        : watchNotice({
+            seats,
+            me: signer.pubkey,
+            kept: keptKeys(profile, store).map((k) => k.pubkey),
+            record: localTableRecord(profile, store, tableAddress),
+            myTables: myTableCount(profile, store, signer.pubkey),
+          }),
+    [seats, tableAddress, recovered, profile, store, signer],
+  );
+  const [switchError, setSwitchError] = useState('');
+  const watching =
+    recovered !== null ? (
+      <RecoveredNotice seat={recovered.seat} joined={recovered.npub} me={signer.pubkey} />
+    ) : watch === null ? null : (
+      <WatchingNotice
+        notice={watch}
+        me={signer.pubkey}
+        switchError={switchError}
+        onSwitch={(pubkey) => {
+          const r = switchToKeptKey(profile, store, pubkey, { current: signer.pubkey, now: deps.now() });
+          if (r.ok) window.location.reload();
+          else setSwitchError(r.error);
+        }}
+      />
+    );
+  const waiting =
+    view === null || status !== 'waiting'
+      ? null
+      : waitingLine({
+          phase: view.phase,
+          pending: view.pending,
+          mySeat: view.mySeat,
+          waiting: ctl.waiting.value,
+          names,
+        });
+
   if (status === 'cancelled') {
     const quit = resignedSeats(view);
     return (
@@ -308,7 +364,16 @@ export function GameScreen(props: { rootId: string }) {
   const copy = game?.setupCopy(view !== null && view.shuffleSteps > 0) ?? null;
   if (view === null || view.state === null || view.phase === 'shuffle' || view.phase === 'deal')
     return (
-      <SetupProgress title={title} view={view} copy={copy} status={status} error={error} claim={claim} />
+      <SetupProgress
+        title={title}
+        view={view}
+        copy={copy}
+        status={status}
+        error={error}
+        claim={claim}
+        waiting={waiting}
+        watching={watching}
+      />
     );
   if (game === undefined) {
     return (
@@ -330,6 +395,12 @@ export function GameScreen(props: { rootId: string }) {
   const Component = game.Component;
   return (
     <>
+      {watching}
+      {waiting !== null && (
+        <p class="muted game-waiting" role="status">
+          {waiting}
+        </p>
+      )}
       {error !== null && (
         <p class="error" role="alert">
           {error}

@@ -177,9 +177,25 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   const b = joiners[0] as Player;
   for (const p of joiners) {
     await p.page.getByRole('button', { name: 'Join this table' }).click();
+    // A key never backed up is asked to copy its secret key first (D057): b copies it, the others join anyway.
+    const prompt = p.page.getByRole('alertdialog', { name: 'Copy your secret key first?' });
+    await expect(prompt).toBeVisible();
+    if (p === b) {
+      if (SHOTS !== undefined && SHOTS !== '')
+        await p.page.screenshot({ path: `${SHOTS}/e2e-join-backup.png` });
+      await p.page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await prompt.getByRole('button', { name: 'Copy secret key' }).click();
+      await expect(prompt.getByText(/^Copied\./)).toBeVisible();
+      expect(await p.page.evaluate(() => navigator.clipboard.readText())).toMatch(/^nsec1/);
+      await prompt.getByRole('button', { name: 'Join', exact: true }).click();
+    } else {
+      await prompt.getByRole('button', { name: 'Join anyway' }).click();
+    }
     await expect(p.page.getByText('You are seated.')).toBeVisible();
     log(`${p.name} joined`);
   }
+  // b's key is backed up now: the next join from b's browser would not ask again.
+  await expect(b.page.getByRole('alertdialog')).toHaveCount(0);
 
   // a sees the full table and starts the game.
   await expect(a.page.getByText('Every seat is taken.')).toBeVisible();
@@ -191,6 +207,27 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   const players = [a, ...joiners];
   // Everyone is taken to the game, shuffles, deals, and reaches the play screen.
   for (const p of players) await expect(p.page).toHaveURL(/#\/g\/[0-9a-f]{64}$/, { timeout: 60_000 });
+
+  // A browser that is not seated (a fresh key, as when a player reopens the game in another app or browser) is
+  // told it is watching, and why, during the setup (D057). The players see whom the setup waits for.
+  const w = await open(browser, 'w', appUrl('w', a.page.url()));
+  await expect(w.page.getByText("You're watching this game.")).toBeVisible({ timeout: MOVE_MS });
+  await expect(
+    w.page.getByText("isn't one of its players. If you joined from another app or browser"),
+  ).toBeVisible();
+  await expect(
+    w.page.getByText(/^Waiting for .* (to shuffle|to send their deal shares)\. Their apps? must be open/),
+  )
+    .toBeVisible({ timeout: MOVE_MS })
+    .catch(() => log('w: the setup finished before a waiting line showed'));
+  // At phone width the notice wraps: no horizontal scroll.
+  await w.page.setViewportSize({ width: 390, height: 844 });
+  expect(await w.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  if (SHOTS !== undefined && SHOTS !== '')
+    await w.page.screenshot({ path: `${SHOTS}/e2e-watching-phone.png`, fullPage: true });
+  await w.page.context().close();
+  for (const p of players) await expect(p.page.getByText("You're watching this game.")).toHaveCount(0);
+  log('an unseated browser saw "You\'re watching this game"');
   for (const p of players) await expect(game(p)).toBeVisible({ timeout: SETUP_MS });
   log(`all ${SEATS} on the play screen, ${((Date.now() - startedGame) / 1000).toFixed(1)}s after Start game`);
   expect(new Set(players.map((p) => p.page.url().split('#')[1])).size).toBe(1);

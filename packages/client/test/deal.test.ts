@@ -68,8 +68,14 @@ describe('deal round', () => {
       expect(parseShares(ev).shares.map((s) => s.pos)).toEqual(owed);
     }
 
+    // The deal waits on every seat still missing its deal shares (D057).
+    for (const s of all) expect(s.waitingFor()).toEqual([0, 1, 2]);
     expect(statuses(deliver(all, [deals[0]]))).toEqual(['accepted', 'accepted', 'accepted', 'accepted']);
     expect(players.map((s) => s.duties())).toEqual([[], [{ kind: 'deal' }], [{ kind: 'deal' }]]);
+    for (const s of all) expect(s.waitingFor()).toEqual([1, 2]);
+    // A fresh copy: changing it changes nothing in the session.
+    spectator.waitingFor().push(0);
+    expect(spectator.waitingFor()).toEqual([1, 2]);
     expect(() => players[0]?.buildDeal(game.rnd, T0 + 300)).toThrow(ClientError);
     expect(statuses(deliver(all, deals.slice(1)))).toEqual(Array(8).fill('accepted'));
 
@@ -83,6 +89,7 @@ describe('deal round', () => {
     }
     // The first decision is the pending seat's, and only its.
     const first = (spectator.view().pending as { seat: number }).seat;
+    for (const s of all) expect(s.waitingFor()).toEqual([first]);
     expect(players.map((s) => s.duties())).toEqual(
       players.map((_, k) => (k === first ? [{ kind: 'decide' }] : [])),
     );

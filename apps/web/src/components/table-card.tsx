@@ -17,6 +17,8 @@ export function TableCard(props: {
   /** "2 of 3 seated", when known. */
   detail: string | null;
   action?: ComponentChildren;
+  /** A full-width block under the card's line, such as the backup prompt before a join (D057). */
+  below?: ComponentChildren;
 }) {
   return (
     <li class="card">
@@ -35,6 +37,7 @@ export function TableCard(props: {
         </div>
       </div>
       {props.action !== undefined && <div class="card-actions">{props.action}</div>}
+      {props.below !== undefined && props.below !== null && <div class="card-below">{props.below}</div>}
     </li>
   );
 }

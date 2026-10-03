@@ -36,6 +36,8 @@
 | 6. Second game | **Chess playable end to end** with the full Chess UI (D045, D047, D048); **the catalog and brand packs are built** (Phase E, D046) |
 | 7. Polish | Not started |
 
+**Spectators, waiting names, in-app browsers, backup before joining (2026-10-03, D057):** after a player reopened a game in another browser with a new key and became a silent spectator, the game screen says "You're watching this game" (with the key, a kept key's **Switch to** button, or a precise reason from the local record), names whom the setup or play is waiting for ("Waiting for Ann (npub1…) to shuffle. Their app must be open on this game."; `GameSession.waitingFor()`), warns in in-app browsers (dismissible per tab), and asks a player with a key never backed up to copy it before joining.
+
 **Next (owner's answers, round 2, 2026-10-02, D049–D051):**
 - **Phase K: a cheat-proof prompt-reveal protocol and sealed shares** (research and design, no gameplay code): threat model, every source of reorganisation, candidate designs (including the proposal that proven equivocation ends the game, unrated, cheater recorded), an executable model of event orderings, a reference `sealed.ts` in `packages/deck` that no game uses, and adversarial review rounds. Until K passes review there are no prompt duties anywhere (D050).
 - **Phase J0: the Hanabi rules spec** (`docs/games/hanabi/RULES.md`), public name "Hanabi". No engine or UI until K is resolved and the owner approves.
