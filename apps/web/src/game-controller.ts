@@ -84,11 +84,11 @@ export interface OutboxEntry {
 const vetted = (slot: string): boolean => slot.startsWith('move:') || slot === 'deal' || slot === 'resign';
 
 /**
- * Vetting queries in a row that every relay answered with nothing new after which a session that still looks behind
- * (`GameSession.behind`) no longer holds saved events back: the missing part is on no relay this client uses, or it
- * is junk a seat published to freeze this check (D056).
+ * How long (s) a saved event or the Secret reveal may be held back waiting for every counted relay, or for the
+ * session to catch up, before the player is offered "Send anyway" (`canSendAnyway`); the Secret reveal then goes
+ * on its own (D056, fix round 2).
  */
-const QUIET_RUNS = 3;
+export const HOLD_CAP_S = 600;
 
 /** The most entries `GameController.log` keeps. */
 const MAX_LOG = 20;
@@ -206,6 +206,11 @@ export class GameController {
   readonly legal: Signal<readonly unknown[]> = signal([]);
   /** A seat this player may claim a timeout against now, or null. */
   readonly timeoutTarget: Signal<number | null> = signal(null);
+  /**
+   * Whether a saved event or the Secret reveal has been held back for `HOLD_CAP_S` (a relay that never answers, or a
+   * session that never catches up): the screen then offers "Send anyway" (`sendAnyway`).
+   */
+  readonly canSendAnyway: Signal<boolean> = signal(false);
   /** Whether this player may resign now (PROTOCOL §4.9): seated, synced, and the game is live. */
   readonly canResign: Signal<boolean> = signal(false);
   /** The game's module id, from the root, once it is known. */
@@ -256,14 +261,24 @@ export class GameController {
   /** Outbox events folded into the current session. */
   readonly #fed = new Set<string>();
   /**
-   * Whether every relay answered every page of the initial sync with EOSE (D056): only then is a saved event vetted
-   * against it. Otherwise each tick asks again (`#startVet`).
+   * Whether every counted relay (`#fullAnswer`) answered every page of the initial sync, or a later whole-game
+   * query (D056): only then is a saved event vetted against it, or the Secret reveal sent. Otherwise each tick asks
+   * again (`#startVet`).
    */
-  #syncFull = false;
+  #viewFull = false;
+  /**
+   * Parents that pooled moves above the head descend from, asked for by id and not sent by any counted relay that
+   * answered (D056, fix round 2): junk, or on no relay this client uses, so they no longer hold anything back.
+   */
+  readonly #ignoredParents = new Set<string>();
+  /** Missing parents asked for by id (`#resolveMissing`), so each is asked once per load. */
+  readonly #askedParents = new Set<string>();
+  /** When the current hold began (Unix s), or null while nothing is held (`HOLD_CAP_S`). */
+  #holdSince: number | null = null;
+  /** Set by `sendAnyway`: vetting goes ahead on the answers held, and the Secret reveal is no longer held. */
+  #forced = false;
   /** A vetting query is in flight. */
   #vetting = false;
-  /** Vetting queries in a row that every relay answered with no event this client had not seen (`QUIET_RUNS`). */
-  #quietRuns = 0;
   /** Shuffle steps republished with this seat's deal (D056). */
   readonly #echoedSteps = new Set<string>();
   /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
@@ -405,6 +420,19 @@ export class GameController {
     }
   }
 
+  /**
+   * Stop waiting for every relay (D056, fix round 2): vet the held saved events on what the relays have sent, and
+   * let the Secret reveal go. Offered once something has been held for `HOLD_CAP_S` (`canSendAnyway`). A saved
+   * event that does not fit what is held is still discarded, and a deal is still never sent twice.
+   */
+  sendAnyway(): void {
+    if (this.#disposed || !this.#synced) return;
+    this.#forced = true;
+    this.#vetSaved(true);
+    this.#refresh();
+    this.#queueDuties();
+  }
+
   /* --------------------------------------------------------------------------------------------- loading */
 
   #onEvent(ev: NostrEvent): void {
@@ -526,7 +554,7 @@ export class GameController {
       entry.orphan = true;
       this.#persist(slot);
     }
-    if (this.#syncFull) this.#vetSaved(false);
+    if (this.#viewFull) this.#vetSaved(false);
   }
 
   /** Whether `slot` holds a deal signed by this seat's session key (not a stray event in storage). */
@@ -551,9 +579,8 @@ export class GameController {
   /**
    * Vet this seat's unconfirmed saved moves, deal and Resign against what the relays sent (D056, the stale outbox),
    * moves in seq order first, so a run of this seat's own moves is vetted one on top of the other. It runs only once
-   * every relay has answered (the initial sync, or a query of `#startVet`), and it holds everything while the session
-   * is visibly behind (`GameSession.behind`), unless `quiet`: `QUIET_RUNS` queries in a row that every relay
-   * answered brought nothing new, so the missing part is on no relay this client uses.
+   * every counted relay has answered (the initial sync, or a query of `#startVet`), or when `forced`
+   * (`sendAnyway`), and it holds everything while the session is visibly behind (`#behind`) unless `forced`.
    * - A move is discarded if another move of this seat on its parent is at the relays, or, when it is not folded in
    *   yet (it was loaded from storage), if its parent is on the chain below the head (the game has moved on). It is
    *   republished if its parent is the head; otherwise (its parent is not held yet) it waits.
@@ -566,11 +593,12 @@ export class GameController {
    * in (built in this tab while offline) leaves the session holding an event nobody else will, so the session is
    * rebuilt without it. An event the session now refuses outright is an orphan, as in `#retryUndelivered`.
    */
-  #vetSaved(quiet: boolean): void {
+  #vetSaved(forced: boolean): void {
     const session = this.#session;
     if (session === null || this.#disposed) return;
-    if (session.behind() && !quiet) {
+    if (!forced && this.#behind(session)) {
       this.#holding('the game on this device is behind the relays');
+      this.#resolveMissing(session);
       return;
     }
     const rank = (slot: string): number =>
@@ -624,9 +652,11 @@ export class GameController {
       const head = session.view().head;
       const at = session.chainSeq(prev);
       if (at === head.seq && Number(slot.split(':')[1]) === head.seq + 1) return 'send';
-      // Its parent is on the chain below the head: the game moved on without it. A parent not held yet may still
-      // come (the relays are behind, or it is on a branch that may still win), so the move waits.
-      return at === null ? 'wait' : 'the game has moved on';
+      // Its parent is on the chain below the head: the game moved on without it. A parent on a branch that lost
+      // fork choice: the game went another way (fix round 2). A parent not held yet, or one that extends the head
+      // and waits for something, may still come, so the move waits.
+      if (at !== null) return 'the game has moved on';
+      return session.branchOf(prev) === 'side' ? 'the game went another way' : 'wait';
     }
     if (this.#otherMine('resign', ev)) return 'another resignation of yours is on the relays';
     if (!fed && !session.canResign()) return 'the game is over';
@@ -659,6 +689,9 @@ export class GameController {
       void this.#publish('deal');
       return;
     }
+    // The rival steps of the fork go out again, so a client that never saw the deck this deal is on holds the fork
+    // and stalls the equivocator, not this seat (fix round 2).
+    this.#echoFork(session);
     if (entry.orphan) return;
     entry.orphan = true;
     this.#persist('deal');
@@ -675,6 +708,7 @@ export class GameController {
 
   /** Show that a saved event waits to be vetted, unless a log line is showing. */
   #holding(why: string): void {
+    this.#holdSince ??= this.#d.now();
     if (this.notice.value !== null && this.log.value.includes(this.notice.value)) return;
     this.notice.value = `An event saved on this device is not sent yet: ${why}. Retrying.`;
   }
@@ -709,6 +743,88 @@ export class GameController {
   }
 
   /**
+   * Whether `info` answers for every relay that counts (D056, fix round 2): the root's relays and this player's,
+   * less those the pool reports dead (unreachable for `deadAfterMs`, with no connection since). Other relays the
+   * shared pool holds (another game's) do not count. With no counted relay alive, nothing is full.
+   */
+  #fullAnswer(info: EoseInfo): boolean {
+    if (info.eosedUrls === undefined) return info.eose === info.relays;
+    const dead = new Set(info.deadUrls ?? []);
+    const eosed = new Set(info.eosedUrls);
+    const counted = unionRelays(this.#root?.relays ?? [], this.#d.relays()).filter((u) => !dead.has(u));
+    return counted.length > 0 && counted.every((u) => eosed.has(u));
+  }
+
+  /**
+   * Whether the session is visibly behind the relays (D056): it pools a move above its head that extends the head,
+   * or one that descends from a parent it does not hold and that the relays have not been found to lack
+   * (`#ignoredParents`).
+   */
+  #behind(session: GameSession): boolean {
+    return session.aheadOfHead() || session.missingParents().some((id) => !this.#ignoredParents.has(id));
+  }
+
+  /**
+   * Ask every relay by id for the parents the session misses (D056, fix round 2). Once every counted relay has
+   * answered, those none sent are ignored from then on: a seat's junk move naming a random parent cannot hold
+   * saved events or the Secret reveal back. Each parent is asked once per load.
+   */
+  #resolveMissing(session: GameSession): void {
+    const ids = session
+      .missingParents()
+      .filter((id) => !this.#ignoredParents.has(id) && !this.#askedParents.has(id));
+    if (ids.length === 0 || this.#disposed) return;
+    for (const id of ids) this.#askedParents.add(id);
+    const sent = new Set<string>();
+    let stop = (): void => {};
+    stop = this.#d.pool.subscribe(
+      [{ ids }],
+      (ev) => {
+        sent.add(ev.id);
+        this.#onEvent(ev);
+      },
+      (info) => {
+        stop();
+        if (this.#disposed) return;
+        if (this.#fullAnswer(info)) {
+          for (const id of ids) if (!sent.has(id)) this.#ignoredParents.add(id);
+        } else for (const id of ids) this.#askedParents.delete(id);
+        if (this.#viewFull) this.#vetSaved(false);
+        this.#refresh();
+        this.#queueDuties();
+      },
+    );
+    this.#stops.push(stop);
+  }
+
+  /**
+   * Whether this seat's Secret reveal is due but held back (D056, fix round 2): until the client's view is full
+   * (every counted relay answered) and it is not visibly behind, a reveal could lock in an ending branch that a
+   * partial view alone shows. Released by `sendAnyway`, or once held for `HOLD_CAP_S`.
+   */
+  #secretHeld(): boolean {
+    const session = this.#session;
+    if (session === null || this.#forced || !session.duties().some((d) => d.kind === 'secret')) return false;
+    if (this.#viewFull && !this.#behind(session)) return false;
+    return this.#holdSince === null || this.#d.now() - this.#holdSince < HOLD_CAP_S;
+  }
+
+  /** Republish the rival shuffle steps of a held shuffle fork (`GameSession.forkSteps`), once each per load. */
+  #echoFork(session: GameSession): void {
+    const root = this.#root;
+    if (root === null) return;
+    for (const id of session.forkSteps()) {
+      if (this.#echoedSteps.has(id)) continue;
+      const ev = this.#events.get(id);
+      if (ev === undefined) continue;
+      this.#echoedSteps.add(id);
+      void this.#d.pool.publish(ev, unionRelays(root.relays, this.#d.relays())).catch(() => {
+        // Best effort.
+      });
+    }
+  }
+
+  /**
    * Ask the relays again for this seat's own events before republishing an unconfirmed move, deal or Resign (D056):
    * its moves on the parents those moves name, its Shares events and Resigns, and, while a saved event is not folded
    * in yet, the whole game. Only once every relay has answered does `#vetSaved` decide; otherwise nothing is
@@ -719,7 +835,8 @@ export class GameController {
     const me = this.#mySession;
     if (this.#vetting || this.#disposed || !this.#synced || root === null || me === null) return;
     const saved = this.#toVet();
-    if (saved.length === 0) return;
+    const secret = this.#secretHeld();
+    if (saved.length === 0 && !secret) return;
     this.#vetting = true;
     const prevs = new Set<string>();
     for (const slot of saved) {
@@ -729,28 +846,27 @@ export class GameController {
     }
     const filters: Filter[] = [{ kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] }];
     if (prevs.size > 0) filters.push({ kinds: [KIND.move], authors: [me], '#e': [...prevs] });
-    if (saved.some((slot) => this.#unvetted.has(slot)))
+    const whole = secret || saved.some((slot) => this.#unvetted.has(slot));
+    if (whole)
       filters.push({
         kinds: [...SESSION_KINDS],
         authors: [...this.#sessionKeys],
         '#e': [this.rootId],
         limit: this.#page,
       });
-    let fresh = 0;
     let stop = (): void => {};
     stop = this.#d.pool.subscribe(
       filters,
-      (ev) => {
-        if (this.#seated(ev) && !this.#got.has(ev.id)) fresh++;
-        this.#onEvent(ev);
-      },
+      (ev) => this.#onEvent(ev),
       (info) => {
         stop();
         this.#vetting = false;
         if (this.#disposed) return;
-        if (info.eose === info.relays) {
-          this.#quietRuns = fresh === 0 ? this.#quietRuns + 1 : 0;
-          this.#vetSaved(this.#quietRuns >= QUIET_RUNS);
+        if (this.#fullAnswer(info)) {
+          if (whole) this.#viewFull = true;
+          this.#vetSaved(false);
+          const session = this.#session;
+          if (session !== null && this.#behind(session)) this.#resolveMissing(session);
         } else this.#holding('not every relay has answered');
         this.#refresh();
         this.#queueDuties();
@@ -801,14 +917,14 @@ export class GameController {
       };
       const onEose = (info: EoseInfo): void => {
         if (this.#disposed) return;
-        full &&= info.eose === info.relays;
+        full &&= this.#fullAnswer(info);
         if (until !== null) stop();
         if (fresh > 0 && Number.isFinite(oldest)) {
           page(oldest);
           return;
         }
         this.#gameEose = true;
-        this.#syncFull = full;
+        this.#viewFull = full;
         if (this.#session !== null) this.#feedHeld();
         this.#maybeSynced();
       };
@@ -1007,10 +1123,30 @@ export class GameController {
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
+    this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
     this.#cacheStatus(v.head.seq, this.status.value, now);
     this.#maybePrune(v, duties);
+  }
+
+  /**
+   * Keep `#holdSince` and `canSendAnyway` current (D056, fix round 2): something is held while a saved event loaded
+   * from storage waits to be vetted, or the Secret reveal is due but held back for a full view.
+   */
+  #trackHold(now: number): void {
+    const session = this.#session;
+    const secretDue = session?.duties().some((d) => d.kind === 'secret') === true;
+    const secretWaits =
+      secretDue && !this.#forced && !(this.#viewFull && session !== null && !this.#behind(session));
+    const held = this.#synced && (this.#unvetted.size > 0 || secretWaits);
+    if (!held) {
+      this.#holdSince = null;
+      this.canSendAnyway.value = false;
+      return;
+    }
+    this.#holdSince ??= now;
+    this.canSendAnyway.value = now - this.#holdSince >= HOLD_CAP_S;
   }
 
   /**
@@ -1091,6 +1227,7 @@ export class GameController {
    */
   #blocked(kind: Duty['kind'], v: SessionView): boolean {
     if (kind === 'shuffle') return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
+    if (kind === 'secret') return this.#secretHeld();
     if (kind !== 'deal') return false;
     if (this.#unvetted.has('deal')) return true;
     const held = this.#outbox.get('deal');
@@ -1332,7 +1469,7 @@ export class GameController {
   #retryUndelivered(): void {
     const session = this.#session;
     // This seat's refused deal is asked about while the deal is still on: fork choice may come back to its deck.
-    let vet = this.#toVet().some((slot) => this.#outbox.get(slot)?.orphan === true);
+    let vet = this.#toVet().some((slot) => this.#outbox.get(slot)?.orphan === true) || this.#secretHeld();
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
       if (vetted(slot)) {

@@ -183,6 +183,7 @@ function SetupProgress(props: {
   error: string | null;
   claim: { explanation: string; busy: boolean; onClaim: () => void } | null;
   log: readonly string[];
+  onSendAnyway: (() => void) | null;
 }) {
   return (
     <section class="panel game-loading" aria-labelledby="game-title" aria-busy={props.status !== 'waiting'}>
@@ -205,6 +206,7 @@ function SetupProgress(props: {
           {props.error}
         </p>
       )}
+      {props.onSendAnyway !== null && <SendAnyway onSend={props.onSendAnyway} />}
       <SyncNotes lines={props.log} />
     </section>
   );
@@ -245,6 +247,21 @@ export function ResignButton(props: { explanation: string; busy: boolean; onResi
         </button>
       </div>
     </section>
+  );
+}
+
+/**
+ * "Send anyway" (D056): offered once a saved event or the end-of-game secret has waited `HOLD_CAP_S` for every
+ * relay to answer, or for this device to catch up with the relays.
+ */
+export function SendAnyway(props: { onSend: () => void }) {
+  return (
+    <p class="warning send-anyway" role="status">
+      Something saved on this device is still waiting for every relay to answer before it is sent.{' '}
+      <button type="button" class="btn btn-small" onClick={props.onSend}>
+        Send anyway
+      </button>
+    </p>
   );
 }
 
@@ -291,6 +308,7 @@ export function GameScreen(props: { rootId: string }) {
   const error = ctl.error.value;
   const notice = ctl.notice.value;
   const log = ctl.log.value;
+  const sendAnyway = ctl.canSendAnyway.value ? () => ctl.sendAnyway() : null;
   const seats = ctl.seats.value;
   const now = ctl.clock.value;
   const target = ctl.timeoutTarget.value;
@@ -349,6 +367,7 @@ export function GameScreen(props: { rootId: string }) {
         error={error}
         claim={claim}
         log={log}
+        onSendAnyway={sendAnyway}
       />
     );
   if (game === undefined) {
@@ -429,6 +448,7 @@ export function GameScreen(props: { rootId: string }) {
             onResign={() => void ctl.resign()}
           />
         )}
+        {sendAnyway !== null && <SendAnyway onSend={sendAnyway} />}
         <SyncNotes lines={log} />
       </div>
     </>

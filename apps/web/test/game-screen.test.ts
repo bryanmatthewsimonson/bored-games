@@ -12,6 +12,7 @@ import {
   resignExplanation,
   resignedSeats,
   resignLine,
+  SendAnyway,
   SyncNotes,
   setupStep,
   statusNotice,
@@ -179,6 +180,15 @@ describe('game chrome helpers (D045)', () => {
     );
     expect(setupStep(viewOf({ phase: 'deal' }), copy)).toBe('Dealing the tiles…');
     expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
+  });
+
+  it('offers Send anyway with a button that calls back (D056)', () => {
+    let sent = 0;
+    const tree = renderTree(SendAnyway({ onSend: () => sent++ }));
+    const [button] = findAll(tree, (el) => el.tag === 'button');
+    expect(spokenText(tree)).toMatch(/waiting for every relay/);
+    (button?.attrs.onClick as () => void)();
+    expect(sent).toBe(1);
   });
 
   it('shows the sync notes in a disclosure, and nothing when there are none (D056)', () => {
