@@ -953,7 +953,8 @@ export class GameController {
     this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
-    this.#d.pool.addRelays?.(root.relays);
+    // The relays that count for a full answer (`#fullAnswer`) must all be asked: the root's and this player's.
+    this.#d.pool.addRelays?.(unionRelays(root.relays, this.#d.relays()));
     const [, creator, tableId] = root.tableAddress.split(':');
     this.#stops.push(
       this.#d.pool.subscribe(

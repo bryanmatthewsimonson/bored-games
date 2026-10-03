@@ -11,15 +11,16 @@ import {
   getPublicKey,
   type Hex,
   KIND,
+  moveTemplate,
   type NostrEvent,
   parseRoot,
   tableTemplate,
 } from '@bored-games/protocol';
-import type { Filter } from '@bored-games/relay';
+import type { EoseInfo, Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
-import { GameController, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
+import { GameController, HOLD_CAP_S, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import { bytesToHex } from '../src/hex.ts';
 import type { Signer } from '../src/identity.ts';
@@ -83,8 +84,8 @@ interface Profile {
   deps: ControllerDeps;
 }
 
-function newPool(): RelayPool {
-  const p = new RelayPool([relay.url], { WebSocket });
+function newPool(urls: string[] = [relay.url], opts: { deadAfterMs?: number } = {}): RelayPool {
+  const p = new RelayPool(urls, { WebSocket, ...opts });
   pools.push(p);
   return p;
 }
@@ -201,10 +202,14 @@ function secondDevice(p: Profile, address: string): Profile {
   return profile(p.name, store, p.deps.signer);
 }
 
+/** A second relay of the player's that `switchable` pretends to hold: it answers only while nothing is `hidden`. */
+const SILENT = 'wss://silent.test';
+
 /**
- * A pool whose publishing can be cut off (`offline`), recording what it did publish. While `hidden` is set, a
- * subscription opened then behaves as if the pool had a second relay that never answers it, and the one relay that
- * does answer lacks the `hidden` events: they are dropped, and its EOSE reports one relay short (D056).
+ * A pool whose publishing can be cut off (`offline`), recording what it did publish. It pretends the player also
+ * uses relay `SILENT` (give the profile `relays: () => [relay.url, SILENT]`): it answers every subscription with the
+ * real relay while `hidden` is null. While `hidden` is set, a subscription opened then gets no answer from `SILENT`,
+ * which is alive but silent (never dead), and the real relay lacks the `hidden` events (D056).
  */
 function switchable(real: PoolLike) {
   const net = {
@@ -214,13 +219,19 @@ function switchable(real: PoolLike) {
     pool: {
       subscribe: (filters, onEvent, onEose, opts) => {
         const hidden = net.hidden;
-        if (hidden === null) return real.subscribe(filters, onEvent, onEose, opts);
+        const alive = (info: EoseInfo): string[] => (info.deadUrls ?? []).filter((u) => u !== SILENT);
         return real.subscribe(
           filters,
           (ev, url) => {
-            if (!hidden.has(ev.id)) onEvent(ev, url);
+            if (hidden === null || !hidden.has(ev.id)) onEvent(ev, url);
           },
-          onEose && ((info) => onEose({ ...info, relays: info.relays + 1, timedOut: true })),
+          onEose &&
+            ((info) =>
+              onEose(
+                hidden === null
+                  ? { ...info, eosedUrls: [...(info.eosedUrls ?? []), SILENT], deadUrls: alive(info) }
+                  : { ...info, relays: info.relays + 1, timedOut: true, deadUrls: alive(info) },
+              )),
           opts,
         );
       },
@@ -965,6 +976,8 @@ describe('GameController', () => {
       if (reload === 0) {
         expect(gh.log.value).toHaveLength(1);
         expect(gh.log.value[0]).toMatch(/deal saved on this device was kept but not sent/);
+        // The rival step of the fork goes out again with the kept deal (fix round 2 D).
+        await waitFor('the fork echoed', () => hNet.published.includes(stepA.id));
       } else expect(gh.log.value).toEqual([]);
       gh.dispose();
     }
@@ -984,7 +997,8 @@ describe('GameController', () => {
       120_000,
     );
     const p = bySeat[players.indexOf(phone)] as Profile;
-    const tablet = secondDevice(p, address);
+    const device = secondDevice(p, address);
+    const tablet = { ...device, deps: { ...device.deps, relays: () => [relay.url, SILENT] } };
     const net = switchable(tablet.deps.pool);
     let t = game(rootId, { ...tablet.deps, pool: net.pool });
     await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
@@ -1096,6 +1110,153 @@ describe('GameController', () => {
       expect(g.view.value?.outcome?.places[r]).toBe(3);
     }
     expect(t.log.value).toEqual([]);
+  }, 300_000);
+
+  it('leaves a dead relay out of a full answer, and offers Send anyway past the hold cap (D056, fix round 2 A)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const p = bySeat[players.indexOf(phone)] as Profile;
+    // The tablet saves this seat's decision offline.
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const saved = savedMove(tablet, rootId, head.seq + 1);
+    t.dispose();
+
+    // Back online, with a dead relay among the player's relays: it never answers, and once the pool has found it
+    // unreachable for `deadAfterMs` it no longer counts, so the move is vetted and published.
+    const DEAD = 'ws://127.0.0.1:9';
+    const pool = newPool([relay.url, DEAD], { deadAfterMs: 1500 });
+    const online = switchable(pool);
+    online.offline = false;
+    t = game(rootId, { ...tablet.deps, relays: () => [relay.url, DEAD], pool: online.pool });
+    // (Without the dead-relay rule it would be held for good: the dead relay never sends EOSE.)
+    await waitFor('the tablet loaded', () => t.view.value !== null && t.status.value !== 'syncing');
+    await new Promise((r) => setTimeout(r, 1600));
+    t.tick();
+    await waitFor('the published move', () => online.published.includes(saved?.event.id as string));
+    for (const g of players)
+      await waitFor('the move everywhere', () => g.view.value?.head.id === saved?.event.id);
+    t.dispose();
+
+    // A Resign saved offline, then a relay that stays alive but never answers: the Resign is held; past the hold cap
+    // the screen offers Send anyway, which vets it on what the relays sent and publishes it.
+    let skew = 0;
+    const silent = switchable(tablet.deps.pool);
+    const deps = { ...tablet.deps, relays: () => [relay.url, SILENT], now: () => now() + skew };
+    t = game(rootId, { ...deps, pool: silent.pool });
+    await waitFor('the tablet resign button', () => t.canResign.value);
+    await t.resign();
+    const resign = loadOutbox(tablet.deps.storage, tablet.name, rootId).get('resign');
+    expect(resign?.confirmed).toBe(false);
+    t.dispose();
+    silent.offline = false;
+    silent.hidden = new Set();
+    t = game(rootId, { ...deps, pool: silent.pool });
+    await waitFor('the tablet loaded again', () => t.view.value !== null && t.status.value !== 'syncing');
+    t.tick();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(silent.published).not.toContain(resign?.event.id);
+    expect(t.canSendAnyway.value).toBe(false);
+    skew = HOLD_CAP_S + 1;
+    t.tick();
+    await waitFor('Send anyway offered', () => t.canSendAnyway.value);
+    t.sendAnyway();
+    await waitFor('the Resign sent anyway', () => silent.published.includes(resign?.event.id as string));
+    for (const g of players)
+      await waitFor('the Resign everywhere', () => (g.view.value?.resigned.length ?? 0) > 0);
+  }, 300_000);
+
+  it('a junk move naming a missing parent holds a saved move only until the relays are asked for it (D056, fix round 2 B)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const mine = players.indexOf(phone);
+    const p = bySeat[mine] as Profile;
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const saved = savedMove(tablet, rootId, head.seq + 1);
+    t.dispose();
+    // Another seat E publishes well-formed junk: a game action naming a random parent, five moves above the head.
+    const e = (mine + 1) % 3;
+    const secrets = loadSecrets(bySeat[e]?.name as string, (bySeat[e] as Profile).deps.storage, address);
+    if (secrets === null) throw new Error('no secrets for E');
+    const junk = finalizeEvent(
+      moveTemplate(
+        {
+          rootId,
+          prevId: bytesToHex(rnd(32)),
+          seq: head.seq + 5,
+          content: { type: 'action', action: { type: 'skipPlace', actor: e }, shares: [], reveals: [] },
+        },
+        now(),
+      ),
+      secrets.sessionSk,
+      rnd,
+    );
+    await newPool().publish(junk);
+    // Back online: the tablet sees a move above its head from a parent it does not hold, asks every relay for that
+    // parent, gets nothing, ignores it, and publishes the saved move without waiting for ticks.
+    net.offline = false;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the published move', () => net.published.includes(saved?.event.id as string), 30_000);
+    for (const g of players)
+      await waitFor('the move everywhere', () => g.view.value?.head.id === saved?.event.id);
+    expect(t.log.value).toEqual([]);
+  }, 240_000);
+
+  it('a seated device does not reveal its secret on a partial view (D056, fix round 2 F)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const first = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    await first.act(first.legal.value[0]);
+    for (const g of players) await waitFor('the first action', () => g.view.value?.head.seq === 4);
+    // Seat x's only open device is a tablet with two relays, one silent; seat r then resigns, so every seat owes its
+    // secret (D052). The tablet's view is partial: it must hold its secret back.
+    const x = 0;
+    const r = 1;
+    players[x]?.dispose();
+    const tablet = secondDevice(bySeat[x] as Profile, address);
+    const net = switchable(tablet.deps.pool);
+    net.offline = false;
+    net.hidden = new Set();
+    const t = game(rootId, { ...tablet.deps, relays: () => [relay.url, SILENT], pool: net.pool });
+    await waitFor('the tablet loaded', () => t.view.value !== null && t.status.value !== 'syncing');
+    await (players[r] as GameController).resign();
+    await waitFor('the tablet sees the Resign', () => t.view.value?.resigned.includes(r), 60_000);
+    const xKey = parseRoot((await query({ ids: [rootId] }))[0] as NostrEvent).seats[x]?.session as string;
+    const reveals = () => query({ kinds: [KIND.reveal], authors: [xKey], '#e': [rootId] });
+    for (let i = 0; i < 3; i++) {
+      t.tick();
+      await new Promise((res) => setTimeout(res, 400));
+    }
+    expect(await reveals()).toEqual([]);
+    expect(t.view.value?.phase).toBe('end');
+    // The silent relay answers: the view is full, and the secret goes.
+    net.hidden = null;
+    t.tick();
+    await waitFor('the tablet secret published', () => t.view.value?.phase === 'done', 120_000);
+    expect(await reveals()).toHaveLength(1);
   }, 300_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {

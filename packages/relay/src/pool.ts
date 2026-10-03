@@ -40,8 +40,8 @@ export interface RelayPoolOptions {
   /** Default wait for EOSE before `onEose` fires anyway, in ms. Default 8000. */
   eoseTimeoutMs?: number;
   /**
-   * A relay that has stayed unreachable this long (ms) since it last went down, without opening since, is listed
-   * in `EoseInfo.deadUrls`. Default 120000.
+   * A relay that has not been open for this long (ms), since its first connection attempt or since it last went
+   * down, is listed in `EoseInfo.deadUrls`. Default 120000.
    */
   deadAfterMs?: number;
 }
@@ -92,7 +92,7 @@ interface Relay {
   attempt: number;
   reconnect: ReturnType<typeof setTimeout> | null;
   pending: Map<string, Pending>;
-  /** When it went down (ms), unless it has opened since; null while it is open or has not failed yet. */
+  /** Since when (ms) it has not been open: its first connection attempt, or when it last went down; null while open. */
   downSince: number | null;
 }
 
@@ -274,6 +274,8 @@ export class RelayPool {
   #connect(r: Relay): void {
     if (this.#closed) return;
     r.reconnect = null;
+    // Unreachable until it opens: a connection that hangs counts as down from its first attempt.
+    r.downSince ??= Date.now();
     let ws: SocketLike;
     try {
       ws = new this.#WS(r.url);
