@@ -185,10 +185,13 @@ interface Rank {
  * Settled before length among live branches is forced: with "over beats an unsettled branch" and "a longer settled
  * branch beats an ending one", comparing live branches by length alone would be cyclic, so not a function of the
  * events held.
+ * When the fork is `frozen` (a seat other than the forker has revealed its deck secret), being settled counts for
+ * nothing and a branch that reaches `over` beats any that does not (D030 Ruling 9 as it was): a game whose secrets
+ * are out is never played on.
  */
-const beats = (a: Rank, b: Rank): boolean => {
-  const ta = a.over || a.settled;
-  if (ta !== (b.over || b.settled)) return ta;
+const beats = (a: Rank, b: Rank, frozen: boolean): boolean => {
+  const ta = a.over || (a.settled && !frozen);
+  if (ta !== (b.over || (b.settled && !frozen))) return ta;
   if (a.length !== b.length) return a.length > b.length;
   return a.over && !b.over;
 };
@@ -1715,6 +1718,7 @@ export class GameSession {
       if (side.length === 0) continue;
       const cur: Rank = { over: this.isOver(), settled: this.settledFrom(j), length: this.chain.length - j };
       const top = (this.chain[j] as ParsedMove).id;
+      const frozen = this.frozenAt(j);
       if (cur.over) {
         const depths = new Map<Hex, number>();
         const contender = side.some((m) => {
@@ -1727,7 +1731,8 @@ export class GameSession {
       const first = best.ids[0];
       if (first === undefined) continue;
       const side1: Rank = { over: best.over, settled: best.settled, length: best.ids.length };
-      const wins = (own: Rank): boolean => beats(side1, own) || (!beats(own, side1) && first < top);
+      const wins = (own: Rank): boolean =>
+        beats(side1, own, frozen) || (!beats(own, side1, frozen) && first < top);
       if (!wins(cur)) continue;
       if (this.laterFork(j) && !wins(this.throughBest(j))) continue;
       this.truncate(j);
@@ -1765,6 +1770,18 @@ export class GameSession {
     return need.size === 0;
   }
 
+  /**
+   * Whether the fork after chain move `j` is frozen (D056): a seat other than the signer of the chain's move `j + 1`
+   * has revealed its deck secret (a Secret reveal, or a Resign that carries it). Clients publish their secret once
+   * the game is over, so after an honest seat has seen an ending branch win, a settled live chain must not reopen
+   * the game with that secret out. Always false in a deckless game.
+   */
+  private frozenAt(j: number): boolean {
+    const forker = this.seatOf.get((this.chain[j] as ParsedMove).pubkey) as number;
+    for (const seat of this.secrets.keys()) if (seat !== forker) return true;
+    return false;
+  }
+
   /** Whether a later prev on the chain than chain move `j` holds a pooled side move that is a candidate. */
   private laterFork(j: number): boolean {
     for (let i = j + 1; i < this.chain.length; i++) {
@@ -1776,7 +1793,8 @@ export class GameSession {
 
   /** The kept-verdict key of the fork after chain move `j`: the pool below it, the shares and the candidates. */
   private forkKey(j: number): string {
-    return `${this.poolVersion.get(this.idAt(j)) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}`;
+    const frozen = this.frozenAt(j) ? 'f' : 'l';
+    return `${this.poolVersion.get(this.idAt(j)) ?? 0}:${this.sharesVersion}:${this.shuffleVersion}:${frozen}`;
   }
 
   /**
@@ -1790,7 +1808,8 @@ export class GameSession {
     if (known !== undefined && known.key === this.forkKey(j)) return known;
     this.trials++;
     const top = (this.chain[j] as ParsedMove).id;
-    const best = this.trialAt(j, () => this.bestExtension(top));
+    const frozen = this.frozenAt(j);
+    const best = this.trialAt(j, () => this.bestExtension(top, null, frozen));
     const out = {
       key: this.forkKey(j),
       ids: best.moves.map((m) => m.id),
@@ -1816,11 +1835,12 @@ export class GameSession {
     if (known !== undefined && known.key === key) return known.rank;
     this.trials++;
     const own = this.chain[j] as ParsedMove;
+    const frozen = this.frozenAt(j);
     const best = this.trialAt(j, () => {
       const h = this.chain.length;
       if (!this.tryLink(own)) return { moves: [], over: false, settled: false };
       const need = this.othersThan(this.seatOf.get(own.pubkey) as number);
-      const sub = this.bestExtension(null, need);
+      const sub = this.bestExtension(null, need, frozen);
       const out: Branch = {
         moves: [own, ...sub.moves],
         over: sub.moves.length > 0 ? sub.over : this.isOver(),
@@ -1888,9 +1908,10 @@ export class GameSession {
    * The best branch from the head, by trial: link each pooled successor that is a candidate in id order (but
    * `exclude`), recurse, and cut back. Branches rank by `beats`, as at the fork this search started from: `missing`
    * holds the seats that have not signed a move on the branch since that fork, and null at the fork itself, where
-   * each successor's signer is the forker. Ties keep the lowest id. Leaves the fold at the head it started from.
+   * each successor's signer is the forker; `frozen` is that fork's (`frozenAt`). Ties keep the lowest id. Leaves the
+   * fold at the head it started from.
    */
-  private bestExtension(exclude: Hex | null = null, missing: ReadonlySet<number> | null = null): Branch {
+  private bestExtension(exclude: Hex | null, missing: ReadonlySet<number> | null, frozen: boolean): Branch {
     const h = this.chain.length;
     let best: Branch = { moves: [], over: false, settled: false };
     const kids = this.movesByPrev.get(this.headId());
@@ -1900,14 +1921,14 @@ export class GameSession {
       const seat = this.seatOf.get(k.pubkey) as number;
       const need = new Set(missing ?? this.othersThan(seat));
       need.delete(seat);
-      const sub = this.bestExtension(null, need);
+      const sub = this.bestExtension(null, need, frozen);
       const branch: Branch = {
         moves: [k, ...sub.moves],
         over: sub.moves.length > 0 ? sub.over : this.isOver(),
         settled: sub.moves.length > 0 ? sub.settled : need.size === 0,
       };
       this.truncate(h);
-      if (beats(rankOf(branch), rankOf(best))) best = branch;
+      if (beats(rankOf(branch), rankOf(best), frozen)) best = branch;
     }
     return best;
   }

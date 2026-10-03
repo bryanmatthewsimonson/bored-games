@@ -147,6 +147,39 @@ describe('a late rival from the same seat (the stale-outbox question, D056)', ()
     expect(early.view().forfeits).toEqual([seat]);
   });
 
+  it('an honest secret revealed for the end freezes it: a settled live chain no longer reopens the game', () => {
+    // The attack this closes: the ender's colluder withholds its move on the live chain, the ender publishes the
+    // ending rival, the honest seats see the game end and reveal their deck secrets, then the colluder's move
+    // settles the live chain and the game would go on with their hands public. Once a seat other than the ender has
+    // revealed its secret, an ending branch beats any branch that does not end (Ruling 9 as it was).
+    const { seat, ev } = rivalAt(beforeDeclare, (legal) => legal.find(isDeclare));
+    const honest = (seat + 1) % SEATS;
+    const ended = catchUp(game, honest, [...beforeDeclare, ev]);
+    expect(ended.view().phase).toBe('end');
+    const secret = ended.buildSecret(game.rnd, LATE);
+    for (const order of [
+      [ev, secret],
+      [secret, ev],
+    ]) {
+      const watcher = catchUp(game, null, mid);
+      const head = watcher.view().head;
+      for (const e of order) expect(watcher.receive(e, LATE).status).not.toBe('rejected');
+      const v = watcher.view();
+      expect(v.head.id).toBe(ev.id);
+      expect(v.head).not.toEqual(head);
+      expect(v.phase).toBe('end');
+      expect(v.equivocators).toEqual([seat]);
+    }
+    // The ender's own secret freezes nothing: it could otherwise force its rewind alone.
+    const own = catchUp(game, seat, [...beforeDeclare, ev]).buildSecret(game.rnd, LATE);
+    const watcher = catchUp(game, null, mid);
+    const head = watcher.view().head;
+    watcher.receive(own, LATE);
+    watcher.receive(ev, LATE);
+    expect(watcher.view().head).toEqual(head);
+    expect(watcher.view().phase).toBe('play');
+  });
+
   it('a real end raced by a move of the same seat still stands while another seat has not played on', () => {
     const { seat, ev } = rivalAt(beforeDeclare, (legal) => legal.find(isDeclare));
     // The live chain: the seat's other move, then moves up to (not including) the one that would make every other
