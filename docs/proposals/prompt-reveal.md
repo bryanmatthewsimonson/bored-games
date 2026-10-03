@@ -393,7 +393,7 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | 2 seats, 4 moves, 3 adversary moves, a claim, a resign, a deadline | 51,274, complete | post-end only | |
 | Absent humans, 4 moves, two deadlines, a claim, every coalition | 115,462, complete | claim race, post-end, ended-void | `void-forfeit`, `attested-void`, post-end |
 | **4 seats, 8 moves**, 2 adversary moves, a claim, a deadline, every single adversary: private | 1,990,876 / 2,525,787 / 2,873,179 / 2,955,833 (seats 0–3), complete | claim race, post-end | |
-| 4 seats, 8 moves, the same, public | B7PUB | claim race, post-end | |
+| 4 seats, 8 moves, the same, public | 7,112,320 / 17,414,320 (seats 0, 1), complete; seats 2 and 3 **not completed** (over 2.5 hours each, no result before this write-up) | claim race, post-end | |
 | Two devices per honest seat, A1's scope (4 moves, 3 adversary moves, a resign), every colluder pair | 4,286,103, complete | | `void-forfeit`, `attested-void`, claim race, ended-void, post-end |
 | Two devices, 2 seats, 3 moves, a claim, a resign, a deadline, a stale outbox with the outbox rule | 3,337,436, complete | claim race, post-end | |
 | The same with the first wording of rule 6(b) (`cutoff: 'path'`) | 3,335,784, complete | **`rating` 13,944** (seat 1; the regression), claim race, post-end | |
