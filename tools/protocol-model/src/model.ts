@@ -148,9 +148,11 @@ export interface Scope {
   readonly stopScore?: 'abort' | 'timeout' | 'last';
   /**
    * `stop3` variants, kept as regressions: `cutoff: 'attest'` drops the anchor clause (a result stands once every
-   * seat but E attested it); `exemptLoser` does not ask the forfeiting seat of a claim or resign to attest it.
+   * seat but E attested it); `cutoff: 'path'` (round 3's first wording) also counts events past the result's head,
+   * not only those on another side of a fork; `exemptLoser` does not ask the forfeiting seat of a claim or resign
+   * to attest it.
    */
-  readonly cutoff?: 'anchor' | 'attest';
+  readonly cutoff?: 'anchor' | 'attest' | 'path';
   readonly exemptLoser?: boolean;
   /**
    * Device policy (ii), round 3: before signing a move, a device fetches every event its seat published from any
@@ -348,7 +350,7 @@ class Explorer {
   private readonly s: Scope;
   private readonly honest: Seat[];
   private readonly coalition: ReadonlySet<Seat>;
-  private readonly visited = new Set<string>();
+  private readonly visited = new KeySet();
   private readonly viewMemo = new Map<string, View>();
   private states = 0;
   private checked = 0;
@@ -589,8 +591,10 @@ class Explorer {
     const out = new Set<string>();
     const get = (id: string) => st.events.get(id) as MoveEv;
     for (const e of st.events.values()) {
-      if (e.seat !== c.seat || c.has.has(e.id)) continue;
-      out.add(e.id);
+      // Held or not: an event already held (an attestation reaches every client at once) still brings what it
+      // builds on.
+      if (e.seat !== c.seat) continue;
+      if (!c.has.has(e.id)) out.add(e.id);
       const at =
         e.t === 'move'
           ? e.prev
@@ -598,6 +602,14 @@ class Explorer {
             ? e.head
             : ROOT;
       if (at !== ROOT && st.events.has(at)) for (const id of pathTo(at, get)) if (!c.has.has(id)) out.add(id);
+      // An attestation of a claim or resign brings the claim or resign it rests on (the attestation names it).
+      if (e.t === 'attest' && e.kind !== 'over')
+        for (const x of st.events.values()) {
+          const rests =
+            (e.kind === 'resign' && x.t === 'resign' && x.seat === e.loser) ||
+            (e.kind === 'claim' && x.t === 'claim' && x.head === e.head && x.seat !== e.loser);
+          if (rests && !c.has.has(x.id)) out.add(x.id);
+        }
     }
     return [...out];
   }
@@ -940,6 +952,21 @@ class Explorer {
       if (e.t === 'resign' && onChain.has(e.head) && (best === null || e.id < best.id)) best = e;
     }
     if (best !== null) return { path: v.path, reason: 'resign', seat: best.seat };
+    // Round 3, device policy (ii) (`ownCheck`): a device adopts a claim or resign result that its own seat attested
+    // from another device, at a head on its chain: its seat already counted it.
+    if (this.s.design === 'stop3' && this.s.ownCheck === true) {
+      let own: AttestEv | null = null;
+      for (const id of c.has) {
+        const e = st.events.get(id) as Ev;
+        if (e.t !== 'attest' || e.seat !== c.seat || e.kind === 'over' || !onChain.has(e.head)) continue;
+        if (own === null || e.id < own.id) own = e;
+      }
+      if (own !== null) {
+        const get = (id: string) => v.byId.get(id) as MoveEv;
+        const path = own.head === ROOT ? [] : pathTo(own.head, get);
+        return { path, reason: own.kind as 'claim' | 'resign', seat: own.loser };
+      }
+    }
     // Round 3 (\`stop3\`): a claim by this client's own seat, from another device, at a head on its chain counts
     // there: that device's deadline passed (device policy (ii), with \`ownCheck\`).
     if (this.s.design === 'stop3') {
@@ -1237,6 +1264,26 @@ class Explorer {
     if (known === undefined) this.found[kind] = { count: 1, first: { kind, detail, trace: trace() } };
     else known.count++;
     if (this.s.stopAt?.includes(kind)) this.halt = true;
+  }
+}
+
+/**
+ * A set of state keys that can outgrow one JavaScript Set (whose size is capped at 2^24 entries): the keys are
+ * spread over 64 Sets by their last character.
+ */
+class KeySet {
+  private readonly shards: Set<string>[] = Array.from({ length: 64 }, () => new Set<string>());
+
+  private shard(k: string): Set<string> {
+    return this.shards[k.charCodeAt(k.length - 1) & 63] as Set<string>;
+  }
+
+  has(k: string): boolean {
+    return this.shard(k).has(k);
+  }
+
+  add(k: string): void {
+    this.shard(k).add(k);
   }
 }
 
@@ -1547,6 +1594,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     attests.set(key, g);
   }
   const anchors = evs.filter((e): e is ShareEv => e.t === 'share');
+  const attestEvs = evs.filter((e): e is AttestEv => e.t === 'attest');
   /** Whether result `r` is valid from the held events: an end at full length, or a held claim or resign. */
   const valid = (r: Standing): boolean => {
     if (r.head !== ROOT && !linked.has(r.head)) return false;
@@ -1577,10 +1625,15 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       for (let x = 0; x < s.seats; x++)
         if (x !== E && !g.seats.has(x) && !(s.exemptLoser === true && x === R.loser)) all = false;
       if (!all) continue;
+      // Off the result's line: neither on its path nor past its head (another side of a fork). Events past the head
+      // only concern values granted after the result's end (post-end); `cutoff: 'path'` (a regression) counts them.
+      const past = (head: string): boolean => s.cutoff !== 'path' && ancestor(R.head, head);
       const off =
         s.cutoff !== 'attest' &&
-        ([...byId.values()].some((m) => m.seat !== E && !ancestor(m.id, R.head)) ||
-          anchors.some((a) => a.seat !== E && !ancestor(a.head, R.head)));
+        ([...byId.values()].some((m) => m.seat !== E && !ancestor(m.id, R.head) && !past(m.prev)) ||
+          anchors.some((a) => a.seat !== E && !ancestor(a.head, R.head) && !past(a.head)) ||
+          (s.cutoff !== 'path' &&
+            attestEvs.some((a) => a.seat !== E && !ancestor(a.head, R.head) && !past(a.head))));
       if (off) continue;
       found.add(key);
       one = R;

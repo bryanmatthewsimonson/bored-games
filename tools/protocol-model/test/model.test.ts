@@ -586,7 +586,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
   });
 
-  it('two devices and a claim (2 seats): a device must fetch its own seat’s events before signing', () => {
+  it('two devices and a claim (2 seats): attestations count in the anchor clause; devices check their own events', () => {
     const scope = {
       ...e3,
       seats: 2,
@@ -597,12 +597,40 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
       advClaims: 1,
       expiries: 1,
     } as const;
-    // Without the check, device a plays on after device b counted the opponent's timeout, and the end stands.
-    expect(explore({ ...scope, ownCheck: false, stopAt: ['rating'] }).violations.rating).toBeDefined();
+    // Round 3's first wording (any event past the head counts, attestations do not), without the check: device a
+    // plays on after device b counted the opponent's timeout, the opponent forks, and the end stands over the
+    // counted timeout.
+    const path = explore({ ...scope, cutoff: 'path', ownCheck: false, stopAt: ['rating'] });
+    expect(path.violations.rating).toBeDefined();
+    // Device b's attestation of the claim lies on another side of the fork, so the end cannot stand: the fork
+    // stops the game as the opponent's loss. Without the check the two devices can still end apart (no fork).
+    const loose = explore({ ...scope, ownCheck: false });
+    expect(loose.complete).toBe(true);
+    expectSafe(counts(loose));
+    expect(counts(loose)['claim-race'] ?? 0).toBeGreaterThan(0);
     const r = explore(scope);
     expect(r.complete).toBe(true);
     expectSafe(counts(r));
     expect(counts(r)['claim-race'] ?? 0).toBe(0);
+  });
+
+  it('two devices and a resign (2 seats): only events on another side of the fork block a result', () => {
+    const scope = {
+      ...e3,
+      seats: 2,
+      mode: 'private',
+      length: 3,
+      coalition: [1],
+      devices: 2,
+      advResigns: 1,
+    } as const;
+    // Round 3's first wording: device a plays past the head of a resign that device b counted, the resigner forks
+    // after it, and device a's end stands over the counted resign (a 2-seat rating gain).
+    const path = explore({ ...scope, cutoff: 'path', stopAt: ['rating'] });
+    expect(path.violations.rating).toBeDefined();
+    const r = explore(scope);
+    expect(r.complete).toBe(true);
+    expectSafe(counts(r));
   });
 
   it('A1: two devices and a resign leak a card past the end under rule (1); under the cutoff it is post-end', () => {
