@@ -2615,6 +2615,43 @@ export class GameSession {
   }
 
   /**
+   * The seq of event `id` on the canonical chain (0 for the root), or null when it is not on the chain. The web
+   * client uses it to tell a saved move whose parent the chain has passed (stale) from one whose parent it does not
+   * hold yet (D056).
+   */
+  chainSeq(id: Hex): number | null {
+    if (id === this.root.id) return 0;
+    if (!this.linked.has(id)) return null;
+    const i = this.chain.findIndex((m) => m.id === id);
+    return i < 0 ? null : i + 1;
+  }
+
+  /**
+   * Whether this client is visibly behind (D056): it pools a move above its head (seq beyond head + 1) whose
+   * ancestry, along the pooled moves, reaches the head or a parent it does not hold. The relays have then shown a
+   * later part of the chain than the head, so judging a saved event against the head would be premature. A side
+   * branch off an older chain move does not count.
+   */
+  behind(): boolean {
+    const head = this.headId();
+    const headSeq = this.chain.length;
+    for (const m of this.pooledById.values()) {
+      if (m.seq <= headSeq + 1) continue;
+      let at: ParsedMove = m;
+      for (let i = 0; i < MAX_DEPTH * 4; i++) {
+        if (at.prevId === head) return true;
+        const up = this.pooledById.get(at.prevId);
+        if (up === undefined) {
+          if (!this.linked.has(at.prevId) && at.prevId !== this.root.id) return true;
+          break;
+        }
+        at = up;
+      }
+    }
+    return false;
+  }
+
+  /**
    * My Secret reveal (PROTOCOL §4.7): my deck secret, signed by my session key, once the game is over or another
    * seat's resign ended it (`secret` duty). Build it once and re-send that event.
    */

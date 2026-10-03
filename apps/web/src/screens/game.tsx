@@ -170,6 +170,7 @@ function SetupProgress(props: {
   status: GameStatus;
   error: string | null;
   claim: { explanation: string; busy: boolean; onClaim: () => void } | null;
+  log: readonly string[];
 }) {
   return (
     <section class="panel game-loading" aria-labelledby="game-title" aria-busy={props.status !== 'waiting'}>
@@ -192,6 +193,7 @@ function SetupProgress(props: {
           {props.error}
         </p>
       )}
+      <SyncNotes lines={props.log} />
     </section>
   );
 }
@@ -234,6 +236,24 @@ export function ResignButton(props: { explanation: string; busy: boolean; onResi
   );
 }
 
+/**
+ * "Sync notes": what the controller did with events saved on this device that no relay had confirmed (D056), such
+ * as a move discarded because the game moved on, or a deal kept but not sent. Nothing when there are none.
+ */
+export function SyncNotes(props: { lines: readonly string[] }) {
+  if (props.lines.length === 0) return null;
+  return (
+    <details class="sync-notes">
+      <summary>Sync notes ({props.lines.length})</summary>
+      <ul>
+        {props.lines.map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 /** Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign or a timeout). */
 export function placesText(view: SessionView, names: readonly string[]): string {
   const o = view.outcome;
@@ -258,6 +278,7 @@ export function GameScreen(props: { rootId: string }) {
   const busy = ctl.busy.value;
   const error = ctl.error.value;
   const notice = ctl.notice.value;
+  const log = ctl.log.value;
   const seats = ctl.seats.value;
   const now = ctl.clock.value;
   const target = ctl.timeoutTarget.value;
@@ -308,7 +329,15 @@ export function GameScreen(props: { rootId: string }) {
   const copy = game?.setupCopy(view !== null && view.shuffleSteps > 0) ?? null;
   if (view === null || view.state === null || view.phase === 'shuffle' || view.phase === 'deal')
     return (
-      <SetupProgress title={title} view={view} copy={copy} status={status} error={error} claim={claim} />
+      <SetupProgress
+        title={title}
+        view={view}
+        copy={copy}
+        status={status}
+        error={error}
+        claim={claim}
+        log={log}
+      />
     );
   if (game === undefined) {
     return (
@@ -382,6 +411,7 @@ export function GameScreen(props: { rootId: string }) {
             onResign={() => void ctl.resign()}
           />
         )}
+        <SyncNotes lines={log} />
       </div>
     </>
   );

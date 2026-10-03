@@ -11,11 +11,13 @@ import {
   resignExplanation,
   resignedSeats,
   resignLine,
+  SyncNotes,
   setupStep,
   statusNotice,
   timedOutSeats,
   timeoutExplanation,
 } from '../src/screens/game.tsx';
+import { findAll, renderTree, spokenText } from './render-tree.ts';
 
 const viewOf = (v: Partial<SessionView>): SessionView =>
   ({ seats: 3, shuffleSteps: 3, head: { id: 'h', seq: 3 }, ...v }) as SessionView;
@@ -167,6 +169,16 @@ describe('game chrome helpers (D045)', () => {
     );
     expect(setupStep(viewOf({ phase: 'deal' }), copy)).toBe('Dealing the tiles…');
     expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
+  });
+
+  it('shows the sync notes in a disclosure, and nothing when there are none (D056)', () => {
+    expect(renderTree(SyncNotes({ lines: [] }))).toEqual([]);
+    const line = 'A move saved on this device was never sent, and it was discarded: the game has moved on.';
+    const tree = renderTree(SyncNotes({ lines: [line, line] }));
+    expect(findAll(tree, (el) => el.tag === 'details')).toHaveLength(1);
+    expect(findAll(tree, (el) => el.tag === 'li')).toHaveLength(2);
+    expect(spokenText(tree)).toMatch(/Sync notes \(2\)/);
+    expect(spokenText(tree)).toContain(line);
   });
 });
 
