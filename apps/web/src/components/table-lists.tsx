@@ -9,11 +9,13 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
+import { joinBackupNeeded } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
 import { gameHref, tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
+import { JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
 
 /** A listed table of another player key this profile used (D041). */
@@ -80,13 +82,16 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
 }
 
 export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empty: ComponentChildren }) {
-  const { profile, store } = useApp();
+  const { profile, store, signer } = useApp();
   const lobby = useLobby();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ address: string; message: string } | null>(null);
+  // The table whose "Copy your secret key first?" prompt is open (D057).
+  const [asking, setAsking] = useState<string | null>(null);
 
   const join = async (t: TableEntry) => {
     if (busy !== null) return;
+    setAsking(null);
     requestPersistenceOnce(profile, store, storageManager());
     setBusy(t.address);
     setError(null);
@@ -131,7 +136,10 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                   class="btn btn-small btn-primary"
                   disabled={busy !== null}
                   aria-label={joinButtonLabel(label, t.table.creator)}
-                  onClick={() => void join(t)}
+                  onClick={() => {
+                    if (joinBackupNeeded(profile, store, signer)) setAsking(t.address);
+                    else void join(t);
+                  }}
                 >
                   {label}
                 </button>
@@ -141,6 +149,16 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
                   </span>
                 )}
               </>
+            }
+            below={
+              asking === t.address ? (
+                <JoinBackup
+                  busy={busy !== null}
+                  idBase={`join-backup-${t.table.tableId}`}
+                  onJoin={() => void join(t)}
+                  onCancel={() => setAsking(null)}
+                />
+              ) : null
             }
           />
         );

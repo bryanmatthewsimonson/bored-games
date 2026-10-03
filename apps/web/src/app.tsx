@@ -1,11 +1,14 @@
 import { BRAND } from '@bored-games/brand';
+import { useState } from 'preact/hooks';
 import { type AppContext, AppCtx, useApp } from './context.ts';
 import { Header } from './header.tsx';
 import { EXTENSION_MISSING_NOTICE } from './identity.ts';
+import { IN_APP_DISMISSED, IN_APP_NOTICE } from './inapp-model.ts';
 import { creditsHref, route } from './router.ts';
 import { Screen } from './screens.tsx';
 import { IGNORED_RELAYS_NOTICE } from './settings.ts';
 import { SettingsDialog } from './settings-dialog.tsx';
+import { readItem, sessionStore, storageKey, writeItem } from './storage.ts';
 
 export function App(props: { ctx: AppContext }) {
   return (
@@ -27,14 +30,41 @@ export function App(props: { ctx: AppContext }) {
 }
 
 /**
- * Page-wide warnings: a key that will not survive a reload, a missing extension, and an ignored `?profile=` or
- * `?relays=` value.
+ * "You're in an in-app browser" (D057), until dismissed for this tab (sessionStorage). Hookless, for the render
+ * tests: `Banners` holds the state.
+ */
+export function InAppBanner(props: { onDismiss: () => void }) {
+  return (
+    <div class="warning banner-dismissible" role="status">
+      <p>{IN_APP_NOTICE}</p>
+      <button type="button" class="btn btn-small" onClick={props.onDismiss}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Page-wide warnings: a key that will not survive a reload, a missing extension, an ignored `?profile=` or
+ * `?relays=` value, and an in-app browser.
  */
 function Banners() {
-  const { persistent, signer, invalidProfile, profile, ignoredRelays, extensionMissing } = useApp();
-  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing) return null;
+  const { persistent, signer, invalidProfile, profile, ignoredRelays, extensionMissing, inApp } = useApp();
+  const dismissKey = storageKey(profile, IN_APP_DISMISSED);
+  const [session] = useState(sessionStore);
+  const [inAppDismissed, setInAppDismissed] = useState(() => readItem(session, dismissKey) === '1');
+  const showInApp = inApp !== null && !inAppDismissed;
+  if (persistent && invalidProfile === null && !ignoredRelays && !extensionMissing && !showInApp) return null;
   return (
     <div class="banners">
+      {showInApp && (
+        <InAppBanner
+          onDismiss={() => {
+            writeItem(session, dismissKey, '1');
+            setInAppDismissed(true);
+          }}
+        />
+      )}
       {!persistent && signer.kind === 'local' && (
         <p class="warning" role="alert">
           <strong>Your key is not being saved.</strong> This browser is blocking site storage, so your key and

@@ -1297,3 +1297,46 @@ input[type="search"] {
 .names-option {
   display: grid;
 }
+
+/* A full-width block under a table card, such as the backup prompt before a join (D057). */
+.card-below {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.join-backup .row {
+  margin: 0;
+}
+
+.join-backup p {
+  margin: 0;
+}
+
+/* A page banner with a Dismiss button (the in-app browser warning, D057). */
+.banner-dismissible {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.banner-dismissible p {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0;
+}
+
+/* "You're watching this game" (D057). */
+.watch-notice p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.watch-notice .row {
+  margin: 8px 0 0;
+}
+
+.game-waiting {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

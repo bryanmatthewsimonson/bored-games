@@ -188,6 +188,10 @@ export class GameController {
   /** The seats' identity pubkeys, in seat order. */
   readonly seats: Signal<readonly Hex[]> = signal([]);
   readonly table: Signal<ParsedTable | null> = signal(null);
+  /** The table's address, from the root, once it is known. */
+  readonly tableAddress: Signal<string | null> = signal(null);
+  /** The seats the game waits on at the head (`GameSession.waitingFor`, D057), ascending. */
+  readonly waiting: Signal<readonly number[]> = signal([]);
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
   readonly clock: Signal<number>;
 
@@ -500,6 +504,7 @@ export class GameController {
     this.#rootEv = ev;
     this.#root = root;
     this.game.value = root.game;
+    this.tableAddress.value = root.tableAddress;
     this.#noteSeen(ev.id, this.#d.now());
     this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
     if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
@@ -673,6 +678,8 @@ export class GameController {
     const v = session.view();
     const duties = session.duties();
     this.view.value = v;
+    const waiting = session.waitingFor();
+    if (waiting.join() !== this.waiting.value.join()) this.waiting.value = waiting;
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
