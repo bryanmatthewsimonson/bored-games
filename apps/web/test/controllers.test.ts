@@ -4,7 +4,7 @@
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
-import type { SessionView } from '@bored-games/client';
+import { GameSession, type SessionView } from '@bored-games/client';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import {
   finalizeEvent,
@@ -12,6 +12,7 @@ import {
   type Hex,
   KIND,
   type NostrEvent,
+  parseRoot,
   tableTemplate,
 } from '@bored-games/protocol';
 import type { Filter } from '@bored-games/relay';
@@ -20,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
+import { bytesToHex } from '../src/hex.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController, OTHER_KEY_TABLE } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
@@ -199,13 +201,29 @@ function secondDevice(p: Profile, address: string): Profile {
   return profile(p.name, store, p.deps.signer);
 }
 
-/** A pool whose publishing can be cut off (`offline`), recording what it did publish. */
+/**
+ * A pool whose publishing can be cut off (`offline`), recording what it did publish. While `hidden` is set, a
+ * subscription opened then behaves as if the pool had a second relay that never answers it, and the one relay that
+ * does answer lacks the `hidden` events: they are dropped, and its EOSE reports one relay short (D056).
+ */
 function switchable(real: PoolLike) {
   const net = {
     offline: true,
     published: [] as string[],
+    hidden: null as Set<string> | null,
     pool: {
-      subscribe: (...args: Parameters<PoolLike['subscribe']>) => real.subscribe(...args),
+      subscribe: (filters, onEvent, onEose, opts) => {
+        const hidden = net.hidden;
+        if (hidden === null) return real.subscribe(filters, onEvent, onEose, opts);
+        return real.subscribe(
+          filters,
+          (ev, url) => {
+            if (!hidden.has(ev.id)) onEvent(ev, url);
+          },
+          onEose && ((info) => onEose({ ...info, relays: info.relays + 1, timedOut: true })),
+          opts,
+        );
+      },
       publish: async (ev: NostrEvent, urls?: readonly string[]) => {
         if (net.offline) return [{ url: relay.url, ok: false, message: 'offline' }];
         net.published.push(ev.id);
@@ -876,6 +894,211 @@ describe('GameController', () => {
     expect(savedMove(tablet, rootId, head.seq + 1)).toBeUndefined();
     for (const g of players) expect(g.view.value?.equivocators).toEqual([]);
   }, 240_000);
+
+  it('never discards or rebuilds a refused deal it never sent: reloads after a shuffle fork deal nothing (D056, I1)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const [h, s1, e] = bySeat as [Profile, Profile, Profile];
+    const hNet = switchable(h.deps.pool);
+    hNet.offline = false;
+    let gh = game(rootId, { ...h.deps, pool: hNet.pool });
+    const g1 = game(rootId, s1.deps);
+    await waitFor('the first two shuffle steps', () => g1.view.value?.head.seq === 2, 120_000);
+    // H (seat 0) loses its connection for publishing; the last shuffler E (seat 2) builds two rival final steps on
+    // one prev. Its higher-id step A goes out first.
+    hNet.offline = true;
+    const rootEv = (await query({ ids: [rootId] }))[0] as NostrEvent;
+    const root = parseRoot(rootEv);
+    const [, creator, tableId] = root.tableAddress.split(':') as [string, string, string];
+    const table = (
+      await query({ kinds: [KIND.table], authors: [creator], '#d': [tableId] })
+    )[0] as NostrEvent;
+    const joins = await query({ ids: [...root.joinIds] });
+    const secrets = loadSecrets(e.name, e.deps.storage, address);
+    if (secrets === null) throw new Error('no secrets for seat 2');
+    const es = GameSession.create({
+      modules: MODULES,
+      table,
+      joins,
+      root: rootEv,
+      me: {
+        seat: 2,
+        sessionSk: secrets.sessionSk,
+        deckSecret: BigInt(`0x${bytesToHex(secrets.deckSecret)}`),
+      },
+      rootSeenAt: now(),
+    });
+    for (const m of await query({ kinds: [KIND.move], '#e': [rootId] })) es.receive(m, now());
+    expect(es.view().head.seq).toBe(2);
+    const [stepB, stepA] = [es.buildShuffle(rnd, now()), es.buildShuffle(rnd, now())].sort((x, y) =>
+      x.id < y.id ? -1 : 1,
+    ) as [NostrEvent, NostrEvent];
+    await newPool().publish(stepA);
+    // H deals on A, offline: its deal is saved, unconfirmed. Seat 1 deals on A and that reaches the relay.
+    const dealOf = (p: Profile) => loadOutbox(p.deps.storage, p.name, rootId).get('deal');
+    const hDeal = await waitFor('H saved its deal', () => dealOf(h), 120_000);
+    expect(hDeal.confirmed).toBe(false);
+    await waitFor('seat 1 sent its deal', () => dealOf(s1)?.confirmed, 120_000);
+    gh.dispose();
+    // E's lower-id step B: fork choice moves every client to deck B, where H's deal does not verify.
+    await newPool().publish(stepB);
+    await waitFor('seat 1 on deck B', () => g1.view.value?.head.id === stepB.id);
+
+    // H reloads online. The relays answer without H's deal; the session refuses it on B. Before D056's fix round the
+    // controller discarded it, and the next reload built a deal on B: E then held H's shares on both decks.
+    hNet.offline = false;
+    const hKey = root.seats[0]?.session as string;
+    const hShares = () => query({ kinds: [KIND.shares], authors: [hKey], '#e': [rootId] });
+    for (let reload = 0; reload < 2; reload++) {
+      gh = game(rootId, { ...h.deps, pool: hNet.pool });
+      await waitFor(
+        'the reloaded tab',
+        () => gh.view.value?.head.id === stepB.id && gh.status.value !== 'syncing',
+      );
+      await new Promise((r) => setTimeout(r, 1500));
+      const kept = dealOf(h);
+      expect(kept?.event.id).toBe(hDeal.event.id);
+      expect(kept?.orphan).toBe(true);
+      expect(kept?.confirmed).toBe(false);
+      expect(gh.view.value?.phase).toBe('deal');
+      // The shuffle equivocator is flagged, and it alone is stalled (D056, F7 (b)).
+      expect(gh.view.value?.equivocators).toEqual([2]);
+      if (reload === 0) {
+        expect(gh.log.value).toHaveLength(1);
+        expect(gh.log.value[0]).toMatch(/deal saved on this device was kept but not sent/);
+      } else expect(gh.log.value).toEqual([]);
+      gh.dispose();
+    }
+    expect(await hShares()).toEqual([]);
+    expect(hNet.published.filter((id) => id === hDeal.event.id)).toEqual([]);
+    expect(await query({ kinds: [KIND.shares], authors: [root.seats[1]?.session as string] })).toHaveLength(
+      1,
+    );
+  }, 300_000);
+
+  it('vets a saved move only once every relay has answered: a silent relay holds it back (D056, I2)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const players = bySeat.map((p) => game(rootId, p.deps));
+    const phone = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    const p = bySeat[players.indexOf(phone)] as Profile;
+    const tablet = secondDevice(p, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn' && t.legal.value.length > 0);
+    const head = t.view.value?.head as { id: string; seq: number };
+    await t.act(t.legal.value[0]);
+    const stale = savedMove(tablet, rootId, head.seq + 1);
+    expect(stale?.confirmed).toBe(false);
+    t.dispose();
+    await new Promise((r) => setTimeout(r, 1100));
+    await phone.act(phone.legal.value[0]);
+    for (const g of players) await waitFor('the phone move', () => g.view.value?.head.seq === head.seq + 1);
+    const moved = players[0]?.view.value?.head as { id: string; seq: number };
+
+    // The tablet comes back with two relays: one answers without the phone's move, the other never answers. Its
+    // head is then the move's parent and it sees no rival, but it must not publish (nor discard) on that answer.
+    net.offline = false;
+    net.hidden = new Set([moved.id]);
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor(
+      'the tablet loaded',
+      () => t.view.value?.head.id === head.id && t.status.value !== 'syncing',
+    );
+    for (let i = 0; i < 3; i++) {
+      t.tick();
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    expect(net.published).not.toContain(stale?.event.id);
+    expect(savedMove(tablet, rootId, head.seq + 1)?.event.id).toBe(stale?.event.id);
+    expect(t.log.value).toEqual([]);
+    await expect(t.act(t.legal.value[0] ?? null)).rejects.toThrow();
+
+    // The silent relay answers (it holds the phone's move): the next tick vets the move and discards it.
+    net.hidden = null;
+    t.tick();
+    await waitFor('the discard', () => t.log.value.length === 1);
+    expect(t.log.value[0]).toMatch(/another move of yours at that point is on the relays/);
+    expect(net.published).not.toContain(stale?.event.id);
+    expect(savedMove(tablet, rootId, head.seq + 1)).toBeUndefined();
+    await waitFor('the tablet caught up', () => t.view.value?.head.id === moved.id);
+    for (const g of [...players, t]) expect(g.view.value?.equivocators).toEqual([]);
+  }, 240_000);
+
+  it('vets a saved deal and a saved Resign that names an old head, and publishes both (D056, I3)', async () => {
+    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const [s0, s1, s2] = bySeat as [Profile, Profile, Profile];
+    // Seat 0 publishes its shuffle step, then loses its connection before it deals: its deal is saved, unsent.
+    const net0 = switchable(s0.deps.pool);
+    net0.offline = false;
+    let g0 = game(rootId, { ...s0.deps, pool: net0.pool });
+    await waitFor('seat 0 sent its step', () => savedMove(s0, rootId, 1)?.confirmed, 120_000);
+    net0.offline = true;
+    const others = [game(rootId, s1.deps), game(rootId, s2.deps)];
+    const deal = await waitFor(
+      'the saved deal',
+      () => loadOutbox(s0.deps.storage, s0.name, rootId).get('deal'),
+      120_000,
+    );
+    expect(deal.confirmed).toBe(false);
+    g0.dispose();
+    // Back online: the relays hold no other deal of seat 0's and the session accepts it, so it is published.
+    net0.offline = false;
+    g0 = game(rootId, { ...s0.deps, pool: net0.pool });
+    const players = [g0, ...others];
+    for (const g of players) await waitFor('the play phase', () => g.view.value?.phase === 'play', 120_000);
+    expect(loadOutbox(s0.deps.storage, s0.name, rootId).get('deal')?.event.id).toBe(deal.event.id);
+    await waitFor(
+      'the confirmed deal',
+      () => loadOutbox(s0.deps.storage, s0.name, rootId).get('deal')?.confirmed,
+    );
+    expect(g0.log.value).toEqual([]);
+
+    // One game action, so a Resign is a loss rather than a cancel.
+    const first = await waitFor(
+      'the first decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    await first.act(first.legal.value[0]);
+    for (const g of players) await waitFor('the first action', () => g.view.value?.head.seq === 4);
+    const mover = await waitFor(
+      'the next decision',
+      () => players.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      120_000,
+    );
+    // A seat that is not pending resigns on its tablet, offline: the Resign names the current head.
+    const r = players.findIndex((g) => g !== mover);
+    const tablet = secondDevice(bySeat[r] as Profile, address);
+    const net = switchable(tablet.deps.pool);
+    let t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the tablet resign button', () => t.canResign.value);
+    const named = t.view.value?.head as { id: string; seq: number };
+    await t.resign();
+    const saved = loadOutbox(tablet.deps.storage, tablet.name, rootId).get('resign');
+    expect(saved?.confirmed).toBe(false);
+    expect(saved?.event.tags).toContainEqual(['e', named.id, '', 'head']);
+    t.dispose();
+    // Meanwhile the pending seat plays on: the head moves past the one the Resign names.
+    await new Promise((res) => setTimeout(res, 1100));
+    await mover.act(mover.legal.value[0]);
+    for (const g of players) await waitFor('the head moved', () => g.view.value?.head.seq === named.seq + 1);
+
+    // Back online, the tablet publishes the Resign anyway (it is this seat's only one); before the fix round it was
+    // discarded, and with 3 seats the player would have forfeited on time, rated, instead of resigning, unrated.
+    net.offline = false;
+    t = game(rootId, { ...tablet.deps, pool: net.pool });
+    await waitFor('the published Resign', () => net.published.includes(saved?.event.id as string));
+    for (const g of [...players, t]) {
+      await waitFor('the game ended by the Resign', () => g.view.value?.resigned.includes(r), 120_000);
+      await waitFor('the result', () => g.view.value?.phase === 'done', 120_000);
+      expect(g.view.value?.outcome?.unrated).toBe(true);
+      expect(g.view.value?.outcome?.places[r]).toBe(3);
+    }
+    expect(t.log.value).toEqual([]);
+  }, 300_000);
 
   it('rejects a move while one is in flight and when nothing is loaded', async () => {
     const p = profile('solo');
