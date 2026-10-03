@@ -258,6 +258,7 @@ test('players set a name and picture, and see each other’s on the table seats'
 
   // b joins, and a sees b's seat the same way.
   await b.getByRole('button', { name: 'Join this table' }).click();
+  await b.getByRole('button', { name: 'Join anyway' }).click();
   await expect(b.getByText('You are seated.')).toBeVisible();
   const boSeat = seatOf(a, 'Bo Tester');
   await expect(boSeat).toBeVisible();
@@ -265,4 +266,31 @@ test('players set a name and picture, and see each other’s on the table seats'
   await expect(boSeat.locator('.avatar img')).toHaveAttribute('src', `${BLOSSOM}/${owl.sha256}.webp`);
 
   for (const c of contexts) await c.close();
+});
+
+/** Instagram's in-app browser on an iPhone, as it names itself in its user agent. */
+const INSTAGRAM_UA =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 290.0.0.13.76 (iPhone14,2; iOS 16_5; en_US; en; scale=3.00; 1170x2532; 491279466)';
+
+test('an in-app browser gets a warning it can dismiss for the tab (D057)', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    userAgent: INSTAGRAM_UA,
+  });
+  const page = await context.newPage();
+  await page.goto(appUrl('inapp'));
+  const banner = page.getByText("You're in an in-app browser.", { exact: false });
+  await expect(banner).toBeVisible();
+  // No horizontal scroll at phone width.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(banner).toHaveCount(0);
+  // Dismissed for this tab: a reload keeps it hidden, a new tab shows it again.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Game catalog' })).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  const tab = await context.newPage();
+  await tab.goto(appUrl('inapp'));
+  await expect(tab.getByText("You're in an in-app browser.", { exact: false })).toBeVisible();
+  await context.close();
 });

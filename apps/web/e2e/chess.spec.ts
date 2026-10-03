@@ -106,6 +106,7 @@ async function startChess(a: Player, b: Player, shot?: string): Promise<void> {
 
   await b.page.goto(appUrl('b', share));
   await b.page.getByRole('button', { name: 'Join this table' }).click();
+  await b.page.getByRole('button', { name: 'Join anyway' }).click();
   await expect(b.page.getByText('You are seated.')).toBeVisible();
   await expect(a.page.getByText('Every seat is taken.')).toBeVisible();
   await a.page.getByRole('button', { name: 'Start game' }).click();
