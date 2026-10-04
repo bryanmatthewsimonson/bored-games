@@ -6,8 +6,8 @@ import { GameSessionV2 } from '../../src/v2/session.ts';
 import { makeModuleGame, NOW, ROOT_SEEN, type TestGame } from '../helpers.ts';
 
 /*
- * Helpers for the protocol 2 session tests with a deck (build plan T8): a table of sessions, the shuffle with its
- * proofs trusted after the first verification, and the automatic duties (deal, release, end, secret) run to rest.
+ * Helpers for the protocol 2 session tests (build plan T8, T9): a table of sessions, the shuffle with its proofs
+ * trusted after the first verification, and the automatic duties (deal, release, roll, end, secret) run to rest.
  */
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
@@ -79,7 +79,7 @@ export function shuffleAll(t: V2Table): NostrEvent[] {
 }
 
 /** The automatic duty kinds: published with no human decision. */
-const AUTO: readonly Duty['kind'][] = ['deal', 'release', 'end', 'secret'];
+const AUTO: readonly Duty['kind'][] = ['deal', 'release', 'roll', 'end', 'secret'];
 
 /** Build `seat`'s event for automatic duty `d`. */
 export function buildAuto(t: V2Table, seat: number, d: Duty): NostrEvent {
@@ -89,6 +89,8 @@ export function buildAuto(t: V2Table, seat: number, d: Duty): NostrEvent {
       return s.buildDeal(t.game.rnd, NOW);
     case 'release':
       return s.buildRelease(t.game.rnd, NOW);
+    case 'roll':
+      return s.buildRoll(d.move, t.game.rnd, NOW);
     case 'end':
       return s.buildEndAttest(t.game.rnd, NOW);
     case 'secret':

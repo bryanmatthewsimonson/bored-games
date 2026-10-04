@@ -37,13 +37,13 @@ interface Allowed {
 const ALLOWLIST: Record<string, Allowed> = {
   'V2-01': {
     until:
-      'T9, T12 (the session builders for the roll, Resign and Timeout claim), ' +
+      'T12 (the session builders for the Resign and Timeout claim), ' +
       'T14 (the controller creates tables and joins at proto 2)',
     partial:
       'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts), the lobby helpers carrying ' +
       "the table's proto (packages/client/test/lobby.test.ts), and the v2 session's move, end attestation and " +
       'stats attestation (packages/client/test/v2/core-deckless.test.ts), shuffle step, deal, release and Secret ' +
-      'reveal (packages/client/test/v2/deck.test.ts)',
+      'reveal (packages/client/test/v2/deck.test.ts), roll Shares event (packages/client/test/v2/dice.test.ts)',
   },
   'V2-04': { until: 'T14' },
   'V2-05': {
@@ -79,30 +79,18 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the session owes and builds no card Shares event while it holds a fork, after its result, or before the ' +
       'final deck (packages/client/test/v2/prompt-release.test.ts)',
   },
-  'V2-27': {
-    until: 'T9 (roll Shares events)',
-    partial:
-      'the deal and every prompt release are anchored on the head they were built on ' +
-      '(packages/client/test/v2/prompt-release.test.ts)',
-  },
   'V2-29': {
     until: 'T15 (the controller publishes the release at once)',
     partial:
       'the session owes one release of every granted position as soon as it links the granting move ' +
       '(packages/client/test/v2/prompt-release.test.ts)',
   },
-  'V2-31': { until: 'T9' },
-  'V2-32': {
-    until:
-      'T9 (the session verifies each contribution against its requesting move and keeps one per (seat, M, n))',
+  'V2-34': {
+    until: 'T15 (the controller publishes the contribution at once, only what the session owes)',
     partial:
-      'verifyMoveRollShare checks a contribution with deck id roll at position n against its own requesting ' +
-      "move's point and fails for any other (packages/deck/test/roll-v2.test.ts, vector 1)",
+      'the session owes and builds a contribution only once the requesting move is on its chain, never while it ' +
+      'holds a fork, the requester after its own move (packages/client/test/v2/dice.test.ts)',
   },
-  'V2-33': { until: 'T9' },
-  'V2-34': { until: 'T9, T15' },
-  'V2-35': { until: 'T9' },
-  'V2-36': { until: 'T9' },
   'V2-37': {
     until: 'T15 (the controller publishes the end attestation at once, with no prompt)',
     partial:
@@ -115,7 +103,8 @@ const ALLOWLIST: Record<string, Allowed> = {
     partial:
       'over in a deckless game: the audit runs on the result at once and a failed seat forfeits in places and ' +
       'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts); over with a deck: the ' +
-      'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts)',
+      'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts); over ' +
+      'in a dice game: the audit replays the logged rolls (packages/client/test/v2/dice.test.ts)',
   },
   'V2-40': { until: 'T10' },
   'V2-41': { until: 'T10' },

@@ -1,5 +1,7 @@
+import type { Share } from '@bored-games/deck';
 import type { Hex } from '@bored-games/protocol';
 import { LineFold } from './line.ts';
+import type { RollRef } from './rolls.ts';
 import type { DeckCaches, LineShares } from './shares.ts';
 import type { EventStoreV2 } from './store.ts';
 import type { Fork, GameCtx, HeldMove, Judgement, Line } from './types.ts';
@@ -15,9 +17,16 @@ import type { Fork, GameCtx, HeldMove, Judgement, Line } from './types.ts';
  * verified (V2-14). A step whose proof fails stays valid-looking (it is part of C(h) for good) but never links.
  *
  * It is recomputed from the root after every change (build plan D-E: simple first), with the crypto results cached
- * (`DeckCaches`). Whole judgements are cached by move id only in a deckless game without dice, where they are a
- * function of the move's line alone (a move's prev fixes its whole line); with a deck they also depend on the
- * shares held, and with dice on the contributions (review L2).
+ * (`DeckCaches`). In a deckless game, whole judgements are cached by (move id, length of the action log at its prev).
+ * A move's prev fixes its line; the log length at the prev counts the derived rolls applied there, which is all the
+ * prev's state depends on besides the line (review of T6/T7, L2):
+ * - a game action is valid only while a player decision is pending, so every beacon below the prev on a line that
+ *   reaches it was resolved, with faces fixed by the seats' deck keys, and the rolls derived at each earlier point are
+ *   exactly those that let the module pend a decision;
+ * - only at the prev itself can a beacon still wait for contributions, and each roll derived there adds one log
+ *   entry, so a successor judged invalid while the beacon waited is judged again once the roll is derived.
+ * Without dice the log length is fixed by the line, and the key is the move id's alone, in effect. With a deck,
+ * judgements also depend on the card shares held, so they are not cached.
  */
 
 export interface Walk {
@@ -31,6 +40,12 @@ export interface Walk {
   readonly fork: Fork | null;
   /** The judgement of every held move whose prev is on the walk, by id. */
   readonly judged: ReadonlyMap<Hex, Judgement>;
+  /** The rolls the chain's game actions requested, by the module's roll id (PROTOCOL-v2 §6.2, V2-31). */
+  readonly rolls: ReadonlyMap<number, RollRef>;
+  /** How many rolls each requesting move on the chain requested, by move id. */
+  readonly requests: ReadonlyMap<Hex, number>;
+  /** The roll store for a requesting move on the chain, from the held events: `[n][seat]` (none for another move). */
+  readonly contributions: (move: Hex) => (Share | null)[][];
 }
 
 /** Whether a judgement makes a move part of C(h): valid-looking (and maybe valid). */
@@ -42,26 +57,27 @@ const settled = (j: Judgement): boolean =>
   j.kind === 'invalid' || j.kind === 'valid' || (j.kind === 'looking' && j.final);
 
 /**
- * Walk the held events of `store` from the root. `cache` keeps whole judgements by move id where they never change
- * (a deckless game without dice); `caches` keeps the crypto results.
+ * Walk the held events of `store` from the root. `cache` keeps whole judgements where they never change (a deckless
+ * game, by move id and the log length at its prev); `caches` keeps the crypto results.
  */
 export function walk(
   ctx: GameCtx,
   store: EventStoreV2,
-  cache: Map<Hex, Judgement>,
+  cache: Map<string, Judgement>,
   caches: DeckCaches,
 ): Walk {
-  const cacheable = ctx.deckId === null && typeof ctx.module.rolls !== 'function';
+  const cacheable = ctx.deckId === null;
   const fold = new LineFold(ctx, store, caches);
   const judged = new Map<Hex, Judgement>();
   let fork: Fork | null = null;
   for (;;) {
     const looking: { h: HeldMove; j: Judgement }[] = [];
     for (const h of store.kidsOf(fold.point.id)) {
-      let j = cacheable ? cache.get(h.m.id) : undefined;
+      const key = `${h.m.id}|${fold.point.logLength}`;
+      let j = cacheable ? cache.get(key) : undefined;
       if (j === undefined) {
         j = fold.judge(h);
-        if (cacheable && settled(j)) cache.set(h.m.id, j);
+        if (cacheable && settled(j)) cache.set(key, j);
       }
       judged.set(h.m.id, j);
       if (looksValid(j)) looking.push({ h, j });
@@ -93,5 +109,8 @@ export function walk(
     shares: fold.shares,
     fork,
     judged,
+    rolls: fold.rolls,
+    requests: fold.requests,
+    contributions: (move) => fold.contributionsOf(move),
   };
 }

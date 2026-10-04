@@ -2,6 +2,7 @@ import {
   type Ciphertext,
   type Point as CurvePoint,
   ownShare,
+  type Share,
   verifyShare,
   verifyShuffle,
 } from '@bored-games/deck';
@@ -9,6 +10,7 @@ import { canonicalJson, deepFreeze, type Pending, type RevealAction } from '@bor
 import type { Hex, ParsedMove, PosShare } from '@bored-games/protocol';
 import type { LoggedAction } from '../audit.ts';
 import { shuffleStepGroup, shuffleStepSeat } from '../partitioned-deck.ts';
+import { appendedRolls, contributions, deriveFaces, type RollRef } from './rolls.ts';
 import { type DeckCaches, decryptVerified, LineShares, poolFor, shareCtx } from './shares.ts';
 import type { EventStoreV2 } from './store.ts';
 import type { GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
@@ -25,7 +27,10 @@ import type { GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
  * allow: the shares of the final deck's pool (every held card Shares event that verifies against it, whatever its
  * anchor) and those carried by the game actions linked so far on this line.
  *
- * Dice (roll contributions, derived rolls) are T9; the session refuses dice modules until then.
+ * With dice (T9, PROTOCOL-v2 §6.2): each linked game action that makes `rolls(state)` grow requests the new rolls
+ * (M, 0) … (M, r−1). While the module pends `{type:'beacon', id}` for a requested roll whose every seat's verified
+ * contribution is held (the roll store, `rolls.ts`), the fold applies `{type:'rolled', actor:'beacon', id, dice}`
+ * with the derived faces and logs it at the point's seq, beside the derived reveals, as often as it can.
  */
 
 /** True when a seat's action claims to be the derived dice: players never send those (PROTOCOL-v2 §6.2, D058). */
@@ -93,6 +98,10 @@ export class LineFold {
   readonly chain: HeldMove[] = [];
   /** The line's card shares at the head, from the final deck on; null before it and in a deckless game. */
   shares: LineShares | null = null;
+  /** The rolls the linked game actions requested, by the module's roll id (V2-31). */
+  readonly rolls = new Map<number, RollRef>();
+  /** How many rolls each linked requesting move requested, by move id (only game actions that requested some). */
+  readonly requests = new Map<Hex, number>();
 
   constructor(ctx: GameCtx, store: EventStoreV2, caches: DeckCaches) {
     this.ctx = ctx;
@@ -304,6 +313,9 @@ export class LineFold {
     }
     if (this.shares !== null)
       for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(h.seat, pos, share);
+    const requested = appendedRolls(ctx, p.state, j.state, h.m.id);
+    if (requested.length > 0) this.requests.set(h.m.id, requested.length);
+    for (const ref of requested) this.rolls.set(ref.id, ref);
     this.log.push({ actor: h.seat, action: c.action, seq: h.m.seq });
     for (const e of j.events) this.events.push(deepFreeze(e));
     const state = deepFreeze(j.state);
@@ -320,10 +332,11 @@ export class LineFold {
   }
 
   /**
-   * Take every step the held shares allow at point `p` (as v1's `advance`): the deal completes, derived reveals
-   * apply in ascending position order while the module pends a covered public reveal (logged at `p.seq`), the phase
-   * becomes `end` once the module is over, and the viewer learns each card dealt to it whose other shares are all
-   * held (from the play phase on, after the setup reveals).
+   * Take every step the held shares and contributions allow at point `p` (as v1's `advance`): the deal completes,
+   * derived reveals apply in ascending position order while the module pends a covered public reveal, and derived
+   * rolls while it pends a beacon whose contributions are all held (both logged at `p.seq`), the phase becomes `end`
+   * once the module is over, and the viewer learns each card dealt to it whose other shares are all held (from the
+   * play phase on, after the setup reveals).
    */
   private settle(p: LinePoint): LinePoint {
     const { ctx } = this;
@@ -331,7 +344,7 @@ export class LineFold {
     let { phase, state } = p;
     if (state === null) return p;
     if (phase === 'deal' && shares !== null && dealComplete(ctx, shares, state)) phase = 'play';
-    if (phase === 'play' && shares !== null) state = this.revealPublic(state, p);
+    if (phase === 'play') state = this.derive(state, p);
     if (phase === 'play' && ctx.module.pending(state).type === 'over') phase = 'end';
     let learned = p.learned;
     if ((phase === 'play' || phase === 'end') && shares !== null && ctx.viewer !== null) {
@@ -340,6 +353,48 @@ export class LineFold {
       learned = r.learned;
     }
     return { ...p, phase, state, learned, logLength: this.log.length, eventsLength: this.events.length };
+  }
+
+  /** Derived reveals and derived rolls at point `p`, in the order the module pends them, until neither applies. */
+  private derive(start: unknown, p: LinePoint): unknown {
+    let state = start;
+    for (;;) {
+      const before = state;
+      if (this.shares !== null) state = this.revealPublic(state, p);
+      state = this.deriveRolls(state, p);
+      if (state === before) return state;
+    }
+  }
+
+  /** Seat contributions to the rolls of requesting move `move` linked on this line: `[n][seat]` (the roll store). */
+  contributionsOf(move: Hex): (Share | null)[][] {
+    return contributions(this.ctx, this.store, this.caches.rolls, move, this.requests.get(move) ?? 0);
+  }
+
+  /**
+   * Derived rolls (PROTOCOL-v2 §6.2) at point `p`, logged with `p.seq`: while the module pends `{type:'beacon', id}`
+   * for a roll (M, n) a game action on this line requested, and every seat's verified contribution to it is held,
+   * apply `{type:'rolled', actor:'beacon', id, dice}` with `faces(rollSeed(…), count, sides)` (V2-35).
+   */
+  private deriveRolls(start: unknown, p: LinePoint): unknown {
+    const { ctx } = this;
+    if (typeof ctx.module.rolls !== 'function') return start;
+    let state = start;
+    for (;;) {
+      const pending = ctx.module.pending(state);
+      if (pending.type !== 'beacon') return state;
+      const ref = this.rolls.get(pending.id);
+      if (ref === undefined) return state;
+      const dice = deriveFaces(ref, this.contributionsOf(ref.move)[ref.n] ?? []);
+      if (dice === null) return state;
+      const action = { type: 'rolled' as const, actor: 'beacon' as const, id: pending.id, dice };
+      const r = ctx.module.apply(state, action);
+      // The module pended this roll, and its faces are in range: a sound module accepts them; stop otherwise.
+      if (!r.ok) return state;
+      state = deepFreeze(r.state);
+      for (const e of r.events) this.events.push(deepFreeze(e));
+      this.log.push({ actor: 'beacon', action, seq: p.seq });
+    }
   }
 
   /** Derived reveals (v1 §6.3) at point `p`, logged with `p.seq`. */

@@ -10,6 +10,7 @@ import {
 import type { DealtPosition } from '@bored-games/game-kit';
 import type { Hex, PosShare } from '@bored-games/protocol';
 import { owedPositions, ShareStore } from '../shares.ts';
+import { RollCaches } from './rolls.ts';
 import type { EventStoreV2 } from './store.ts';
 import type { GameCtx } from './types.ts';
 
@@ -52,7 +53,7 @@ export function decryptVerified(
   return cardOf(cards, combine(ct, Ds));
 }
 
-/** The crypto results kept for the life of a session, each a function of its key alone (build plan D-E). */
+/** The crypto results kept for the life of a session (dice included), each a function of its key alone (D-E). */
 export class DeckCaches {
   /** Shuffle proofs, by step id: a step's prev fixes its input. */
   readonly shuffleOk = new Map<Hex, boolean>();
@@ -68,6 +69,8 @@ export class DeckCaches {
   readonly learns = new Map<string, number | null>();
   /** Each final deck's pool, by deck key. */
   readonly pools = new Map<Hex, Pool>();
+  /** The dice's: roll contributions checked against their requesting moves (PROTOCOL-v2 §6.2). */
+  readonly rolls = new RollCaches();
 }
 
 /** One final deck's pool of verified card shares, and the held events already judged against it. */

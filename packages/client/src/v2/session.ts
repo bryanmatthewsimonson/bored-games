@@ -5,6 +5,7 @@ import {
   G,
   initialDeck,
   jointKey,
+  makeMoveRollShare,
   makeShare,
   proveShuffle,
   type RandomBytes,
@@ -25,6 +26,7 @@ import {
   type ParsedEndAttest,
   type ParsedJoin,
   type ParsedMove,
+  type ParsedRollShares,
   type ParsedRoot,
   type ParsedStatsAttest,
   type PosShare,
@@ -38,6 +40,7 @@ import {
   parseSharesV2,
   parseTable,
   parseTimeout,
+  rollSharesTemplate,
   secretTemplate,
   attestTemplate as statsTemplate,
   validateRoot,
@@ -58,6 +61,7 @@ import type {
 } from '../types.ts';
 import { moveShape, nextShuffler, pendingAt } from './line.ts';
 import { attestedResult, endAttestedSeats, endVerdict, lineLogHash, ownResult } from './results.ts';
+import { contributions, rollEventProblem, rollProofProblem } from './rolls.ts';
 import { cardSharesProblem, DeckCaches, type LineShares, shareCtx } from './shares.ts';
 import { EventStoreV2, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
@@ -70,16 +74,17 @@ import { type Walk, walk } from './walk.ts';
  * root: there is no fork choice. The game's result, its end attestations and the duties are functions of the held
  * events and the walk, so every client that holds the same events reaches the same state (V2-20).
  *
- * Built so far (tasks T7, T8): intake of every kind, seats by session key (and by npub for attestations), the walk
+ * Built so far (tasks T7 to T9): intake of every kind, seats by session key (and by npub for attestations), the walk
  * with C(h) and the topmost fork (reported in the view; its scoring, the stop, is T10), play to `over` with the
  * module's audit, end attestations (built with the session key, counted with either key, checked against the line
  * to their head) and the npub's stats attestation. With a deck (T8): the shuffle (partitioned decks included), the
  * deal (a card Shares event anchored on the last shuffle step), card Shares events verified against each line's
  * final deck, derived reveals and learns, prompt release (`release` duty, PROTOCOL-v2 §6.1) beside the slow path
  * (owed shares on game actions), the Secret phase and the full audit at `over`. `DeckSpec.promptShares` is
- * ignored (§6.3). Not yet: dice (T9), the stop and the equivocators (T10), the cutoff (T11), Timeout claims and
- * Resigns as results (T12; both are stored, never counted), the outbox rule and the rebroadcast set (T13). `create`
- * refuses a module this session cannot fold yet.
+ * ignored (§6.3). With dice (T9, §6.2): roll Shares events kept in a roll store by (seat, requesting move, index),
+ * derived rolls along the walk, the `roll` duty and `buildRoll`, and stalls on a pending beacon. Not yet: the stop
+ * and the equivocators (T10), the cutoff (T11), Timeout claims and Resigns as results (T12; both are stored, never
+ * counted), the outbox rule and the rebroadcast set (T13).
  */
 
 /** The module events `view().events` keeps (as v1). */
@@ -147,8 +152,8 @@ export class GameSessionV2 implements Session {
   private readonly seenAt = new Map<Hex, number>();
   /** Events refused for good, by id, with the reason: they are not held. */
   private readonly rejected = new Map<Hex, string>();
-  /** Judgements that never change, by move id (`walk`, deckless games without dice only). */
-  private readonly judgements = new Map<Hex, Judgement>();
+  /** Judgements that never change, by move id and the log length at its prev (`walk`, deckless games only). */
+  private readonly judgements = new Map<string, Judgement>();
   /** Crypto results by event (shuffle proofs, share verification, decryptions). */
   private readonly caches = new DeckCaches();
   /**
@@ -196,8 +201,8 @@ export class GameSessionV2 implements Session {
   /**
    * A session for the protocol 2 game started by `input.root`. Throws `ClientError` when the table or root does
    * not parse, the root is not proto 2 (a v1 game is `GameSession`'s, for good), the root is not a valid start of
-   * the game (`validateRoot`, which also requires that the module version supports proto 2), no module folds it,
-   * the module rolls dice (not built yet: T9), or `me` does not hold the seat it names.
+   * the game (`validateRoot`, which also requires that the module version supports proto 2), no module folds it, or
+   * `me` does not hold the seat it names.
    * `input.confirmedForfeits` is read from T12 (the own-forfeit question).
    */
   static create(input: SessionInput): GameSessionV2 {
@@ -228,8 +233,6 @@ export class GameSessionV2 implements Session {
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
     const decks = module.decks(rules.value);
     if (decks.length > 1) throw new ClientError(`a session supports one deck or none, not ${decks.length}`);
-    if (typeof module.rolls === 'function')
-      throw new ClientError('the protocol 2 session does not fold dice games yet (build plan T9)');
 
     const me = input.me;
     if (me !== null) {
@@ -389,8 +392,13 @@ export class GameSessionV2 implements Session {
    * a deck, and a roll variant in a game whose module does not roll (V2-08): both are held and reported `rejected`.
    * A card variant in a game with a deck is verified against the walk's final deck (§4.2): `rejected` when a share
    * fails or a position is outside the deck (it is still held, and kept out of the share pool), `stored` before the
-   * final deck is complete, `accepted` when it brings a share the walk did not hold, `duplicate` otherwise. (Dice
-   * are T9.)
+   * final deck is complete, `accepted` when it brings a share the walk did not hold, `duplicate` otherwise. A roll
+   * variant in a game that rolls (§6.2) is `rejected` when its requesting move is held but is not a game action, a
+   * contribution does not verify against that move's points (V2-32), or the move is on the chain and requested fewer
+   * rolls than it names (all still held); `stored` while the move is not held (it waits) or not on the chain;
+   * `accepted` when it brings a contribution by its seat to a roll of a move on the chain that the roll store did not
+   * hold (the walk is folded again, and the roll may be derived); `duplicate` otherwise (another device of the seat,
+   * with the same `D`: Shares events are not moves, so this is never a fork).
    */
   private intakeShares(ev: unknown, now: number): ReceiveResult {
     let s: ReturnType<typeof parseSharesV2>;
@@ -402,9 +410,21 @@ export class GameSessionV2 implements Session {
     const seat = this.sessionSeat(s);
     if (typeof seat !== 'number') return seat;
     this.see(s.id, now);
+    // A roll event is measured before it is held: the roll store reads the held events directly.
+    const rollBefore = s.type === 'roll' ? { kept: this.keptRolls(s.moveId), mark: this.stallMark() } : null;
     this.store.addShares(s, seat);
     const bad = this.sharesProblem(s.id);
     if (bad !== null) return { status: 'rejected', reason: bad };
+    if (s.type === 'roll') {
+      const was = rollBefore as { kept: number; mark: { head: Hex; stalled: number[] } };
+      if (!this.current.requests.has(s.moveId)) return { status: 'stored' };
+      // Only a contribution new to the roll store can change the walk (every valid one of a (seat, M, n) has the
+      // same D).
+      if (this.keptRolls(s.moveId) === was.kept) return { status: 'duplicate' };
+      this.refold();
+      this.noteProgress(was.mark, s.id);
+      return { status: 'accepted' };
+    }
     const head = this.finalDeck();
     if (s.type !== 'shares' || head === null) return { status: 'stored' };
     // New to the final deck's pool: it may change any point of the walk, so the walk is folded again. A share the
@@ -419,8 +439,9 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * Why held Shares event `id` is invalid, or null: a variant the game cannot have (V2-08), or a card variant whose
-   * shares fail against the walk's final deck (null while there is none: it waits).
+   * Why held Shares event `id` is invalid, or null: a variant the game cannot have (V2-08), a card variant whose
+   * shares fail against the walk's final deck (null while there is none: it waits), or a roll variant that
+   * `rollProblem` finds invalid.
    */
   private sharesProblem(id: Hex): string | null {
     const card = this.store.cardShares.get(id);
@@ -431,7 +452,34 @@ export class GameSessionV2 implements Session {
       return cardSharesProblem(this.ctx, this.caches, head.key, head.deck, id, card.seat, card.ev.shares);
     }
     if (typeof this.module.rolls !== 'function') return 'a roll Shares event in a game that does not roll';
-    return 'protocol 2 dice are folded from build task T9';
+    const roll = this.store.rollShares.get(id);
+    return roll === undefined ? null : this.rollProblem(roll.ev, roll.seat);
+  }
+
+  /**
+   * Why roll Shares event `ev` by `seat` is invalid as a whole (PROTOCOL-v2 §4.2), or null: its requesting move is
+   * held but is not a game action; a contribution does not verify against the move's points (V2-32); or the move is
+   * on the chain and requested fewer rolls than the event names. Null while the move is not held (it waits). For a
+   * held game action off the chain, how many rolls it requested is known only from a fold of its line, so only the
+   * proofs are judged here.
+   */
+  private rollProblem(ev: ParsedRollShares, seat: number): string | null {
+    const move = this.store.moves.get(ev.moveId);
+    if (move === undefined) return null;
+    if (move.m.content.type !== 'action') return `the requesting move ${ev.moveId} is not a game action`;
+    if (this.chainSeq(ev.moveId) === null) return rollProofProblem(this.ctx, this.caches.rolls, seat, ev);
+    const requested = this.current.requests.get(ev.moveId) ?? 0;
+    return rollEventProblem(this.ctx, this.caches.rolls, seat, ev, requested);
+  }
+
+  /** How many (seat, n) contributions the roll store keeps for requesting move `move`, while it is on the chain. */
+  private keptRolls(move: Hex): number {
+    const requested = this.current.requests.get(move);
+    if (requested === undefined) return 0;
+    let n = 0;
+    for (const slots of contributions(this.ctx, this.store, this.caches.rolls, move, requested))
+      for (const x of slots) if (x !== null) n++;
+    return n;
   }
 
   /** The walk's final deck and its key, once the shuffle is complete on it; null before and in a deckless game. */
@@ -734,14 +782,16 @@ export class GameSessionV2 implements Session {
 
   /**
    * The play-phase part of `stalled` (v1): for a pending public reveal, the seats missing a share of it; for a
-   * player decision, that seat, unless the decision needs a card dealt to it that some other seat has not shared
-   * (judged on the public state: if the module lists actions with its hand hidden, the seat can act), in which case
-   * those seats.
+   * pending beacon, every seat without a verified contribution to its roll, the requester included (PROTOCOL-v2
+   * §6.2, V2-36); for a player decision, that seat, unless the decision needs a card dealt to it that some other
+   * seat has not shared (judged on the public state: if the module lists actions with its hand hidden, the seat can
+   * act), in which case those seats.
    */
   private stalledInPlay(all: readonly number[], head: LinePoint, shares: LineShares | null): number[] {
     const p = pendingAt(this.ctx, head);
     if (p === null) return [];
     if (p.type === 'reveal') return shares === null ? [] : this.owesReveal(all, p.positions, shares);
+    if (p.type === 'beacon') return this.owesRoll(all, p.id);
     if (p.type !== 'player') return [];
     const seat = p.seat;
     if (shares === null) return [seat];
@@ -752,6 +802,17 @@ export class GameSessionV2 implements Session {
     if (needed.length === 0) return [seat];
     if (this.module.legalActions(this.module.view(head.state, null), seat).length > 0) return [seat];
     return all.filter((k) => k !== seat && needed.some((pos) => !shares.has(k, pos)));
+  }
+
+  /**
+   * The seats without a verified contribution to the roll the module calls `id`, requested on the chain (a pending
+   * beacon). None when no game action on the chain requested it (a module that pends a roll it never listed).
+   */
+  private owesRoll(all: readonly number[], id: number): number[] {
+    const ref = this.current.rolls.get(id);
+    if (ref === undefined) return [];
+    const slots = this.current.contributions(ref.move)[ref.n] ?? [];
+    return all.filter((k) => (slots[k] ?? null) === null);
   }
 
   /** The seats missing a share of any of `positions` (a pending public reveal). */
@@ -820,7 +881,7 @@ export class GameSessionV2 implements Session {
       secretWithheld: [],
       auditIncomplete: false,
       endAttested: r === null ? [] : endAttestedSeats(this.store, r),
-      owed: { reveal: this.owedReveal(), roll: [] },
+      owed: { reveal: this.owedReveal(), roll: this.owedRoll() },
       ownForfeit: null,
     };
   }
@@ -832,6 +893,18 @@ export class GameSessionV2 implements Session {
     const p = pendingAt(this.ctx, head);
     if (p === null) return { type: 'over' };
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
+  }
+
+  /** The seats that owe a contribution to a roll pending at the head (PROTOCOL-v2 §6.4, V2-49), ascending. */
+  private owedRoll(): number[] {
+    const head = this.head();
+    if (this.current.fork !== null || this.result() !== null || head.phase !== 'play') return [];
+    const p = pendingAt(this.ctx, head);
+    if (p?.type !== 'beacon') return [];
+    return this.owesRoll(
+      Array.from({ length: this.ctx.seats }, (_, k) => k),
+      p.id,
+    );
   }
 
   /** The seats that owe a share of a public reveal pending at the head (PROTOCOL-v2 §6.4), ascending. */
@@ -858,6 +931,9 @@ export class GameSessionV2 implements Session {
    * - `deal`: the deal phase, and I owe shares (`releasable`): the seat's deal (§6.1), built once;
    * - `release`: the play phase, and I owe shares of positions dealt to another seat or to nobody: a prompt release
    *   anchored on the head (§6.1). It comes first, and `decide` may follow it in the same list;
+   * - `roll`: a game action on the chain requested rolls to which my seat has no verified contribution: one duty per
+   *   requesting move, in chain order, with every such index, anchored on the head (§6.2, `buildRoll`). After any
+   *   release, before `decide` (no decision is pending while a beacon is);
    * - `decide`: the pending decision is mine and the module lists legal actions.
    * Once this client has a result:
    * - `end`: it holds none of its seat's end attestations of it (PROTOCOL-v2 §7.1), before the Secret phase;
@@ -876,6 +952,7 @@ export class GameSessionV2 implements Session {
       if (head.phase === 'deal') return positions.length > 0 ? [{ kind: 'deal' }] : [];
       const out: Duty[] = [];
       if (positions.length > 0) out.push({ kind: 'release', positions, anchor: head.id });
+      out.push(...this.rollDuties(me));
       if (this.decides(me)) out.push({ kind: 'decide' });
       return out;
     }
@@ -915,6 +992,26 @@ export class GameSessionV2 implements Session {
         return true;
     }
     return false;
+  }
+
+  /**
+   * My `roll` duties (PROTOCOL-v2 §6.2 "Release", V2-34): none while a fork is held or once there is a result;
+   * otherwise one per requesting move on the chain (so only once the move is on my chain: the requester's own
+   * contribution comes after its move), listing every roll index of it with no verified contribution by my seat,
+   * anchored on the head.
+   */
+  private rollDuties(me: Identity): Duty[] {
+    if (this.current.fork !== null || this.result() !== null) return [];
+    const head = this.head();
+    const out: Duty[] = [];
+    for (const h of this.current.chain) {
+      if (!this.current.requests.has(h.m.id)) continue;
+      const indices: number[] = [];
+      for (const [n, slots] of this.current.contributions(h.m.id).entries())
+        if (slots[me.seat] === null) indices.push(n);
+      if (indices.length > 0) out.push({ kind: 'roll', move: h.m.id, indices, anchor: head.id });
+    }
+    return out;
   }
 
   private decides(me: Identity): boolean {
@@ -1013,6 +1110,33 @@ export class GameSessionV2 implements Session {
   buildRelease(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('release');
     return this.cardShares(me, this.releasable(me), rnd, createdAt);
+  }
+
+  /**
+   * My contributions to the rolls of requesting move `moveId` (`roll` duty, PROTOCOL-v2 §6.2): one roll Shares event
+   * with `move` M and, for every index the duty lists, `D = x·H(M, n)` with its proof (deck id `roll`, position n),
+   * anchored on the head (V2-27). Throws `ClientError` unless a roll duty for `moveId` is due: never while a fork is
+   * held or after the result, and never before M is on the chain (V2-34). Contributions are automatic; two devices
+   * of a seat publishing both is harmless (the same `D`, never a fork).
+   */
+  buildRoll(moveId: Hex, rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireMe();
+    const duty = this.duties().find(
+      (d): d is Extract<Duty, { kind: 'roll' }> => d.kind === 'roll' && d.move === moveId,
+    );
+    if (duty === undefined) throw new ClientError(`no roll duty is due from this seat for move ${moveId}`);
+    const shares: PosShare[] = duty.indices.map((n) => ({
+      pos: n,
+      share: makeMoveRollShare(me.deckSecret, this.root.id, moveId, n, rnd),
+    }));
+    const t = rollSharesTemplate(
+      { rootId: this.root.id, anchorId: this.head().id, moveId, shares },
+      createdAt,
+    );
+    const ev = finalizeEvent(t, me.sessionSk, rnd);
+    // This seat made the proofs against M's points, so they need not be verified again.
+    this.caches.rolls.proofs.set(ev.id, null);
+    return ev;
   }
 
   /** A card Shares event by `me` of `positions` of the walk's final deck, anchored on the head. */

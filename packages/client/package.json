@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "vectors": "node scripts/prompt-release-v2.ts"
+    "vectors": "node scripts/prompt-release-v2.ts && node scripts/dice-v2.ts"
   },
   "dependencies": {
     "@bored-games/deck": "workspace:*",

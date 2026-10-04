@@ -78,6 +78,8 @@ export class EventStoreV2 {
   readonly cardShares = new Map<Hex, Seated<ParsedCardShares>>();
   /** Every held roll Shares event (PROTOCOL-v2 §4.2), with its anchor, by id (D066). */
   readonly rollShares = new Map<Hex, Seated<ParsedRollShares>>();
+  /** The ids of the held roll Shares events naming each requesting move. */
+  private readonly rollsByMove = new Map<Hex, Set<Hex>>();
   /** Timeout claims by id, within the caps. */
   readonly claims = new Map<Hex, Seated<ParsedTimeout>>();
   /** Resigns by id, within the cap. */
@@ -211,8 +213,23 @@ export class EventStoreV2 {
 
   /** Hold Shares event `s` by `seat`, of either variant, whatever its validity (D066). */
   addShares(s: ParsedCardShares | ParsedRollShares, seat: number): void {
-    if (s.type === 'shares') this.cardShares.set(s.id, { ev: s, seat });
-    else this.rollShares.set(s.id, { ev: s, seat });
+    if (s.type === 'shares') {
+      this.cardShares.set(s.id, { ev: s, seat });
+      return;
+    }
+    this.rollShares.set(s.id, { ev: s, seat });
+    let ids = this.rollsByMove.get(s.moveId);
+    if (ids === undefined) {
+      ids = new Set();
+      this.rollsByMove.set(s.moveId, ids);
+    }
+    ids.add(s.id);
+  }
+
+  /** The held roll Shares events whose requesting move is `move`, ascending by id. */
+  rollsFor(move: Hex): Seated<ParsedRollShares>[] {
+    const ids = [...(this.rollsByMove.get(move) ?? [])].sort();
+    return ids.map((id) => this.rollShares.get(id) as Seated<ParsedRollShares>);
   }
 
   /** Keep `a` as `seat`'s stats attestation if it is its latest by (`created_at`, id). */

@@ -101,7 +101,7 @@ describe('protocol v2 roll vectors (PROTOCOL-v2 §12.2 item 1)', () => {
     expect(ct.a.equals(ct.b) && ct.a.equals(h2c(`roll:${v.rootId}:${M}:4`))).toBe(true);
   });
 
-  it('V2-32 (partial) every contribution verifies with deck id roll at position n, from the JSON alone', () => {
+  it('V2-32 every contribution verifies with deck id roll at position n, from the JSON alone', () => {
     expect(v.deckId).toBe(ROLL_DECK);
     for (const [k, s] of v.seats.entries()) {
       expect(s.seat).toBe(k);
@@ -133,7 +133,7 @@ describe('protocol v2 roll vectors (PROTOCOL-v2 §12.2 item 1)', () => {
     }
   });
 
-  it('V2-32 (partial) a contribution fails for the rival requesting move, another index, seat, root or deck id', () => {
+  it('V2-32 a contribution fails for the rival requesting move, another index, seat, root or deck id', () => {
     const [a, b] = v.moves as [RollVectors['moves'][number], RollVectors['moves'][number]];
     const c = a.rolls[1]?.contributions[2] as Contribution;
     const { share } = decodeShare(c.share);

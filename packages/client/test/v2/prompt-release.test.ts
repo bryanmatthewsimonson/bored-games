@@ -132,7 +132,7 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
         for (const pos of s.event?.positions ?? []) expect(dealtSoFar.has(pos)).toBe(true);
   });
 
-  it('V2-27 (partial) anchors the deal on the last shuffle step and every release on the head it was built on', () => {
+  it('V2-27 anchors the deal on the last shuffle step and every card release on the head it was built on (roll Shares events: dice.test.ts)', () => {
     for (const label of ['deal', 'draw'] as const) {
       const c = at(label);
       for (const s of c.seats) {
