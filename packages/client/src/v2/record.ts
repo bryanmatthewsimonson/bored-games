@@ -7,9 +7,10 @@ import type { SessionViewV2 } from '../types.ts';
  *
  * - A result (over, claim, resign; one that stood against a fork included) counts as any result: its places, rated
  *   for every seat unless the result is unrated (a Resign of 3 or more seats, v1 §8.3), with its `endedBy`.
- * - A stop: 2 seats, a rated loss for E and a rated win for the other seat (a rated tie when both equivocated); 3 or
- *   more seats, only the equivocators' last places are rated (each last against every other seat, tied among
- *   themselves), and no other pair's rating moves. E is the seat that ended the game. A stop is no completion and
+ * - A stop: 2 seats, a rated loss for E and a rated win for the other seat (a rated tie when both equivocated, or
+ *   when the other seat failed the partial audit); 3 or more seats, only the shared last places are rated (every
+ *   equivocator's and every seat a proven audit failure demoted, D067: each last against every other seat, tied
+ *   among themselves), and no other pair's rating moves. E is the seat that ended the game. A stop is no completion and
  *   no win for the other seats (the reader's matter: `ending` says `stop`).
  * - A cancelled game counts for nothing: no places, nothing rated; the seat that forked is recorded (`endedBy`,
  *   `equivocators`).
@@ -52,7 +53,9 @@ export function gameRecord(view: SessionViewV2): GameRecord | null {
         ...marks,
       };
     if (view.outcome === null) return null;
-    const rated = Array.from({ length: seats }, (_, k) => seats === 2 || equivocators.includes(k));
+    // The shared last places: the equivocators and the seats a proven audit failure demoted (a stop's forfeits).
+    const last = new Set([...equivocators, ...view.forfeits]);
+    const rated = Array.from({ length: seats }, (_, k) => seats === 2 || last.has(k));
     return {
       ending: 'stop',
       places: [...view.outcome.places],

@@ -1,5 +1,6 @@
 import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
 import { createRng } from '@bored-games/game-kit';
+import { luster } from '@bored-games/luster';
 import {
   finalizeEvent,
   type Hex,
@@ -8,7 +9,7 @@ import {
   timeoutTemplate,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { Identity } from '../../src/types.ts';
+import type { Identity, SessionViewV2 } from '../../src/types.ts';
 import { gameRecord } from '../../src/v2/record.ts';
 import type { GameSessionV2 } from '../../src/v2/session.ts';
 import { MODULES, NOW } from '../helpers.ts';
@@ -22,6 +23,7 @@ import {
   replay,
   runAuto,
   send,
+  shuffleAll,
   trustSteps,
   type V2Table,
   v2Session,
@@ -32,7 +34,7 @@ import {
  * After a stop in a game with a deck (PROTOCOL-v2 §7.3, review H2; build plan T10; vector 5 of §12.2, in part): every
  * seat owes its Secret reveal, the places are fixed at the stop, a missing secret only records "secret withheld" and
  * leaves the game "audit incomplete", no Timeout claim counts, and the partial audit runs once the held secrets and
- * shares decrypt every position: only a proven failure demotes a seat, to just above the equivocators, and a verdict
+ * shares decrypt every position: only a proven failure demotes a seat, to the shared last places (D067), and a verdict
  * that fails every seat demotes nobody. Chain Reaction, 3 seats.
  */
 
@@ -195,7 +197,7 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
     }
   });
 
-  it('V2-40 demotes a seat only for a proven audit failure, to just above the equivocators; a failure of E, or of every seat, demotes nobody', () => {
+  it('V2-40 demotes a seat only for a proven audit failure, to the last places shared with E and rated; a failure of E, or of every seat, demotes nobody', () => {
     const log = [...stopped, ...secrets];
     const reference = replay(base, log).spectator.view();
     const placed = (s: ChainReactionState, a: unknown, k: number): boolean => {
@@ -217,7 +219,7 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
           } as AnyModule,
         ],
       ]);
-    // An honest seat fails: it moves to just above E (second of three), the other honest seat first.
+    // A non-forker fails: it shares the last place with E (D067), the other seat first.
     const cheat = [0, 1, 2].find((k) => k !== E) as number;
     const honest = [0, 1, 2].find((k) => k !== E && k !== cheat) as number;
     const failed = spectatorOn(rejecting(cheat), log).view();
@@ -225,9 +227,16 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
     expect(failed.forfeits).toEqual([E, cheat].sort((a, b) => a - b));
     expect(failed.outcome?.places[honest]).toBe(1);
     expect(failed.outcome?.places[cheat]).toBe(2);
-    expect(failed.outcome?.places[E]).toBe(3);
+    expect(failed.outcome?.places[E]).toBe(2);
     expect(failed.outcome?.scores).toEqual(reference.outcome?.scores);
     expect(failed.stop).toEqual(reference.stop);
+    // Both last places are rated (3 seats: only the shared last places are).
+    expect(gameRecord(failed)).toMatchObject({
+      ending: 'stop',
+      rated: [0, 1, 2].map((k) => k === E || k === cheat),
+      endedBy: E,
+      equivocators: [E],
+    });
     // Before its secret arrives the same game is "audit incomplete", with the stop's places.
     const early = spectatorOn(rejecting(cheat), stopped).view();
     expect(early).toMatchObject({ auditIncomplete: true, audit: 'pending', forfeits: [E] });
@@ -329,7 +338,7 @@ describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 
     log = [...t.log, ...secretsOf];
   }, 300_000);
 
-  it('V2-40 demotes the cheat to just above the forker once every secret is in, the same in every arrival order', () => {
+  it('V2-40 demotes the cheat to the last place shared with the forker once every secret is in, the same in every arrival order', () => {
     const r = inOrders(t, log, 'after-stop-cheat', 2);
     for (const s of [r.spectator, r.players[H] as GameSessionV2, r.players[F] as GameSessionV2]) {
       const v = s.view();
@@ -337,7 +346,7 @@ describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 
       expect(v.audit).toMatchObject({ fail: [C] });
       expect(v.outcome?.places[H]).toBe(1);
       expect(v.outcome?.places[C]).toBe(2);
-      expect(v.outcome?.places[F]).toBe(3);
+      expect(v.outcome?.places[F]).toBe(2);
       expect(v.forfeits).toEqual([C, F].sort((x, y) => x - y));
       expect(v).toMatchObject({ auditIncomplete: false, secretWithheld: [] });
     }
@@ -350,5 +359,80 @@ describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 
     expect(v).toMatchObject({ audit: 'pending', auditIncomplete: true, secretWithheld: [C], forfeits: [F] });
     expect(v.outcome?.places[F]).toBe(3);
     expect(gameRecord(v)).toMatchObject({ ending: 'stop', secretWithheld: [C], auditIncomplete: true });
+  });
+});
+
+describe('a proven audit failure after a 2-seat stop (Luster)', () => {
+  const registry = new Map([...MODULES, [luster.id, luster as AnyModule]]);
+  let t: V2Table;
+  let F: number;
+  let log: NostrEvent[];
+
+  beforeAll(() => {
+    t = v2Table(luster as AnyModule, 2, 'after-stop-luster', luster.defaultRules(), registry);
+    shuffleAll(t);
+    runAuto(t, ['deal', 'release']);
+    const rng = createRng('after-stop-luster');
+    for (let i = 0; i < 6; i++) {
+      const k = decider(t) as number;
+      act(t, k, quick(t.players[k]?.legalActions() ?? [], k, rng));
+      runAuto(t, ['release']);
+    }
+    F = decider(t) as number;
+    const s = t.players[F] as GameSessionV2;
+    const legal = s.legalActions();
+    expect(legal.length).toBeGreaterThan(1);
+    const a = s.buildAction(legal[0], t.game.rnd, NOW);
+    const b = s.buildAction(legal[legal.length - 1], t.game.rnd, NOW + 1);
+    send(t, a);
+    send(t, b);
+    const secretsOf = t.game.ids.map((id) =>
+      finalizeEvent(
+        secretTemplate({ rootId: t.game.rootId, deckSecret: id.deckSecret }, NOW, '2'),
+        id.sessionSk,
+        t.game.rnd,
+      ),
+    );
+    log = [...t.log, ...secretsOf];
+  }, 300_000);
+
+  /** A registry whose full-mode Luster engine rejects seat `k`'s own actions (the view-mode game is unchanged). */
+  const rejecting = (k: number): ReadonlyMap<string, AnyModule> =>
+    new Map([
+      ...registry,
+      [
+        luster.id,
+        {
+          ...luster,
+          apply: (s: { mode: string }, a: unknown) =>
+            s.mode === 'full' && (a as { actor?: unknown }).actor === k
+              ? { ok: false, error: { code: 'audit', message: 'test: refused in full mode' } }
+              : luster.apply(s as never, a as never),
+        } as AnyModule,
+      ],
+    ]);
+
+  const viewOn = (modules: ReadonlyMap<string, AnyModule>): SessionViewV2 => {
+    const s = v2Session(t.game, null, modules);
+    trustSteps([s], log);
+    for (const ev of log) s.receive(ev, NOW);
+    return s.view();
+  };
+
+  it("V2-40 ties a 2-seat stop when the non-forker's cheat is proven: both last and rated, never a rated win for the cheat", () => {
+    const reference = replay(t, log).spectator.view();
+    expect(reference).toMatchObject({ audit: 'pass', forfeits: [F] });
+    expect(reference.outcome?.places).toEqual([0, 1].map((k) => (k === F ? 2 : 1)));
+    const cheat = 1 - F;
+    const v = viewOn(rejecting(cheat));
+    expect(v.stop).toEqual(reference.stop);
+    expect(v.audit).toMatchObject({ fail: [cheat] });
+    expect(v.outcome).toMatchObject({ places: [1, 1], reason: 'stop' });
+    expect(v.forfeits).toEqual([0, 1]);
+    expect(gameRecord(v)).toMatchObject({ ending: 'stop', places: [1, 1], rated: [true, true], endedBy: F });
+    // The forker's own failure changes nothing: it is already last.
+    const byF = viewOn(rejecting(F));
+    expect(byF.audit).toMatchObject({ fail: [F] });
+    expect(byF.outcome).toEqual(reference.outcome);
   });
 });

@@ -24,9 +24,10 @@ import type { Walk } from './walk.ts';
  *   there is no card to audit, so no secret is owed and none recorded as withheld) every seat owes its Secret reveal. The places are fixed at the stop: a missing
  *   secret only records the seat as "secret withheld". Once the held secrets and verified shares decrypt every
  *   position of the final deck at P, the partial audit replays the action log up to P in full mode, with no outcome
- *   comparison; until then the game is "audit incomplete". Only a proven failure moves a seat: a failed seat that is
- *   not an equivocator moves to just above the equivocators (failed seats share that place). A verdict that fails
- *   every seat demotes nobody.
+ *   comparison; until then the game is "audit incomplete". Only a proven failure moves a seat: a failed seat shares
+ *   the last places with the equivocators, rated last like them (coordinator ruling after T10, D067: with 2 seats a
+ *   failed non-forker ties with E, so a proven cheat never keeps a rated win). A verdict that fails every seat
+ *   demotes nobody.
  */
 
 /** The stop at the walk's fork (PROTOCOL-v2 §5.6). */
@@ -100,7 +101,8 @@ function played(store: EventStoreV2, w: Walk, sides: SideLines): boolean {
 
 /**
  * The places of a scored stop: the seats that are neither equivocators nor `demoted` by `scores` (descending, ties
- * sharing a place), then the demoted seats sharing one place, then every equivocator sharing the last place.
+ * sharing a place), then every equivocator and every demoted seat (a proven audit failure, D067) sharing the last
+ * place.
  */
 export function stopPlaces(
   seats: number,
@@ -108,12 +110,10 @@ export function stopPlaces(
   eq: readonly number[],
   demoted: readonly number[],
 ): number[] {
-  const last = new Set(eq);
-  const failed = new Set(demoted.filter((k) => !last.has(k)));
-  const top = Array.from({ length: seats }, (_, k) => k).filter((k) => !last.has(k) && !failed.has(k));
+  const last = new Set([...eq, ...demoted]);
+  const top = Array.from({ length: seats }, (_, k) => k).filter((k) => !last.has(k));
   return Array.from({ length: seats }, (_, k) => {
-    if (last.has(k)) return top.length + failed.size + 1;
-    if (failed.has(k)) return top.length + 1;
+    if (last.has(k)) return top.length + 1;
     return 1 + top.filter((j) => (scores[j] as number) > (scores[k] as number)).length;
   });
 }
@@ -173,8 +173,9 @@ export function partialAudit(ctx: GameCtx, w: Walk, secrets: readonly (bigint | 
 }
 
 /**
- * The seats a partial-audit verdict demotes after a stop (§7.3): the failed seats that are not equivocators, unless
- * the verdict fails every seat (no single seat is proven to blame: nobody is demoted).
+ * The seats a partial-audit verdict demotes after a stop (§7.3) to the shared last places: the failed seats that are
+ * not equivocators (already last), unless the verdict fails every seat (no single seat is proven to blame: nobody is
+ * demoted).
  */
 export function demotedBy(verdict: Audit, seats: number, eq: readonly number[]): number[] {
   if (verdict === 'pass') return [];
