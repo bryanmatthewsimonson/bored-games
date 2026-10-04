@@ -313,6 +313,8 @@ export class GameController {
   readonly #checkSince = new Map<string, number>();
   /** Automatic duties (`kind@headId`) held back by the check before signing until the next tick. */
   readonly #heldDuties = new Set<string>();
+  /** Automatic duties (`kind@headId`) waiting for their deterministic date (`#buildDate`), with their wake time. */
+  readonly #waits = new Map<string, number>();
   /**
    * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
    * on a parent, `shares` for its Shares events, `resign` for its Resigns.
@@ -1462,6 +1464,9 @@ export class GameController {
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
       if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
+      // Waiting for its date (`#buildDate`) until the wake timer fires (or its time has come, should it be late).
+      const wake = this.#waits.get(`${kind}@${v.head.id}`);
+      if (wake !== undefined && this.#d.now() < wake) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
@@ -1529,8 +1534,7 @@ export class GameController {
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');
           done.add(key);
           const r = await this.#perform(session, kind);
-          // Waiting for the event's date (`#buildDate`): retried by its own timer, or the next tick.
-          if (r === 'wait') this.#heldDuties.add(key);
+          // Waiting for the event's date (`#buildDate`): `#waits` holds it until its one wake timer fires.
           if (r === 'held') {
             this.#heldDuties.add(key);
             this.#holding(
@@ -1568,13 +1572,17 @@ export class GameController {
       // decides only when to sign: a date ahead of it is waited for, never changed.
       const plan = this.#buildDate(session, head.id);
       if (plan !== null && plan.wait > 0) {
+        // One wake time per duty, armed once: ticks do not re-run a waiting duty (`#nextAuto`).
         const key = `${kind}@${head.id}`;
-        this.#stops.push(
-          this.#d.timers.later(plan.wait * 1000, () => {
-            this.#heldDuties.delete(key);
-            this.#queueDuties();
-          }),
-        );
+        if (!this.#waits.has(key)) {
+          this.#waits.set(key, now() + plan.wait);
+          this.#stops.push(
+            this.#d.timers.later(plan.wait * 1000 + 1000, () => {
+              this.#waits.delete(key);
+              this.#queueDuties();
+            }),
+          );
+        }
         return 'wait';
       }
       if (!(await this.#clearToSign(session, kind, head.id))) return 'held';

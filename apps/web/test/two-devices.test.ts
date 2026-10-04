@@ -8,7 +8,8 @@ import { GameSession } from '@bored-games/client';
 import { startDevRelay } from '@bored-games/dev-relay';
 import { finalizeEvent, KIND, moveTemplate, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ALREADY_MOVED, type GameController, HOLD_CAP_S } from '../src/game-controller.ts';
+import { platformTimers, type Timers } from '../src/clock.ts';
+import { ALREADY_MOVED, CHECK_TIMEOUT_MS, type GameController, HOLD_CAP_S } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import { MODULES, type PoolLike } from '../src/net.ts';
 import { loadSecrets } from '../src/storage.ts';
@@ -164,7 +165,7 @@ describe('A deterministic build is dated from shared events, never from a device
    * A 2-seat Bank game whose roller signs its Roll dated `at` outside any controller, and the contributor's devices,
    * one per clock offset in `skews` (seconds). Returns the Roll, the root and the contributions at the relay.
    */
-  async function rollDated(at: number, skews: number[]) {
+  async function rollDated(at: number, skews: number[], timers: Timers = platformTimers) {
     const { rootId, address, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
     const rootEv = (await h.query([{ ids: [rootId] }]))[0] as NostrEvent;
     const root = parseRoot(rootEv);
@@ -192,7 +193,7 @@ describe('A deterministic build is dated from shared events, never from a device
     const contributor = bySeat[1 - roller] as Profile;
     const devices = skews.map((skew, i) => {
       const dev = i === 0 ? contributor : h.secondDevice(contributor, address);
-      return h.game(rootId, { ...dev.deps, now: () => now() + skew });
+      return h.game(rootId, { ...dev.deps, now: () => now() + skew, timers });
     });
     for (const g of devices)
       await waitFor('a device loaded', () => g.view.value !== null && g.status.value !== 'syncing');
@@ -209,6 +210,32 @@ describe('A deterministic build is dated from shared events, never from a device
     expect(cs).toHaveLength(1);
     expect(cs[0]?.created_at).toBe(roll.created_at);
     for (const g of devices) expect(g.view.value?.equivocators).toEqual([]);
+  }, 60_000);
+
+  it('a device waiting for the date arms one wake timer, however often it ticks, and does not show working', async () => {
+    let wakes = 0;
+    const timers: Timers = {
+      every: (ms, fn) => platformTimers.every(ms, fn),
+      later: (ms, fn) => {
+        // The check before signing arms its own query cap (`CHECK_TIMEOUT_MS`); every other long timer is a wake.
+        if (ms >= 1000 && ms !== CHECK_TIMEOUT_MS) wakes++;
+        return platformTimers.later(ms, fn);
+      },
+    };
+    // Dated 66 s ahead: the device waits about 6 s; it is ticked every 200 ms meanwhile.
+    const { roll, devices, contributions } = await rollDated(now() + 66, [0], timers);
+    const g = devices[0] as GameController;
+    const statuses = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      g.tick();
+      await pause(200);
+      statuses.add(g.status.value);
+    }
+    expect(g.view.value?.head.seq).toBe(1);
+    expect(statuses.has('working')).toBe(false);
+    await waitFor('the contribution', () => g.view.value?.head.seq === 2, 30_000);
+    expect(wakes).toBe(1);
+    expect((await contributions())[0]?.created_at).toBe(roll.created_at);
   }, 60_000);
 
   it('a Roll dated in 1970 gives way to the root date: two devices with different clocks sign the same contribution', async () => {
