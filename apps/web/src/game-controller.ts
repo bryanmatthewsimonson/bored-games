@@ -1466,8 +1466,20 @@ export class GameController {
       return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
     }
     if (kind === 'secret') return this.#secretHeld();
-    // A saved Shares event still being vetted may carry the very positions the duty lists (audit-luster F3).
-    if (kind === 'share') return [...this.#unvetted].some((slot) => slot.startsWith('share:'));
+    // A saved Shares event still being vetted may carry positions the duty lists (audit-luster F3): only those
+    // duties wait, so a silent relay does not hold back reveals of other cards.
+    if (kind === 'share') {
+      const duty = this.#session?.duties().find((d) => d.kind === 'share');
+      const due = new Set(duty?.kind === 'share' ? duty.positions : []);
+      return [...this.#unvetted].some(
+        (slot) =>
+          slot.startsWith('share:') &&
+          slot
+            .slice('share:'.length)
+            .split(',')
+            .some((pos) => due.has(Number(pos))),
+      );
+    }
     if (kind !== 'deal') return false;
     if (this.#unvetted.has('deal')) return true;
     const held = this.#outbox.get('deal');
