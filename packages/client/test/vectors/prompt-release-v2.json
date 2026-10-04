@@ -1,0 +1,129 @@
+{
+  "checkpoints": [
+    {
+      "dealt": [
+        { "pos": 0, "to": null },
+        { "pos": 1, "to": null },
+        { "pos": 2, "to": null },
+        { "pos": 3, "to": 0 },
+        { "pos": 4, "to": 0 },
+        { "pos": 5, "to": 0 },
+        { "pos": 6, "to": 0 },
+        { "pos": 7, "to": 0 },
+        { "pos": 8, "to": 0 },
+        { "pos": 9, "to": 1 },
+        { "pos": 10, "to": 1 },
+        { "pos": 11, "to": 1 },
+        { "pos": 12, "to": 1 },
+        { "pos": 13, "to": 1 },
+        { "pos": 14, "to": 1 },
+        { "pos": 15, "to": 2 },
+        { "pos": 16, "to": 2 },
+        { "pos": 17, "to": 2 },
+        { "pos": 18, "to": 2 },
+        { "pos": 19, "to": 2 },
+        { "pos": 20, "to": 2 }
+      ],
+      "fork": null,
+      "head": { "id": "640d5f70c3fc90e04c65f2aea4739aecff8b625a64fa4b59aba3ff37d5f137db", "seq": 3 },
+      "label": "deal",
+      "seats": [
+        {
+          "duty": [{ "kind": "deal" }],
+          "event": {
+            "anchor": "640d5f70c3fc90e04c65f2aea4739aecff8b625a64fa4b59aba3ff37d5f137db",
+            "positions": [0, 1, 2, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+          },
+          "seat": 0
+        },
+        {
+          "duty": [{ "kind": "deal" }],
+          "event": {
+            "anchor": "640d5f70c3fc90e04c65f2aea4739aecff8b625a64fa4b59aba3ff37d5f137db",
+            "positions": [0, 1, 2, 3, 4, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20]
+          },
+          "seat": 1
+        },
+        {
+          "duty": [{ "kind": "deal" }],
+          "event": {
+            "anchor": "640d5f70c3fc90e04c65f2aea4739aecff8b625a64fa4b59aba3ff37d5f137db",
+            "positions": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+          },
+          "seat": 2
+        }
+      ]
+    },
+    {
+      "dealt": [{ "pos": 21, "to": 0 }],
+      "fork": null,
+      "head": { "id": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e", "seq": 5 },
+      "label": "draw",
+      "seats": [
+        { "duty": [], "event": null, "seat": 0 },
+        {
+          "duty": [
+            {
+              "anchor": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e",
+              "kind": "release",
+              "positions": [21]
+            },
+            { "kind": "decide" }
+          ],
+          "event": {
+            "anchor": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e",
+            "positions": [21]
+          },
+          "seat": 1
+        },
+        {
+          "duty": [
+            {
+              "anchor": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e",
+              "kind": "release",
+              "positions": [21]
+            }
+          ],
+          "event": {
+            "anchor": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e",
+            "positions": [21]
+          },
+          "seat": 2
+        }
+      ]
+    },
+    {
+      "dealt": [],
+      "fork": { "at": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e", "seat": 1 },
+      "head": { "id": "f634c4218c847587f1f66d440061336dbb61b50e8ebe0db8082a3abacf35398e", "seq": 5 },
+      "label": "fork",
+      "seats": [
+        { "duty": [], "event": null, "seat": 0 },
+        { "duty": [], "event": null, "seat": 1 },
+        { "duty": [], "event": null, "seat": 2 }
+      ]
+    }
+  ],
+  "engine": "0.3.0",
+  "game": "chain-reaction",
+  "identities": [
+    {
+      "deckSecret": "7da4a3c317bb2de0ff93611ca13afb0e75b6fb05d9a676c80e03edfa5c3527c4",
+      "seat": 0,
+      "sessionSk": "0cba429832c017fd8cf2ec80a8e25ae92219c1fd8847e8a9b102ee6da91ef0f6"
+    },
+    {
+      "deckSecret": "f3fdb9300831cab5922ce280742e703224bf9a49a90abcadf90b77f1c7a6c24b",
+      "seat": 1,
+      "sessionSk": "93e6fda16969598c0220d7167d8668698d00be71459728a83ddc423d20db70d2"
+    },
+    {
+      "deckSecret": "7f382d0d256a42227303b7331d79113275d84a57f23dbffa131c201429fe506f",
+      "seat": 2,
+      "sessionSk": "4953ecb3b71bcc6cfa8b8463c56fc95ae2af8fcb64e1701f7942dd3d29cf1496"
+    }
+  ],
+  "seats": 3,
+  "seed": "prompt-release-v2",
+  "version": 1
+}

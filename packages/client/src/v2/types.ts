@@ -1,4 +1,4 @@
-import type { Point as CurvePoint } from '@bored-games/deck';
+import type { Ciphertext, Point as CurvePoint } from '@bored-games/deck';
 import type { GameModule } from '@bored-games/game-kit';
 import type { Hex, ParsedMove } from '@bored-games/protocol';
 import type { LoggedAction } from '../audit.ts';
@@ -26,8 +26,16 @@ export interface GameCtx {
   readonly shuffleSteps: number;
   /** Seat deck keys `X_k`. */
   readonly keys: readonly CurvePoint[];
+  /** The joint deck key `X`, the sum of the seats' keys (shuffles re-encrypt under it). */
+  readonly X: CurvePoint;
+  /** The deck before the first shuffle step (v1 §5.2), empty without a deck. */
+  readonly initialDeck: readonly Ciphertext[];
+  /** Card points to card indices for the deck (`cardTable`), empty without a deck. */
+  readonly cards: ReadonlyMap<string, number>;
   /** The seat whose private cards the view-mode state may learn, or null for a spectator. */
   readonly viewer: number | null;
+  /** The viewer's deck secret, for its own layer of the cards dealt to it (v1 §6.4), or null for a spectator. */
+  readonly viewerSecret: bigint | null;
 }
 
 /**
@@ -50,10 +58,19 @@ export interface LinePoint {
   readonly id: Hex;
   readonly seq: number;
   readonly phase: Exclude<Phase, 'done' | 'cancelled'>;
-  /** The module state (frozen); null before the module is set up. */
+  /** The module state (frozen); null before the module is set up (during the shuffle). */
   readonly state: unknown;
   readonly logLength: number;
   readonly eventsLength: number;
+  /** The deck after this point: the initial deck, each shuffle step's output, then the final deck; empty deckless. */
+  readonly deck: readonly Ciphertext[];
+  /**
+   * The final deck's key, once the shuffle is complete on this line: the id of its last shuffle step. Share
+   * verification is cached per (event, key) (build plan D-E). Null before, and in a deckless game.
+   */
+  readonly deckKey: Hex | null;
+  /** The positions dealt to the viewer that its view-mode state has learned on this line, ascending. */
+  readonly learned: readonly number[];
 }
 
 /** A line folded from the root: one point per head (`points[i]` at seq `i`), and its log and events. */
@@ -68,12 +85,19 @@ export interface Line {
  * - `valid`: valid at its prev, with the state and module events applying it gives;
  * - `looking`: valid-looking but not valid: it waits (`final` false: owed shares not held yet) or never will be
  *   (`final` true: a shuffle proof that fails);
+ * - `unproven`: a well-formed shuffle step, its proof not checked yet;
  * - `wait`: not valid-looking yet (a reveal whose other shares are not held);
  * - `invalid`: never valid-looking at its prev.
  */
 export type Judgement =
   | { readonly kind: 'valid'; readonly state: unknown; readonly events: readonly unknown[] }
   | { readonly kind: 'looking'; readonly why: string; readonly final: boolean }
+  /**
+   * A well-formed shuffle step whose proof has not been checked (PROTOCOL-v2 §5.1): valid-looking. The walk checks
+   * the proof only when the step is the one valid-looking successor of its prev, so two such steps make a fork with
+   * no proof verified (V2-14).
+   */
+  | { readonly kind: 'unproven' }
   | { readonly kind: 'wait'; readonly why: string }
   | { readonly kind: 'invalid'; readonly why: string };
 
