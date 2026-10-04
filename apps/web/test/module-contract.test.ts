@@ -6,10 +6,7 @@
  */
 import type { GameModule } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
-import {
-  checkRevealContract,
-  resignSeatCounts,
-} from '../../../packages/client/test/reveal-contract.ts';
+import { checkRevealContract, resignSeatCounts } from '../../../packages/client/test/reveal-contract.ts';
 import { MODULES } from '../src/net.ts';
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
@@ -39,7 +36,9 @@ describe('D052: every registered module with a deck pends public reveals only be
       // a Resign rule for them exists (D052). This also proves the check can run a partitioned deck.
       it(`${module.id}: exempt (Resign disabled at every seat count), and would fail the check`, () => {
         const { min } = module.seatRange(module.defaultRules());
-        expect(() => checkRevealContract(module, [min])).toThrow(/public reveal is pending after a player action/);
+        expect(() => checkRevealContract(module, [min])).toThrow(
+          /public reveal is pending after a player action/,
+        );
       });
       continue;
     }

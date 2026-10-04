@@ -71,7 +71,9 @@ export function checkRevealContract(module: AnyModule, seatCounts: readonly numb
       if (p.type === 'over') break;
       let action: unknown;
       if (p.type === 'reveal') {
-        expect(acted, `a public reveal is pending after a player action (game ${g}, step ${step})`).toBe(false);
+        expect(acted, `a public reveal is pending after a player action (game ${g}, step ${step})`).toBe(
+          false,
+        );
         const pos = [...p.positions].sort((a, b) => a - b)[0] as number;
         action = { type: 'reveal', actor: 'deck', deck: deck.id, pos, card: order[pos] };
       } else if (p.type === 'player') {

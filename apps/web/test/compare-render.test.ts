@@ -84,7 +84,9 @@ describe('the rendered public pages', () => {
       const game = catalogItems().find((i) => i.entry.id === id);
       const title = game?.entry.compareTo?.title ?? '';
       expect(title, id).not.toBe('');
-      expect(findRestricted(textOf(h('p', null, `Made by the makers of ${title}.`)), strings)).not.toEqual([]);
+      expect(findRestricted(textOf(h('p', null, `Made by the makers of ${title}.`)), strings)).not.toEqual(
+        [],
+      );
     }
   });
 });
