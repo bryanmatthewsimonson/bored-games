@@ -20,19 +20,10 @@ import { keptKeys, switchToKeptKey } from '../identity.ts';
 import type { ProfileInfo } from '../profile-model.ts';
 import { usePlayerProfiles } from '../profiles.ts';
 import { activeGame, homeHref } from '../router.ts';
-import { waitingLine } from '../waiting-model.ts';
+import { formatDeadline, ownRevealLine, waitingLine } from '../waiting-model.ts';
 import { localTableRecord, myTableCount, type WatchNotice, watchNotice } from '../watch-model.ts';
 
-/** "2d 4h left", "3h 10m left", "overdue", from seconds remaining. */
-export function formatDeadline(secondsLeft: number): string {
-  if (secondsLeft <= 0) return 'deadline passed';
-  const d = Math.floor(secondsLeft / 86400);
-  const h = Math.floor((secondsLeft % 86400) / 3600);
-  const m = Math.floor((secondsLeft % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h left`;
-  if (h > 0) return `${h}h ${m}m left`;
-  return `${Math.max(1, m)}m left`;
-}
+export { formatDeadline } from '../waiting-model.ts';
 
 /** What the screen says while the game is not waiting on the player. */
 export function statusNotice(status: GameStatus, view: SessionView | null): string | undefined {
@@ -390,6 +381,10 @@ export function GameScreen(props: { rootId: string }) {
     ) : watch === null ? null : (
       <WatchingNotice notice={watch} me={signer.pubkey} switchError={switchError} onSwitch={onSwitch} />
     );
+  // A card reveal owed out of turn (D060): who owes it and when they can be timed out for it.
+  const owed = ctl.owed.value;
+  // How this game names the share (Chain Reaction: a share of a tile; Luster: a card reveal).
+  const shareWords = game?.setupCopy(true)?.share;
   const waiting =
     view === null || status !== 'waiting'
       ? null
@@ -399,7 +394,12 @@ export function GameScreen(props: { rootId: string }) {
           mySeat: view.mySeat,
           waiting: ctl.waiting.value,
           names,
+          ...(view.phase === 'play' && owed !== null ? { secondsLeft: owed.until - now } : {}),
+          ...(shareWords === undefined ? {} : { share: shareWords }),
         });
+  // This seat's own reveal, when its app is not sending it right now (held back, stuck or undelivered).
+  const ownReveal =
+    view === null || status === 'working' ? null : ownRevealLine(owed, view.mySeat, now, shareWords);
 
   if (status === 'cancelled') {
     const quit = resignedSeats(view);
@@ -467,6 +467,11 @@ export function GameScreen(props: { rootId: string }) {
       {waiting !== null && (
         <p class="muted game-waiting" role="status">
           {waiting}
+        </p>
+      )}
+      {ownReveal !== null && (
+        <p class="warning game-owed" role="status">
+          {ownReveal}
         </p>
       )}
       {error !== null && (

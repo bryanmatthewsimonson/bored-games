@@ -25,7 +25,13 @@ export const GAMES: readonly WebGame[] = [
     Component: ChainReactionScreen,
     RulesPage: ChainReactionRulesPage,
     setupCopy: (hasDeck) =>
-      hasDeck ? { shuffling: 'Shuffling the deck', dealing: 'Dealing the tiles…' } : null,
+      hasDeck
+        ? {
+            shuffling: 'Shuffling the deck',
+            dealing: 'Dealing the tiles…',
+            share: { act: 'send their share of a tile', owed: 'a share of a tile' },
+          }
+        : null,
   },
   {
     ...CHESS_META,
@@ -46,6 +52,7 @@ export const GAMES: readonly WebGame[] = [
     setupCopy: () => ({
       shuffling: 'Shuffling the developments and nobles',
       dealing: 'Opening the gem market…',
+      share: { act: 'reveal a card', owed: 'a card reveal' },
     }),
   },
 ];

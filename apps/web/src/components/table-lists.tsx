@@ -9,10 +9,18 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
+import { webGame } from '../games/registry.ts';
 import { joinGate, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
-import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
+import {
+  attentionBadge,
+  cardGameStatus,
+  joinButtonLabel,
+  joinCheck,
+  revealDetail,
+  tableChip,
+} from '../lobby-model.ts';
 import { gameHref, tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
 import { CopyPageKey, JoinBackup } from './join-backup.tsx';
@@ -53,10 +61,16 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
           const blocked = t.otherKey && !t.savedKeys;
           // A started game's status comes from what its game screen saved; Home never runs a game session.
           const started = t.rootId !== null || t.table.status === 'started';
+          const cached = started && t.rootId !== null ? lobby.gameStatus(t.rootId) : null;
           const known =
             started && t.table.status !== 'cancelled'
-              ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
+              ? cardGameStatus(cached, lobby.now())
               : { status: null, check: false };
+          // A card reveal owed out of turn (D060): this player's app must be open, or who the game waits for.
+          const reveal =
+            blocked || t.table.status === 'cancelled'
+              ? null
+              : revealDetail(cached, lobby.now(), webGame(t.table.game)?.setupCopy(true)?.share);
           const chip = tableChip(t.table, t.lobby, known.status);
           const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
           return (
@@ -73,11 +87,13 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               detail={
                 blocked
                   ? OTHER_KEY_DETAIL
-                  : known.check
-                    ? 'Open to check'
-                    : t.savedKeys
-                      ? SAVED_KEYS_DETAIL
-                      : seated
+                  : reveal !== null
+                    ? reveal
+                    : known.check
+                      ? 'Open to check'
+                      : t.savedKeys
+                        ? SAVED_KEYS_DETAIL
+                        : seated
               }
               action={
                 <a
