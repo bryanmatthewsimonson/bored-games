@@ -213,7 +213,7 @@ describe('the stop in a deckless 2-seat game (Chess)', () => {
     }
   });
 
-  it('V2-38 publishes no end or stats attestation for a stop: none is owed, and neither can be built', () => {
+  it('V2-38 (partial) publishes no end or stats attestation for a stop: none is owed, and neither can be built', () => {
     const { t, moves } = chessGame('stop-attest', opening);
     send(t, actionAt(t, 0, (moves[1] as NostrEvent).id, 3, mv(0, 'd2d4')));
     for (const p of t.players) {
@@ -363,8 +363,12 @@ describe('forks in the shuffle and the deal, and late forks there (Chain Reactio
       expect(v.auditIncomplete).toBe(false);
       expect(s.waitingFor()).toEqual([]);
     }
-    // A cancel owes nothing, not even a secret, and records the seat that forked.
-    for (const p of t.players) expect(p.duties()).toEqual([]);
+    // A cancel owes nothing, not even a secret, attests nothing (V2-38), and records the seat that forked.
+    for (const p of t.players) {
+      expect(p.duties()).toEqual([]);
+      expect(() => p.buildEndAttest(t.game.rnd, NOW)).toThrow(/no end duty/);
+      expect(() => p.attestTemplate(NOW)).toThrow(/no attest duty/);
+    }
     expect(gameRecord(t.spectator.view())).toEqual({
       ending: 'cancelled',
       places: [],
@@ -407,6 +411,27 @@ describe('forks in the shuffle and the deal, and late forks there (Chain Reactio
     // A stop in a deck game owes every seat its secret, and nothing else.
     for (const p of r.players) expect(p.duties()).toEqual([{ kind: 'secret' }]);
     expect(gameRecord(r.spectator.view())).toMatchObject({ ending: 'stop', rated: [false, true, false] });
+  });
+
+  it('V2-22 scores two first game actions on the last shuffle step as a stop before play, not a cancel', () => {
+    const t = replay(base, [...steps, ...deals]);
+    const k = decider(t) as number;
+    const legal = t.players[k]?.legalActions() ?? [];
+    expect(legal.length).toBeGreaterThan(1);
+    // Both built on P (the last step) before either is sent.
+    const a = (t.players[k] as GameSessionV2).buildAction(legal[0], t.game.rnd, NOW);
+    const b = (t.players[k] as GameSessionV2).buildAction(legal[legal.length - 1], t.game.rnd, NOW + 1);
+    const r = inOrders(base, [...steps, ...deals, a, b], 'stop-cr-first', 2);
+    for (const s of r.all) {
+      const v = s.view();
+      expect(v.stop).toEqual({ at: (steps[2] as NostrEvent).id, seat: k, cancelled: false });
+      expect(v.outcome).toEqual({
+        places: [0, 1, 2].map((j) => (j === k ? 3 : 1)),
+        reason: 'stop',
+        scores: [0, 0, 0],
+      });
+      expect(v.equivocators).toEqual([k]);
+    }
   });
 
   it('V2-24 owes no release while stopped, though positions are owed, and stalls nobody', () => {

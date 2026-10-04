@@ -15,6 +15,7 @@ import { MODULES, NOW } from '../helpers.ts';
 import {
   type AnyModule,
   act,
+  actionAt,
   decider,
   inOrders,
   quick,
@@ -136,6 +137,17 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
     expect(t.players[missing]?.duties()).toEqual([{ kind: 'secret' }]);
   });
 
+  it('V2-40 gives the same withheld-secret verdict in every arrival order: places fixed, the seat recorded, audit incomplete', () => {
+    const missing = [0, 1, 2].find((k) => k !== E) as number;
+    const t = inOrders(base, [...stopped, ...secrets.filter((_, k) => k !== missing)], 'after-stop-withheld', 3);
+    for (const s of t.all) {
+      const v = s.view();
+      expect(v).toMatchObject({ phase: 'done', audit: 'pending', auditIncomplete: true, forfeits: [E] });
+      expect(v.secretWithheld).toEqual([missing]);
+      expect(v.outcome).toMatchObject({ places: placesAtP(t), reason: 'stop' });
+    }
+  });
+
   it('V2-55 (partial) records each "secret withheld" seat and "audit incomplete" in the stats record (the screens are T17)', () => {
     const missing = [0, 1, 2].find((k) => k !== E) as number;
     const t = replay(base, [...stopped, ...secrets.filter((_, k) => k !== missing)]);
@@ -238,5 +250,93 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
     expect(all.audit).toMatchObject({ fail: [0, 1, 2] });
     expect(all.outcome).toEqual(reference.outcome);
     expect(all.forfeits).toEqual([E]);
+  });
+});
+
+describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 seats)', () => {
+  /** The cheat C, the honest seat H, the forker F, and the events up to the stop with every secret. */
+  let t: V2Table;
+  let C: number;
+  let H: number;
+  let F: number;
+  let log: NostrEvent[];
+
+  const pendingSeat = (x: V2Table): number => (x.spectator.view().pending as { seat: number }).seat;
+
+  beforeAll(() => {
+    t = v2Table(chainReaction as AnyModule, 3, 'after-stop-cheat');
+    for (let k = 0; k < 3; k++) {
+      const ev = (t.players[k] as GameSessionV2).buildShuffle(t.game.rnd, NOW);
+      trustSteps(t.all, [ev]);
+      send(t, ev);
+    }
+    runAuto(t, ['deal']);
+    const rng = createRng('after-stop-cheat');
+    // Play until a seat is to place while holding a playable tile (its own session offers no skip).
+    for (let i = 0; i < 40; i++) {
+      const k = decider(t) as number;
+      const legal = t.players[k]?.legalActions() ?? [];
+      const state = t.spectator.view().state as ChainReactionState;
+      if (i >= 3 && state.phase.kind === 'place' && !legal.some((a) => (a as { type: string }).type === 'skipPlace'))
+        break;
+      act(t, k, quick(legal, k, rng));
+      runAuto(t, ['release']);
+    }
+    C = pendingSeat(t);
+    expect((t.spectator.view().state as ChainReactionState).phase.kind).toBe('place');
+    // C skips its placement though it holds a playable tile: every other seat's view accepts it (C's hand is
+    // hidden from them; the audit checks it), and C's own session never links it.
+    const head = t.spectator.view().head;
+    const skip = actionAt(t, C, head.id, head.seq + 1, { type: 'skipPlace', actor: C });
+    send(t, skip);
+    expect(t.spectator.view().head.id).toBe(skip.id);
+    // C ends its turn by hand, buying nothing (its own session is stuck at the skip; its hand is hidden from the
+    // others' views, so they accept an empty discard list too).
+    const v = t.spectator.view();
+    expect((v.state as ChainReactionState).phase.kind).toBe('buy');
+    const end = { type: 'endTurn', actor: C, buy: [], declareEnd: false, discard: [] };
+    const endMove = actionAt(t, C, v.head.id, v.head.seq + 1, end);
+    send(t, endMove);
+    expect(t.spectator.view().head.id).toBe(endMove.id);
+    runAuto(t, ['release']);
+    F = pendingSeat(t);
+    expect(F).not.toBe(C);
+    H = [0, 1, 2].find((k) => k !== C && k !== F) as number;
+    // F forks at its head.
+    const s = t.players[F] as GameSessionV2;
+    const legal = s.legalActions();
+    expect(legal.length).toBeGreaterThan(1);
+    const a = s.buildAction(legal[0], t.game.rnd, NOW);
+    const b = s.buildAction(legal[legal.length - 1], t.game.rnd, NOW + 1);
+    send(t, a);
+    send(t, b);
+    const secretsOf = t.game.ids.map((id) =>
+      finalizeEvent(
+        secretTemplate({ rootId: t.game.rootId, deckSecret: id.deckSecret }, NOW, '2'),
+        id.sessionSk,
+        t.game.rnd,
+      ),
+    );
+    log = [...t.log, ...secretsOf];
+  }, 300_000);
+
+  it('V2-40 demotes the cheat to just above the forker once every secret is in, the same in every arrival order', () => {
+    const r = inOrders(t, log, 'after-stop-cheat', 2);
+    for (const s of [r.spectator, r.players[H] as GameSessionV2, r.players[F] as GameSessionV2]) {
+      const v = s.view();
+      expect(v.stop).toMatchObject({ seat: F, cancelled: false });
+      expect(v.audit).toMatchObject({ fail: [C] });
+      expect(v.outcome?.places[H]).toBe(1);
+      expect(v.outcome?.places[C]).toBe(2);
+      expect(v.outcome?.places[F]).toBe(3);
+      expect(v.forfeits).toEqual([C, F].sort((x, y) => x - y));
+      expect(v).toMatchObject({ auditIncomplete: false, secretWithheld: [] });
+    }
+    // Without C's secret the cheat goes unproven: the stop's places stand, "audit incomplete", C recorded.
+    const withheld = replay(t, log.filter((ev) => ev.id !== (log[log.length - 3 + C] as NostrEvent).id));
+    const v = withheld.spectator.view();
+    expect(v).toMatchObject({ audit: 'pending', auditIncomplete: true, secretWithheld: [C], forfeits: [F] });
+    expect(v.outcome?.places[F]).toBe(3);
+    expect(gameRecord(v)).toMatchObject({ ending: 'stop', secretWithheld: [C], auditIncomplete: true });
   });
 });

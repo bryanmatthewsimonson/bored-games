@@ -60,17 +60,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts); card Shares ' +
       'events that fail against the final deck or lie outside it stay held (packages/client/test/v2/deck.test.ts)',
   },
-  'V2-15': { until: 'T10' },
-  'V2-16': { until: 'T10' },
   'V2-17': { until: 'T11, T12' },
   'V2-18': { until: 'T11' },
   'V2-19': { until: 'T11' },
   'V2-20': { until: 'T11, T13' },
   'V2-21': { until: 'T11' },
-  'V2-22': { until: 'T10' },
-  'V2-50': { until: 'T10' },
   'V2-23': { until: 'T12' },
-  'V2-24': { until: 'T10' },
   'V2-54': { until: 'T11' },
   'V2-52': { until: 'T12, T17' },
   'V2-25': {
@@ -97,7 +92,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the session owes and builds an end attestation of its own result only, signed by the session key, and ' +
       'none while it holds a fork (packages/client/test/v2/core-deckless.test.ts)',
   },
-  'V2-38': { until: 'T10, T15' },
+  'V2-38': {
+    until: 'T15 (the controller publishes only what the session owes)',
+    partial:
+      'the session owes and builds no end or stats attestation for a stop or a cancelled game ' +
+      '(packages/client/test/v2/fork-stop.test.ts, packages/client/test/v2/after-stop.test.ts)',
+  },
   'V2-39': {
     until: 'T11 (a standing result), T12 (claims and resigns)',
     partial:
@@ -106,9 +106,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts); over ' +
       'in a dice game: the audit replays the logged rolls (packages/client/test/v2/dice.test.ts)',
   },
-  'V2-40': { until: 'T10' },
-  'V2-41': { until: 'T10' },
-  'V2-55': { until: 'T10, T17' },
+  'V2-55': {
+    until: 'T17 (the game screen and the list of games show "audit incomplete" and "secret withheld")',
+    partial:
+      'the session view and the stats record (gameRecord) carry "audit incomplete" and each "secret withheld" ' +
+      'seat after a stop (packages/client/test/v2/after-stop.test.ts, packages/client/test/v2/record.test.ts)',
+  },
   'V2-42': { until: 'T12' },
   'V2-43': { until: 'T12' },
   'V2-44': { until: 'T13, T16' },
