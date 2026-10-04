@@ -43,6 +43,14 @@ import type { EoseInfo, Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { deterministicRandom, seatStreamKey } from './det-random.ts';
 import { bytesToHex } from './hex.ts';
+import {
+  backupDue,
+  backupUnavailable,
+  fetchKeyBackups,
+  publishKeyBackup,
+  restoreKeyBackup,
+  saveRestored,
+} from './key-backup.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
 import type { RandomBytes } from './random.ts';
 import { ownCardReason, sharePositions, shareVerdict } from './share-vet.ts';
@@ -66,6 +74,29 @@ import { type OwedReveal, owedReveal } from './waiting-model.ts';
  * - `your-turn`: this seat's decision, with no move of its own already waiting at this head
  */
 export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-turn' | 'done' | 'cancelled';
+
+/**
+ * Restoring a seat's game keys from the player's backup (D065): `restoring`, then `restored` (the seat is played), or
+ * why not: `none` (no backup on the relays), `incomplete` (the relays did not answer in time), `unreadable`,
+ * `mismatch` (not this seat's keys), `failed` (storage refused them), `unavailable` (the signer cannot decrypt).
+ * `retry` is the moment between a retry and the new query.
+ */
+export type RestoreState =
+  | 'restoring'
+  | 'restored'
+  | 'none'
+  | 'incomplete'
+  | 'unreadable'
+  | 'mismatch'
+  | 'failed'
+  | 'unavailable'
+  | 'retry';
+
+/**
+ * The backup of this seat's game keys from this browser (D065): `due` (none recorded), `sending`, `done`, an error,
+ * or `unavailable` (the signer cannot encrypt).
+ */
+export type BackupState = 'due' | 'sending' | 'done' | 'unavailable' | { error: string };
 
 /** How often `tick` runs while the controller is started, in ms. */
 export const TICK_MS = 30_000;
@@ -266,6 +297,13 @@ export class GameController {
    * seat, and the npub it joined with. That npub signs the Result attestation, which this browser then cannot send.
    */
   readonly recovered: Signal<{ seat: number; npub: Hex } | null> = signal(null);
+  /**
+   * Restoring this seat's game keys from the player's encrypted backup (D065), when the key in use holds a seat but
+   * this browser has no game keys for it: null when not needed, else where it stands (`RestoreState`).
+   */
+  readonly restore: Signal<RestoreState | null> = signal(null);
+  /** The backup of this seat's game keys from this browser (D065); null when there is nothing to back up. */
+  readonly backup: Signal<BackupState | null> = signal(null);
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
   readonly clock: Signal<number>;
 
@@ -1264,6 +1302,7 @@ export class GameController {
       this.#storedTable = table;
     this.table.value = parseTable(table);
     if (me !== null) saveRootId(this.#d.profile, this.#d.storage, root.tableAddress, root.id);
+    if (this.#me !== null && this.recovered.value === null) this.#offerBackup(root, this.#me.seat);
     // Own events (they may never have reached a relay) and whatever arrived meanwhile, once the relays sent all.
     if (this.#gameEose) this.#feedHeld();
     this.#refresh();
@@ -1288,10 +1327,107 @@ export class GameController {
       return { seat: saved, sessionSk: secrets.sessionSk, deckSecret };
     }
     if (secrets === null) {
-      this.error.value = 'This browser does not hold your keys for this game, so you are watching it.';
+      // Seated with the key in use, but the game keys were made on another device: restore them from the
+      // player's backup (D065), watching meanwhile.
+      this.#startRestore(root);
       return null;
     }
     return { seat, sessionSk: secrets.sessionSk, deckSecret: BigInt(`0x${bytesToHex(secrets.deckSecret)}`) };
+  }
+
+  /* ------------------------------------------------------------------------------ key backup (D065) */
+
+  /** Fetch, decrypt and check the player's backup of this seat's game keys; on success, play the seat. */
+  #startRestore(root: ParsedRoot): void {
+    const state = this.restore.value;
+    if (state !== null && state !== 'retry') return;
+    if (backupUnavailable(this.#d.signer) !== null) {
+      this.restore.value = 'unavailable';
+      return;
+    }
+    this.restore.value = 'restoring';
+    void (async () => {
+      const { events, complete } = await fetchKeyBackups(
+        this.#d.pool,
+        this.#d.timers,
+        this.#d.signer.pubkey,
+        root.tableAddress,
+        CHECK_TIMEOUT_MS,
+      );
+      if (this.#disposed) return;
+      const r = await restoreKeyBackup(this.#d.signer, root, events);
+      if (this.#disposed) return;
+      if (r.kind !== 'restored') {
+        this.restore.value = r.kind === 'none' && !complete ? 'incomplete' : r.kind;
+        return;
+      }
+      const { profile, storage } = this.#d;
+      // Another tab of this profile may have restored them meanwhile: then they are here already.
+      if (
+        !saveRestored(profile, storage, root.tableAddress, r.secrets, this.#d.now()) &&
+        loadSecrets(profile, storage, root.tableAddress) === null
+      ) {
+        this.restore.value = 'failed';
+        return;
+      }
+      this.restore.value = 'restored';
+      // The session was built for a spectator: build it again, now with the seat. From here this device is one more
+      // device of the seat, like any other: the check before signing and the deterministic builds apply (D063).
+      this.#rebuild();
+    })();
+  }
+
+  /** Try the restore again after it found nothing (the other device may have backed the keys up since). */
+  retryRestore(): void {
+    const root = this.#root;
+    const state = this.restore.value;
+    if (root === null || this.#disposed || state === null || state === 'restoring' || state === 'restored')
+      return;
+    this.restore.value = 'retry';
+    this.#startRestore(root);
+  }
+
+  /**
+   * Once the session plays this seat with the player's own key (not a seat recovered for another key): back the game
+   * keys up if no backup was recorded. Automatic with a local key, which needs no prompt; with an extension the
+   * screen offers "Back up this game's keys", since each backup asks the extension to encrypt and sign.
+   */
+  #offerBackup(root: ParsedRoot, seat: number): void {
+    if (this.backup.value !== null) return;
+    if (backupUnavailable(this.#d.signer) !== null) {
+      this.backup.value = 'unavailable';
+      return;
+    }
+    if (!backupDue(this.#d.profile, this.#d.storage, root.tableAddress)) {
+      this.backup.value = 'done';
+      return;
+    }
+    this.backup.value = 'due';
+    if (this.#d.signer.kind === 'local') void this.#publishBackup(root, seat);
+  }
+
+  async #publishBackup(root: ParsedRoot, seat: number): Promise<void> {
+    if (this.backup.value === 'sending') return;
+    this.backup.value = 'sending';
+    const r = await publishKeyBackup(this.#d, root.tableAddress, {
+      tableRelays: root.relays,
+      rootId: root.id,
+      seat,
+    });
+    if (this.#disposed) return;
+    this.backup.value = r.ok ? 'done' : { error: r.error };
+  }
+
+  /** "Back up this game's keys" (D065): publish the backup of this seat's game keys now. */
+  async backupKeys(): Promise<void> {
+    const root = this.#root;
+    const me = this.#me;
+    if (root === null || me === null || this.recovered.value !== null || this.#disposed) return;
+    if (backupUnavailable(this.#d.signer) !== null) {
+      this.backup.value = 'unavailable';
+      return;
+    }
+    await this.#publishBackup(root, me.seat);
   }
 
   #maybeSynced(): void {

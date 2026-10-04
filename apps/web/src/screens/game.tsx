@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
 import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
+import { BackupOffer, RestoreNotice } from '../components/key-backup.tsx';
 import { RecoveredNotice, WatchingNotice } from '../components/watching.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
@@ -368,19 +369,29 @@ export function GameScreen(props: { rootId: string }) {
     if (r.ok) window.location.reload();
     else setSwitchError(r.error);
   };
-  const watching =
-    recovered !== null ? (
-      <RecoveredNotice
-        seat={recovered.seat}
-        joined={recovered.npub}
-        me={signer.pubkey}
-        // The joining key is kept here: switching back to it also restores signing the result.
-        onSwitch={kept.includes(recovered.npub) ? onSwitch : null}
-        switchError={switchError}
-      />
-    ) : watch === null ? null : (
-      <WatchingNotice notice={watch} me={signer.pubkey} switchError={switchError} onSwitch={onSwitch} />
-    );
+  // Restoring this seat's game keys from the player's backup, and backing them up from here (D065).
+  const restore = ctl.restore.value;
+  const backup = ctl.backup.value;
+  const watching = (
+    <>
+      {restore !== null && <RestoreNotice state={restore} onRetry={() => ctl.retryRestore()} />}
+      {recovered !== null ? (
+        <RecoveredNotice
+          seat={recovered.seat}
+          joined={recovered.npub}
+          me={signer.pubkey}
+          // The joining key is kept here: switching back to it also restores signing the result.
+          onSwitch={kept.includes(recovered.npub) ? onSwitch : null}
+          switchError={switchError}
+        />
+      ) : watch === null ? null : (
+        <WatchingNotice notice={watch} me={signer.pubkey} switchError={switchError} onSwitch={onSwitch} />
+      )}
+      {backup !== null && (
+        <BackupOffer state={backup} signer={signer.kind} onBackup={() => void ctl.backupKeys()} />
+      )}
+    </>
+  );
   // A card reveal owed out of turn (D060): who owes it and when they can be timed out for it.
   const owed = ctl.owed.value;
   // How this game names the share (Chain Reaction: a share of a tile; Luster: a card reveal).
