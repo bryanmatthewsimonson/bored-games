@@ -127,12 +127,14 @@ describe('catalog search', () => {
     expect(normalize('  Tile-Placement  x ')).toBe('tile placement x');
   });
 
-  it('matches the title of the game a game compares to (D053), and only for that game', () => {
-    const compare = CATALOG.get('chain-reaction')?.entry.compareTo;
-    if (compare == null) throw new Error('Chain Reaction compares to a published game');
-    expect(ids({ query: compare.title })).toEqual(['chain-reaction']);
-    expect(ids({ query: compare.title.toUpperCase() })).toEqual(['chain-reaction']);
-    expect(matchesQuery(made({ compareTo: null }), compare.title)).toBe(false);
+  it('matches the title of the game a game compares to (D053, D060), and only for that game', () => {
+    for (const id of ['chain-reaction', 'luster']) {
+      const compare = CATALOG.get(id)?.entry.compareTo;
+      if (compare == null) throw new Error(`${id} compares to a published game`);
+      expect(ids({ query: compare.title })).toEqual([id]);
+      expect(ids({ query: compare.title.toUpperCase() })).toEqual([id]);
+      expect(matchesQuery(made({ compareTo: null }), compare.title)).toBe(false);
+    }
     expect(matchesQuery(made({ compareTo: { title: 'Elder Game', bggId: 9 } }), 'elder')).toBe(true);
   });
 

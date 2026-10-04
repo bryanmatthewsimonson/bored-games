@@ -6,7 +6,9 @@ import { BANK_ID } from './module.ts';
 
 export const BANK_CATALOG: CatalogEntry = {
   id: BANK_ID,
-  bggId: null,
+  // A folk dice game under its own public name (D060): its own BoardGameGeek entry, shown on the game page as
+  // Chess's is, and no "Compare to" phrase.
+  bggId: 412804,
   compareTo: null,
   year: null,
   status: 'beta',

@@ -66,7 +66,13 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
-import { type DeckPartition, deckPartitions, parsePartitionMove } from './partitioned-deck.ts';
+import {
+  type DeckPartition,
+  deckPartitions,
+  parsePartitionMove,
+  shuffleStepGroup,
+  shuffleStepSeat,
+} from './partitioned-deck.ts';
 import { ShareStore } from './shares.ts';
 import type {
   Duty,
@@ -813,7 +819,8 @@ export class GameSession {
     const c = m.content;
     if (m.seq <= this.shuffleSteps) {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
-      const expectedSeat = Math.floor((m.seq - 1) / this.partitions.length);
+      const expectedSeat = shuffleStepSeat(m.seq - 1, this.partitions);
+      if (expectedSeat === null) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
       if (seat !== expectedSeat) return `shuffle step ${m.seq} must be signed by seat ${expectedSeat}`;
       if (c.deck.length !== this.partitionAt(m.seq - 1).size)
         return 'shuffle output has the wrong group size';
@@ -1365,7 +1372,8 @@ export class GameSession {
     const c = m.content;
     if (c.type === 'shuffle') {
       const step = m.seq - 1;
-      const expectedSeat = Math.floor(step / this.partitions.length);
+      const expectedSeat = shuffleStepSeat(step, this.partitions);
+      if (expectedSeat === null) return reject('the game has no deck to shuffle');
       if (seat !== expectedSeat)
         return reject(`shuffle step ${m.seq} must be signed by seat ${expectedSeat}`);
       if (!this.shuffleVerifies(m.id, step, c.deck, c.proof))
@@ -1540,17 +1548,22 @@ export class GameSession {
     return ok;
   }
 
-  /** Only called in a game with a deck. */
+  /** Only called in a game with a deck, on a shuffle step; throws rather than divide by zero otherwise. */
   private partitionAt(step: number): DeckPartition {
-    return this.partitions[step % this.partitions.length] as DeckPartition;
+    const group = shuffleStepGroup(step, this.partitions);
+    if (group === null) throw new ClientError(`no deck group for shuffle step ${step}`);
+    return group;
+  }
+
+  /** The seat that signs the next shuffle step, or null in a deckless game (which never shuffles). */
+  private nextShuffler(): number | null {
+    return shuffleStepSeat(this.chain.length, this.partitions);
   }
 
   private shuffleCtx(step: number): ShuffleCtx {
-    return {
-      rootId: this.root.id,
-      seat: Math.floor(step / this.partitions.length),
-      deckId: this.partitionAt(step).id,
-    };
+    // partitionAt throws first in a deckless game, so the seat below is always a number.
+    const group = this.partitionAt(step);
+    return { rootId: this.root.id, seat: shuffleStepSeat(step, this.partitions) ?? -1, deckId: group.id };
   }
 
   private link(m: ParsedMove): void {
@@ -2394,8 +2407,10 @@ export class GameSession {
     // A resign has ended the game: nobody owes anything but, in a game with a deck, the missing secrets (D052).
     if (this.ended() !== null) return this.resignEnd() ? all.filter((k) => !this.secrets.has(k)) : [];
     switch (this.phase) {
-      case 'shuffle':
-        return [Math.floor(this.chain.length / this.partitions.length)];
+      case 'shuffle': {
+        const next = this.nextShuffler();
+        return next === null ? [] : [next];
+      }
       case 'deal': {
         // A shuffle fork held during the deal (D056, review F7): the shuffle equivocator is the stalled seat, never
         // a seat that dealt on a rival deck and, under "never deal twice", will not deal again on this one.
@@ -2643,12 +2658,8 @@ export class GameSession {
 
   /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
   private pending(): Pending {
-    if (this.phase === 'shuffle')
-      return {
-        type: 'player',
-        seat: Math.floor(this.chain.length / this.partitions.length),
-        decision: 'shuffle',
-      };
+    const shuffler = this.phase === 'shuffle' ? this.nextShuffler() : null;
+    if (shuffler !== null) return { type: 'player', seat: shuffler, decision: 'shuffle' };
     const p = this.module.pending(this.state);
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
   }
@@ -2659,12 +2670,7 @@ export class GameSession {
     if (me === null) return [];
     // After a timeout or a resign only the attestation can be due, and the secret a resign left owed (D052).
     const live = this.timedOut === null && this.ended() === null;
-    if (
-      live &&
-      this.phase === 'shuffle' &&
-      Math.floor(this.chain.length / this.partitions.length) === me.seat
-    )
-      return [{ kind: 'shuffle' }];
+    if (live && this.phase === 'shuffle' && this.nextShuffler() === me.seat) return [{ kind: 'shuffle' }];
     // Never deal twice (D056, review F7): a seat that dealt on a rival deck of a shuffle fork owes no deal here.
     if (
       live &&

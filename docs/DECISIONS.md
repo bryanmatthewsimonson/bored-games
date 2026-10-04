@@ -935,3 +935,24 @@ D059 approved candidate (e), "plain stop", for protocol v2. `docs/PROTOCOL-v2.md
 - align the model's resign identity with the spec's named-head identity (M3);
 - finish or re-run the unproven scopes;
 - check kind 7458 against the NIPs registry.
+
+## D062: D060 follow-ups: Luster's "Compare to", Bank's link, Luster guards and the gem rule (2026-10-04)
+- **Luster "Compare to".**
+  - `packages/games/luster/src/compare.ts` holds the one literal. The catalog has `bggId: null` and `compareTo {title, bggId: 148228}`, as Chain Reaction does (D053).
+  - The guard restricts "Splendor", its publisher "Space Cowboys" and its designer "Marc André", with ASCII, hyphenated, underscored and run-together variants.
+  - `ALLOWED_PHRASE_HOMES` keys each allowed phrase by its home `compare.ts`. Each phrase is spelled once there and nowhere else in the packages, and the public build must hold both phrases.
+  - **Accepted gap**, documented by a test: "Compare to <Title> <unrestricted word>" (for example a sequel's name) passes the phrase cut, for both games.
+  - CLAUDE.md names both exceptions.
+- **Bank:** `bggId` 412804, shown on the game page as Chess's is; `compareTo` null.
+- **The D052 contract over the shipped registry.**
+  - `apps/web/test/module-contract.test.ts` runs the reveal contract over every module in `apps/web/src/net.ts`.
+  - A module is exempt only when `resignAllowed` is false at every seat count. Today that is Luster, and the test proves Luster would fail the contract.
+- **promptShares allowlist.**
+  - Only `luster` may set `DeckSpec.promptShares`, enforced by a web test and a repo guard.
+  - Protocol v2 ignores the flag and gates prompt release for every deck game (D061).
+- **Shuffle-step arithmetic.** `shuffleStepSeat` and `shuffleStepGroup` return null when there are no groups, so the session never divides by the group count.
+- **The Luster gem rule (C11).**
+  - Following the owner's "use whatever the rules dictate", new tables take three different colours, or fewer only when fewer are left (rulebook plus the publisher's FAQ).
+  - `gems: 'any'`, and any rules object without the field (every earlier table), keeps 0.2.0's any-number rule.
+  - The engine version is not bumped. A root pins the module version, so a bump would orphan games in progress. Legacy rules validate to themselves, so their folds and hashes are unchanged.
+  - The forced pass is a platform rule (D015/D016); the published rules have no pass.

@@ -1,5 +1,12 @@
 import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
+import {
+  GEM_RULES,
+  DEFAULT_RULES as LUSTER_DEFAULT_RULES,
+  type LusterGemRule,
+  validateRules as validateLusterRules,
+} from '@bored-games/luster';
+import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
@@ -30,9 +37,11 @@ export function NewTableForm(props: { game: string }) {
   const [deadline, setDeadline] = useState(259200);
   const [rounds, setRounds] = useState<(typeof ROUND_CHOICES)[number]>(DEFAULT_RULES.rounds);
   const [banking, setBanking] = useState<(typeof BANKING_CHOICES)[number]>(DEFAULT_RULES.banking);
+  const [gems, setGems] = useState<LusterGemRule>(LUSTER_DEFAULT_RULES.gems ?? 'published');
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
+    setGems(LUSTER_DEFAULT_RULES.gems ?? 'published');
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -78,6 +87,14 @@ export function NewTableForm(props: { game: string }) {
           banking,
           maxRollsPerRound: DEFAULT_RULES.maxRollsPerRound,
         });
+        if (!checked.ok) throw new Error(checked.error.message);
+        const address = await lobby.createTable({ ...spec, rules: checked.value });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'luster') {
+        const checked = validateLusterRules({ target: LUSTER_DEFAULT_RULES.target, gems });
         if (!checked.ok) throw new Error(checked.error.message);
         const address = await lobby.createTable({ ...spec, rules: checked.value });
         const a = splitAddress(address);
@@ -175,6 +192,30 @@ export function NewTableForm(props: { game: string }) {
             </p>
           </fieldset>
         </>
+      )}
+
+      {game === 'luster' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Taking gems</legend>
+          <div class="radio-row">
+            {GEM_RULES.map((choice) => (
+              <label key={choice} class="radio">
+                <input
+                  type="radio"
+                  name="gems"
+                  value={choice}
+                  checked={gems === choice}
+                  onChange={() => setGems(choice)}
+                />
+                {LUSTER_THEME.gems[choice]}
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            The published rule takes three different colors, fewer only when fewer are left in the supply. The
+            table names which.
+          </p>
+        </fieldset>
       )}
 
       <div class="field">

@@ -1,4 +1,5 @@
-import { type CardSlot, luster } from '@bored-games/luster';
+import { type CardSlot, GEM_RULES, luster } from '@bored-games/luster';
+import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { PlayerSidebar, ReservedCards, WorkshopCard } from '../src/games/luster/game.tsx';
@@ -138,5 +139,16 @@ describe('Luster public presentation', () => {
     const returns = [{ type: 'return' as const, actor: 0, tokens: [1, 0, 0, 0, 0, 2] }];
     expect(nextTokens(returns, 'return', [1, 0, 0, 0, 0, 1], 5)).toEqual([1, 0, 0, 0, 0, 2]);
     expect(nextTokens(returns, 'return', [1, 0, 0, 0, 0, 1], 0)).toEqual([0, 0, 0, 0, 0, 1]);
+  });
+  it('offers each gem rule under New table, published first and by default (C11)', () => {
+    expect(GEM_RULES).toEqual(['published', 'any']);
+    expect(luster.defaultRules().gems).toBe(GEM_RULES[0]);
+    for (const gems of GEM_RULES) {
+      expect(LUSTER_THEME.gems[gems].length).toBeGreaterThan(0);
+      expect(luster.validateRules({ target: 15, gems })).toEqual({ ok: true, value: { target: 15, gems } });
+    }
+    const page = spokenText(renderTree(h(LusterRulesContent, {})));
+    expect(page).toContain('take one token in each of three different regular colors');
+    expect(page).toContain('any number of different colors');
   });
 });
