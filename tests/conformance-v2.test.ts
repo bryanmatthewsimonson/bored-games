@@ -85,9 +85,14 @@ const ALLOWLIST: Record<string, Allowed> = {
   'V2-27': { until: 'T8, T9' },
   'V2-28': { until: 'T8' },
   'V2-29': { until: 'T8, T15' },
-  'V2-30': { until: 'T4' },
   'V2-31': { until: 'T9' },
-  'V2-32': { until: 'T4, T9' },
+  'V2-32': {
+    until:
+      'T9 (the session verifies each contribution against its requesting move and keeps one per (seat, M, n))',
+    partial:
+      'verifyMoveRollShare checks a contribution with deck id roll at position n against its own requesting ' +
+      "move's point and fails for any other (packages/deck/test/roll-v2.test.ts, vector 1)",
+  },
   'V2-33': { until: 'T9' },
   'V2-34': { until: 'T9, T15' },
   'V2-35': { until: 'T9' },

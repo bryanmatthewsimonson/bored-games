@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '@bored-games/game-kit';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { makeShareWithNonce } from '../src/dleq.ts';
 import {
   type Ciphertext,
   cardPoint,
@@ -26,7 +27,6 @@ import {
   generators,
   initialDeck,
   jointKey,
-  makeShare,
   provePok,
   proveShuffle,
   randomScalar,
@@ -103,11 +103,13 @@ export function generateVectors(): unknown {
   const bySeat: Share[][] = Array.from({ length: SIZE }, () => []);
   for (let k = 0; k < SEATS; k++) {
     for (let pos = 0; pos < SIZE; pos++) {
-      const share = makeShare(
+      // The unhedged hook with `w = randomScalar(rnd)`: the draws `makeShare` made before its nonces were
+      // hedged (T4), so this file still reproduces byte for byte. Production shares use `makeShare`.
+      const share = makeShareWithNonce(
         secrets[k] as bigint,
         deck[pos] as Ciphertext,
         { rootId: ROOT_ID, deckId: DECK_ID, pos },
-        rnd,
+        randomScalar(rnd),
       );
       shares.push({ seat: k, share: encodeShare({ pos, share }) });
       (bySeat[pos] as Share[])[k] = share;

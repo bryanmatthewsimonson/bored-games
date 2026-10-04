@@ -118,6 +118,9 @@ importers:
         specifier: 2.4.0
         version: 2.4.0
     devDependencies:
+      '@bored-games/dice':
+        specifier: workspace:*
+        version: link:../dice
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../game-kit

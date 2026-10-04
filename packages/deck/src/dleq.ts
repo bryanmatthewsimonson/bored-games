@@ -4,7 +4,7 @@ import type { Ciphertext } from './elgamal.ts';
 import type { Point } from './encoding.ts';
 import { hs } from './encoding.ts';
 import { G, inRange, msm, q } from './group.ts';
-import { type RandomBytes, randomScalar } from './random.ts';
+import type { RandomBytes } from './random.ts';
 
 const PointClass = secp256k1.Point;
 
@@ -35,15 +35,45 @@ function challenge(ctx: ShareCtx, X: Point, a: Point, D: Point, T1: Point, T2: P
  * Seat `x`'s decryption share of `ct` with its proof (PROTOCOL §5.4):
  * `D = x·a`, `T1 = w·G`, `T2 = w·a`, `c = HS("dleq", rootId, deckId, pos, X, a, D, T1, T2)`, `s = w + c·x mod q`.
  * Throws on a secret outside [1, q), an identity `a` (nothing to decrypt; verifiers reject it) or a bad `pos`.
- * All randomness comes from `rnd`; curve multiplications by secrets are constant time (bigint scalar arithmetic in JS is not).
+ *
+ * The nonce is hedged (D055 follow-up, protocol v2 build T4): `w = HS("dleq-nonce", x, rootId, deckId, pos, X, a,
+ * D, z)` with 32 fresh bytes `z` from `rnd`, redrawn in the negligible case of a zero. A broken or repeating
+ * random source therefore cannot repeat `w` across two statements or two secrets (which would leak `x`), and a
+ * good one keeps `w` unpredictable to anyone who knows the transcript. The proof format and its verification are
+ * unchanged, so v1 folds are not affected; a deterministic `rnd` still gives a deterministic share.
+ * Curve multiplications by secrets are constant time (bigint scalar arithmetic in JS is not).
  */
 export function makeShare(x: bigint, ct: Ciphertext, ctx: ShareCtx, rnd: RandomBytes): Share {
-  if (typeof x !== 'bigint' || x < 1n || x >= q) throw new RangeError('makeShare: x must lie in [1, q)');
-  if (!validPos(ctx.pos)) throw new RangeError('makeShare: pos must be a non-negative safe integer');
-  if (ct.a.is0()) throw new RangeError('makeShare: ciphertext has an identity a');
-  const X = G.multiply(x);
-  const D = ct.a.multiply(x);
-  const w = randomScalar(rnd);
+  const { X, D } = shareStatement(x, ct, ctx, 'makeShare');
+  for (;;) {
+    const z = rnd(32);
+    if (z.length !== 32) throw new RangeError('random source returned the wrong number of bytes');
+    const w = hs('dleq-nonce', x, ctx.rootId, ctx.deckId, ctx.pos, X, ct.a, D, z);
+    if (w !== 0n) return proveShare(x, ct, ctx, X, D, w);
+  }
+}
+
+/**
+ * INTERNAL, for test-vector scripts and tests only; never for production. `makeShare` with the nonce `w` given,
+ * unhedged. `scripts/vectors.ts` draws `w = randomScalar(rnd)` here, exactly as `makeShare` did before nonces
+ * were hedged, so `test/vectors/v1.json` still reproduces byte for byte. Not exported from the package index.
+ * @internal
+ */
+export function makeShareWithNonce(x: bigint, ct: Ciphertext, ctx: ShareCtx, w: bigint): Share {
+  const { X, D } = shareStatement(x, ct, ctx, 'makeShareWithNonce');
+  if (typeof w !== 'bigint' || w < 1n || w >= q)
+    throw new RangeError('makeShareWithNonce: w must lie in [1, q)');
+  return proveShare(x, ct, ctx, X, D, w);
+}
+
+function shareStatement(x: bigint, ct: Ciphertext, ctx: ShareCtx, who: string): { X: Point; D: Point } {
+  if (typeof x !== 'bigint' || x < 1n || x >= q) throw new RangeError(`${who}: x must lie in [1, q)`);
+  if (!validPos(ctx.pos)) throw new RangeError(`${who}: pos must be a non-negative safe integer`);
+  if (ct.a.is0()) throw new RangeError(`${who}: ciphertext has an identity a`);
+  return { X: G.multiply(x), D: ct.a.multiply(x) };
+}
+
+function proveShare(x: bigint, ct: Ciphertext, ctx: ShareCtx, X: Point, D: Point, w: bigint): Share {
   const T1 = G.multiply(w);
   const T2 = ct.a.multiply(w);
   const c = challenge(ctx, X, ct.a, D, T1, T2);

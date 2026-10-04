@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '@bored-games/game-kit';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { makeShareWithNonce } from '../src/dleq.ts';
 import {
   type Ciphertext,
   cardOf,
@@ -31,16 +32,25 @@ import {
   G,
   initialDeck,
   jointKey,
-  makeShare,
   openAndVerify,
   ownShare,
   type Point,
   proveOpening,
+  type RandomBytes,
   randomScalar,
+  type Share,
+  type ShareCtx,
   sealShare,
   shuffleDeck,
 } from '../src/index.ts';
 import { seededRandom } from '../test/util.ts';
+
+/**
+ * The unhedged share hook with `w = randomScalar(rnd)`: the draws `makeShare` made before its nonces were hedged
+ * (protocol v2 build T4), so `sealed-v1.json` still reproduces byte for byte. Production shares use `makeShare`.
+ */
+const makeShare = (x: bigint, ct: Ciphertext, ctx: ShareCtx, rnd: RandomBytes): Share =>
+  makeShareWithNonce(x, ct, ctx, randomScalar(rnd));
 
 const SEED = 'bored-games/deck/sealed/v1';
 const SEATS = 3;

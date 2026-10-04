@@ -2,7 +2,18 @@
  * Public API of @bored-games/deck. The verifiers check `instanceof` against this package's own @noble/curves copy
  * and return false for a point built by another copy (D023): take points from `decodePoint` or from this package.
  */
-export { makeRollShare, ROLL_DECK, rollCiphertext, rollPoint, rollSeed, verifyRollShare } from './beacon.ts';
+export {
+  makeMoveRollShare,
+  makeRollShare,
+  moveRollCiphertext,
+  moveRollPoint,
+  ROLL_DECK,
+  rollCiphertext,
+  rollPoint,
+  rollSeed,
+  verifyMoveRollShare,
+  verifyRollShare,
+} from './beacon.ts';
 export { cardOf, cardPoint, cardTable } from './cards.ts';
 export {
   combine,

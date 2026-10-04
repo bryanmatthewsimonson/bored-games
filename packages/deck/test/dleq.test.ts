@@ -5,12 +5,14 @@ import {
   combine,
   decryptPosition,
   makeShare,
+  makeShareWithNonce,
   ownShare,
   type Share,
   type ShareCtx,
   verifyShare,
 } from '../src/dleq.ts';
 import { type Ciphertext, initialDeck, jointKey, reEncrypt } from '../src/elgamal.ts';
+import type { Point as Pt } from '../src/encoding.ts';
 import { G, q } from '../src/group.ts';
 import { randomScalar } from '../src/random.ts';
 import { seededRandom } from './util.ts';
@@ -339,5 +341,59 @@ describe('decryptPosition', () => {
     decryptPosition(ct, ctx, keys, map, table, own(1));
     expect(arr).toEqual([s0, null, s2]);
     expect([...map.keys()]).toEqual([0, 2]);
+  });
+});
+
+describe('hedged share nonces (D055 follow-up, protocol v2 T4)', () => {
+  const ct = encryptTwice(3);
+  const zeros = () => () => new Uint8Array(32);
+
+  it('a constant random source still gives valid, distinct proofs per statement and per secret', () => {
+    const a = makeShare(secrets[0] as bigint, ct, ctx, zeros());
+    const b = makeShare(secrets[0] as bigint, ct, { ...ctx, pos: 8 }, zeros());
+    const c = makeShare(secrets[1] as bigint, ct, ctx, zeros());
+    const d = makeShare(secrets[0] as bigint, encryptTwice(3), ctx, zeros());
+    expect(verifyShare(keys[0] as Pt, ct, a, ctx)).toBe(true);
+    expect(verifyShare(keys[0] as Pt, ct, b, { ...ctx, pos: 8 })).toBe(true);
+    expect(verifyShare(keys[1] as Pt, ct, c, ctx)).toBe(true);
+    // A repeated nonce over two statements with one secret would leak it: s1 − s2 = (c1 − c2)·x. Here the
+    // commitments differ, so the nonces did.
+    const T1 = (sh: Share, K: Pt) => G.multiply(sh.s).subtract(K.multiply(sh.c));
+    const nonces = [
+      T1(a, keys[0] as Pt),
+      T1(b, keys[0] as Pt),
+      T1(c, keys[1] as Pt),
+      T1(d, keys[0] as Pt),
+    ].map((P) => P.toHex());
+    expect(new Set(nonces).size).toBe(4);
+  });
+
+  it('is deterministic for a deterministic source, and still draws from it', () => {
+    const x = secrets[0] as bigint;
+    const one = makeShare(x, ct, ctx, seededRandom('hedge'));
+    const again = makeShare(x, ct, ctx, seededRandom('hedge'));
+    const other = makeShare(x, ct, ctx, seededRandom('hedge-2'));
+    expect(one.c === again.c && one.s === again.s).toBe(true);
+    expect(one.D.equals(other.D)).toBe(true);
+    expect(one.c === other.c || one.s === other.s).toBe(false);
+  });
+
+  it('the nonce is not the unhedged draw: makeShare and makeShareWithNonce(randomScalar) differ, both verify', () => {
+    const x = secrets[2] as bigint;
+    const hedged = makeShare(x, ct, ctx, seededRandom('same'));
+    const plain = makeShareWithNonce(x, ct, ctx, randomScalar(seededRandom('same')));
+    expect(hedged.D.equals(plain.D)).toBe(true);
+    expect(hedged.c === plain.c).toBe(false);
+    expect(verifyShare(keys[2] as Pt, ct, hedged, ctx)).toBe(true);
+    expect(verifyShare(keys[2] as Pt, ct, plain, ctx)).toBe(true);
+  });
+
+  it('checks its arguments: a short random read, and a nonce outside [1, q) for the internal hook', () => {
+    const x = secrets[0] as bigint;
+    expect(() => makeShare(x, ct, ctx, () => new Uint8Array(31))).toThrow(RangeError);
+    expect(() => makeShareWithNonce(x, ct, ctx, 0n)).toThrow(RangeError);
+    expect(() => makeShareWithNonce(x, ct, ctx, q)).toThrow(RangeError);
+    expect(() => makeShareWithNonce(0n, ct, ctx, 1n)).toThrow(RangeError);
+    expect(() => makeShareWithNonce(x, ct, { ...ctx, pos: -1 }, 1n)).toThrow(RangeError);
   });
 });

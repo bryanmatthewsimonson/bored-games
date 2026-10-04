@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "vectors": "node scripts/vectors.ts && node scripts/sealed-vectors.ts",
+    "vectors": "node scripts/vectors.ts && node scripts/sealed-vectors.ts && node scripts/vectors-v2.ts",
     "bench": "node scripts/bench.ts"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@noble/hashes": "2.4.0"
   },
   "devDependencies": {
+    "@bored-games/dice": "workspace:*",
     "@bored-games/game-kit": "workspace:*"
   }
 }

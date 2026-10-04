@@ -1,6 +1,8 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats, positions and deck orders.
 
+import { readFileSync } from 'node:fs';
 import { chess } from '@bored-games/chess';
+import * as deck from '@bored-games/deck';
 import { G, initialDeck, jointKey, proveShuffle, shuffleDeck } from '@bored-games/deck';
 import { finalizeEvent, moveTemplate } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
@@ -165,6 +167,63 @@ describe('opt-in partitioned encrypted shuffles', () => {
         const watching = t.spectator.view().state as typeof state;
         expect(watching.hands[0]!.find((h) => h.pos === 5)?.card).toBeNull();
       } else expect(() => other.buildShares(t.game.rnd, NOW)).toThrow();
+    }
+  });
+});
+
+describe('the deck package partitioned-shuffle vectors (PROTOCOL-v2 §12.2 item 2) reproduce with the v1 client rules', () => {
+  // A v1 gap (D060): conforming v1 clients must reproduce the vectors. This uses the client's own arithmetic
+  // (deckPartitions, shuffleStepSeat, shuffleStepGroup) and verifies each step as GameSession.shuffleVerifies does.
+  it('groups, step seats, domains, input slices, proofs and packets all match', () => {
+    type Entry = number | [string, string];
+    const v = JSON.parse(
+      readFileSync(new URL('../../deck/test/vectors/partitioned-v1.json', import.meta.url), 'utf8'),
+    ) as {
+      rootId: string;
+      deckId: string;
+      size: number;
+      groups: { id: string; size: number; offset: number; domain: string }[];
+      jointKey: string;
+      steps: {
+        seat: number;
+        domain: string;
+        offset: number;
+        size: number;
+        input: Entry[];
+        output: Entry[];
+        proof: unknown;
+        packet: Entry[];
+      }[];
+    };
+    const groups = deckPartitions({
+      id: v.deckId,
+      size: v.size,
+      partitions: v.groups.map((g) => ({ id: g.id, size: g.size })),
+    });
+    expect(groups).toEqual(v.groups.map((g) => ({ id: g.domain, offset: g.offset, size: g.size })));
+    const decode = (es: readonly Entry[]) =>
+      es.map((e) =>
+        typeof e === 'number'
+          ? deck.initialDeck(v.deckId, e + 1)[e]!
+          : { a: deck.decodePoint(e[0]), b: deck.decodePoint(e[1]) },
+      );
+    const X = deck.decodePoint(v.jointKey);
+    let packet = deck.initialDeck(v.deckId, v.size);
+    expect(v.steps).toHaveLength(groups.length * 2);
+    for (const [s, step] of v.steps.entries()) {
+      const group = shuffleStepGroup(s, groups)!;
+      expect(shuffleStepSeat(s, groups)).toBe(step.seat);
+      expect([group.id, group.offset, group.size]).toEqual([step.domain, step.offset, step.size]);
+      const input = packet.slice(group.offset, group.offset + group.size);
+      const listedIn = decode(step.input);
+      expect(input.every((c, i) => c.a.equals(listedIn[i]!.a) && c.b.equals(listedIn[i]!.b))).toBe(true);
+      const output = decode(step.output);
+      const proof = deck.decodeShuffleProof(step.proof, group.size);
+      const ctx = { rootId: v.rootId, seat: shuffleStepSeat(s, groups)!, deckId: group.id };
+      expect(deck.verifyShuffle(input, output, X, proof, ctx)).toBe(true);
+      packet = [...packet.slice(0, group.offset), ...output, ...packet.slice(group.offset + group.size)];
+      const listed = decode(step.packet);
+      expect(packet.every((c, i) => c.a.equals(listed[i]!.a) && c.b.equals(listed[i]!.b))).toBe(true);
     }
   });
 });
