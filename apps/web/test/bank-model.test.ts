@@ -49,17 +49,13 @@ describe('Bank screen model', () => {
   it('labels Bank, Stay, Roll and Show the dice from the legal actions', () => {
     const state = start();
     const pending = bank.pending(state);
-    expect(pendingLabels(pending)).toEqual([BANK_THEME.decisions.bank, BANK_THEME.decisions.stay]);
-    expect(decisionButtons(bank.legalActions(state, 1)).map((b) => b.label)).toEqual(['Bank', 'Stay']);
+    expect(pendingLabels(pending)).toEqual([BANK_THEME.decisions.roll]);
+    expect(decisionButtons(bank.legalActions(state, 0)).map((b) => b.label)).toEqual(['Roll']);
     const atRoller = resolve(start(2), [1, 2]);
-    // After one safe roll the poll starts again. Seat 1 may bank or stay; the roller is not asked yet.
+    // After one safe roll the poll starts. Seat 1 may bank or stay; the roller is not asked yet.
     expect(decisionButtons(bank.legalActions(atRoller, atRoller.roller)).map((b) => b.label)).toEqual([]);
-    let calling = start(2);
-    for (;;) {
-      const pending = bank.pending(calling);
-      if (pending.type !== 'player' || pending.seat === calling.roller) break;
-      calling = act(calling, { type: 'stay', actor: pending.seat });
-    }
+    expect(decisionButtons(bank.legalActions(atRoller, 1)).map((b) => b.label)).toEqual(['Bank', 'Stay']);
+    const calling = act(atRoller, { type: 'stay', actor: 1 });
     expect(decisionButtons(bank.legalActions(calling, calling.roller)).map((b) => b.label)).toEqual([
       'Bank',
       'Roll',
@@ -87,10 +83,10 @@ describe('Bank screen model', () => {
   it('names who is to play, in, or banked', () => {
     const state = start();
     const pending = bank.pending(state);
-    expect(seatStatus(state, 1, pending)).toBe('To play');
-    expect(seatStatus(state, 0, pending)).toBe('In');
-    const banked = act(state, { type: 'bank', actor: 1 });
-    expect(seatStatus(banked, 1, bank.pending(banked))).toBe('Banked 0');
+    expect(seatStatus(state, 0, pending)).toBe('To play');
+    expect(seatStatus(state, 1, pending)).toBe('In');
+    const banked = act(resolve(state, [3, 5]), { type: 'bank', actor: 1 });
+    expect(seatStatus(banked, 1, bank.pending(banked))).toBe('Banked 8');
   });
 
   it('skips the tumble when motion is reduced', () => {

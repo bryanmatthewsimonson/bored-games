@@ -48,12 +48,13 @@ export function contributeOrder(roller: number, seats: number): number[] {
 }
 
 /**
- * Who is asked next in a call window. `table` starts at the seat after the roller and ends on the roller, so
- * everyone else still in may bank before the dice are rolled. Seats already out, and seats who stayed, are
- * skipped. The roller is never skipped.
+ * Who is asked next in a call window. A round with no roll yet asks the roller to roll: an empty pot is not
+ * a banking decision. After a roll, `table` starts at the seat after the roller and ends on the roller.
+ * Seats already out, and seats who stayed, are skipped. The roller is never skipped.
+ * `turn` asks only the roller.
  */
 export function caller(s: BankState): number {
-  if (s.rules.banking === 'turn') return s.roller;
+  if (s.rules.banking === 'turn' || s.rolls === 0) return s.roller;
   for (let k = 1; k <= s.seats; k++) {
     const seat = (s.roller + k) % s.seats;
     if (!s.inRound[seat]) continue;
@@ -81,7 +82,8 @@ export function pendingOf(s: BankState): Pending {
   if (s.phase === 'collect') return { type: 'player', seat: s.owe[0] ?? 0, decision: 'contribute' };
   const seat = caller(s);
   if (seat === s.roller) {
-    return { type: 'player', seat, decision: rollerOnlyRolls(s, seat) ? 'roll' : 'bank-or-roll' };
+    const mustRoll = s.rolls === 0 || rollerOnlyRolls(s, seat);
+    return { type: 'player', seat, decision: mustRoll ? 'roll' : 'bank-or-roll' };
   }
   return { type: 'player', seat, decision: 'bank-or-stay' };
 }
@@ -94,7 +96,7 @@ export function legalActionsOf(s: BankState, seat: Seat): readonly unknown[] {
   }
   if (seat === s.roller) {
     const roll = { type: 'roll', actor: seat, rollId: s.nextRollId };
-    if (rollerOnlyRolls(s, seat)) return [roll];
+    if (s.rolls === 0 || rollerOnlyRolls(s, seat)) return [roll];
     return [{ type: 'bank', actor: seat }, roll];
   }
   return [
@@ -290,6 +292,7 @@ function finishRound(
 function applyBank(s: BankState, actor: number): ApplyResult<BankState, BankEvent> {
   if (s.phase !== 'call') return fail('illegal', 'banking is only between rolls');
   if (actor !== caller(s)) return fail('turn', `it is seat ${caller(s)}'s decision`);
+  if (s.rolls === 0) return fail('illegal', 'there is nothing in the pot to bank');
   if (rollerOnlyRolls(s, actor)) return fail('illegal', 'a roller who already stayed may only roll');
   const paid = bankSeat(s, actor, s.pot, true);
   if (paid === null) return fail('illegal', 'a score would exceed a safe integer');

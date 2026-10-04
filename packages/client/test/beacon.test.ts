@@ -12,7 +12,6 @@ import { deliver, makeModuleGame, NOW, newSession, statuses, T0, type TestGame }
  * sends the faces is rejected. Chess stays on the deckless path and is covered in deckless.test.ts.
  */
 
-const stay = (seat: number) => ({ type: 'stay', actor: seat });
 const roll = (seat: number, rollId: number) => ({ type: 'roll', actor: seat, rollId });
 const contribute = (seat: number, rollId: number) => ({ type: 'contribute', actor: seat, rollId });
 
@@ -50,25 +49,24 @@ function diceOf(s: GameSession): Extract<BankState['log'][number], { kind: 'dice
 }
 
 describe('a dice beacon session (Bank)', () => {
-  it('starts in play with seat 1 to bank or stay, and the roller last', () => {
+  it('starts in play with the roller to roll, and an empty pot', () => {
     const t = table('beacon-start');
     for (const s of t.all) {
       expect(s.view()).toMatchObject({
         phase: 'play',
         shuffleSteps: 0,
         head: { seq: 0 },
-        pending: { type: 'player', seat: 1, decision: 'bank-or-stay' },
+        pending: { type: 'player', seat: 0, decision: 'roll' },
       });
       expect(stateOf(s)).toMatchObject({ game: 'bank', pot: 0, roller: 0, round: 0 });
     }
-    expect(t.players[1]?.duties()).toEqual([{ kind: 'decide' }]);
-    expect(t.players[0]?.duties()).toEqual([]);
-    expect(t.players[1]?.legalActions()).toEqual([{ type: 'bank', actor: 1 }, stay(1)]);
+    expect(t.players[0]?.duties()).toEqual([{ kind: 'decide' }]);
+    expect(t.players[1]?.duties()).toEqual([]);
+    expect(t.players[0]?.legalActions()).toEqual([roll(0, 0)]);
   });
 
   it('derives the same faces for both seats and a spectator, and not before the last share', () => {
     const t = table('beacon-roll');
-    play(t, 1, stay(1));
     play(t, 0, roll(0, 0));
     for (const s of t.all) {
       const state = stateOf(s);
@@ -124,14 +122,13 @@ describe('a dice beacon session (Bank)', () => {
       reason: 'a player does not send the dice',
     });
 
-    play(t, 1, stay(1));
     const head = t.spectator.view().head.id;
     const bare = finalizeEvent(
       moveTemplate(
         {
           rootId: t.game.rootId,
           prevId: head,
-          seq: 2,
+          seq: 1,
           content: { type: 'action', action: roll(0, 0), reveals: [], shares: [] },
         },
         T0 + 60,
@@ -150,7 +147,7 @@ describe('a dice beacon session (Bank)', () => {
         {
           rootId: t.game.rootId,
           prevId: head,
-          seq: 2,
+          seq: 1,
           content: {
             type: 'action',
             action: roll(0, 0),
@@ -167,13 +164,12 @@ describe('a dice beacon session (Bank)', () => {
       status: 'rejected',
       reason: 'the roll share does not verify',
     });
-    expect(t.spectator.view().head.seq).toBe(1);
+    expect(t.spectator.view().head.seq).toBe(0);
     expect(stateOf(t.spectator).pot).toBe(0);
   });
 
   it('derives the dice when two contributions fork, replaying the roller share', () => {
     const t = table('beacon-fork');
-    const stayed = play(t, 1, stay(1));
     const rolled = play(t, 0, roll(0, 0));
     const seat = t.players[1] as GameSession;
     const a = seat.buildAction(contribute(1, 0), t.game.rnd, NOW);
@@ -188,15 +184,10 @@ describe('a dice beacon session (Bank)', () => {
       'accepted',
     ]);
     // The late client sees the rival first, then the rest. Deriving still needs the roller's share on the roll.
-    expect(statuses(deliver([late], [b, a, stayed, rolled]))).toEqual([
-      'stored',
-      'stored',
-      'accepted',
-      'accepted',
-    ]);
+    expect(statuses(deliver([late], [b, a, rolled]))).toEqual(['stored', 'stored', 'accepted']);
     const kept = a.id < b.id ? a : b;
     for (const s of [...t.all, late]) {
-      expect(s.view()).toMatchObject({ head: { id: kept.id, seq: 3 }, equivocators: [1] });
+      expect(s.view()).toMatchObject({ head: { id: kept.id, seq: 2 }, equivocators: [1] });
       expect(diceOf(s).dice).toEqual(diceOf(t.spectator).dice);
       expect(stateOf(s).pot).toBe(stateOf(t.spectator).pot);
       expect(stateOf(s).pot).toBeGreaterThanOrEqual(2);

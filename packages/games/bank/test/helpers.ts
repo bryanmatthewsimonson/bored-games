@@ -78,6 +78,20 @@ export function playRoll(s: BankState, dice: readonly [number, number]): Played 
   return act(state, { type: 'rolled', actor: 'beacon', id, dice: [dice[0], dice[1]] });
 }
 
+/**
+ * End the open round with a bust, so nobody is paid. Rolls that are still safe add 2. An empty pot is not
+ * banked: a round with no roll yet has to be rolled before it can end.
+ */
+export function bustRound(s: BankState): BankState {
+  let state = s;
+  const round = s.round;
+  while (state.round === round && state.phase === 'call') {
+    const dice: readonly [number, number] = state.rolls >= 3 ? [1, 6] : [1, 1];
+    state = playRoll(state, dice).state;
+  }
+  return state;
+}
+
 /** Bank whenever the pending seat may. Stops when this round ends or the dice must be rolled. */
 export function bankTheRound(s: BankState): BankState {
   let state = s;

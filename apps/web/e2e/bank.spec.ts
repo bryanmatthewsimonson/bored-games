@@ -1,8 +1,8 @@
 /*
  * End to end: three players play a short Bank game through the UI, against the dev relay.
  *
- * a creates a 3-seat table of 5 rounds with table banking. b and c join. They stay, roll, and show the dice
- * until the first roll is on every screen, then everyone banks. All three see the same dice and the same
+ * a creates a 3-seat table of 5 rounds with table banking. b and c join. The roller rolls, the others show
+ * the dice, and the first roll is on every screen. Later rounds open on Roll again. All three see the same
  * winner line, the result is signed, and the rules page says why Show the dice exists. 390px does not scroll
  * sideways.
  *
@@ -42,17 +42,42 @@ async function noSideScroll(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 1000 });
 }
 
-/** Press `name` on the one player whose button is enabled. The engine asks one seat at a time. */
+const ACTIONS = ['Bank', 'Stay', 'Roll', 'Show the dice'] as const;
+
+/** Enabled action labels on one screen. A DOM read, so a disappearing button cannot stall the test. */
+async function enabledActions(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (names) => {
+      const wanted = new Set(names);
+      return [...document.querySelectorAll('button')]
+        .filter((el) => !el.disabled && wanted.has(el.textContent?.trim() ?? ''))
+        .map((el) => el.textContent?.trim() ?? '');
+    },
+    [...ACTIONS],
+  );
+}
+
+/** Click `name` once if some player can, without waiting. */
+async function clickNow(players: readonly Player[], name: string): Promise<boolean> {
+  for (const p of players) {
+    const clicked = await p.page.evaluate((label) => {
+      const button = [...document.querySelectorAll('button')].find(
+        (el) => el.textContent?.trim() === label && !el.disabled,
+      );
+      if (button === undefined) return false;
+      button.click();
+      return true;
+    }, name);
+    if (clicked) return true;
+  }
+  return false;
+}
+
+/** Click `name` on the one player who can. The engine asks one seat at a time. */
 async function press(players: readonly Player[], name: string): Promise<void> {
   const deadline = Date.now() + MOVE_MS;
   while (Date.now() < deadline) {
-    for (const p of players) {
-      const button = p.page.getByRole('button', { name, exact: true });
-      if ((await button.count()) > 0 && (await button.isEnabled())) {
-        await button.click();
-        return;
-      }
-    }
+    if (await clickNow(players, name)) return;
     await players[0]?.page.waitForTimeout(100);
   }
   throw new Error(`nobody could press ${name}`);
@@ -92,9 +117,11 @@ test('three players play five rounds of Bank and read why the dice are shown', a
     await expect(p.page.getByText('Round 1 of 5')).toBeVisible();
   }
 
-  // Two stays, then the roll, then each other seat shows the dice. Only one button is enabled at a time.
-  await press(players, 'Stay');
-  await press(players, 'Stay');
+  // A round opens on the roller. Nobody is asked to bank or stay while the pot is empty.
+  const opening: string[] = [];
+  for (const p of players) opening.push(...(await enabledActions(p.page)));
+  expect(opening).toEqual(['Roll']);
+
   await press(players, 'Roll');
   await expect(a.page.getByText('The roll was fixed when the roller chose to roll.')).toBeVisible({
     timeout: MOVE_MS,
@@ -110,26 +137,36 @@ test('three players play five rounds of Bank and read why the dice are shown', a
   }
   await noSideScroll(a.page);
 
-  const done = Date.now() + 90_000;
+  const offered = async (): Promise<string> => {
+    const parts: string[] = [];
+    for (const p of players) parts.push((await enabledActions(p.page)).join(','));
+    return parts.join('|');
+  };
+  const done = Date.now() + 120_000;
   while (Date.now() < done) {
     if ((await a.page.getByTestId('bank-winner').count()) > 0) break;
+    const before = await offered();
     let clicked = false;
-    for (const p of players) {
-      const bank = p.page.getByRole('button', { name: 'Bank', exact: true });
-      if ((await bank.count()) > 0 && (await bank.isEnabled())) {
-        await bank.click();
+    for (const label of ['Bank', 'Roll', 'Show the dice'] as const) {
+      if (await clickNow(players, label)) {
         clicked = true;
+        const until = Date.now() + 5_000;
+        while (Date.now() < until && (await offered()) === before) {
+          await a.page.waitForTimeout(50);
+        }
         break;
       }
     }
     if (!clicked) await a.page.waitForTimeout(200);
   }
 
-  const winner = (await a.page.getByTestId('bank-winner').textContent())?.trim() ?? '';
+  const winner = (await a.page.getByTestId('bank-winner').textContent({ timeout: 1_000 }))?.trim() ?? '';
   expect(winner.length).toBeGreaterThan(0);
+  const endFaces = await a.page.getByTestId('bank-dice').getAttribute('data-faces');
+  expect(endFaces).toMatch(/^[1-6],[1-6]$/);
   for (const p of players) {
     await expect(p.page.getByTestId('bank-winner')).toHaveText(winner);
-    await expect(p.page.getByTestId('bank-dice')).toHaveAttribute('data-faces', faces ?? '');
+    await expect(p.page.getByTestId('bank-dice')).toHaveAttribute('data-faces', endFaces ?? '');
     await expect(p.page.getByText('Result confirmed: signed by all 3 players.')).toBeVisible({
       timeout: MOVE_MS,
     });
