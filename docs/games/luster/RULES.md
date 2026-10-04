@@ -17,7 +17,7 @@ Shuffle each development tier separately and reveal four cards per tier. Shuffle
 Choose exactly one main action:
 
 - **Take gems:** take one token in each of up to three different regular colors, or two of one regular color if at least four of that color are in the supply before taking them. Gold tokens cannot be gathered. Taking fewer than three different colors is allowed.
-- **Reserve:** take one exposed development or the unseen top development of one tier. Keep at most three reservations. Take one Gold token if any remain, even if this takes you past ten tokens; you may reserve when no Gold tokens remain. Reserving an exposed card leaves its identity public; a blind reservation is private to you. Reservations cannot be discarded or exchanged and grant no discount or prestige until purchased.
+- **Reserve:** take one exposed development or the unseen top development of one tier. Keep at most three reservations. Take one Gold token if any remain, even if this takes you past ten tokens; you may reserve when no Gold tokens remain. Keep reserved cards face down in your hand. A card taken from the market was already public and may be remembered from the move history; an unseen draw is private to you. Reservations cannot be discarded or exchanged and grant no discount or prestige until purchased.
 - **Purchase:** buy one exposed development or one of your reservations. For each color, subtract the number of your purchased developments with that color bonus from its cost, stopping at zero. Pay the remaining price using colored tokens and/or Gold tokens; Gold tokens may replace colored tokens even if you have the colored tokens. Choose exactly how to pay. Put paid tokens into the supply and add the development to your collection. The new development's discount is usable on future turns. Free purchases still use your main action.
 
 Immediately replace an exposed card that was bought or reserved with the next card of its own tier. An exhausted tier leaves an empty space. A blind reservation consumes the next card of its tier without changing the exposed market.
@@ -28,13 +28,13 @@ The game has no discretionary pass. If no main action can be performed, pass. Th
 
 ## Online play
 
-Table order sets turn order. NOSTR carries signed actions; the existing encrypted shuffle and private deal protect unseen cards. Buying a blind reservation publishes its identity, checked against the shuffled deck during the final audit. Opponents and spectators see token holdings, development bonuses, prestige, nobles, and public reservations. They see the tier and count of blind reservations, but not their identities. All deck positions keep their original public/private assignment when a card moves into a collection.
+Table order sets turn order. NOSTR carries signed actions; the existing encrypted shuffle and private deal protect unseen cards. Buying a blind reservation publishes its identity, checked against the shuffled deck during the final audit. Opponents and spectators see token holdings, development bonuses, prestige, nobles, and the tier and count of reservations. All reserved cards are displayed face down outside their owner’s hand, with no face artwork, cost, bonus or score. A market reservation’s prior public identity remains in replay/history; an unseen reservation’s identity is not disclosed during play. All deck positions keep their original public/private assignment when a card moves into a collection.
 
 Resign is disabled pending a review of public market refills during play. Existing platform timeouts apply. Final-round scoring waits for necessary public refill reveals; an unavailable reveal is handled by the existing protocol deadline, not by a different game rule.
 
 Click a gem stack to add that color to your selection. A second click selects a legal pair; a further click clears that color. Click a selected gem in the tray to remove one, or Clear to start over. Confirm with Take gems. While returning excess tokens, the stacks show your own hand and the confirmation becomes Return gems. All clicks must be able to complete a legal token action.
 
-Click a development to open its buy/reserve panel; the card's whole face also works with Enter or Space. The price shown includes your permanent discounts. When multiple payments are possible, click a colored payment gem to replace one with Gold, or the Gold beside it to swap back. Buy card confirms the chosen exact payment. Reserve card takes the selected public card; clicking a tier's deck opens a panel to reserve an unseen card instead. Click an eligible noble's card to choose it. Escape or Close dismisses the card panel.
+Click a development to open its buy/reserve panel; the card's whole face also works with Enter or Space. The price shown includes your permanent discounts. When multiple payments are possible, click a colored payment gem to replace one with Gold, or the Gold beside it to swap back. Buy card confirms the chosen exact payment. Reserve card takes the selected public card; clicking a tier's deck opens a panel to reserve an unseen card instead. Click an eligible noble's card to choose it. Your reserved cards appear in a separate hand area and can be clicked to buy them. The right-hand desktop sidebar shows every player’s score, gems, discounts, nobles and face-down reservation counts; on smaller screens the player panels move below the board. Escape or Close dismisses the card panel.
 
 ## Verification catalog
 
@@ -57,7 +57,7 @@ Development bonuses alone qualify; visits cost no tokens; one compulsory eligibl
 Reach 15 then finish the round; equal turns; highest prestige first, then fewest purchased developments, then shared places.
 
 #### C07 Private information and audit hooks
-Private reservation redaction and owner-only learn; immutable assignments; correct revealsOf claims; forged identities rejected by full audit; public reservations remain visible.
+Private reservation redaction and owner-only learn; immutable assignments; correct revealsOf claims; forged identities rejected by full audit; prior market identities remain replayable; every opponent reservation is displayed face down.
 
 #### C08 Invalid input and determinism
 Malformed actions, extra fields, wrong actor, invalid setup/rules/deck/reveal and hostile getters rejected without throwing or mutating state; every enumerated legal action applies.

@@ -30,7 +30,7 @@ async function stateOf(page: Page, seat: number): Promise<LusterState> {
   const seats = await page.locator('.luster-players > section').count();
   const init = lusterRules.setup({ rules: lusterRules.defaultRules(), seats, mode: 'view', viewer: seat });
   if (!init.ok) throw new Error(init.error.message);
-  const snapshot = await board(page).evaluate((root) => {
+  const snapshot = await board(page).evaluate((root, seat) => {
     const slots = (parent: Element | null): CardSlot[] =>
       Array.from(parent?.querySelectorAll<HTMLElement>('.luster-card[data-deck]') ?? []).map((h) => ({
         deck: h.dataset.deck as CardSlot['deck'],
@@ -41,7 +41,11 @@ async function stateOf(page: Page, seat: number): Promise<LusterState> {
     const players = Array.from(root.querySelectorAll<HTMLElement>('.luster-players > section')).map((p) => ({
       tokens: p.dataset.tokens?.split(',').map(Number) ?? [],
       bought: slots(p.querySelector('details')),
-      reserved: slots(p.querySelector(':scope > .luster-reservations')),
+      reserved: slots(
+        Number(p.dataset.seat) === seat
+          ? root.querySelector('.luster-your-hand > .luster-reservations')
+          : p.querySelector(':scope > .luster-reservations'),
+      ),
       patrons: p.dataset.patrons?.split(',').filter(Boolean).map(Number) ?? [],
     }));
     const market = ['tier-1', 'tier-2', 'tier-3'].map((deck) =>
@@ -64,7 +68,7 @@ async function stateOf(page: Page, seat: number): Promise<LusterState> {
       round: Number((root as HTMLElement).dataset.round),
       seq: Number((root as HTMLElement).dataset.seq),
     };
-  });
+  }, seat);
   const all = [...snapshot.market.flat(), ...snapshot.players.flatMap((p) => [...p.reserved, ...p.bought])];
   const decks = { ...init.value.decks };
   for (const deck of TIER_DECKS)
@@ -236,8 +240,9 @@ for (const seats of [2, 3, 4]) {
     await expect(other.getByRole('button', { name: 'Reserve blind tier 1', exact: true })).toBeDisabled();
     await act(first, { type: 'reserve', actor: startingSeat, deck: 'tier-1', pos: 4 });
     const reservationSelector = `.luster-players [data-seat="${startingSeat}"] > .luster-reservations .luster-card`;
-    const reservation = first.locator(reservationSelector);
+    const reservation = first.locator('.luster-your-hand .luster-card');
     await expect(reservation).not.toHaveAttribute('data-card', 'hidden');
+    await expect(first.locator(reservationSelector)).toHaveAttribute('data-card', 'hidden');
     for (const p of pages.filter((p) => p !== first))
       await expect(p.locator(reservationSelector)).toHaveAttribute('data-card', 'hidden');
     const spectator = await open(browser, `luster-${seats}-spectator`, a.url());
@@ -245,6 +250,17 @@ for (const seats of [2, 3, 4]) {
     await expect(board(spectator)).toHaveAttribute('data-starting-seat', String(startingSeat));
     await expect(spectator.getByRole('button', { name: 'Take gems', exact: true })).toBeDisabled();
     await expect(spectator.locator(reservationSelector)).toHaveAttribute('data-card', 'hidden');
+    await expect(spectator.locator('.luster-your-hand')).toHaveCount(0);
+    await a.evaluate(() => window.scrollTo(0, 0));
+    const mainBox = await a.locator('.luster-table-main').boundingBox();
+    const sideBox = await a.getByRole('complementary', { name: 'Players' }).boundingBox();
+    expect(mainBox).not.toBeNull();
+    expect(sideBox).not.toBeNull();
+    expect(sideBox?.x).toBeGreaterThan((mainBox?.x ?? 0) + (mainBox?.width ?? 0));
+    expect(Math.abs((sideBox?.y ?? 0) - (mainBox?.y ?? 0))).toBeLessThan(1);
+    expect(
+      await first.locator(reservationSelector).evaluate((card) => getComputedStyle(card).backgroundColor),
+    ).toBe('rgb(70, 104, 86)');
     await a.screenshot({ path: `/tmp/luster-${seats}-start-1280.png`, fullPage: true });
     await mobile(a, `${seats}-start`);
     // Collect the full colored price while keeping the reservation's gold. This deliberately
@@ -259,6 +275,7 @@ for (const seats of [2, 3, 4]) {
       })[0];
     if (!goal) throw new Error('No development for payment exercise');
     const price = workshop(goal.deck, goal.card ?? 0)?.cost ?? [];
+    let publicReservationChecked = false;
     for (let preparation = 0; preparation < seats * 5; preparation++) {
       const turn = Number(await board(a).getAttribute('data-turn'));
       const page = pages[turn];
@@ -293,7 +310,15 @@ for (const seats of [2, 3, 4]) {
         if (!take) throw new Error('Cannot collect the payment exercise gems');
         await act(page, take);
       } else {
+        const publicCard = !publicReservationChecked ? state.market[2]?.[0] : undefined;
+        const publicReserve = publicCard
+          ? actions.find(
+              (action) =>
+                action.type === 'reserve' && action.deck === publicCard.deck && action.pos === publicCard.pos,
+            )
+          : undefined;
         const idle =
+          publicReserve ??
           actions.find(
             (action) =>
               action.type === 'reserve' &&
@@ -306,6 +331,21 @@ for (const seats of [2, 3, 4]) {
           );
         if (!idle) throw new Error('No preparation move');
         await act(page, idle);
+        if (publicReserve && publicCard) {
+          const ownCard = `.luster-your-hand .luster-card[data-deck="${publicCard.deck}"][data-pos="${publicCard.pos}"]`;
+          await expect(page.locator(ownCard)).toHaveAttribute('data-card', String(publicCard.card));
+          const back = `.luster-players [data-seat="${turn}"] > .luster-reservations .luster-card[data-deck="${publicCard.deck}"][data-pos="${publicCard.pos}"]`;
+          for (const viewer of [...pages, spectator]) {
+            await expect(viewer.locator(back)).toHaveAttribute('data-card', 'hidden');
+            await expect(viewer.locator(back).locator('svg, button, .luster-card-cost')).toHaveCount(0);
+          }
+          await page.reload();
+          await expect(page.locator(ownCard)).toHaveAttribute('data-card', String(publicCard.card), {
+            timeout: 120_000,
+          });
+          await expect(page.locator(back)).toHaveAttribute('data-card', 'hidden');
+          publicReservationChecked = true;
+        }
       }
       const seq = Number(await board(page).getAttribute('data-seq'));
       for (const other of pages)
@@ -313,6 +353,7 @@ for (const seats of [2, 3, 4]) {
           .poll(async () => Number(await board(other).getAttribute('data-seq')))
           .toBeGreaterThanOrEqual(seq);
     }
+    expect(publicReservationChecked).toBe(true);
     expect(goldPaymentsChecked.has(seats)).toBe(true);
     const rng = createRng('luster-browser');
     let finished = false;

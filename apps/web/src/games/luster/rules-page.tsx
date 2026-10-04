@@ -110,10 +110,12 @@ export function LusterRulesContent() {
         </p>
         <p>
           Signed moves travel over NOSTR. Encrypted decks protect unseen cards, and buying a blind reservation
-          reveals its identity for the final audit. Watching a game shows all public information. Moves can
-          take time to arrive; controls unlock when it is your decision and the game has synced. A failed send
-          can be retried. The table's deadline applies to turns. Resigning is currently unavailable for this
-          game.
+          reveals its identity for the final audit. Your hand shows your reserved cards. Opponents and
+          spectators see them face down, with their tier and count. A card taken from the market can still be
+          remembered from the earlier public move. The desktop sidebar shows scores and resources; on smaller
+          screens the player panels sit below the board. Moves can take time to arrive; controls unlock when
+          it is your decision and the game has synced. A failed send can be retried. The table's deadline
+          applies to turns. Resigning is currently unavailable for this game.
         </p>
       </section>
     </article>

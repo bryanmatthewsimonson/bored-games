@@ -1,10 +1,10 @@
 import { type CardSlot, luster } from '@bored-games/luster';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
-import { WorkshopCard } from '../src/games/luster/game.tsx';
+import { PlayerSidebar, ReservedCards, WorkshopCard } from '../src/games/luster/game.tsx';
 import { exactTokens, nextTokens, statusText, tokenText } from '../src/games/luster/model.ts';
 import { LusterRulesContent } from '../src/games/luster/rules-page.tsx';
-import { findAll, renderTree, spokenText } from './render-tree.ts';
+import { findAll, renderTree, spokenText, textOf } from './render-tree.ts';
 
 describe('Luster public presentation', () => {
   it('private cards expose no identity, cost, bonus or score to a spectator', () => {
@@ -16,6 +16,62 @@ describe('Luster public presentation', () => {
     expect(text).not.toContain('Discount');
     expect(text).not.toContain('Cost');
     expect(findAll(tree, (e) => e.tag === 'article')[0]?.attrs['data-card']).toBe('hidden');
+  });
+  it('every opponent reservation is face down even when its identity was previously public', () => {
+    const slots: CardSlot[] = [
+      { deck: 'tier-1', pos: 0, card: 1, private: false },
+      { deck: 'tier-3', pos: 4, card: 4, private: true },
+    ];
+    const tree = renderTree(h(ReservedCards, { slots, owner: false, onSelect: () => undefined }));
+    expect(findAll(tree, (e) => e.tag === 'article').map((e) => e.attrs['data-card'])).toEqual([
+      'hidden',
+      'hidden',
+    ]);
+    expect(findAll(tree, (e) => e.tag === 'button' || e.tag === 'svg')).toHaveLength(0);
+    const text = textOf(tree);
+    for (const hidden of ['Cost', 'Discount', 'prestige', 'Sapphire', 'Gold', 'development'])
+      expect(text).not.toContain(hidden);
+    expect(slots[0]?.card).toBe(1);
+  });
+  it('the owner can see and select both market and blind reservations in their hand', () => {
+    const slots: CardSlot[] = [
+      { deck: 'tier-1', pos: 0, card: 1, private: false },
+      { deck: 'tier-3', pos: 4, card: 4, private: true },
+    ];
+    const selected: CardSlot[] = [];
+    const tree = renderTree(
+      h(ReservedCards, { slots, owner: true, onSelect: (slot) => selected.push(slot) }),
+    );
+    const buttons = findAll(tree, (e) => e.tag === 'button');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) (button.attrs.onClick as () => void)();
+    expect(selected).toEqual(slots);
+    expect(findAll(tree, (e) => e.tag === 'article').map((e) => e.attrs['data-card'])).toEqual([1, 4]);
+    expect(spokenText(tree)).toContain('Cost');
+  });
+  it('the score sidebar exposes public resources but only backs for reserved cards', () => {
+    const setup = luster.setup({ rules: luster.defaultRules(), seats: 2, mode: 'view', viewer: null });
+    if (!setup.ok) throw new Error(setup.error.message);
+    const state = {
+      ...setup.value,
+      players: setup.value.players.map((p) => ({
+        ...p,
+        reserved: [{ deck: 'tier-1' as const, pos: 0, card: 1, private: false }],
+      })),
+    };
+    for (const mySeat of [null, 0, 1]) {
+      const tree = renderTree(
+        h(PlayerSidebar, { state, mySeat, names: ['Alice', 'Bob'], avatars: [], ended: false }),
+      );
+      expect(findAll(tree, (e) => e.tag === 'aside')).toHaveLength(1);
+      expect(spokenText(tree)).toContain('Alice');
+      expect(spokenText(tree)).toContain('Bob');
+      expect(spokenText(tree)).toContain('Gems');
+      expect(spokenText(tree)).toContain('Discounts');
+      expect(findAll(tree, (e) => e.tag === 'article').every((e) => e.attrs['data-card'] === 'hidden')).toBe(
+        true,
+      );
+    }
   });
   it('gem names, costs and prestige remain readable without artwork or color', () => {
     const tree = renderTree(h(WorkshopCard, { slot: { deck: 'tier-1', pos: 1, card: 1, private: false } }));

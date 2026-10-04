@@ -62,3 +62,11 @@ Large gem-stack buttons replace numeric inputs. Clicking a color cycles legal se
 The compact board groups three market rows with their tier decks and noble cards beside them on desktop. Mobile uses larger two-card rows and scrolls the noble strip within the board. Original gem facets, mining/guild landscapes and noble portraits are drawn in `apps/web/src/games/luster/art.tsx` and covered by the artwork's CC0 dedication. No artwork or CSS is taken from BoardGameArena or a publisher. No shared library, engine, wire protocol, prompt-share duty or Bank implementation changes; the shared registry receives only Luster's new setup wording.
 
 Players can see their gems and permanent discounts beside the bank, and affordable development cards are highlighted. The interface revision integrates Bank PR #27 unchanged, including its automatic public-dice contribution path; the earlier manual-path description above records the original release base.
+
+## Face-down hands and score sidebar
+
+All reserved cards now render as backs in the public score panels, regardless of whether they came from the exposed market or an unseen tier draw. Only the owner’s separate hand renders selectable card faces. The presentation checks ownership before creating artwork, costs, bonuses, point labels or card identity attributes. A public market card’s identity remains known in signed history and replay, as required by the existing immutable assignment semantics; this UI change does not claim to erase that information. Blind reservations continue to be redacted by the engine and learned only by their owner. No engine version or protocol change is needed.
+
+Desktop uses the same board/sidebar convention as the other site games: the main bank, market, selection tray and own hand sit beside a compact sticky score column. Scores, gems, discounts, earned nobles, reservation backs and purchased developments are public. The sidebar scrolls when necessary, and at narrower widths moves below the main area. Luster-scoped layout rules widen only this game’s main container. No reference artwork, Bank code or shared library changes.
+
+Bank PR #29 (roll guide) is incorporated unchanged in the final base. The hand and sidebar follow-up edits no Bank files and changes no common runtime or crypto policy.
