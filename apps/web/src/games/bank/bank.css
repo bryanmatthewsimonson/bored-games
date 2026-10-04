@@ -24,7 +24,9 @@ main:has(.bank-game) {
   color: #f6f1e4;
   border-radius: 18px;
   padding: 20px 16px 24px;
-  box-shadow: inset 0 0 48px rgb(0 0 0 / 0.35);
+  box-shadow:
+    inset 0 0 48px rgb(0 0 0 / 0.35),
+    inset 0 0 0 6px rgb(0 0 0 / 0.18);
   text-align: center;
 }
 
@@ -36,18 +38,88 @@ main:has(.bank-game) {
   opacity: 0.85;
 }
 
+.bank-roll {
+  margin: 8px 0 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.bank-safe {
+  margin: 8px 0 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
+.bank-safe-marks {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.bank-mark {
+  display: inline-flex;
+  width: 1.6rem;
+  height: 1.6rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(246 241 228 / 0.55);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.bank-mark.used {
+  background: #f3e6c8;
+  color: #1b4d3e;
+  border-color: #f3e6c8;
+}
+
 .bank-pot {
-  margin: 4px 0 0;
+  margin: 8px 0 0;
   font-size: clamp(3rem, 14vw, 5.5rem);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   font-weight: 700;
+  text-shadow: 0 2px 0 rgb(0 0 0 / 0.25);
 }
 
 .bank-pot-change {
-  margin: 6px 0 0;
-  min-height: 1.5em;
+  margin: 8px 0 0;
+  min-height: 1.7em;
   font-size: 1.05rem;
+}
+
+.bank-pot-change.add,
+.bank-pot-change.seventy,
+.bank-pot-change.double,
+.bank-pot-change.bust {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.bank-pot-change.add {
+  background: #f3e6c8;
+  color: #1b4d3e;
+}
+
+.bank-pot-change.seventy {
+  background: #f3e6c8;
+  color: #1b4d3e;
+}
+
+.bank-pot-change.double {
+  background: var(--warn-bg);
+  color: #6b4e00;
+}
+
+.bank-pot-change.bust {
+  background: #fdecee;
+  color: var(--danger);
 }
 
 .bank-dice {
@@ -62,6 +134,7 @@ main:has(.bank-game) {
   height: 84px;
   max-width: 28vw;
   overflow: visible;
+  filter: drop-shadow(0 6px 6px rgb(0 0 0 / 0.28));
 }
 
 .bank-die-face {
@@ -136,19 +209,160 @@ main:has(.bank-game) {
   font-size: 0.9rem;
 }
 
+.bank-seat.to-play {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 8px;
+  padding: 6px 8px 6px 10px;
+}
+
 .bank-seat.to-play .bank-seat-state {
   color: var(--text);
   font-weight: 700;
+}
+
+.bank-status {
+  margin: 0;
+}
+
+.bank-status.mine {
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  font-weight: 700;
+}
+
+.bank-guide {
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.bank-guide[data-safe="false"] {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.bank-guide[data-safe="true"] {
+  box-shadow: inset 3px 0 0 #1b4d3e;
+}
+
+.bank-guide h3 {
+  margin: 0 0 6px;
+  font-size: 1.02rem;
+}
+
+.bank-guide-summary,
+.bank-guide-bank {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.bank-guide-bank {
+  font-weight: 700;
+}
+
+.bank-chances {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-chances th,
+.bank-chances td {
+  padding: 4px 4px;
+  text-align: left;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
+}
+
+.bank-chances thead th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bank-chances th[scope="row"] {
+  font-weight: 700;
+}
+
+.bank-chances td:last-child,
+.bank-chances thead th:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bank-chances tr.bust > * {
+  background: #fdecee;
+}
+
+.bank-chances tr.double > * {
+  background: var(--warn-bg);
+}
+
+.bank-chances tr.safe > * {
+  background: #e7f6ee;
+}
+
+.bank-chances tr.bust > :first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.bank-chances tr.double > :first-child {
+  box-shadow: inset 3px 0 0 var(--warn-border);
+}
+
+.bank-chances tr.safe > :first-child {
+  box-shadow: inset 3px 0 0 #1b4d3e;
 }
 
 .bank-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 12px;
 }
 
 .bank-actions .btn {
   flex: 1 1 8rem;
+  min-height: 48px;
+  font-weight: 700;
+}
+
+.bank-actions .btn-only {
+  flex-basis: 100%;
+}
+
+.bank-actions .btn-roll,
+.bank-actions .btn-bank {
+  border-width: 2px;
+}
+
+.bank-actions .btn-bank {
+  background: #f3e6c8;
+  color: #14382d;
+  border-color: #1b4d3e;
+}
+
+.bank-actions .btn-bank:hover:not(:disabled) {
+  background: #e7d3a4;
+}
+
+.bank-actions .btn-stay {
+  font-weight: 600;
+}
+
+.bank-actions .btn:disabled,
+.bank-actions .btn:disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--bg);
+  color: var(--muted);
+  border-color: var(--border);
+  box-shadow: none;
 }
 
 .bank-log {

@@ -30,6 +30,7 @@ describe('BankRulesContent', () => {
     expect(text).toContain(`${DEFAULT_RULES.maxRollsPerRound} rolls`);
     expect(text).toContain('nothing to hide');
     expect(text).toContain('no extra tap');
+    expect(text).toContain('how many rolls this round has had');
     expect(text).not.toContain('Show the dice');
     expect(text).not.toContain('Compare to');
   });

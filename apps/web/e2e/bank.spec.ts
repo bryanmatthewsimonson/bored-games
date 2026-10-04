@@ -36,9 +36,17 @@ async function open(browser: Browser, name: string): Promise<Player> {
   return { name, page };
 }
 
-async function noSideScroll(page: Page): Promise<void> {
+const SHOTS = process.env.E2E_SCREENSHOTS;
+
+async function shoot(page: Page, file: string): Promise<void> {
+  if (SHOTS === undefined || SHOTS === '') return;
+  await page.screenshot({ path: `${SHOTS}/${file}.png`, fullPage: true });
+}
+
+async function noSideScroll(page: Page, file?: string): Promise<void> {
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  if (file !== undefined) await shoot(page, file);
   await page.setViewportSize({ width: 1280, height: 1000 });
 }
 
@@ -115,12 +123,27 @@ test('three players play five rounds of Bank and see one public roll', async ({ 
   for (const p of players) {
     await expect(p.page.getByTestId('bank-game')).toBeVisible({ timeout: MOVE_MS });
     await expect(p.page.getByText('Round 1 of 5')).toBeVisible();
+    await expect(p.page.getByTestId('bank-roll')).toHaveText('No rolls yet');
+    await expect(p.page.getByTestId('bank-safe')).toContainText('3 safe rolls left');
+    await expect(p.page.getByTestId('bank-guide')).toContainText('Next roll is safe');
+    await expect(p.page.getByTestId('bank-guide')).toContainText('adds 70 → 70');
+    await expect(p.page.getByTestId('bank-guide')).not.toContainText('A 7 wipes the pot');
   }
 
   // A round opens on the roller. Nobody is asked to bank or stay while the pot is empty.
   const opening: string[] = [];
   for (const p of players) opening.push(...(await enabledActions(p.page)));
   expect(opening).toEqual(['Roll']);
+  const roll = a.page.getByRole('button', { name: 'Roll', exact: true });
+  await expect(roll).toBeEnabled();
+  await expect(roll).toHaveClass(/btn-primary/);
+  await expect(roll).toHaveClass(/btn-only/);
+  await expect(a.page.locator('.bank-status.mine')).toContainText('Your turn');
+  await expect(a.page.locator('.bank-seat.to-play')).toContainText('To play');
+  await expect(b.page.locator('.bank-status.mine')).toHaveCount(0);
+  await expect(b.page.getByRole('button', { name: 'Roll', exact: true })).toBeDisabled();
+  await shoot(a.page, 'opening-1280');
+  await noSideScroll(a.page, 'opening-390');
 
   await press(players, 'Roll');
 
@@ -138,20 +161,52 @@ test('three players play five rounds of Bank and see one public roll', async ({ 
   expect(faces).toMatch(/^[1-6],[1-6]$/);
   for (const p of players) {
     await expect(p.page.getByTestId('bank-dice')).toHaveAttribute('data-faces', faces ?? '');
+    await expect(p.page.getByTestId('bank-roll')).toHaveText('1 roll this round');
+    await expect(p.page.getByTestId('bank-guide')).toContainText('Next roll is safe');
+    await expect(p.page.getByTestId('bank-guide')).toContainText('Banking now keeps');
   }
-  await noSideScroll(a.page);
+  await expect
+    .poll(async () => {
+      for (const p of players) {
+        const bank = p.page.getByRole('button', { name: 'Bank', exact: true });
+        if ((await bank.count()) > 0 && (await bank.isEnabled()))
+          return (await bank.getAttribute('class')) ?? '';
+      }
+      return '';
+    })
+    .toContain('btn-bank');
+  for (const p of players) {
+    const bank = p.page.getByRole('button', { name: 'Bank', exact: true });
+    if ((await bank.count()) > 0 && (await bank.isEnabled())) {
+      await shoot(p.page, 'bank-turn-1280');
+      break;
+    }
+  }
+  await shoot(a.page, 'rolled-1280');
+  await noSideScroll(a.page, 'rolled-390');
 
   const offered = async (): Promise<string> => {
     const parts: string[] = [];
     for (const p of players) parts.push((await enabledActions(p.page)).join(','));
     return parts.join('|');
   };
+  // Stay through the safe rolls so the reference has to change, then bank to finish.
+  let sawUnsafe = false;
   const done = Date.now() + 120_000;
   while (Date.now() < done) {
     if ((await a.page.getByTestId('bank-winner').count()) > 0) break;
+    if (!sawUnsafe && (await a.page.getByTestId('bank-guide').count()) > 0) {
+      const text = (await a.page.getByTestId('bank-guide').textContent()) ?? '';
+      if (text.includes('can bust')) {
+        sawUnsafe = true;
+        await shoot(a.page, 'unsafe-1280');
+        await noSideScroll(a.page, 'unsafe-390');
+      }
+    }
     const before = await offered();
     let clicked = false;
-    for (const label of ['Bank', 'Roll'] as const) {
+    const order = sawUnsafe ? ['Bank', 'Roll'] : ['Stay', 'Roll'];
+    for (const label of order) {
       if (await clickNow(players, label)) {
         clicked = true;
         const until = Date.now() + 5_000;
@@ -163,7 +218,9 @@ test('three players play five rounds of Bank and see one public roll', async ({ 
     }
     if (!clicked) await a.page.waitForTimeout(200);
   }
+  expect(sawUnsafe).toBe(true);
 
+  await expect(a.page.getByTestId('bank-guide')).toHaveCount(0);
   const winner = (await a.page.getByTestId('bank-winner').textContent({ timeout: 1_000 }))?.trim() ?? '';
   expect(winner.length).toBeGreaterThan(0);
   const endFaces = await a.page.getByTestId('bank-dice').getAttribute('data-faces');

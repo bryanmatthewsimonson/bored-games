@@ -10,14 +10,20 @@ import type { GameViewProps } from '../types.ts';
 import { DicePair } from './dice.tsx';
 import { BANK_META } from './meta.ts';
 import {
+  actionClass,
   decisionButtons,
   dieClass,
   latestDice,
   latestRollId,
   pendingLabels,
+  potTone,
   potWords,
+  rollCountLabel,
+  rollGuide,
   roundLabel,
   roundLog,
+  safeMarks,
+  safeRollNote,
   seatName,
   seatStatus,
   statusLine,
@@ -58,6 +64,11 @@ export function BankGame(props: GameViewProps) {
   const labels = myTurn ? buttons.map((b) => b.label) : pendingLabels(pending);
   const faces = latestDice(state.log);
   const words = potWords(state.log);
+  const tone = potTone(state.log);
+  const count = rollCountLabel(state);
+  const note = safeRollNote(state);
+  const marks = safeMarks(state);
+  const guide = rollGuide(state);
   const status = statusLine(state, props.names, props.mySeat, pending, props.ended);
   const winner = props.ended ? winnerLine(props.view.outcome, props.names) : null;
   const log = roundLog(state, props.names);
@@ -81,11 +92,28 @@ export function BankGame(props: GameViewProps) {
         </h1>
         <div class="bank-felt">
           <p class="bank-round">{roundLabel(state)}</p>
+          {count !== null && (
+            <p class="bank-roll" data-testid="bank-roll">
+              {count}
+            </p>
+          )}
+          {note !== null && marks !== null && (
+            <p class="bank-safe" data-testid="bank-safe">
+              <span class="bank-safe-marks" aria-hidden="true">
+                {marks.map((used, i) => (
+                  <span key={i} class={used ? 'bank-mark used' : 'bank-mark'}>
+                    {i + 1}
+                  </span>
+                ))}
+              </span>
+              {note}
+            </p>
+          )}
           <p class="bank-pot">
             <span class="sr-only">Pot </span>
             {state.pot}
           </p>
-          <p class="bank-pot-change">{words ?? ''}</p>
+          <p class={tone === null ? 'bank-pot-change' : `bank-pot-change ${tone}`}>{words ?? ''}</p>
           <DicePair
             faces={faces}
             rollId={rollId ?? state.nextRollId}
@@ -106,6 +134,39 @@ export function BankGame(props: GameViewProps) {
           )}
           {props.deadline !== undefined && winner === null && <p class="muted">{props.deadline}</p>}
           {!rolling && props.notice !== undefined && <p class="muted">{props.notice}</p>}
+          {guide !== null && winner === null && (
+            <section
+              class="bank-guide"
+              data-testid="bank-guide"
+              data-safe={guide.safe ? 'true' : 'false'}
+              aria-labelledby="bank-guide-h"
+            >
+              <h3 id="bank-guide-h">{guide.headline}</h3>
+              <p class="bank-guide-summary">{guide.summary}</p>
+              {guide.bankLine !== null && <p class="bank-guide-bank">{guide.bankLine}</p>}
+              <table class="bank-chances">
+                <caption class="sr-only">
+                  What the dice can do to the pot, out of 36 equally likely rolls
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Dice</th>
+                    <th scope="col">Result</th>
+                    <th scope="col">Chance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {guide.chances.map((chance) => (
+                    <tr key={chance.label} class={chance.tone}>
+                      <th scope="row">{chance.label}</th>
+                      <td>{chance.effect}</td>
+                      <td>{chance.ways} of 36</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          )}
           {labels.length > 0 && winner === null && (
             <div class="bank-actions">
               {myTurn
@@ -113,7 +174,7 @@ export function BankGame(props: GameViewProps) {
                     <button
                       key={button.label}
                       type="button"
-                      class={`btn${button.label === BANK_THEME.decisions.roll ? ' btn-primary' : ''}`}
+                      class={actionClass(button.label, labels.length === 1)}
                       disabled={props.busy}
                       onClick={() => send(button.action)}
                     >
@@ -121,7 +182,12 @@ export function BankGame(props: GameViewProps) {
                     </button>
                   ))
                 : labels.map((label) => (
-                    <button key={label} type="button" class="btn" disabled>
+                    <button
+                      key={label}
+                      type="button"
+                      class={actionClass(label, labels.length === 1)}
+                      disabled
+                    >
                       {label}
                     </button>
                   ))}

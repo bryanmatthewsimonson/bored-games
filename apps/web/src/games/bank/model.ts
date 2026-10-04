@@ -89,6 +89,19 @@ export function decisionButtons(legal: readonly unknown[]): DecisionButton[] {
   });
 }
 
+/**
+ * Classes for a decision button. Roll is the filled action. Bank is the take-the-money action. Stay stays quiet.
+ * A lone Roll spans the row. The label is the accessible name; the class is only paint.
+ */
+export function actionClass(label: string, alone: boolean): string {
+  if (label === BANK_THEME.decisions.roll) {
+    return alone ? 'btn btn-primary btn-roll btn-only' : 'btn btn-primary btn-roll';
+  }
+  if (label === BANK_THEME.decisions.bank) return 'btn btn-bank';
+  if (label === BANK_THEME.decisions.stay) return 'btn btn-stay';
+  return 'btn';
+}
+
 /** The button labels of a pending decision, for a viewer who cannot press them. */
 export function pendingLabels(pending: Pending): readonly string[] {
   if (pending.type !== 'player') return [];
@@ -119,19 +132,33 @@ function diceWords(effect: DiceEffect, dice: readonly [number, number], pot: num
 }
 
 /**
- * The last change to the pot, in words, or null before anything has changed it. A round marker that only opens
- * the next round is skipped, so a bust or a bank that ended the previous round is still the change on screen.
+ * The last change to the pot, skipping a round marker that only opens the next round, so a bust or a bank that
+ * ended the previous round is still the change on screen.
  */
-export function potWords(log: readonly BankLog[]): string | null {
+function latestPotChange(log: readonly BankLog[]): BankLog | null {
   let i = log.length - 1;
   if (i > 0 && log[i]?.kind === 'round') i -= 1;
   for (; i >= 0; i--) {
     const entry = log[i];
     if (entry === undefined || entry.kind === 'round') return null;
-    if (entry.kind === 'bank') return 'banked';
-    if (entry.kind === 'dice') return diceWords(entry.effect, entry.dice, entry.pot);
+    if (entry.kind === 'bank' || entry.kind === 'dice') return entry;
   }
   return null;
+}
+
+/** The last change to the pot, in words, or null before anything has changed it. */
+export function potWords(log: readonly BankLog[]): string | null {
+  const entry = latestPotChange(log);
+  if (entry === null || entry.kind === 'round') return null;
+  if (entry.kind === 'bank') return 'banked';
+  if (entry.kind !== 'dice') return null;
+  return diceWords(entry.effect, entry.dice, entry.pot);
+}
+
+/** The last dice effect, for a tone beside the words. Banking and an untouched pot have none. */
+export function potTone(log: readonly BankLog[]): DiceEffect | null {
+  const entry = latestPotChange(log);
+  return entry !== null && entry.kind === 'dice' ? entry.effect : null;
 }
 
 /** The latest resolved faces. Empty until the first roll; a later round keeps them until the next one. */
@@ -169,6 +196,155 @@ export function seatStatus(state: BankState, seat: number, pending: Pending): st
 export function roundLabel(state: BankState): string {
   if (state.phase === 'over') return 'Game over';
   return `Round ${state.round + 1} of ${state.rules.rounds}`;
+}
+
+/** How many resolutions this round has had. The engine already counts them. Null once the game is over. */
+export function rollCountLabel(state: BankState): string | null {
+  if (state.phase === 'over') return null;
+  if (state.rolls === 0) return 'No rolls yet';
+  if (state.rolls === 1) return '1 roll this round';
+  return `${state.rolls} rolls this round`;
+}
+
+/** Safe rolls still ahead of the next resolution, or the bust warning once those three are used. */
+export function safeRollNote(state: BankState): string | null {
+  if (state.phase === 'over') return null;
+  const left = 3 - state.rolls;
+  if (left >= 2) return `${left} safe rolls left`;
+  if (left === 1) return '1 safe roll left';
+  return 'A 7 busts';
+}
+
+/** The three safe rolls of this round. A used one is true. Null once the game is over. */
+export function safeMarks(state: BankState): readonly boolean[] | null {
+  if (state.phase === 'over') return null;
+  return [0, 1, 2].map((i) => state.rolls > i);
+}
+
+/** One row of the odds table. `pot` is what the pot would become, or null if that result cannot be counted. */
+export interface RollChance {
+  readonly label: string;
+  readonly effect: string;
+  readonly pot: number | null;
+  readonly ways: number;
+  readonly tone: 'safe' | 'gain' | 'double' | 'bust';
+}
+
+/**
+ * What the roll about to resolve can do. It follows the engine: the roll is safe while fewer than three have
+ * been resolved, a safe 7 adds 70, an unsafe 7 busts, an unsafe pair doubles, and every other sum is added.
+ * Ways are out of 36. Null once the game is over.
+ */
+export interface RollGuide {
+  readonly nextRoll: number;
+  readonly rollsSoFar: number;
+  readonly safe: boolean;
+  readonly headline: string;
+  readonly summary: string;
+  readonly chances: readonly RollChance[];
+  readonly bankLine: string | null;
+}
+
+/** Ways for each face sum from 0 to 12. A 7 has six ways and is never a pair. */
+const SUM_WAYS: readonly number[] = [0, 0, 1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1];
+/** Ways that are not a pair. Sums 2 and 12 are only pairs, so they are absent once pairs double the pot. */
+const ADD_WAYS: readonly number[] = [0, 0, 0, 2, 2, 4, 4, 0, 4, 4, 2, 2, 0];
+
+function plus(pot: number, delta: number): number | null {
+  if (!Number.isSafeInteger(pot) || !Number.isSafeInteger(delta)) return null;
+  if (pot > Number.MAX_SAFE_INTEGER - delta) return null;
+  return pot + delta;
+}
+
+function timesTwo(pot: number): number | null {
+  if (!Number.isSafeInteger(pot)) return null;
+  if (pot > Math.floor(Number.MAX_SAFE_INTEGER / 2)) return null;
+  return pot * 2;
+}
+
+function added(sum: number, pot: number, ways: number, tone: 'safe' | 'gain'): RollChance {
+  const next = plus(pot, sum);
+  return {
+    label: String(sum === 70 ? 7 : sum),
+    effect: next === null ? `adds ${sum}, too large to count` : `adds ${sum} → ${next}`,
+    pot: next,
+    ways,
+    tone,
+  };
+}
+
+function safeChances(pot: number): readonly RollChance[] {
+  const rows: RollChance[] = [];
+  for (let sum = 2; sum <= 12; sum++) {
+    if (sum === 7) rows.push(added(70, pot, 6, 'safe'));
+    else rows.push(added(sum, pot, SUM_WAYS[sum] ?? 0, 'gain'));
+  }
+  return rows;
+}
+
+function unsafeChances(pot: number): readonly RollChance[] {
+  const doubled = timesTwo(pot);
+  const rows: RollChance[] = [
+    { label: 'A 7', effect: 'wipes the pot', pot: 0, ways: 6, tone: 'bust' },
+    {
+      label: 'A pair',
+      effect: doubled === null ? 'doubles the pot, too large to count' : `doubles the pot to ${doubled}`,
+      pot: doubled,
+      ways: 6,
+      tone: 'double',
+    },
+  ];
+  for (let sum = 3; sum <= 11; sum++) {
+    const ways = ADD_WAYS[sum] ?? 0;
+    if (ways === 0) continue;
+    rows.push(added(sum, pot, ways, 'gain'));
+  }
+  return rows;
+}
+
+function safeSummary(rolls: number): string {
+  const base = 'A 7 adds 70. Every other roll adds its faces, doubles included. Nothing wipes the pot.';
+  if (rolls >= 2) return `${base} This is the last safe roll.`;
+  if (rolls === 1) return `${base} One safe roll follows this one.`;
+  return `${base} Two safe rolls follow this one.`;
+}
+
+function unsafeSummary(pot: number, last: boolean): string {
+  const doubled = timesTwo(pot);
+  const pair =
+    doubled === null
+      ? 'A pair would be too large to count (6 of 36).'
+      : `A pair doubles it to ${doubled} (6 of 36).`;
+  const base = `A 7 wipes the pot (6 of 36). ${pair} Any other roll adds its faces (24 of 36).`;
+  if (!last) return base;
+  return `${base} If it does not bust, everyone still in banks the pot and the round ends.`;
+}
+
+export function rollGuide(state: BankState): RollGuide | null {
+  if (state.phase === 'over') return null;
+  const safe = state.rolls < 3;
+  const nextRoll = state.rolls + 1;
+  const last = nextRoll === state.rules.maxRollsPerRound;
+  const inFlight = state.phase === 'collect' || state.phase === 'beacon';
+  const headline = last
+    ? `Roll ${nextRoll} · the last of the round`
+    : safe
+      ? inFlight
+        ? 'This roll is safe'
+        : 'Next roll is safe'
+      : inFlight
+        ? 'This roll can bust'
+        : 'Next roll can bust';
+  const summary = safe ? safeSummary(state.rolls) : unsafeSummary(state.pot, last);
+  return {
+    nextRoll,
+    rollsSoFar: state.rolls,
+    safe,
+    headline,
+    summary,
+    chances: safe ? safeChances(state.pot) : unsafeChances(state.pot),
+    bankLine: state.phase === 'call' && state.pot > 0 ? `Banking now keeps ${state.pot}.` : null,
+  };
 }
 
 function decisionPhrase(decision: string): string {

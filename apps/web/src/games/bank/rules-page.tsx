@@ -160,6 +160,11 @@ export function BankRulesContent() {
             the others can claim that player's timeout.
           </li>
           <li>
+            <strong>The table.</strong> The felt shows how many rolls this round has had, and how many of the
+            three safe rolls are left. Beside the buttons, a list says what the next roll would do to the pot.
+            After three rolls that list changes: a 7 wipes the pot and a pair doubles it.
+          </li>
+          <li>
             The <strong>{cap}-roll cap</strong>, above, is this site's rule so a round of non-sevens cannot
             run without end.
           </li>
