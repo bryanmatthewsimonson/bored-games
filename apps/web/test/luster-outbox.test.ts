@@ -33,6 +33,12 @@ describe('Luster: saved card reveals are vetted before they are published (D056,
     const H = bySeat[hs] as (typeof bySeat)[number];
     const E = bySeat[e] as (typeof bySeat)[number];
     const x = first.view.value?.head as { id: string; seq: number };
+    // Both deals at the relay first: a controller folds its own deal before publishing it.
+    for (let i = 0; i < 200; i++) {
+      const deals = await h.query([{ kinds: [KIND.shares], '#e': [rootId] }]);
+      if (new Set(deals.map((ev) => ev.pubkey)).size === 2) break;
+      await pause(50);
+    }
     for (const g of games) g.dispose();
 
     // E's own session, outside any controller, to sign two rival moves on one parent.
@@ -57,9 +63,21 @@ describe('Luster: saved card reveals are vetted before they are published (D056,
       },
       rootSeenAt: now(),
     });
-    for (const ev of await h.query([{ kinds: [KIND.move, KIND.shares], '#e': [rootId] }]))
-      es.receive(ev, now());
+    // Under load a relay answer may come before every setup share was stored: ask again until E can decide.
+    for (let i = 0; i < 40 && es.legalActions().length === 0; i++) {
+      if (i > 0) await pause(250);
+      for (const ev of await h.query([{ kinds: [KIND.move, KIND.shares], '#e': [rootId] }]))
+        es.receive(ev, now());
+    }
     expect(es.view().head.id).toBe(x.id);
+    expect({
+      phase: es.view().phase,
+      pending: es.view().pending,
+      legal: es.legalActions().length > 0,
+    }).toMatchObject({
+      phase: 'play',
+      legal: true,
+    });
     const state = es.view().state as LusterState;
     const legal = es.legalActions() as Action[];
     const marketTier1 = new Set((state.market[0] ?? []).flatMap((c) => (c === null ? [] : [c.pos])));
