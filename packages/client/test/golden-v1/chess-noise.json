@@ -1,0 +1,213 @@
+{
+ "format": 1,
+ "name": "chess-noise",
+ "about": "Chess, hand-built: three plies, then events to refuse (a broken id and signature, another game, a foreign kind, a seatless signer, a rootless move, a Join, junk, the wrong seat, an illegal move, bad claims), then an early claim; ticks a second before and exactly at the deadline",
+ "game": "chess",
+ "version": "0.1.0",
+ "seats": 2,
+ "clients": "all",
+ "table": {
+  "kind": 37450,
+  "created_at": 1700000000,
+  "tags": [
+   [
+    "d",
+    "test-table"
+   ],
+   [
+    "game",
+    "chess"
+   ],
+   [
+    "v",
+    "0.1.0"
+   ],
+   [
+    "seats",
+    "2"
+   ],
+   [
+    "deadline",
+    "259200"
+   ],
+   [
+    "p",
+    "dad54f58550efb5fc0f28d1de49b345644ef72d4498abfdf6eff102e71554338"
+   ],
+   [
+    "open",
+    "0"
+   ],
+   [
+    "relay",
+    "wss://relay.example.com"
+   ],
+   [
+    "status",
+    "open"
+   ],
+   [
+    "proto",
+    "1"
+   ]
+  ],
+  "content": "{\"rules\":{\"drawMode\":\"auto\",\"rulesVersion\":1}}",
+  "id": "a0192c56f7689c88f5f65e90e6365cd865152845cac4ccac8e5c54f6e0cc6c5b",
+  "pubkey": "ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb",
+  "sig": "7fb3cc63fe98edcb03715d89ab3610a86d3f0b7ab9cd052126105dbba54a29d4a0fde3252195cc610cb49ea15adf6828b984c74f2fa0d54411590ec2bb13b9a4"
+ },
+ "joins": [
+  {
+   "kind": 7451,
+   "created_at": 1700000001,
+   "tags": [
+    [
+     "a",
+     "37450:ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb:test-table"
+    ],
+    [
+     "p",
+     "ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb"
+    ],
+    [
+     "rules-hash",
+     "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+    ],
+    [
+     "v",
+     "0.1.0"
+    ],
+    [
+     "proto",
+     "1"
+    ]
+   ],
+   "content": "{\"deckKey\":\"A_eRJdTUesGQh7N0AFLvPtM2wRv2idTstYKRrc4nG9qK\",\"pok\":{\"c\":\"pJ4PhHwUal3ejW6mu0LUzDdOr4KxBgIFNw4pvMt0n9g\",\"s\":\"YZ8js8-iPjdghYmGJqU8_UQvcKbyqBJDrN1ZsihfVwE\"},\"relays\":[\"wss://relay.example.com\"],\"session\":\"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8\",\"sessionSig\":\"6da7cc979400211148268f41a07ec76fa50ad4a0f8f417b6a5d233aefabaf846033b8e8cd3855cd14558cd06fa81e9e924aa66a556caff16a5481d1d70c5b33d\"}",
+   "id": "26a4aee45009fb5ccbafbe67aac0f24f6ff2fc92c5c167f15effe4ce9c56f10b",
+   "pubkey": "ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb",
+   "sig": "ec196ebee13ab49c85cc332a7740709567580cbecf21eef83f5560df083664b6f2f68a3c7b0bdcce9e2b4b2195e72cf2fb6edfd1aa472b86c97d9fac99f47ec2"
+  },
+  {
+   "kind": 7451,
+   "created_at": 1700000002,
+   "tags": [
+    [
+     "a",
+     "37450:ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb:test-table"
+    ],
+    [
+     "p",
+     "ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb"
+    ],
+    [
+     "rules-hash",
+     "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+    ],
+    [
+     "v",
+     "0.1.0"
+    ],
+    [
+     "proto",
+     "1"
+    ]
+   ],
+   "content": "{\"deckKey\":\"A42X4ONpKZFlz0fzKKfXdot0xf-DvkgUfu4WoxPbo4X_\",\"pok\":{\"c\":\"zTqzybGR_69K8N6UdBYnz6vLAAxQGM1ioDUqVl2SE-0\",\"s\":\"Qi-DqkklCkxZgEf2ulaPhhQpEaW1DBnxoqwrebcIPGM\"},\"relays\":[\"wss://relay.example.com\"],\"session\":\"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408\",\"sessionSig\":\"fab2272420519d741b53b174a024d23f06550a38a828e2acf391fbc1f11ccb607546b4a057607cac5acbb6e79154f0911c4360c32b57882948d865d3b5c66798\"}",
+   "id": "33a120efb9eef91f89a3f6d4b6d3ec79fdbcce1b8545a2c77a833593efecdb6c",
+   "pubkey": "dad54f58550efb5fc0f28d1de49b345644ef72d4498abfdf6eff102e71554338",
+   "sig": "d8c57b621e259e29d773c0af764286733bad759a3b94a5bad17d81b82bce978f47fb3311e1ee24b005d8a8d6417931d338e8672a10ecc7c2f716691b68c3eee4"
+  }
+ ],
+ "root": {
+  "kind": 7450,
+  "created_at": 1700000010,
+  "tags": [
+   [
+    "a",
+    "37450:ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb:test-table"
+   ],
+   [
+    "game",
+    "chess"
+   ],
+   [
+    "v",
+    "0.1.0"
+   ],
+   [
+    "deadline",
+    "259200"
+   ],
+   [
+    "rules-hash",
+    "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+   ],
+   [
+    "e",
+    "26a4aee45009fb5ccbafbe67aac0f24f6ff2fc92c5c167f15effe4ce9c56f10b",
+    "wss://relay.example.com",
+    "seat:0"
+   ],
+   [
+    "e",
+    "33a120efb9eef91f89a3f6d4b6d3ec79fdbcce1b8545a2c77a833593efecdb6c",
+    "wss://relay.example.com",
+    "seat:1"
+   ],
+   [
+    "relay",
+    "wss://relay.example.com"
+   ],
+   [
+    "proto",
+    "1"
+   ]
+  ],
+  "content": "{\"rules\":{\"drawMode\":\"auto\",\"rulesVersion\":1},\"seats\":[{\"deckKey\":\"A_eRJdTUesGQh7N0AFLvPtM2wRv2idTstYKRrc4nG9qK\",\"npub\":\"ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb\",\"session\":\"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8\"},{\"deckKey\":\"A42X4ONpKZFlz0fzKKfXdot0xf-DvkgUfu4WoxPbo4X_\",\"npub\":\"dad54f58550efb5fc0f28d1de49b345644ef72d4498abfdf6eff102e71554338\",\"session\":\"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408\"}]}",
+  "id": "22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d",
+  "pubkey": "ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb",
+  "sig": "dd8ad79fe7e181e54912f0de6953215ed59898d089cdbe6bb9747a2308da26e4520e5bcef31581875194b442e9b5479aca3d57f61065071277e2919220ff3d9d"
+ },
+ "identities": [
+  {
+   "seat": 0,
+   "sessionSk": "279d58d687a43c240386aa559862ed382af44caaa23ca1ebcd8aaf7d58c3c0b1",
+   "deckSecret": "f530cc171b4aa53a3b35737bc79cd986155644b9b352dd341f89227641ea011d"
+  },
+  {
+   "seat": 1,
+   "sessionSk": "dea5de85d75932a2f3fcc51b223fd3353c2b2498e85285dd15d3385e2a67f328",
+   "deckSecret": "a822891bd2e965f61853eda8feb1c095a5fec78c011c0a95de7ed063f802650d"
+  }
+ ],
+ "trusted": [],
+ "ticks": [
+  1700259499,
+  1700259500
+ ],
+ "events": [
+  {"kind":7452,"created_at":1700000100,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","prev"],["seq","1"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"a2a3\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"68f91f3f7326fb64df4f0a755d7f80deb78624fdf5ac105491bf4ebdc1bac9c7","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"a14f7c427264d09afcdfe31d1dffb312492bb0e22d009879c13a4060f9641ed85669cb0808c842699e1f7105df588a82ab9395ec2904cb3fd4ac6d6ae2c06db7"},
+  {"kind":7452,"created_at":1700000200,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","68f91f3f7326fb64df4f0a755d7f80deb78624fdf5ac105491bf4ebdc1bac9c7","","prev"],["seq","2"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a7a5\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"e4b32e9b0899e73d1eea09bca85474df5d50d77f724ccd8cd22d93b79d024969","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"5767998491cb0ac4e24d617af4b4c14e2f973ec14edcc36b4dadc7044bdd9c3322ac4f80d6d7756608b03272e21e36b8bcb19fa980b7db7383d8f056970038fa"},
+  {"kind":7452,"created_at":1700000300,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","e4b32e9b0899e73d1eea09bca85474df5d50d77f724ccd8cd22d93b79d024969","","prev"],["seq","3"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"a1a2\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"4053789756e7ed42e326716a1582031bd70d6211d739adc8e4adb846c694b90efac467017d3924257c2a497f4e30f577c6f08a4a5cf72cd747cb4ae5cf572423"},
+  {"kind":7452,"created_at":1700000500,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a5a4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"} ","id":"00593ea9169fbd9a9995504c37a0a2aeae6d7f7516ac46d4f0875089dc7f21a5","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"af6b8d3c6a39794ad1580e243861e1b995230fee0dc5d5a406a3ad94f6b8d6897958d9c465f3be2f9ef074d79239382ff2c4d99b78dd1542a1a1e1576ce06653"},
+  {"kind":7452,"created_at":1700000500,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a5a4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"00593ea9169fbd9a9995504c37a0a2aeae6d7f7516ac46d4f0875089dc7f21a5","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"af6b8d3c6a39794ad1580e243861e1b995230fee0dc5d5a406a3ad94f6b8d6897958d9c465f3be2f9ef074d79239382ff2c4d99b78dd1542a1a1e1576ce06650"},
+  {"kind":7452,"created_at":1700000600,"tags":[["e","1a02468aa80a7981da33a7eddf23c8b8c186d4540693eb07ad341b0388f9800e","","root"],["e","1a02468aa80a7981da33a7eddf23c8b8c186d4540693eb07ad341b0388f9800e","","prev"],["seq","1"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"a2a3\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"86baca574d14963253b59e2877a7def47ae1b8a9730a6532e9bd576ba13d9dc8","pubkey":"b078438ed9661818de21e3073648a654cecd090142a3353af47a0d71fe04a530","sig":"0d40e5a97b55e7302e02f3bc082cb9f848293bb43e785c109619f15f9492b5e01fd0f3e93e341ba101dbed09633ed02008c819a1ca762bad4d873d43a92917a6"},
+  {"kind":1,"created_at":1700000900,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d"]],"content":"hello","id":"04e807a023d617dbe2d49dd9b956a66ad7dd44a82a8b77cc46d4c858c6a08855","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"c86a2b5761e0e9f67d8c3ec837f7b92c8921732640dde35039a7eb8fe2ed6dbc4bb74b33494937cd242c8c2a6e6d544d146ed83d3536eae4b199e5f28b716981"},
+  {"kind":7452,"created_at":1700001000,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a5a4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"5eab67f39193691ea9e47b21ea405a6b16a169a261f22d7df470a04189d338ad","pubkey":"51888ea931e37feffe4318dfeff242840cd6f998f3b256c0da2bc083181f01e9","sig":"ab0c16b19b8131bd49fb878e5ad25db6ab7415162219d78f1dbca08394aaa3a75fa84e82d4babb95cd88a52ffc5183b37f20fab78f2285e5e11edf7539b4836b"},
+  {"kind":7452,"created_at":1700000800,"tags":[["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"e2e4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"7f043897bf2d1dc0bf97330130f3248f6441b0b5e956d3c1f8d47860a6002729","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"1310384f9323c349df2d8168909316b6a41c0435440715f7fda77386770aaa50225fd3605d21cb530701ceda76fd86fb987c83ac5a366d635026efd1d9a68cce"},
+  {"kind":7451,"created_at":1700000001,"tags":[["a","37450:ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb:test-table"],["p","ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb"],["rules-hash","75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"],["v","0.1.0"],["proto","1"]],"content":"{\"deckKey\":\"A_eRJdTUesGQh7N0AFLvPtM2wRv2idTstYKRrc4nG9qK\",\"pok\":{\"c\":\"pJ4PhHwUal3ejW6mu0LUzDdOr4KxBgIFNw4pvMt0n9g\",\"s\":\"YZ8js8-iPjdghYmGJqU8_UQvcKbyqBJDrN1ZsihfVwE\"},\"relays\":[\"wss://relay.example.com\"],\"session\":\"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8\",\"sessionSig\":\"6da7cc979400211148268f41a07ec76fa50ad4a0f8f417b6a5d233aefabaf846033b8e8cd3855cd14558cd06fa81e9e924aa66a556caff16a5481d1d70c5b33d\"}","id":"26a4aee45009fb5ccbafbe67aac0f24f6ff2fc92c5c167f15effe4ce9c56f10b","pubkey":"ec801ebdb01e8e9d0076f45bb4a9486f24c3f89dc28a1cae3b0b5041184d1dcb","sig":"ec196ebee13ab49c85cc332a7740709567580cbecf21eef83f5560df083664b6f2f68a3c7b0bdcce9e2b4b2195e72cf2fb6edfd1aa472b86c97d9fac99f47ec2"},
+  {"kind":7452,"created_at":1700001100,"content":"not json"},
+  {"kind":7452,"created_at":1700001200,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a5a4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"dd6e83e643aaf28d8b0355a38f39334a3de991814f0202e3285efe024bc6202a","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"ecd03afbf1e093b0deee3a61c881cdb8aa13a3ce3d43830a68400f4733a5765790ba876e103dbd098fdcef6c0c9720e76a643a15c95f268fa261dafe4595f2dc"},
+  {"kind":7452,"created_at":1700000700,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"type\":\"move\",\"uci\":\"a1a8\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"80ef442cfe736e19d706f37b05e47749b0d571e263e0b3c8f9e889672bcc33f9","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"40f92169cce51b95c57e3ee35f0b2af419ea21873eaee9a06e7814f170a5bb8a01373fe1466d787e5790471fc0bd35860cf866ff03a5ad9fd9ad047887decd95"},
+  {"kind":7454,"created_at":1700001300,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","head"],["seat","0"],["proto","1"]],"content":"{}","id":"62b6cca4c09bd91de41febbf91ffbf073fceebfe9dcc3e5d6fd3a98f482711f5","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"6fe2b9e8195983be0fe91a9a2ec46eb2707688dbf4feb5dd5e90484c6dafcb4605712a93b5664d254cda13646aa584160905beb0babf4c03249dca5f9430bed7"},
+  {"kind":7454,"created_at":1700001400,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","head"],["seat","5"],["proto","1"]],"content":"{}","id":"9450ce9b94d924bc61a3fc81e0b8f1f99b9b3ca22a8dccad9650b505c39380e5","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"4743a5a77ecda484d055dec0a6c3e4d6454f061881de74eec5f89058e2b920d286f4b3c7b443d8edf789881f4af1bd6416c826bfd2387049386995797defb01e"},
+  {"kind":7454,"created_at":1700001500,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","68f91f3f7326fb64df4f0a755d7f80deb78624fdf5ac105491bf4ebdc1bac9c7","","head"],["seat","1"],["proto","1"]],"content":"{}","id":"36daa56e1c93081c572ed91edff024974c6c40b18442dacbd68590f69d6b074f","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"782b4d45b89d444bd634e0759b0f953564416990a3386287198acd02fe173797e52577551626f899a7390a953a856c99a15ab20ffc0394e0fd32bbb6a42f27ab"},
+  {"kind":7454,"created_at":1700001600,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","head"],["seat","0"],["proto","1"]],"content":"{}","id":"d8f19bf9f1d71fadd7ffacab23e76dcc1ca02626d51e130a184e410e7b6e1aac","pubkey":"8c77dccf6afcde4757262ce115af74ac68c4dab0f2f798a711e86c8518eae408","sig":"34444c68404ff037887c8b701ad0edf66b5a125ce8b368b7329ab55ee29e65f4b416d686f93fab699efbd33df39df8ad64c77237081838a86f37bf5eaacdf67d"},
+  {"kind":7454,"created_at":1700001700,"tags":[["e","22a217043ca498b400dce437b30ce535fa1eb58e271d75ba3301ac4c8f85f90d","","root"],["e","f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","","head"],["seat","1"],["proto","1"]],"content":"{}","id":"e8647c4219167a6e28526c7fe967b30c5119e02faf6ee09a113fe0a4a63960be","pubkey":"734058899bc556f06dc612f645c44b79b5d388eebd5df67fdb70c60664af5ff8","sig":"7b68d817087e2039881ee6e9112d26c57a74989138f110327ad79cfcece31deadff45f8e81f9b26654e6808d866c90523d71eb16fb4c5e47297d4c9b07012277"}
+ ],
+ "orders": [
+  {"name":"published","deliveries":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17],"clients":{"seat 0":{"receipts":"aaarrrrrrrrrrrrrrs","rejections":[[3,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[4,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[5,"the event is for another game"],[6,"kind 1 is not an in-game event"],[7,"not signed by a seated session key"],[8,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[9,"kind 7451 is not an in-game event"],[10,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[11,"move 4 must be signed by seat 1"],[12,"the module rejects the action: illegal: a1a8 is not a legal move"],[13,"a seat cannot claim a timeout against itself"],[14,"there is no seat 5"],[15,"the claim names an old head"],[16,"the claimant, seat 1, is stalled at the head"]],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[0,"[]"],[1,"[{\"kind\":\"decide\"}]"],[2,"[]"],[19,"[{\"kind\":\"attest\"}]"]],"trace":"6801f9b35c2fa9a436bc6e012ec4038d95dd83674a0d47e50fa4d73524fe3cdc","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"seat 1":{"receipts":"aaarrrrrrrrrrrrrrs","rejections":[[3,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[4,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[5,"the event is for another game"],[6,"kind 1 is not an in-game event"],[7,"not signed by a seated session key"],[8,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[9,"kind 7451 is not an in-game event"],[10,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[11,"move 4 must be signed by seat 1"],[12,"the module rejects the action: illegal: a1a8 is not a legal move"],[13,"a seat cannot claim a timeout against itself"],[14,"there is no seat 5"],[15,"the claim names an old head"],[16,"the claimant, seat 1, is stalled at the head"]],"duties":[[-1,"[]"],[0,"[{\"kind\":\"decide\"}]"],[1,"[]"],[2,"[{\"kind\":\"decide\"}]"],[19,"[{\"kind\":\"attest\"}]"]],"trace":"9ec1aaec08b3c8bf92d64b09aa34d0ebd687bdbd578fc823191fe4e35ae4733b","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"spectator":{"receipts":"aaarrrrrrrrrrrrrrs","rejections":[[3,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[4,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[5,"the event is for another game"],[6,"kind 1 is not an in-game event"],[7,"not signed by a seated session key"],[8,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[9,"kind 7451 is not an in-game event"],[10,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[11,"move 4 must be signed by seat 1"],[12,"the module rejects the action: illegal: a1a8 is not a legal move"],[13,"a seat cannot claim a timeout against itself"],[14,"there is no seat 5"],[15,"the claim names an old head"],[16,"the claimant, seat 1, is stalled at the head"]],"duties":[[-1,"[]"]],"trace":"06a7c84256ffbcc4f382e3aa6781a95087e9ac278a849506fa490887b74bfbbe","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}},
+  {"name":"reversed","deliveries":[17,16,15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0],"clients":{"seat 0":{"receipts":"sssrrssrrrrrrrrssa","rejections":[[3,"there is no seat 5"],[4,"a seat cannot claim a timeout against itself"],[7,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[8,"kind 7451 is not an in-game event"],[9,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[10,"not signed by a seated session key"],[11,"kind 1 is not an in-game event"],[12,"the event is for another game"],[13,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[14,"invalid-event: not a valid NIP-01 event (shape, id or signature)"]],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[17,"[]"],[19,"[{\"kind\":\"attest\"}]"]],"trace":"7e133601bff01b58b21e90577b769a5dee3f5a3202811c27ce88a5e32ec32725","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"seat 1":{"receipts":"sssrrssrrrrrrrrssa","rejections":[[3,"there is no seat 5"],[4,"a seat cannot claim a timeout against itself"],[7,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[8,"kind 7451 is not an in-game event"],[9,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[10,"not signed by a seated session key"],[11,"kind 1 is not an in-game event"],[12,"the event is for another game"],[13,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[14,"invalid-event: not a valid NIP-01 event (shape, id or signature)"]],"duties":[[-1,"[]"],[17,"[{\"kind\":\"decide\"}]"],[19,"[{\"kind\":\"attest\"}]"]],"trace":"a8d3777024c611893dd25ba1d5905871b7222eb88acd54fadea218978a2dba6e","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"spectator":{"receipts":"sssrrssrrrrrrrrssa","rejections":[[3,"there is no seat 5"],[4,"a seat cannot claim a timeout against itself"],[7,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[8,"kind 7451 is not an in-game event"],[9,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[10,"not signed by a seated session key"],[11,"kind 1 is not an in-game event"],[12,"the event is for another game"],[13,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[14,"invalid-event: not a valid NIP-01 event (shape, id or signature)"]],"duties":[[-1,"[]"]],"trace":"f6a5ccb7335ea22a46b792107821b7433280306d21ef8d8eacd90254a06dff96","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}},
+  {"name":"shuffled","deliveries":[8,16,5,13,15,12,10,0,0,13,6,2,1,15,14,17,11,4,4,9,3,7],"clients":{"seat 0":{"receipts":"rsrrssradrrsarrsrrrrrr","rejections":[[0,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[2,"the event is for another game"],[3,"a seat cannot claim a timeout against itself"],[6,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[9,"a seat cannot claim a timeout against itself"],[10,"kind 1 is not an in-game event"],[13,"the claim names an old head"],[14,"there is no seat 5"],[16,"move 4 must be signed by seat 1"],[17,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[18,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[19,"kind 7451 is not an in-game event"],[20,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[21,"not signed by a seated session key"]],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[7,"[]"],[23,"[{\"kind\":\"attest\"}]"]],"trace":"f1549024b6143588c0434370f06b4838b5e124f0c5a7d7d10c13654f542dd850","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"seat 1":{"receipts":"rsrrssradrrsarrsrrrrrr","rejections":[[0,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[2,"the event is for another game"],[3,"a seat cannot claim a timeout against itself"],[6,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[9,"a seat cannot claim a timeout against itself"],[10,"kind 1 is not an in-game event"],[13,"the claim names an old head"],[14,"there is no seat 5"],[16,"move 4 must be signed by seat 1"],[17,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[18,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[19,"kind 7451 is not an in-game event"],[20,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[21,"not signed by a seated session key"]],"duties":[[-1,"[]"],[7,"[{\"kind\":\"decide\"}]"],[23,"[{\"kind\":\"attest\"}]"]],"trace":"c55bb1de28938090ca38ab661ebaaeddcb5f163a193a028899dd55c5c707bd08","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":"{\"audit\":{\"fail\":[1],\"reason\":\"timeout\"},\"logHash\":\"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff\",\"outcome\":{\"places\":[1,2],\"reason\":\"forfeit\",\"scores\":[1,1]}}"}},"spectator":{"receipts":"rsrrssradrrsarrsrrrrrr","rejections":[[0,"bad-tag: expected exactly 2 \"e\" tag(s) marked root, prev"],[2,"the event is for another game"],[3,"a seat cannot claim a timeout against itself"],[6,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[9,"a seat cannot claim a timeout against itself"],[10,"kind 1 is not an in-game event"],[13,"the claim names an old head"],[14,"there is no seat 5"],[16,"move 4 must be signed by seat 1"],[17,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[18,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[19,"kind 7451 is not an in-game event"],[20,"invalid-event: not a valid NIP-01 event (shape, id or signature)"],[21,"not signed by a seated session key"]],"duties":[[-1,"[]"]],"trace":"1bff898ae7e122471a1ef931dc958dfafe508f3089a2a06e0a9d0039d8115b03","final":{"phase":"done","head":{"id":"f035dbb838042d858c841ccfa84de473304c480d310057d90607ecb58cba1249","seq":3},"logHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","resultLogHash":"bc59904e0fea59761a913c7f4761a238bc6ad12a897208c4c8654ac28aee57ff","outcome":{"places":[1,2],"reason":"forfeit","scores":[1,1]},"audit":{"fail":[1],"reason":"timeout"},"forfeits":[1],"equivocators":[],"attested":[],"resigned":[],"resignOverridden":[],"resignId":null,"pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700000300,"stateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","publicStateHash":"18da541f3a61d56a9ff2e91cf833d5467b834c4371e75b7120904ca922b8fd81","eventsHash":"31c6fbcff1e16b10d4088c115402d446edb3759225395a6b3667cd099393091d","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}}
+ ]
+}

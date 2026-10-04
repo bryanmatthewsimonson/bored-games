@@ -18,7 +18,15 @@ import { type ChainReactionRules, chainReaction } from '@bored-games/chain-react
 import { chess } from '@bored-games/chess';
 import { canonicalJson, createRng, type Rng } from '@bored-games/game-kit';
 import { luster } from '@bored-games/luster';
-import { finalizeEvent, type Hex, KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
+import {
+  finalizeEvent,
+  type Hex,
+  KIND,
+  moveTemplate,
+  type NostrEvent,
+  parseRoot,
+  timeoutTemplate,
+} from '@bored-games/protocol';
 import { TARGETS } from '../../../tools/fuzz/src/index.ts';
 import { MemoryRelay } from '../src/memory-relay.ts';
 import { GameSession } from '../src/session.ts';
@@ -49,10 +57,13 @@ import {
   deliver,
   LATE,
   makeGame,
+  makeModuleGame,
   newSession,
+  seededRandom,
   shuffleAll,
   statuses,
   T0,
+  type TestGame,
   trust,
 } from '../test/helpers.ts';
 
@@ -276,6 +287,126 @@ function shuffleForkDeal(): EventSet {
   };
 }
 
+/* ---------------------------------------------------------------------------- noise and the clock */
+
+type Seat = { seat: number };
+
+/** Three honest Chess plies (a plain move each, the first legal one), every one delivered to both seats. */
+function chessOpening(game: TestGame): { players: GameSession[]; moves: NostrEvent[] } {
+  const players = [0, 1].map((seat) => newSession(game, seat));
+  const moves: NostrEvent[] = [];
+  for (let k = 0; k < 3; k++) {
+    const seat = ((players[0] as GameSession).view().pending as Seat).seat;
+    const s = players[seat] as GameSession;
+    const legal = s.legalActions() as readonly { type: string; offerDraw?: true }[];
+    const action = legal.find((a) => a.type === 'move' && a.offerDraw !== true) ?? legal[0];
+    const ev = s.buildAction(action, game.rnd, T0 + 100 * (k + 1));
+    deliver(players, [ev]);
+    moves.push(ev);
+  }
+  return { players, moves };
+}
+
+/** A Timeout claim built raw (the builder refuses an early one): `by` claims against `seat` on `head` at `at`. */
+function rawClaim(game: TestGame, by: number, seat: number, head: Hex, at: number): NostrEvent {
+  const sk = (game.ids[by] as Identity).sessionSk;
+  return finalizeEvent(timeoutTemplate({ rootId: game.rootId, headId: head, seat }, at), sk, game.rnd);
+}
+
+/**
+ * Chess with noise: three plies, then events every client must refuse, each for its own reason (a broken id, a
+ * broken signature, another game's move, a foreign kind, a signer with no seat, a move without its root tag, a
+ * Join, junk, a move by the seat not to move, an illegal move, and claims against oneself, against no seat, on an
+ * old head, and by the stalled seat), then an early claim by the seat not to move. The fixture's ticks reach the
+ * deadline one second short, then exactly: the claim is accepted only at the second.
+ */
+function chessNoise(): { set: EventSet; ticks: number[] } {
+  const game = makeModuleGame(chess, 2, 'golden-v1-chess-noise');
+  const { players, moves } = chessOpening(game);
+  const [m1, , m3] = moves as [NostrEvent, NostrEvent, NostrEvent];
+  const p = ((players[0] as GameSession).view().pending as Seat).seat;
+  const q = 1 - p;
+  let t = m3.created_at + 100;
+  const next = (): number => {
+    t += 100;
+    return t;
+  };
+  const honest = (players[p] as GameSession).buildAction(
+    (players[p] as GameSession).legalActions()[0],
+    game.rnd,
+    next(),
+  );
+  const resign = (ev: NostrEvent, sk: Uint8Array): NostrEvent =>
+    finalizeEvent({ kind: ev.kind, created_at: next(), tags: ev.tags, content: ev.content }, sk, game.rnd);
+  const other = makeModuleGame(chess, 2, 'golden-v1-chess-noise-other');
+  const otherSeat = newSession(other, (newSession(other, null).view().pending as Seat).seat);
+  const foreign = otherSeat.buildAction(otherSeat.legalActions()[0], other.rnd, next());
+  const stranger = seededRandom('golden-v1-chess-noise-stranger');
+  const strangerSk = Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? 1 : (stranger(1)[0] as number)));
+  const action = (a: unknown) => ({ type: 'action' as const, action: a, shares: [], reveals: [] });
+  const illegal = moveTemplate(
+    {
+      rootId: game.rootId,
+      prevId: m3.id,
+      seq: 4,
+      content: action({ type: 'move', actor: p, uci: 'a1a8' }),
+    },
+    next(),
+  );
+  const rootless = moveTemplate(
+    { rootId: game.rootId, prevId: m3.id, seq: 4, content: action({ type: 'move', actor: p, uci: 'e2e4' }) },
+    next(),
+  );
+  const sk = (seat: number): Uint8Array => (game.ids[seat] as Identity).sessionSk;
+  const deadline = parseRoot(game.root).deadline;
+  const events: NostrEvent[] = [
+    ...moves,
+    { ...honest, content: `${honest.content} ` },
+    { ...honest, sig: `${honest.sig.slice(0, -1)}${honest.sig.endsWith('0') ? '1' : '0'}` },
+    foreign,
+    finalizeEvent(
+      { kind: 1, created_at: next(), tags: [['e', game.rootId]], content: 'hello' },
+      sk(q),
+      game.rnd,
+    ),
+    resign(honest, strangerSk),
+    finalizeEvent({ ...rootless, tags: rootless.tags.filter((tag) => tag[3] !== 'root') }, sk(p), game.rnd),
+    game.joins[q] as NostrEvent,
+    { kind: KIND.move, created_at: next(), content: 'not json' } as unknown as NostrEvent,
+    resign(honest, sk(q)),
+    finalizeEvent(illegal, sk(p), game.rnd),
+    rawClaim(game, q, q, m3.id, next()),
+    rawClaim(game, q, 5, m3.id, next()),
+    rawClaim(game, q, p, m1.id, next()),
+    rawClaim(game, p, q, m3.id, next()),
+    rawClaim(game, q, p, m3.id, next()),
+  ];
+  const at = m3.created_at + deadline;
+  return {
+    set: { table: game.table, joins: game.joins, root: game.root, identities: game.ids, events },
+    ticks: [at - 1, at],
+  };
+}
+
+/**
+ * Chess claims at the deadline: three plies, then two claims by the seat not to move, one created a second before
+ * its deadline (early, kept), one created exactly at it (accepted when its first-seen time is its date).
+ */
+function chessDeadlineClaim(): EventSet {
+  const game = makeModuleGame(chess, 2, 'golden-v1-chess-deadline-claim');
+  const { players, moves } = chessOpening(game);
+  const m3 = moves[2] as NostrEvent;
+  const p = ((players[0] as GameSession).view().pending as Seat).seat;
+  const at = m3.created_at + parseRoot(game.root).deadline;
+  return {
+    table: game.table,
+    joins: game.joins,
+    root: game.root,
+    identities: game.ids,
+    events: [...moves, rawClaim(game, 1 - p, p, m3.id, at - 1), rawClaim(game, 1 - p, p, m3.id, at)],
+  };
+}
+
 /* ------------------------------------------------------------------------------------------ record */
 
 /** The shuffle steps whose proofs verify: folded once with none trusted, by a spectator in publication order. */
@@ -457,6 +588,31 @@ const ENTRIES: Entry[] = [
     { game: chess.id, seats: 2, policy: anyLegal, adversary: { name: 'resign', seat: CHEAT, at: 6 } },
     'all',
   ),
+  {
+    name: 'chess-noise',
+    mode: 'all',
+    build: () => {
+      const { set, ticks } = chessNoise();
+      return {
+        set,
+        ticks,
+        about:
+          'Chess, hand-built: three plies, then events to refuse (a broken id and signature, another game, a foreign ' +
+          'kind, a seatless signer, a rootless move, a Join, junk, the wrong seat, an illegal move, bad claims), then ' +
+          'an early claim; ticks a second before and exactly at the deadline',
+      };
+    },
+  },
+  {
+    name: 'chess-deadline-claim',
+    mode: 'all',
+    build: () => ({
+      set: chessDeadlineClaim(),
+      about:
+        'Chess, hand-built: three plies, then two claims by the seat not to move, created a second before and ' +
+        'exactly at its deadline',
+    }),
+  },
   sim(
     'bank-honest-2',
     `Bank ${bank.version}, honest, 2 seats (the v1 dice beacon, contributions as turns)`,

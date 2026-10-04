@@ -318,6 +318,8 @@ export const GOLDEN_GROUPS = {
     'chess-equivocate',
     'chess-vanish',
     'chess-resign',
+    'chess-noise',
+    'chess-deadline-claim',
     'bank-honest-2',
     'bank-honest-4',
     'bank-vanish',
