@@ -901,3 +901,37 @@ Read-only audits of Bank and Luster (built by other assistants) went to the owne
 - **Luster: an owed reveal keeps its timeout.** A seat whose share blocks a refill can still be timed out, but the game screen and Home must say clearly who owes a reveal and when the deadline passes.
 - **Luster gets "Compare to Splendor"** (amends D053: a second allowed phrase, stored once in the Luster package; "Splendor" and its publisher go on the restricted list). Its BoardGameGeek id is 148228.
 - **Bank stays a folk game,** with public name "Bank" and no Compare-to phrase. Its BoardGameGeek link is 412804.
+
+## D061: Protocol version 2 specified (`docs/PROTOCOL-v2.md`), reviewed and approved (2026-10-04)
+D059 approved candidate (e), "plain stop", for protocol v2. `docs/PROTOCOL-v2.md` now specifies it as a delta on v1, and `docs/PROTOCOL.md` §5.5 and §6.2a document Luster's partitioned deck and share duty as shipped v1 (owner exception, D059). The spec went through an independent adversarial review: NOT APPROVED (H1, H2, M1–M3, L1–L3), then NOT APPROVED (N1–N3), then APPROVED (review text in the session scratchpad; outcomes below).
+
+**The main choices:**
+- **Versioning:** `["proto","2"]` on every event of a game. v1 games stay v1 forever, clients fold both, and new tables are proto 2. v2 clients MUST NOT create or join new v1 Luster or Bank tables, and they keep folding v1 games in progress.
+- **Events:**
+  - Shares 7453 gains an `anchor` e tag (the releaser's head), plus a roll variant keyed by (seat, move, n).
+  - The end attestation is a content variant of 7456 keyed on (kind, head, forfeiting seats); `forfeit` is a list.
+  - The "this device now plays" note is a new kind, 7458.
+- **Dice (Q5):** each roll's point is `h2c('roll:' + rootId + ':' + moveId + ':' + n)`. Contributions are unordered: a last contributor can withhold and so kingmake, at the cost of a timeout forfeit, which matches v1's fixed last seat.
+- **Fork stop and cutoff (review H1, M1):**
+  - A fork cancels the game only if no game action is held at or past P on any line; otherwise it is a stop.
+  - Every seat with two valid-looking moves on one prev, on any held line, is recorded and rated last. The topmost fork still fixes P.
+  - With 2 seats, double equivocation is a tie.
+- **After a stop (H2, N3):**
+  - Places are fixed at the stop, and no Timeout claims count afterwards.
+  - A withheld secret never forfeits. It is recorded as "secret withheld" and counts as an anti-cheat mark, and the game shows as "audit incomplete".
+  - A partial audit runs once every position decrypts, and only a proven failure demotes a seat.
+- **A standing result (N1):** it is played out as if no fork were held. v1's End rules apply at the result's head (S for a resign), so a cheater cannot fork to dodge its own audit.
+- **Own forfeit (L2, N2):** a client never auto-accepts, before its own deadline, a claim that forfeits only its own seat. It asks the player instead, shows the question only on a device that was not watching that head, and makes "play" the default.
+- **Clients:**
+  - MUST rebroadcast every move on their chain, plus their own Shares events and end attestations (M2);
+  - MUST apply the outbox rule to Shares events and end attestations;
+  - SHOULD make the check before signing;
+  - query their own relays too.
+  - A device that loses its storage starts view-only.
+- **Prompt release** applies to every deck game in v2: only while no fork is held, no result stands and the final deck is complete, and only for positions dealt to another seat or to the table.
+
+**Before the build (PLAN, Phase v2 task 0):**
+- give the protocol model a cancel case (H1);
+- align the model's resign identity with the spec's named-head identity (M3);
+- finish or re-run the unproven scopes;
+- check kind 7458 against the NIPs registry.
