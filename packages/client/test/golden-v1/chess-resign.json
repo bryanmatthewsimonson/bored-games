@@ -1,0 +1,197 @@
+{
+ "format": 1,
+ "name": "chess-resign",
+ "about": "Chess, seat 1 resigns in play (resignAt, the deckless path). simulateGame seed golden-v1-chess-resign#0: 2 seats, done, 7 game actions, 14 events.",
+ "game": "chess",
+ "version": "0.1.0",
+ "seats": 2,
+ "clients": "all",
+ "table": {
+  "kind": 37450,
+  "created_at": 1700000000,
+  "tags": [
+   [
+    "d",
+    "sim-400666649"
+   ],
+   [
+    "game",
+    "chess"
+   ],
+   [
+    "v",
+    "0.1.0"
+   ],
+   [
+    "seats",
+    "2"
+   ],
+   [
+    "deadline",
+    "86400"
+   ],
+   [
+    "open",
+    "1"
+   ],
+   [
+    "relay",
+    "wss://relay.sim.invalid"
+   ],
+   [
+    "status",
+    "open"
+   ],
+   [
+    "proto",
+    "1"
+   ]
+  ],
+  "content": "{\"rules\":{\"drawMode\":\"auto\",\"rulesVersion\":1}}",
+  "id": "f09467df13407317df3bddd7ee1c99cf59dfdb2faa75bdca3b087f75ef4c6e9c",
+  "pubkey": "533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12",
+  "sig": "e7c8e8c84323ea3ff69a8ab21c48ff282595674541e6027a89313bb6d42f758a61016830bb51151ec7b488780848137ba802e933962f2a36ede62e8894e54952"
+ },
+ "joins": [
+  {
+   "kind": 7451,
+   "created_at": 1700002171,
+   "tags": [
+    [
+     "a",
+     "37450:533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12:sim-400666649"
+    ],
+    [
+     "p",
+     "533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12"
+    ],
+    [
+     "rules-hash",
+     "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+    ],
+    [
+     "v",
+     "0.1.0"
+    ],
+    [
+     "proto",
+     "1"
+    ]
+   ],
+   "content": "{\"deckKey\":\"A__wKZRX6fHWugiNQwXMAHIhcCNZaa7hLgz1S230EigI\",\"pok\":{\"c\":\"q30o1YhTPmFxrguIwBQggRcp-yU37En0E-JdimPCpaU\",\"s\":\"7nAsP3p12M20EyrA8PdMZeHdlxZFnPZw5Wt84K5zqkg\"},\"relays\":[\"wss://relay.sim.invalid\"],\"session\":\"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50\",\"sessionSig\":\"ee5a4262d6a418634e52ac7ae28f41c4700e6a8a3b2bddcb2b65ac26edbd68dc0c5a961233698aa7f810adf54140963e564ec46133a5b49426c5598bb8ab0bdd\"}",
+   "id": "9c438259780c6b99a42d7788376714ee2a8079c85b80ef8e6d281940ff5b1b17",
+   "pubkey": "533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12",
+   "sig": "a98f9c8e7cb24c3fe8b4f5f1c98a5c84799926d9faf63527581b55acd143dbd6560d93767623495c4d2f7c5318c003c7d1a2618fa67a847eed040fa71b3ba1bd"
+  },
+  {
+   "kind": 7451,
+   "created_at": 1700005379,
+   "tags": [
+    [
+     "a",
+     "37450:533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12:sim-400666649"
+    ],
+    [
+     "p",
+     "533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12"
+    ],
+    [
+     "rules-hash",
+     "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+    ],
+    [
+     "v",
+     "0.1.0"
+    ],
+    [
+     "proto",
+     "1"
+    ]
+   ],
+   "content": "{\"deckKey\":\"A6W41P25hN_mdNbzS-j8U0hIOMnR1wkUh0cwTzKTP7zF\",\"pok\":{\"c\":\"hsrfluBHfaV338wFamhGb8ZqFiCc7_fnMWbDL0Dr00Q\",\"s\":\"Bxb0ql-tngi438anR0RG6Iw2IxF-1uxXlTHj_jQUYto\"},\"relays\":[\"wss://relay.sim.invalid\"],\"session\":\"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c\",\"sessionSig\":\"bcdd777138bc59ebe16d7f0a68e779d4f38f2171623cb7c891bea3554af14ff1c50e309e1d24beddeeb7d1644b051712145a102b7de65f0f8baa921c73023b01\"}",
+   "id": "efac65da45e3352069da4217de9156242c7139e94c424c46e4a78a8cde28df1b",
+   "pubkey": "6ec59c7b8f749ac1f87c637c2a3fe9f07eada46073770f8dcee5d1a3c76072b2",
+   "sig": "63c8c1b6c5ca25e871cc456629c495d7f3fef09c603c536021dd7c39c2643802ee98fe4e9c8b9aa19a9d224a882a17d181013191822170bd8f309ff138203059"
+  }
+ ],
+ "root": {
+  "kind": 7450,
+  "created_at": 1700005809,
+  "tags": [
+   [
+    "a",
+    "37450:533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12:sim-400666649"
+   ],
+   [
+    "game",
+    "chess"
+   ],
+   [
+    "v",
+    "0.1.0"
+   ],
+   [
+    "deadline",
+    "86400"
+   ],
+   [
+    "rules-hash",
+    "75fe881a5e57d8a5e94451e6f002c7ecc018fe7c3e9a6cb75baa8cab36c56bca"
+   ],
+   [
+    "e",
+    "9c438259780c6b99a42d7788376714ee2a8079c85b80ef8e6d281940ff5b1b17",
+    "wss://relay.sim.invalid",
+    "seat:0"
+   ],
+   [
+    "e",
+    "efac65da45e3352069da4217de9156242c7139e94c424c46e4a78a8cde28df1b",
+    "wss://relay.sim.invalid",
+    "seat:1"
+   ],
+   [
+    "relay",
+    "wss://relay.sim.invalid"
+   ],
+   [
+    "proto",
+    "1"
+   ]
+  ],
+  "content": "{\"rules\":{\"drawMode\":\"auto\",\"rulesVersion\":1},\"seats\":[{\"deckKey\":\"A__wKZRX6fHWugiNQwXMAHIhcCNZaa7hLgz1S230EigI\",\"npub\":\"533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12\",\"session\":\"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50\"},{\"deckKey\":\"A6W41P25hN_mdNbzS-j8U0hIOMnR1wkUh0cwTzKTP7zF\",\"npub\":\"6ec59c7b8f749ac1f87c637c2a3fe9f07eada46073770f8dcee5d1a3c76072b2\",\"session\":\"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c\"}]}",
+  "id": "afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87",
+  "pubkey": "533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12",
+  "sig": "e642f20822dc809cf0850df257cace62210ea6e43114d2c8f003a0debd4f1653e012b7f9cadef250ef95fd873e0c425f8e6c8593c332110ea727997fe1d1036e"
+ },
+ "identities": [
+  {
+   "seat": 0,
+   "sessionSk": "4222c64fa5df7c9a2df1b6096db8b7787e6dbc28362051ad5f4a82508ac120dd",
+   "deckSecret": "8546150993acdaf6d71434957abef2782bd9ef761231db0b2e5a8c5f7312ec92"
+  },
+  {
+   "seat": 1,
+   "sessionSk": "9b93ae2baa164e3879460a59598d6bd59870fe3984baddd5c9d196327a9ccaec",
+   "deckSecret": "a95eb63ae89ffb24ae8c54ac29c3cb47d3e5cd39d11c4c2f49f89410933ec493"
+  }
+ ],
+ "trusted": [],
+ "events": [
+  {"kind":7452,"created_at":1700014580,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","prev"],["seq","1"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"g2g4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"e2685f222f42290516e45e328c2b4a4ded502b7b1cb7751a507a8edb8071e282","pubkey":"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50","sig":"caeedd75f31ac7ee82c1287c8f5341f06e7213af9b326dd8578f5a2711cfb277139c2777e072dc4c4409a2625102f25fab6f8881afe2f2563a3e38de79308b25"},
+  {"kind":7452,"created_at":1700022421,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","e2685f222f42290516e45e328c2b4a4ded502b7b1cb7751a507a8edb8071e282","","prev"],["seq","2"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"offerDraw\":true,\"type\":\"move\",\"uci\":\"g8h6\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"1d948d02cf05bc17d6d527b6fc51cf80bac86548b4538dd8782ef45d3fafeea9","pubkey":"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c","sig":"2cd8e64abde3969baae73c94d056ff73239acadb9a4aa25cdf5b0cb2ffbf021068edc3501788c050f1908aed807d6d8adb0018435cddb0081e6eab9365c09db9"},
+  {"kind":7452,"created_at":1700024842,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","1d948d02cf05bc17d6d527b6fc51cf80bac86548b4538dd8782ef45d3fafeea9","","prev"],["seq","3"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"c2c3\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"c1ced5241b409c9e20b2be2aad4ba656b7c731571a05b19430749d20efb6c249","pubkey":"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50","sig":"7fb3b050eba83bd9a226cda503b6c0e808ebb734eaa9a61a5ad56302a7dcdb592d696462530ab055fb28e88b5bc3a75b9f4c7167075668c03f032b0d73eb2ddb"},
+  {"kind":7452,"created_at":1700028896,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","c1ced5241b409c9e20b2be2aad4ba656b7c731571a05b19430749d20efb6c249","","prev"],["seq","4"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"offerDraw\":true,\"type\":\"move\",\"uci\":\"c7c6\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"5eb56ca73020122de42ae08b379750d8244dfaab7a8e647c030b3dfeeb95676f","pubkey":"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c","sig":"fb6ee17503aa49bdea1bec8a82d890fa6bd2becdd9d9bdbcd42438456faca0c39765d82a3ff1b8fbeb410432f36ee5d371172d7e6170b749629a3441ec50b767"},
+  {"kind":7452,"created_at":1700033777,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","5eb56ca73020122de42ae08b379750d8244dfaab7a8e647c030b3dfeeb95676f","","prev"],["seq","5"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"b2b3\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"31713f73742fd47613c87299415f2477f010fd4f5d98cf609df78f431d80639a","pubkey":"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50","sig":"803abcfd7500da4b439735d0c05d15d33ceaa2138b78829ff544e492102ac4f4be8d32b23f604506d5b760490afbf91b8dc78e741081db3a8295f5b4c1dd8697"},
+  {"kind":7452,"created_at":1700038077,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","31713f73742fd47613c87299415f2477f010fd4f5d98cf609df78f431d80639a","","prev"],["seq","6"],["proto","1"]],"content":"{\"action\":{\"actor\":1,\"offerDraw\":true,\"type\":\"move\",\"uci\":\"d8a5\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"ff55f939d7e43083a587b2876087e15d6a4a13afb8185f2c8f070bb8c55806c6","pubkey":"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c","sig":"a90f99bcadf66b38f0c1063554ff51190e1e2040748a130c2dbbd1e5a2595454524175ba3b3b3362b35fd3cab2ef34ceeb3f7e441b8582e9bf6d7831e7045e33"},
+  {"kind":7452,"created_at":1700043568,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","ff55f939d7e43083a587b2876087e15d6a4a13afb8185f2c8f070bb8c55806c6","","prev"],["seq","7"],["proto","1"]],"content":"{\"action\":{\"actor\":0,\"type\":\"move\",\"uci\":\"c3c4\"},\"reveals\":[],\"shares\":[],\"type\":\"action\"}","id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","pubkey":"1f5fcf7e24e3a61a57fae51caa21efb52c472d23dfde3c48d0ace41711a1fa50","sig":"4ee67c3f088a580c167d8bc7303861639cfb0fb352d7489758eb902341ac01276126c84e15412102536a4c7adbc3a24b9e77285e79568264539f389e55cfd336"},
+  {"kind":7457,"created_at":1700044104,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["e","47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","","head"],["proto","1"]],"content":"{\"type\":\"resign\"}","id":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pubkey":"9f967eb1f3f08c8320a7cad3a29ba1d9e8bc9b92a2bbe780d64101cbfdbba84c","sig":"03b4bd1ca80f69ceb6199b8376c5e86038b4a68708613d146a64621b8882c2a5fa78f46b534dad5ee834d50b8fbf15a8e831701ab1c71a1d7c1a3e0db16445ee"},
+  {"kind":7456,"created_at":1700044104,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["proto","1"]],"content":"{\"audit\":{\"fail\":[1],\"reason\":\"resign\"},\"logHash\":\"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501\",\"outcome\":{\"places\":[1,2],\"reason\":\"resign\",\"scores\":[1,1]}}","id":"6d3c3a61d85122a2c595c31e92ed60856b2e68c5c1d2fd8ce075b077a8875ea8","pubkey":"6ec59c7b8f749ac1f87c637c2a3fe9f07eada46073770f8dcee5d1a3c76072b2","sig":"eaa63d61142d44857ebe084911c6a11bdf46a0e996e95876d0035342c97369fbcb3f1c93ef32efa52c8b925ab3624da59a17ab3eeca428c2327b1d9d8e1364dc"},
+  {"kind":7456,"created_at":1700059142,"tags":[["e","afb9c67383228fe5c224441ac2711e3fe11f71cd0147bce0f8b6faee3f746f87","","root"],["proto","1"]],"content":"{\"audit\":{\"fail\":[1],\"reason\":\"resign\"},\"logHash\":\"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501\",\"outcome\":{\"places\":[1,2],\"reason\":\"resign\",\"scores\":[1,1]}}","id":"d3529db1ecb18ff946a3be770ea4fb61b584c8a4c7cb0b4f9fd37d96ed718337","pubkey":"533602b6d7371fb866db24fe5fe5375157be7a89d0555430932b9f788f24de12","sig":"5e5b1f36162895dad490e97f954f79f59a5ac991d727f0af027021e239f0f2428e24036851a530483d4cf517703d28b578cf5735d0013c8dda4ccd3e51789e6e"}
+ ],
+ "orders": [
+  {"name":"published","deliveries":[0,1,2,3,4,5,6,7,8,9],"clients":{"seat 0":{"receipts":"aaaaaaaaaa","rejections":[],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[0,"[]"],[1,"[{\"kind\":\"decide\"}]"],[2,"[]"],[3,"[{\"kind\":\"decide\"}]"],[4,"[]"],[5,"[{\"kind\":\"decide\"}]"],[6,"[]"],[7,"[{\"kind\":\"attest\"}]"],[9,"[]"]],"trace":"b449a3c78914bb10c587f213f66b29f92044dffec4de8909620daba4e2f2b548","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"seat 1":{"receipts":"aaaaaaaaaa","rejections":[],"duties":[[-1,"[]"],[0,"[{\"kind\":\"decide\"}]"],[1,"[]"],[2,"[{\"kind\":\"decide\"}]"],[3,"[]"],[4,"[{\"kind\":\"decide\"}]"],[5,"[]"],[6,"[{\"kind\":\"decide\"}]"],[7,"[{\"kind\":\"attest\"}]"],[8,"[]"]],"trace":"1c32a91c33c117ef704a35137e6e10fc49e0a1c4432dcbbcfa24ce623d32cc6a","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"spectator":{"receipts":"aaaaaaaaaa","rejections":[],"duties":[[-1,"[]"]],"trace":"df3157c4980b22758f0b1e0fab72077d3e30dc7ec5de1ac6e43437f6e32cb1cf","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}},
+  {"name":"reversed","deliveries":[9,8,7,6,5,4,3,2,1,0],"clients":{"seat 0":{"receipts":"sssssssssa","rejections":[],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[9,"[]"]],"trace":"40df97415d1208a2a69f0240b9fd0a8c545e5bbf4aff3fe305c7eb3a6f42aed2","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"seat 1":{"receipts":"sssssssssa","rejections":[],"duties":[[-1,"[]"]],"trace":"87f11bee6de042499afd8a0abf5b38173bfbc3d8fb30c5d52c18acc44231d208","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"spectator":{"receipts":"sssssssssa","rejections":[],"duties":[[-1,"[]"]],"trace":"87f11bee6de042499afd8a0abf5b38173bfbc3d8fb30c5d52c18acc44231d208","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}},
+  {"name":"shuffled","deliveries":[1,2,0,4,5,7,6,3,9,8,1,3],"clients":{"seat 0":{"receipts":"ssassssaaadd","rejections":[],"duties":[[-1,"[{\"kind\":\"decide\"}]"],[2,"[]"],[7,"[{\"kind\":\"attest\"}]"],[8,"[]"]],"trace":"9170043050e284303dda95f2eef1d6b376df434ee27cf81ca6534bbc9fa06425","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"seat 1":{"receipts":"ssassssaaadd","rejections":[],"duties":[[-1,"[]"],[2,"[{\"kind\":\"decide\"}]"],[7,"[{\"kind\":\"attest\"}]"],[9,"[]"]],"trace":"1ace66fe8b8dd934ea17323d301e04b009154c8ddd71da1d2a06b958c124bc7e","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":false,"legalHash":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945","attestation":null}},"spectator":{"receipts":"ssassssaaadd","rejections":[],"duties":[[-1,"[]"]],"trace":"db8bda51101ac9368b434eb5c8aff482524604f727aa9fc241a70fde034ec172","final":{"phase":"done","head":{"id":"47df54fd1df95c8ee664cf4aa3bcfd4062d0476f43ed9e0da9b0707e7ffd963a","seq":7},"logHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","resultLogHash":"4bf9a388beb34f0d146f235958c6048d40510bd8dc489f5a839cdf0589e37501","outcome":{"places":[1,2],"reason":"resign","scores":[1,1]},"audit":{"fail":[1],"reason":"resign"},"forfeits":[1],"equivocators":[],"attested":[0,1],"resigned":[1],"resignOverridden":[],"resignId":"ae5348959952c5cfd7cbddec99bc59d906c03305531836e86ca5a152265db79a","pending":{"type":"player","seat":1,"decision":"move"},"pendingSince":1700043568,"stateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","publicStateHash":"3c8441727f92436e9685010793181775609e3f2d441f29c86784983da797c0f3","eventsHash":"6b71419ec09df69c693587d6f572ab891221abed22149e16294cf9a8cefba272","waitingFor":[],"missingParents":[],"aheadOfHead":false,"timeoutTarget":null,"canResign":null,"legalHash":null,"attestation":null}}}}
+ ]
+}

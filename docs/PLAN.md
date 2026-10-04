@@ -166,6 +166,11 @@
 
 ### Phase v2: Protocol version 2 (outline; spec `docs/PROTOCOL-v2.md`)
 Outline only; each task gets its own plan before it starts. Nothing ships until every task's tests pass and `pnpm check` is green.
+- **Build status (branch `v2-build`).** T1, the v1 freeze, is done:
+  - the v1 golden corpus: `packages/client/test/golden-v1/` holds 23 signed v1 event sets (whole games of Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries, and the stale-rival, freeze and shuffle-fork-deal sets) with the digest of every fold in three arrival orders; `golden-v1.test.ts` folds them again, and `scripts/golden-v1.ts` recorded them;
+  - Bank 0.1.0 fixtures: `packages/games/bank/test/golden-v1/`, per-step hashes over 20 seeded games of 2 to 6 seats;
+  - the conformance guard `tests/conformance-v2.test.ts`: every V2-nn of PROTOCOL-v2 §12.1 needs an `it('V2-nn …')`. Its allowlist holds every id a task has not covered yet and only shrinks; V2-48 is deferred.
+  - The fixtures are never regenerated during the build. A difference is a v1 regression.
 - **0. Before the build (D059 item 8).**
   - Finish the unproven model scopes (prompt-reveal.md §6.7): 4 seats, 8 moves, public, adversary at seat 3; two honest seats on two devices each with a resign; viewers mode at 4 seats and 8 moves. Re-run on a bigger machine if needed.
   - Align `tools/protocol-model` with the spec's choices and re-run the battery: a resign's identity at its named head with S cut at the first fork past it (§5.3, §8.3; review M3: the model now attests at the counting head, the stricter variant); a claim forfeiting several seats (§5.3); unresolved anchors (§5.4); the Secret phase after a stop (§7.3); unordered roll contributions (§6.2); a public reveal that blocks the next decision (Luster refills). **Add a cancel case** (review H1): `stop3` scores every stop as E's loss and has no cancel, so the model must check that a fork cancels only when no game action is held at or past it, and that a late fork at the root or a shuffle step is E's loss.

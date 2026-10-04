@@ -105,6 +105,9 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../games/chess
+      '@bored-games/luster':
+        specifier: workspace:*
+        version: link:../games/luster
 
   packages/deck:
     dependencies:
