@@ -293,13 +293,20 @@ const lobbyOf = (set: EventSet) => ({
   identities: set.identities.map(goldenIdentity),
 });
 
-function record(name: string, about: string, set: EventSet, mode: ClientMode): GoldenFixture {
+function record(
+  name: string,
+  about: string,
+  set: EventSet,
+  mode: ClientMode,
+  ticks?: number[],
+): GoldenFixture {
   const root = parseRoot(set.root);
   const base = {
     ...lobbyOf(set),
     events: set.events,
     game: root.game,
     trusted: verifiedSteps(set),
+    ...(ticks === undefined ? {} : { ticks }),
   };
   // The trust shortcut must not change a fold: with and without it, the spectator folds the set the same way.
   const published = set.events.map((_, i) => i);
@@ -330,6 +337,7 @@ function record(name: string, about: string, set: EventSet, mode: ClientMode): G
     identities: base.identities,
     events: set.events,
     trusted: base.trusted,
+    ...(ticks === undefined ? {} : { ticks }),
     orders,
   };
 }
@@ -341,7 +349,7 @@ const CHEAT = 1;
 interface Entry {
   name: string;
   mode: ClientMode;
-  build: () => { set: EventSet; about: string };
+  build: () => { set: EventSet; about: string; ticks?: number[] };
 }
 
 const sim = (name: string, what: string, spec: SimSpec, mode: ClientMode): Entry => ({
@@ -393,7 +401,7 @@ const ENTRIES: Entry[] = [
     'cr-vanish-early',
     'Chain Reaction, seat 1 vanishes before the first game action (vanish); a claim cancels the game',
     cr({ name: 'vanish', seat: CHEAT }),
-    'rotate',
+    'all',
   ),
   sim(
     'cr-vanish-late',
@@ -405,13 +413,13 @@ const ENTRIES: Entry[] = [
     'cr-bad-shuffle',
     'Chain Reaction, seat 1 proves its shuffle step against the wrong input (badShuffle)',
     cr({ name: 'badShuffle', seat: CHEAT }),
-    'rotate',
+    'all',
   ),
   sim(
     'cr-resign-cancel',
     'Chain Reaction, seat 2 resigns at the first decision of the game (resignAt): cancelled, secrets published',
     cr({ name: 'resign', seat: 2, at: 3 }, (r) => r.phase === 'cancelled', true),
-    'rotate',
+    'all',
   ),
   sim(
     'cr-resign-mid',
@@ -530,7 +538,7 @@ const ENTRIES: Entry[] = [
   },
   {
     name: 'cr-freeze',
-    mode: 'rotate',
+    mode: 'all',
     build: () => {
       const g = stale();
       return {
@@ -543,7 +551,7 @@ const ENTRIES: Entry[] = [
   },
   {
     name: 'cr-shuffle-fork-deal',
-    mode: 'rotate',
+    mode: 'all',
     build: () => ({
       set: shuffleForkDeal(),
       about:
@@ -560,15 +568,16 @@ if (values.list === true) {
   for (const e of ENTRIES) console.log(e.name);
   process.exit(0);
 }
-const names = ENTRIES.map((e) => e.name);
-if (canonicalJson(names) !== canonicalJson(GOLDEN_NAMES)) throw new Error('ENTRIES and GOLDEN_NAMES differ');
+const names = ENTRIES.map((e) => e.name).sort();
+if (canonicalJson(names) !== canonicalJson([...GOLDEN_NAMES].sort()))
+  throw new Error('ENTRIES and GOLDEN_NAMES differ');
 const only = values.only?.split(',') ?? null;
 for (const e of ENTRIES) {
   if (only !== null && !only.includes(e.name)) continue;
   const started = performance.now();
   console.log(`${e.name}…`);
-  const { set, about } = e.build();
-  const fx = record(e.name, about, set, e.mode);
+  const { set, about, ticks } = e.build();
+  const fx = record(e.name, about, set, e.mode, ticks);
   const text = serializeFixture(fx);
   writeFileSync(new URL(`${e.name}.json`, OUT), text);
   const seconds = ((performance.now() - started) / 1000).toFixed(1);

@@ -119,6 +119,11 @@ export interface GoldenFixture {
    * vectors and shuffle-phase.test.ts. A step not listed here (a bad one) is verified in every fold.
    */
   trusted: Hex[];
+  /**
+   * Local clock readings at which every fold calls `tick` once all its deliveries are in, in order (absent: none).
+   * They pin how stored claims are judged against the clock alone.
+   */
+  ticks?: number[];
   orders: GoldenOrder[];
 }
 
@@ -255,7 +260,10 @@ function finalDigest(s: GameSession, module: AnyModule, late: number): FinalDige
 
 /** Fold the fixture's events in `deliveries` order as `seat` (null: a spectator), each at its own date. */
 export function foldClient(
-  fx: Pick<GoldenFixture, 'table' | 'joins' | 'root' | 'identities' | 'trusted' | 'events' | 'game'>,
+  fx: Pick<
+    GoldenFixture,
+    'table' | 'joins' | 'root' | 'identities' | 'trusted' | 'events' | 'game' | 'ticks'
+  >,
   deliveries: readonly number[],
   seat: number | null,
   modules: ReadonlyMap<string, AnyModule> = GOLDEN_MODULES,
@@ -283,37 +291,54 @@ export function foldClient(
     }
     trace.update(`${i} ${r.status} ${canonicalJson(stepDigest(s.view()))} ${now}\n`);
   }
+  // Then the ticks, numbered after the deliveries.
+  for (const [j, at] of (fx.ticks ?? []).entries()) {
+    const i = deliveries.length + j;
+    latest = Math.max(latest, at);
+    s.tick(at);
+    const now = canonicalJson(s.duties());
+    if (now !== last) {
+      duties.push([i, now]);
+      last = now;
+    }
+    trace.update(`${i} tick ${at} ${canonicalJson(stepDigest(s.view()))} ${now}\n`);
+  }
   // Far past every deadline: the timeout target a returning client would see.
   const late = latest + 10 * (s.view().deadline + 1);
   return { receipts, rejections, duties, trace: trace.digest('hex'), final: finalDigest(s, module, late) };
 }
 
-/** Every fixture of the corpus, by name: `golden-v1.test.ts` requires exactly these files. */
-export const GOLDEN_NAMES = [
-  'cr-honest',
-  'cr-bad-share',
-  'cr-forged-skip',
-  'cr-equivocate',
-  'cr-vanish-early',
-  'cr-vanish-late',
-  'cr-bad-shuffle',
-  'cr-resign-cancel',
-  'cr-resign-mid',
-  'chess-honest',
-  'chess-equivocate',
-  'chess-vanish',
-  'chess-resign',
-  'bank-honest-2',
-  'bank-honest-4',
-  'bank-vanish',
-  'bank-resign',
-  'luster-honest',
-  'luster-vanish',
-  'cr-stale-rival',
-  'cr-stale-rival-play',
-  'cr-freeze',
-  'cr-shuffle-fork-deal',
-] as const;
+/**
+ * Every fixture of the corpus, by name, in groups: one test file per group, so that vitest folds the groups in
+ * parallel. `golden-v1.test.ts` requires exactly these files.
+ */
+export const GOLDEN_GROUPS = {
+  deckless: [
+    'chess-honest',
+    'chess-equivocate',
+    'chess-vanish',
+    'chess-resign',
+    'bank-honest-2',
+    'bank-honest-4',
+    'bank-vanish',
+    'bank-resign',
+  ],
+  cr: [
+    'cr-honest',
+    'cr-bad-share',
+    'cr-forged-skip',
+    'cr-equivocate',
+    'cr-vanish-early',
+    'cr-vanish-late',
+    'cr-bad-shuffle',
+    'cr-resign-cancel',
+    'cr-resign-mid',
+  ],
+  crSets: ['cr-stale-rival', 'cr-stale-rival-play', 'cr-freeze', 'cr-shuffle-fork-deal'],
+  luster: ['luster-honest', 'luster-vanish'],
+} as const;
+
+export const GOLDEN_NAMES: readonly string[] = Object.values(GOLDEN_GROUPS).flat();
 
 /** A fixture as JSON, one event and one order per line, so that a diff shows which event or fold moved. */
 export function serializeFixture(fx: GoldenFixture): string {
