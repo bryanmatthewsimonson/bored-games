@@ -499,6 +499,8 @@ Rows 1–16 were tried against "final, or stop" (§5B), by hand and, where marke
 **Residuals of the alternative §5B** (round 2), for the record: post-end learning when a later double vouch stops the game below a final move; two deadlines for claims after any fork; honest seats on two devices can be flagged unless one device acks and every device checks the seat's own published events before acting (the model's `checked` policy).
 
 ## 10. Owner questions
+**Answered (owner, 2026-10-04, D059): "Proceed with all recommendations."** Each question below is settled as its recommendation; (e) as amended is approved for protocol version 2.
+
 One list, after the round-3 independent review (verdict: approve (e) as amended for owner approval, with the spec fixes F1–F5 of §5.1 and §9).
 1. **A1 policy** (residual 1). In games with audit `'none'` (poker), a seat's second device may play on a branch that a stop later voids, so a coalition learns a card and the decisions made with it. Accept it, or require one active device per seat per game in those games? Recommendation: require it for audit-`'none'` games; accept it elsewhere, where every card is public at the end anyway.
 2. **Multi-device policy** (§5.1, rule 9). The outbox rule is required (without it a stale outbox forks an honest seat). The check before signing is a SHOULD: it keeps one seat's devices from ending apart and stops a human moving twice except within seconds. Beyond them: (i) one designated playing device per seat per game, others view-only until handed over (a signed "this device now plays" note); or (ii) the two rules alone. Recommendation: (ii) everywhere now, (i) for audit-`'none'` games. Also: should a device query relays of its own choosing, not only the root's (F2)? Recommendation: yes.

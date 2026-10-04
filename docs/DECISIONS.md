@@ -863,3 +863,28 @@ Follow-up: the owner requested random starts instead of the tabletop youngest-pl
 Luster interface follow-up (owner, 2026-10-04): use conventional Diamond, Sapphire, Emerald, Ruby, Onyx and Gold names; original artwork remains required. The owner clarified "Use whatever the rules dictate" for supply after observing a two-player game, so the standard 4/5/7 per-color setup and five Gold remain unchanged. Large clickable gem stacks, removable selection gems, clickable card/deck/noble faces and a card panel with discounted prices and direct Gold swaps replace numeric arrows and payment dropdowns. Only Luster's theme, art, UI, setup copy, catalog search expectation and tests change; engine 0.2.0 and Bank's implementation are preserved. The D050 exception stays limited to Luster.
 
 Luster hand/sidebar follow-up: every reserved card is displayed face down outside the owner’s separate hand, including previously exposed market cards. This hides artwork, cost, discount and prestige from the hand presentation without changing immutable public deck assignments or concealing identities already present in signed public history. Blind cards retain engine-level owner-only knowledge. The desktop board now has a sticky right-hand score/resource sidebar; narrow screens stack the player panels below it. Styles and presentation components remain Luster-specific; no Bank, shared runtime or protocol changes.
+
+## D059: The owner approves the Phase K recommendations (owner, 2026-10-04)
+The owner answered the eight questions of `docs/proposals/prompt-reveal.md` §10: *"Proceed with all recommendations."* Each answer below is the recommendation as written there.
+1. **A1 (one card readable after a stop):**
+   - one active device per seat per game is required in games with audit `'none'`;
+   - accepted elsewhere, where every card is public at the end.
+2. **Devices:**
+   - **Everywhere:**
+     - the outbox rule (required);
+     - the check before signing (SHOULD);
+     - devices also query relays of their own choosing, not only the root's (F2).
+   - **In audit-`'none'` games:** one designated playing device per seat; the others are view-only until handed over with a signed "this device now plays" note.
+3. **No clock-based time limit on stops.**
+4. **A stop with 3 or more seats:** the equivocator is rated last and recorded, and the game is unrated for the others.
+5. **Roll binding:** when the dice beacon is built for protocol v2, each roll's point is bound to the move that requests it: `h2c('roll:' + rootId + ':' + moveId + ':' + n)`.
+6. **F1 is accepted for now:** a finished game stays voidable while a seat is absent. Each void costs the equivocator a rated loss and exposes nothing.
+7. **F4, result identity:**
+   - results are keyed on (kind, head, forfeiting seat);
+   - an end attestation, published as a content variant of kind 7456, excludes the audit;
+   - the audit verdict is computed from the events, so it needs no attestation;
+   - the PROTOCOL §7 attestation is kept for stats only.
+8. **Candidate (e), as amended (round 3 with F1–F5), is approved** as the prompt-reveal design for protocol version 2.
+   - It is to be specified in PROTOCOL and then built.
+   - The unproven model scopes (§6.7) must be finished, or re-run on a bigger machine, before the build.
+   - Until it is built, D050 stands: no game ships a prompt duty.
