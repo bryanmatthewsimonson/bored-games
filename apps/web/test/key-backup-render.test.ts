@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BACKUP_AGAIN, BACKUP_BUTTON, BackupOffer, RestoreNotice } from '../src/components/key-backup.tsx';
-import { BACKUP_NO_NIP44, RESTORE_TEXT } from '../src/key-backup.ts';
+import { BACKUP_NO_NIP44, EXTENSION_DECRYPT_NOTE, RESTORE_TEXT } from '../src/key-backup.ts';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
 const buttons = (t: ReturnType<typeof renderTree>) =>
@@ -51,6 +51,9 @@ describe('the game screen’s key backup notices (D065)', () => {
       expect(spokenText(offer('done', signer))).toContain("This game's keys are backed up on its relays.");
     }
     expect(buttons(offer('due', 'nip07'))).toEqual([BACKUP_BUTTON]);
+    // Review L3: an extension user is told what a site allowed to decrypt could do.
+    expect(spokenText(offer('due', 'nip07'))).toContain(EXTENSION_DECRYPT_NOTE);
+    expect(spokenText(offer({ error: 'x' }, 'local'))).not.toContain(EXTENSION_DECRYPT_NOTE);
     const failed = offer({ error: 'No relay accepted the backup.' }, 'local');
     expect(buttons(failed)).toEqual([BACKUP_BUTTON]);
     expect(spokenText(failed)).toContain('No relay accepted the backup.');

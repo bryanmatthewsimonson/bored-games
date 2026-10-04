@@ -42,6 +42,13 @@ import {
 export const BACKUP_NO_NIP44 =
   "Your browser extension can't encrypt (it has no NIP-44 support), so game keys can't be backed up or restored with it.";
 
+/**
+ * For extension users (review L3): the backup is decrypted by the player key, so whatever may decrypt with it can take
+ * the seat.
+ */
+export const EXTENSION_DECRYPT_NOTE =
+  'Your game keys are backed up encrypted to your key. Any site you let your extension decrypt for (NIP-44) could read them, play your seats and see your hidden cards: allow that only for sites you trust.';
+
 /** The signer's NIP-44, or the reason there is none. */
 export function backupUnavailable(signer: Pick<Signer, 'nip44'>): string | null {
   return signer.nip44 === undefined ? BACKUP_NO_NIP44 : null;

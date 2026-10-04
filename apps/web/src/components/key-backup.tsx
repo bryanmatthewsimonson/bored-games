@@ -4,7 +4,7 @@
  */
 import type { BackupState, RestoreState } from '../game-controller.ts';
 import type { SignerKind } from '../identity.ts';
-import { BACKUP_NO_NIP44, RESTORE_TEXT } from '../key-backup.ts';
+import { BACKUP_NO_NIP44, EXTENSION_DECRYPT_NOTE, RESTORE_TEXT } from '../key-backup.ts';
 
 /** "Back up this game's keys" (D065). */
 export const BACKUP_BUTTON = "Back up this game's keys";
@@ -76,6 +76,7 @@ export function BackupOffer(props: { state: BackupState; signer: SignerKind; onB
         Your keys for this game are only in this browser. Back them up, encrypted to your key, so another
         device with your key can play this seat.
       </p>
+      {props.signer === 'nip07' && <p class="muted">{EXTENSION_DECRYPT_NOTE}</p>}
       <div class="row">
         <button type="button" class="btn" onClick={props.onBackup}>
           {BACKUP_BUTTON}
