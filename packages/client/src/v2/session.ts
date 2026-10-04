@@ -232,6 +232,13 @@ export class GameSessionV2 implements Session {
    * v1's accepted claims (§8.2 "Finality").
    */
   private readonly endClaims = new Map<string, { id: Hex; seats: number[] }>();
+  /**
+   * When each result first stood against a held fork on this client: its first-seen time of the event after which
+   * the cutoff first held it (coordinator ruling on D068, PROTOCOL-v2 §5.4, §8.1), by End-phase key. The End-phase
+   * deadline of a standing result runs from it when it is later than the progress on the result's line, so late
+   * attestations never make a seat claimable at once.
+   */
+  private readonly stoodSince = new Map<string, number>();
   /** The partial audit after a stop, by P, once it ran (its verdict depends on P's line alone). */
   private readonly stopAudits = new Map<Hex, AfterStopAudit>();
   /** Audits by the log hash of the line they ran on. */
@@ -344,6 +351,7 @@ export class GameSessionV2 implements Session {
     try {
       this.observe(now);
       const r = this.intake(ev, this.clockOf(now));
+      this.noteStanding(this.clockOf(now));
       this.decideEndClaim();
       return r;
     } catch (e) {
@@ -1110,14 +1118,28 @@ export class GameSessionV2 implements Session {
    * The progress time P (v1 §8.1, D030 Rulings 10 and 11): the latest local first-seen time over the root and the
    * moves of the chain (the walk's, or with a result the line to its scoring point, as without a fork: review N1),
    * and the Shares events and secrets that let the walk advance or removed a seat from the stall set
-   * (`noteProgress`). No `created_at` counts.
+   * (`noteProgress`); for a result standing against a fork, also the first-seen time of the event after which it
+   * first stood here (`stoodSince`). No `created_at` counts.
    */
   private progress(): number {
     let out = Math.max(this.rootSeenAt, this.stallProgress);
     const e = this.ending();
     const chain = e === null ? this.current.chain : e.fold.chain.slice(0, e.seq);
     for (const h of chain) out = Math.max(out, this.seenAt.get(h.m.id) ?? this.clock);
+    // A result standing against a fork: no earlier than when it first stood here (coordinator ruling on D068).
+    if (e !== null && this.current.fork !== null)
+      out = Math.max(out, this.stoodSince.get(e.key) ?? this.clock);
     return out;
+  }
+
+  /**
+   * After an event is folded at local time `now` (its first-seen time): if a result now stands against the held
+   * fork that had not stood here before, record `now` as the time it first stood (`stoodSince`).
+   */
+  private noteStanding(now: number): void {
+    if (this.current.fork === null) return;
+    const e = this.ending();
+    if (e !== null && !this.stoodSince.has(e.key)) this.stoodSince.set(e.key, now);
   }
 
   /**

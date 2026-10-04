@@ -216,6 +216,34 @@ describe('N1: a cheat that forks at its own old prev after the end attestations 
     }
   });
 
+  it('V2-54: late attestations that make the end stand do not make C claimable at once: the deadline runs from when it first stood here', () => {
+    const deadline = (t.spectator.view().deadline as number) * 1;
+    const ends = log.filter((e) => e.kind === 7456);
+    const r = replay(
+      t,
+      log.filter((e) => !ends.includes(e)),
+    );
+    // A stop first (no end attestation held); the attestations arrive two deadlines after everything else.
+    expect(r.spectator.view().stop).toMatchObject({ at: P, seat: C });
+    const late = NOW + 2 * deadline;
+    for (const s of honest(r)) for (const e of ends) s.receive(e, late);
+    const h = r.players[H] as GameSessionV2;
+    for (const s of honest(r)) {
+      expect(s.view()).toMatchObject({ stood: true, phase: 'end', pendingSince: late });
+      expect(s.waitingFor()).toEqual([C]);
+    }
+    // The moves of X's line are old, but C is not claimable until a full deadline after the result stood.
+    expect(h.timeoutTarget(late)).toBeNull();
+    expect(h.timeoutTarget(late + deadline - 1)).toBeNull();
+    expect(h.timeoutTarget(late + deadline)).toBe(C);
+    const claim = h.buildTimeout(C, r.game.rnd, late + deadline);
+    expect(r.spectator.receive(claim, late + deadline - 1).status).toBe('stored');
+    expect(r.spectator.view().phase).toBe('end');
+    r.spectator.tick(late + deadline);
+    expect(r.spectator.view()).toMatchObject({ phase: 'done', forfeits: [C] });
+    expect(r.spectator.view().audit).toEqual({ fail: [C], reason: 'withheld secret' });
+  });
+
   it('without H’s and O’s end attestations the fork stops the game instead: no claim counts (H2), C rated last', () => {
     const ends = new Set(log.filter((e) => e.kind === 7456).map((e) => e.id));
     const r = replay(
