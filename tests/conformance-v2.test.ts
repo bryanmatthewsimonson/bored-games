@@ -58,6 +58,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the walk ends at a fork when a head has two valid-looking game actions, at the root or below the head ' +
       '(packages/client/test/v2/core-deckless.test.ts)',
   },
+  'V2-56': {
+    until: 'T11 (rule (b) reads the held set), T13 (the rebroadcast reads it)',
+    partial:
+      'the session holds every Shares event and end attestation with a seated signer whatever its validity, in ' +
+      'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts)',
+  },
   'V2-15': { until: 'T10' },
   'V2-16': { until: 'T10' },
   'V2-17': { until: 'T11, T12' },

@@ -45,7 +45,7 @@ import type {
 import { moveShape, pendingAt } from './line.ts';
 import { attestedResult, endAttestedSeats, endVerdict, lineLogHash, ownResult } from './results.ts';
 import { EventStoreV2, resultKey } from './store.ts';
-import type { AnyModule, GameCtx, Judgement, LinePoint } from './types.ts';
+import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
 import { type Walk, walk } from './walk.ts';
 
 /*
@@ -293,16 +293,28 @@ export class GameSessionV2 implements Session {
     }
   }
 
-  /** The answer for a held event received again: a move judged invalid at its prev stays `rejected`. */
+  /**
+   * The answer for a held event received again: a move that can never be valid (judged invalid at its prev, or of a
+   * bad shape wherever it lies), an invalid end attestation and an invalid Shares event stay `rejected`; anything
+   * else is a `duplicate`.
+   */
   private again(id: Hex): ReceiveResult {
-    const j = this.current.judged.get(id);
-    if (this.store.moves.has(id) && j?.kind === 'invalid') return { status: 'rejected', reason: j.why };
+    const held = this.store.moves.get(id);
+    if (held !== undefined) {
+      const j = this.current.judged.get(id);
+      if (j?.kind === 'invalid') return { status: 'rejected', reason: j.why };
+      if (held.shape !== null) return { status: 'rejected', reason: held.shape };
+      return { status: 'duplicate' };
+    }
     const end = this.store.ends.get(id);
-    if (end !== undefined && endVerdict(this.store, end.ev) === 'mismatch')
-      return {
-        status: 'rejected',
-        reason: "the end attestation's log hash does not match the line to its head",
-      };
+    if (end !== undefined) {
+      const bad = this.endProblem(end.ev);
+      return bad === null ? { status: 'duplicate' } : { status: 'rejected', reason: bad };
+    }
+    if (this.store.cardShares.has(id) || this.store.rollShares.has(id)) {
+      const bad = this.sharesProblem(id);
+      return bad === null ? { status: 'duplicate' } : { status: 'rejected', reason: bad };
+    }
     return { status: 'duplicate' };
   }
 
@@ -343,8 +355,10 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * A v2 Shares event (PROTOCOL-v2 §4.2). A card variant is invalid in a game without a deck, and a roll variant in
-   * a game whose module does not roll (V2-08); both are refused, not held. (Games with a deck or dice are T8, T9.)
+   * A v2 Shares event (PROTOCOL-v2 §4.2). Once it parses with a seated signer it is held, whatever its validity
+   * (D065, V2-56): rule (b) of the cutoff and the rebroadcast count it. A card variant is invalid in a game without
+   * a deck, and a roll variant in a game whose module does not roll (V2-08): both are held and reported `rejected`.
+   * (Games with a deck or dice are T8, T9.)
    */
   private intakeShares(ev: unknown, now: number): ReceiveResult {
     let s: ReturnType<typeof parseSharesV2>;
@@ -356,13 +370,19 @@ export class GameSessionV2 implements Session {
     const seat = this.sessionSeat(s);
     if (typeof seat !== 'number') return seat;
     this.see(s.id, now);
-    if (s.type === 'shares') {
-      if (this.ctx.deckId === null) return this.reject(s.id, 'a card Shares event in a game without a deck');
-      return this.reject(s.id, 'protocol 2 games with a deck are folded from build task T8');
+    this.store.addShares(s, seat);
+    const bad = this.sharesProblem(s.id);
+    return bad === null ? { status: 'stored' } : { status: 'rejected', reason: bad };
+  }
+
+  /** Why held Shares event `id` is invalid for this game as a whole, or null. */
+  private sharesProblem(id: Hex): string | null {
+    if (this.store.cardShares.has(id)) {
+      if (this.ctx.deckId === null) return 'a card Shares event in a game without a deck';
+      return 'protocol 2 games with a deck are folded from build task T8';
     }
-    if (typeof this.module.rolls !== 'function')
-      return this.reject(s.id, 'a roll Shares event in a game that does not roll');
-    return this.reject(s.id, 'protocol 2 dice are folded from build task T9');
+    if (typeof this.module.rolls !== 'function') return 'a roll Shares event in a game that does not roll';
+    return 'protocol 2 dice are folded from build task T9';
   }
 
   /** A Timeout claim (v1 §4.6 at proto 2): kept within the caps, judged from T12. */
@@ -439,22 +459,34 @@ export class GameSessionV2 implements Session {
     if (seat === undefined)
       return { status: 'rejected', reason: 'not signed by a seated session key or npub' };
     this.see(a.id, now);
-    const outside = a.end.forfeit.find((k) => k >= this.ctx.seats);
-    if (outside !== undefined) return this.reject(a.id, `there is no seat ${outside}`);
-    if (!this.store.addEnd(a, seat, bySession === undefined)) return { status: 'duplicate' };
+    // Held whatever its validity (D065, V2-56): rule (b) counts it by its head.
+    const first = this.store.addEnd(a, seat, bySession === undefined);
+    const bad = this.endProblem(a);
+    if (bad !== null) return { status: 'rejected', reason: bad };
+    if (!first) return { status: 'duplicate' };
     return this.endStatus(a);
   }
 
-  /** How a held end attestation stands: see `receive`. */
+  /**
+   * Why a held end attestation counts for no result, or null: a seat in `forfeit` that the game does not have, or a
+   * log hash that does not match the line to its head (PROTOCOL-v2 §4.3). It stays held either way.
+   */
+  private endProblem(a: ParsedEndAttest): string | null {
+    const outside = a.end.forfeit.find((k) => k >= this.ctx.seats);
+    if (outside !== undefined) return `there is no seat ${outside}`;
+    if (endVerdict(this.store, a) === 'mismatch')
+      return "the end attestation's log hash does not match the line to its head";
+    return null;
+  }
+
+  /** How a held, valid-looking end attestation stands: see `receive`. */
   private endStatus(a: ParsedEndAttest): ReceiveResult {
-    const verdict = endVerdict(this.store, a);
-    if (verdict === 'mismatch')
-      return {
-        status: 'rejected',
-        reason: "the end attestation's log hash does not match the line to its head",
-      };
     const mine = this.result();
-    if (verdict === 'valid' && mine !== null && resultKey(attestedResult(a)) === resultKey(mine))
+    if (
+      endVerdict(this.store, a) === 'valid' &&
+      mine !== null &&
+      resultKey(attestedResult(a)) === resultKey(mine)
+    )
       return { status: 'accepted' };
     return { status: 'stored' };
   }
@@ -819,23 +851,40 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * Where `id` sits: `chain` (the root or a move on the walk), `ahead` (a held move whose ancestry through held moves
-   * reaches the head), `side` (one whose ancestry reaches the walk below the head), or `unknown`.
+   * Where `id` sits, as v1 reports it (only moves that may still link count, as v1 pools only those):
+   * - `chain`: the root or a move on the walk;
+   * - `ahead`: a held move whose ancestry through held moves reaches the head, every move on the way able to link
+   *   still (none of a bad shape, none judged invalid at its prev, each `seq` one more than its prev's), with no fork
+   *   held: it extends the chain once what it waits for arrives;
+   * - `side`: the same, but its ancestry reaches the walk below the head;
+   * - `unknown`: anything else, including every move past a fork held at the head, and a move above junk.
    */
   branchOf(id: Hex): 'chain' | 'ahead' | 'side' | 'unknown' {
     if (this.chainSeq(id) !== null) return 'chain';
-    const head = this.head().id;
+    const head = this.head();
     let at = this.store.moves.get(id);
     for (let i = 0; at !== undefined && i <= this.store.moves.size; i++) {
-      if (at.m.prevId === head) return 'ahead';
+      if (!this.mayLink(at)) return 'unknown';
+      if (at.m.prevId === head.id) return this.current.fork === null ? 'ahead' : 'unknown';
       if (this.chainSeq(at.m.prevId) !== null) return 'side';
       at = this.store.moves.get(at.m.prevId);
     }
     return 'unknown';
   }
 
-  /** Whether a held move above the head (seq beyond head + 1) descends from the head. */
+  /** Whether held move `h` may still link at its prev: a good shape, not judged invalid, and the next `seq`. */
+  private mayLink(h: HeldMove): boolean {
+    if (h.shape !== null || this.current.judged.get(h.m.id)?.kind === 'invalid') return false;
+    const prev = h.m.prevId === this.root.id ? 0 : this.store.moves.get(h.m.prevId)?.m.seq;
+    return prev === undefined || h.m.seq === prev + 1;
+  }
+
+  /**
+   * Whether a held move above the head (seq beyond head + 1) descends from the head through moves that may still
+   * link (`branchOf` is `ahead`). Always false while a fork is held: nothing links past it.
+   */
   aheadOfHead(): boolean {
+    if (this.current.fork !== null) return false;
     const seq = this.head().seq;
     for (const h of this.store.moves.values())
       if (h.m.seq > seq + 1 && this.branchOf(h.m.id) === 'ahead') return true;
@@ -857,6 +906,21 @@ export class GameSessionV2 implements Session {
       if (!this.store.held(at.m.prevId)) out.add(at.m.prevId);
     }
     return [...out].sort();
+  }
+
+  /**
+   * The held set (PROTOCOL-v2 §5.4 (b), D065, V2-56): every held Shares event and end attestation, valid or not, with
+   * its signer's seat and what rule (b) reads it by (a Shares event's anchor, an end attestation's head), ascending
+   * by id. A function of the held events alone; rule (b) (T11) and the rebroadcast (T13) read it.
+   */
+  heldSet(): { id: Hex; kind: 'shares' | 'roll' | 'end'; seat: number; at: Hex }[] {
+    const out: { id: Hex; kind: 'shares' | 'roll' | 'end'; seat: number; at: Hex }[] = [];
+    for (const [id, x] of this.store.cardShares)
+      out.push({ id, kind: 'shares', seat: x.seat, at: x.ev.anchorId });
+    for (const [id, x] of this.store.rollShares)
+      out.push({ id, kind: 'roll', seat: x.seat, at: x.ev.anchorId });
+    for (const [id, x] of this.store.ends) out.push({ id, kind: 'end', seat: x.seat, at: x.ev.headId });
+    return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   /** The certificate of a held fork between shuffle steps (none in a deckless game), for its rebroadcast. */

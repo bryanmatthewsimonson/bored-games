@@ -161,25 +161,27 @@ describe('GameSessionV2: deckless play (Chess)', () => {
     expect(t.players.map((s) => s.duties())).toEqual([[{ kind: 'end' }], [{ kind: 'end' }]]);
   });
 
-  it('V2-39 (partial) applies a failed audit to places and scores: the seat whose move the replay rejects forfeits', () => {
-    // A module whose full-mode setup gives Black the first move: the audit's replay rejects White's move 1, so the
-    // audit fails seat 0, and seat 0 moves to the last place although the view-mode game was its win.
-    const flipped: AnyModule = {
+  it('V2-39 (partial) applies a failed audit to places and scores: the winner, whose move the replay rejects, forfeits', () => {
+    // A module whose full-mode setup has no black pawn on e7 (board index 52): the audit's replay rejects Black's
+    // 1... e5, so the audit fails seat 1, which mated in the view-mode game, and the places change.
+    const noE7: AnyModule = {
       ...chess,
       setup: (input) => {
         const r = chess.setup(input);
         if (!r.ok || input.mode !== 'full') return r;
-        return { ok: true, value: { ...(r.value as object), turn: 'b' } as typeof r.value };
+        const board = [...(r.value as { board: readonly unknown[] }).board];
+        board[52] = null;
+        return { ok: true, value: { ...r.value, board } as unknown as typeof r.value };
       },
     };
-    const t = table('v2-audit-fail', new Map([...MODULES, ['chess', flipped]]));
-    // Black mates (seat 1 first, seat 0 second); the audit fails seat 0, which stays last, now by forfeit.
+    const t = table('v2-audit-fail', new Map([...MODULES, ['chess', noE7]]));
     for (const [seat, uci] of FOOLS_MATE) play(t, seat, uci);
     const v = t.spectator.view();
     expect(v.phase).toBe('done');
-    expect(v.audit).toMatchObject({ fail: [0] });
-    expect(v.forfeits).toEqual([0]);
-    expect(v.outcome).toEqual({ places: [2, 1], reason: 'forfeit', scores: [0, 2] });
+    expect(v.audit).toMatchObject({ fail: [1] });
+    expect(v.forfeits).toEqual([1]);
+    // Black won by checkmate on the board ([2, 1]); the audit verdict puts it last ([1, 2]), scores unchanged.
+    expect(v.outcome).toEqual({ places: [1, 2], reason: 'forfeit', scores: [0, 2] });
     // The audit changes places and scores only: the result's identity is still (over, head, []).
     expect(v.result).toMatchObject({ kind: 'over', forfeit: [] });
   });
@@ -543,8 +545,9 @@ describe('GameSessionV2: the walk', () => {
       expect(v.head).toEqual({ id: m2.id, seq: 2 });
       expect(s.chainSeq(m1.id)).toBe(1);
       expect(s.chainSeq(m3.id)).toBeNull();
-      // Past the fork at the head: held above P, never linked.
-      expect(s.branchOf(m4.id)).toBe('ahead');
+      // Past the fork at the head: held above P, never linked, so not ahead either (review L1).
+      expect(s.branchOf(m4.id)).toBe('unknown');
+      expect(s.aheadOfHead()).toBe(false);
       expect(s.duties()).toEqual([]);
     }
     // A later client holding every event in another order walks to the same fork.
@@ -648,5 +651,196 @@ describe('GameSessionV2: the walk', () => {
     expect(t.spectator.receive(note, NOW)).toEqual({ status: 'duplicate' });
     expect(t.players[1]?.canResign()).toBe(false);
     expect(t.players[1]?.timeoutTarget(NOW + 10_000_000)).toBeNull();
+  });
+});
+
+describe('GameSessionV2: review follow-ups after T7 (L1, I4, V2-56)', () => {
+  /** A card Shares event by `seat`, anchored on `anchorId`, with one well-formed share of position 0 of a dummy card. */
+  function cardVariant(t: Table, seat: number, anchorId: Hex): NostrEvent {
+    const id = t.game.ids[seat] as Identity;
+    const ct = shuffleDeck(initialDeck('dummy', 1), G.multiply(id.deckSecret), t.game.rnd).out[0];
+    const share = makeShare(
+      id.deckSecret,
+      ct as NonNullable<typeof ct>,
+      { rootId: t.game.rootId, deckId: 'dummy', pos: 0 },
+      t.game.rnd,
+    );
+    return finalizeEvent(
+      cardSharesTemplate({ rootId: t.game.rootId, anchorId, shares: [{ pos: 0, share }] }, NOW),
+      id.sessionSk,
+      t.game.rnd,
+    );
+  }
+
+  it("L1: aheadOfHead and branchOf follow only moves that can still link: a non-pending seat's junk move 1 and its child are not ahead", () => {
+    const t = table('v2-l1-junk');
+    // Seat 1 is not pending at the root. Its move 1 can never link (rejected, held) and its seq-2 child never either.
+    const junk = rawMove(t, 1, t.game.rootId, 1, move(1, 'e7e5'));
+    const child = rawMove(t, 1, junk.id, 2, move(1, 'd7d5'));
+    expect(t.spectator.receive(junk, NOW)).toMatchObject({ status: 'rejected' });
+    expect(t.spectator.receive(child, NOW)).toEqual({ status: 'stored' });
+    expect(t.spectator.aheadOfHead()).toBe(false);
+    expect(t.spectator.branchOf(child.id)).toBe('unknown');
+    expect(t.spectator.branchOf(junk.id)).toBe('unknown');
+    // The same in the other arrival order.
+    const late = session(t.game, null);
+    late.receive(child, NOW);
+    late.receive(junk, NOW);
+    expect(late.aheadOfHead()).toBe(false);
+    expect(late.branchOf(child.id)).toBe('unknown');
+    // A move whose seq does not follow its prev cannot link either, even on a good move.
+    const m1 = play(t, 0, 'e2e4');
+    const skip = rawMove(t, 1, m1.id, 3, move(1, 'e7e5'));
+    const past = rawMove(t, 0, skip.id, 4, move(0, 'd2d4'));
+    t.spectator.receive(skip, NOW);
+    t.spectator.receive(past, NOW);
+    expect(t.spectator.view().head.id).toBe(m1.id);
+    expect(t.spectator.branchOf(past.id)).toBe('unknown');
+    expect(t.spectator.aheadOfHead()).toBe(false);
+  });
+
+  it('L1: aheadOfHead is false while a fork is held, and moves past the fork are not ahead', () => {
+    const t = table('v2-l1-fork');
+    const a = rawMove(t, 0, t.game.rootId, 1, move(0, 'e2e4'));
+    const b = rawMove(t, 0, t.game.rootId, 1, move(0, 'd2d4'));
+    const a2 = rawMove(t, 1, a.id, 2, move(1, 'e7e5'));
+    const a3 = rawMove(t, 0, a2.id, 3, move(0, 'g1f3'));
+    for (const ev of [a, b, a2, a3]) t.spectator.receive(ev, NOW);
+    expect(t.spectator.view().fork).toMatchObject({ at: t.game.rootId, seat: 0 });
+    expect(t.spectator.aheadOfHead()).toBe(false);
+    expect(t.spectator.branchOf(a3.id)).toBe('unknown');
+    expect(t.spectator.branchOf(a.id)).toBe('unknown');
+  });
+
+  it('I4: a shape-bad move off the walk is rejected when received again, not a duplicate', () => {
+    const t = table('v2-i4');
+    const id = t.game.ids[0] as Identity;
+    const ct = shuffleDeck(initialDeck('dummy', 1), G.multiply(id.deckSecret), t.game.rnd).out[0];
+    const share = makeShare(
+      id.deckSecret,
+      ct as NonNullable<typeof ct>,
+      { rootId: t.game.rootId, deckId: 'dummy', pos: 0 },
+      t.game.rnd,
+    );
+    // A move with a share in a deckless game, on a prev nobody holds: never judged, rejected by its shape.
+    const bad = finalizeEvent(
+      moveTemplate(
+        {
+          rootId: t.game.rootId,
+          prevId: 'ab'.repeat(32),
+          seq: 2,
+          content: { type: 'action', action: move(1, 'e7e5'), reveals: [], shares: [{ pos: 0, share }] },
+        },
+        NOW,
+        '2',
+      ),
+      (t.game.ids[1] as Identity).sessionSk,
+      t.game.rnd,
+    );
+    const first = t.spectator.receive(bad, NOW);
+    expect(first).toEqual({ status: 'rejected', reason: 'a deckless game carries no shares or reveals' });
+    expect(t.spectator.receive(bad, NOW)).toEqual(first);
+  });
+
+  it('V2-56 (partial) holds every Shares event and end attestation with a seated signer, whatever its validity, in any arrival order', () => {
+    const t = table('v2-56');
+    const moves = FOOLS_MATE.map(([seat, uci]) => play(t, seat, uci));
+    const head = (moves[3] as NostrEvent).id;
+    const hash = logHash(moves.map((m) => m.id));
+    const unheld = 'cd'.repeat(32);
+    const id0 = t.game.ids[0] as Identity;
+    const id1 = t.game.ids[1] as Identity;
+    const end = (
+      sk: Uint8Array,
+      headId: Hex,
+      kind: 'over' | 'claim',
+      forfeit: number[],
+      logH: Hex,
+      at = NOW,
+    ) =>
+      finalizeEvent(
+        endAttestTemplate({ rootId: t.game.rootId, headId, end: { kind, forfeit, logHash: logH } }, at),
+        sk,
+        t.game.rnd,
+      );
+    const roll = finalizeEvent(
+      rollSharesTemplate(
+        {
+          rootId: t.game.rootId,
+          anchorId: unheld,
+          moveId: unheld,
+          shares: [
+            { pos: 0, share: makeMoveRollShare(id1.deckSecret, t.game.rootId, unheld, 0, t.game.rnd) },
+          ],
+        },
+        NOW,
+      ),
+      id1.sessionSk,
+      t.game.rnd,
+    );
+    // `bad`: rejected on arrival; `badLater`: rejected once the line to its head is held (a log-hash mismatch).
+    type Held = {
+      ev: NostrEvent;
+      kind: 'shares' | 'roll' | 'end';
+      seat: number;
+      at: Hex;
+      bad: boolean;
+      badLater?: true;
+    };
+    const events: Held[] = [
+      // An inapplicable card variant (a deckless game), anchored on a move of the line.
+      {
+        ev: cardVariant(t, 0, moves[1]?.id as Hex),
+        kind: 'shares',
+        seat: 0,
+        at: moves[1]?.id as Hex,
+        bad: true,
+      },
+      // An inapplicable roll variant, whose anchor and requesting move are not held.
+      { ev: roll, kind: 'roll', seat: 1, at: unheld, bad: true },
+      // An end attestation naming a non-seat, a mismatched log hash, and one whose head is not held (unresolved).
+      { ev: end(id0.sessionSk, head, 'claim', [5], hash), kind: 'end', seat: 0, at: head, bad: true },
+      {
+        ev: end(id1.sessionSk, head, 'over', [], logHash([])),
+        kind: 'end',
+        seat: 1,
+        at: head,
+        bad: false,
+        badLater: true,
+      },
+      { ev: end(id1.sessionSk, unheld, 'over', [], hash), kind: 'end', seat: 1, at: unheld, bad: false },
+      // A valid end attestation, and a duplicate of it by the seat's npub.
+      { ev: end(id0.sessionSk, head, 'over', [], hash), kind: 'end', seat: 0, at: head, bad: false },
+      {
+        ev: end(t.game.npubSks[0] as Uint8Array, head, 'over', [], hash),
+        kind: 'end',
+        seat: 0,
+        at: head,
+        bad: false,
+      },
+    ];
+    const expected = events
+      .map(({ ev, kind, seat, at }) => ({ id: ev.id, kind, seat, at }))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const orders = [
+      events.map((_, i) => i),
+      events.map((_, i) => events.length - 1 - i),
+      [3, 0, 6, 2, 5, 1, 4],
+    ];
+    for (const order of orders) {
+      const s = session(t.game, null);
+      for (const i of order) {
+        const e = events[i] as (typeof events)[number];
+        const r = s.receive(e.ev, NOW);
+        if (e.bad) expect(r.status).toBe('rejected');
+      }
+      // Invalid events stay held, and received again they are still rejected (the store does not lose them).
+      for (const e of events) if (e.bad) expect(s.receive(e.ev, NOW).status).toBe('rejected');
+      for (const m of moves) s.receive(m, NOW);
+      for (const e of events) if (e.bad || e.badLater) expect(s.receive(e.ev, NOW).status).toBe('rejected');
+      expect(s.heldSet()).toEqual(expected);
+      // Validity is a separate pool: only seat 0's valid attestation counts for the result.
+      expect(s.view().endAttested).toEqual([0]);
+    }
   });
 });
