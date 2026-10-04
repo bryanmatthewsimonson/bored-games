@@ -358,10 +358,14 @@ describe('Bank 0.2.0 under protocol 2: the first roll (3 seats)', () => {
     });
     const dice = actionMove(c, roller, M.id, 2, { type: 'rolled', actor: 'beacon', id: 0, dice: [6, 6] });
     expect(s.receive(dice, NOW)).toEqual({ status: 'rejected', reason: 'a player does not send the dice' });
+    // Invalid at M's point while the beacon waits, but not for good (judged again once the roll is derived, §6.2):
+    // stored, never rejected, so no caller drops it as final (review of T9, L1).
     const early = actionMove(c, next, M.id, 2, { type: 'stay', actor: next }, NOW + 1);
-    expect(s.receive(early, NOW)).toEqual({ status: 'rejected', reason: 'no player decision is pending' });
-    // Held: received again they stay rejected, and the walk has not moved.
-    for (const ev of [carrying, dice, early]) expect(s.receive(ev, NOW).status).toBe('rejected');
+    expect(s.receive(early, NOW)).toEqual({ status: 'stored' });
+    expect(walkOf(s).judged.get(early.id)).toMatchObject({ kind: 'wait' });
+    // Held: received again the first two stay rejected, the early one is a duplicate; the walk has not moved.
+    for (const ev of [carrying, dice]) expect(s.receive(ev, NOW).status).toBe('rejected');
+    expect(s.receive(early, NOW).status).toBe('duplicate');
     expect(s.view().head).toEqual({ id: M.id, seq: 1 });
     // A shape-bad move and a player-sent roll never become valid, whatever arrives.
     for (const ev of contributionsOf) s.receive(ev, NOW);
@@ -375,9 +379,11 @@ describe('Bank 0.2.0 under protocol 2: the first roll (3 seats)', () => {
     expect(p.type).toBe('player');
     const action = (done.players[p.seat] as GameSessionV2).legalActions()[0];
     const early = actionMove(t, p.seat, M.id, 2, action, NOW + 3);
-    // Early first: invalid while the beacon is pending, then valid once the last contribution arrives.
+    // Early first: invalid at M's point while the beacon is pending (stored: not final), then valid once the last
+    // contribution arrives.
     const a = replay(t);
-    expect(statusesOf(a.all, early)).toEqual(a.all.map(() => 'rejected'));
+    expect(statusesOf(a.all, early)).toEqual(a.all.map(() => 'stored'));
+    for (const s of a.all) expect(s.branchOf(early.id)).toBe('ahead');
     for (const ev of contributionsOf) send(a, ev);
     for (const s of a.all) expect(s.view().head).toEqual({ id: early.id, seq: 2 });
     // The contributions first: valid at once. Both orders end in the same state.
@@ -571,6 +577,70 @@ describe('several rolls from one game action (a two-roll test module, 2 seats)',
     expect(rolledOf(c.spectator).every((x) => x.seq === 1)).toBe(true);
     expect((c.spectator.view().state as PairState).faces).toEqual(want);
     expect(c.spectator.view().pending).toEqual({ type: 'player', seat: 1, decision: 'roll' });
+  });
+});
+
+describe('review follow-ups after T9 (L3, I1)', () => {
+  let t: V2Table;
+  let roller: number;
+  let M: NostrEvent;
+  let contributionsOf: NostrEvent[];
+  beforeAll(() => {
+    t = v2Table(bank as AnyModule, 3, 'v2-dice-followups');
+    roller = decider(t) as number;
+    M = act(t, roller, (t.players[roller] as GameSessionV2).legalActions()[0]);
+    contributionsOf = t.players.map((p) => p.buildRoll(M.id, t.game.rnd, NOW));
+  });
+
+  const proofsOf = (s: GameSessionV2): Map<Hex, string | null> =>
+    (s as unknown as { caches: { rolls: { proofs: Map<Hex, string | null> } } }).caches.rolls.proofs;
+
+  it('L3: a roll Shares event whose requesting move is a held game action off the walk is stored with no proof checked', () => {
+    const c = replay(t);
+    const s = c.spectator;
+    // A held game action off the walk: a stay on the root by a seat that is not pending (invalid at its prev).
+    const other = (roller + 1) % 3;
+    const off = actionMove(c, other, c.game.rootId, 1, { type: 'stay', actor: other });
+    expect(s.receive(off, NOW).status).toBe('rejected');
+    // 40 indices, each made against the off-walk move's points: never verified, whatever their number.
+    const big = rollEvent(c, 1, off.id, [...Array(40).keys()], M.id);
+    const started = performance.now();
+    expect(s.receive(big, NOW)).toEqual({ status: 'stored' });
+    expect(performance.now() - started).toBeLessThan(200);
+    expect(proofsOf(s).has(big.id)).toBe(false);
+    // Held all the same (D066), counted by its anchor; received again, still stored work-free (a duplicate).
+    expect(s.heldSet().map((x) => x.id)).toContain(big.id);
+    expect(s.receive(big, NOW)).toEqual({ status: 'duplicate' });
+    expect(proofsOf(s).has(big.id)).toBe(false);
+    // The same indices naming the requesting move on the walk: rejected by the index check, before any proof.
+    const onWalk = rollEvent(c, 1, M.id, [...Array(40).keys()], M.id);
+    expect(s.receive(onWalk, NOW)).toEqual({
+      status: 'rejected',
+      reason: `move ${M.id} requested 1 roll, not roll 1`,
+    });
+    expect(proofsOf(s).has(onWalk.id)).toBe(false);
+  });
+
+  it('I1: pendingSince is the root time while a fork is held, the same whether contributions came before the rival or after', () => {
+    const prev = M.tags.find((x) => x[3] === 'prev')?.[1] as Hex;
+    const rival = actionMove(t, roller, prev, 1, { type: 'roll', actor: roller, rollId: 0 }, NOW + 9);
+    // Contributions first (each removes a stalled seat: progress), then the rival Roll: a fork at the root.
+    const a = replay(t);
+    for (const [i, ev] of contributionsOf.slice(0, 2).entries())
+      a.spectator.receive(ev, NOW + 1000 * (i + 1));
+    expect(a.spectator.view().pendingSince).toBe(NOW + 2000);
+    a.spectator.receive(rival, NOW + 3000);
+    // The rival first: the contributions name a move off the walk (stored), and nothing was progress.
+    const b = replay(t);
+    b.spectator.receive(rival, NOW + 3000);
+    for (const [i, ev] of contributionsOf.slice(0, 2).entries())
+      b.spectator.receive(ev, NOW + 1000 * (i + 1));
+    for (const x of [a, b]) {
+      expect(x.spectator.view().fork).toMatchObject({ seat: roller });
+      expect(x.spectator.view().pendingSince).toBe(ROOT_SEEN);
+      expect(x.spectator.waitingFor()).toEqual([]);
+    }
+    expect(snapshot(a.spectator)).toBe(snapshot(b.spectator));
   });
 });
 

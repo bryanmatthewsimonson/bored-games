@@ -93,7 +93,8 @@ export interface DiceRoll {
 
 /**
  * One roll under protocol 2 (PROTOCOL-v2 §6.2, §10): `id` is never reused; the session derives `count` faces in
- * `1..sides` from every seat's contribution. `count` and `sides` are positive safe integers.
+ * `1..sides` from every seat's contribution. `count` is a safe integer from 1 to 64 and `sides` one from 2 to 256,
+ * the range `faces` draws (`isRollEntry`).
  */
 export interface RollEntry {
   readonly id: number;

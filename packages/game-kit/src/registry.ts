@@ -39,10 +39,15 @@ export function currentModules<M>(registry: ReadonlyMap<string, M>): ReadonlyMap
   return new Map([...registry].filter(([key]) => !key.includes('@')));
 }
 
-/** Whether a roll entry is a protocol 2 `RollEntry` (`count` and `sides`) rather than a protocol 1 `DiceRoll`. */
+/**
+ * Whether a roll entry is a protocol 2 `RollEntry` rather than a protocol 1 `DiceRoll`: a safe integer `id`, `count`
+ * from 1 to 64 and `sides` from 2 to 256, the range `faces` draws (PROTOCOL-v2 §10). An entry outside that range
+ * could never be derived, so it is not a `RollEntry`, and the roll contract fails a module that lists one.
+ */
 export function isRollEntry(x: unknown): x is RollEntry {
   if (typeof x !== 'object' || x === null) return false;
   const r = x as Record<string, unknown>;
-  const positive = (v: unknown): boolean => Number.isSafeInteger(v) && (v as number) > 0;
-  return Number.isSafeInteger(r.id) && positive(r.count) && positive(r.sides);
+  const within = (v: unknown, min: number, max: number): boolean =>
+    Number.isSafeInteger(v) && (v as number) >= min && (v as number) <= max;
+  return Number.isSafeInteger(r.id) && within(r.count, 1, 64) && within(r.sides, 2, 256);
 }

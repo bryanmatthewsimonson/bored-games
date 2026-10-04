@@ -150,7 +150,8 @@ export class LineFold {
    * player decision is pending and its signer is that seat, every share and reveal proof verifies, the module
    * accepts the action, and its reveals are exactly the positions `revealsOf` names, each decrypting to the claimed
    * card. It is valid when its seat's owed shares as of the head (v1 §6.2) are all held, in the move or elsewhere.
-   * It waits (not valid-looking yet) during the deal, while a public reveal is pending, and while another seat's
+   * It waits (not valid-looking yet) during the deal, while a public reveal or a beacon is pending (invalid at that
+   * point, judged again once the reveal or the rolls are derived: PROTOCOL-v2 §6.2, V2-33), and while another seat's
    * share of a revealed position is missing. A module that throws judges the move invalid.
    */
   judge(h: HeldMove): Judgement {
@@ -168,6 +169,10 @@ export class LineFold {
       if (playerSentDice(c.action)) return { kind: 'invalid', why: 'a player does not send the dice' };
       const pending = ctx.module.pending(p.state);
       if (pending.type === 'reveal') return { kind: 'wait', why: 'a public reveal is pending' };
+      // Invalid at this point while the beacon waits, not for good: judged again once the rolls are derived here
+      // (PROTOCOL-v2 §6.2, V2-33). So it waits, like a move behind a pending public reveal.
+      if (pending.type === 'beacon')
+        return { kind: 'wait', why: 'a beacon is pending: judged again once its rolls are derived' };
       if (pending.type !== 'player') return { kind: 'invalid', why: 'no player decision is pending' };
       if (seat !== pending.seat)
         return { kind: 'invalid', why: `move ${m.seq} must be signed by seat ${pending.seat}` };

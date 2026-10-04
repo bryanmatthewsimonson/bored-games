@@ -86,7 +86,8 @@ export interface Line {
  * - `looking`: valid-looking but not valid: it waits (`final` false: owed shares not held yet) or never will be
  *   (`final` true: a shuffle proof that fails);
  * - `unproven`: a well-formed shuffle step, its proof not checked yet;
- * - `wait`: not valid-looking yet (a reveal whose other shares are not held);
+ * - `wait`: not valid-looking yet, judged again when what it waits for arrives (the deal, a pending public reveal or
+ *   beacon, a reveal whose other shares are not held);
  * - `invalid`: never valid-looking at its prev.
  */
 export type Judgement =

@@ -61,7 +61,7 @@ import type {
 } from '../types.ts';
 import { moveShape, nextShuffler, pendingAt } from './line.ts';
 import { attestedResult, endAttestedSeats, endVerdict, lineLogHash, ownResult } from './results.ts';
-import { contributions, rollEventProblem, rollProofProblem } from './rolls.ts';
+import { contributions, rollEventProblem } from './rolls.ts';
 import { cardSharesProblem, DeckCaches, type LineShares, shareCtx } from './shares.ts';
 import { EventStoreV2, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
@@ -395,7 +395,8 @@ export class GameSessionV2 implements Session {
    * final deck is complete, `accepted` when it brings a share the walk did not hold, `duplicate` otherwise. A roll
    * variant in a game that rolls (§6.2) is `rejected` when its requesting move is held but is not a game action, a
    * contribution does not verify against that move's points (V2-32), or the move is on the chain and requested fewer
-   * rolls than it names (all still held); `stored` while the move is not held (it waits) or not on the chain;
+   * rolls than it names (all still held); `stored` while the move is not held (it waits) or not on the chain (with
+   * no proof checked: judged on its move's line when that is folded, §4.2);
    * `accepted` when it brings a contribution by its seat to a roll of a move on the chain that the roll store did not
    * hold (the walk is folded again, and the roll may be derived); `duplicate` otherwise (another device of the seat,
    * with the same `D`: Shares events are not moves, so this is never a fork).
@@ -417,6 +418,7 @@ export class GameSessionV2 implements Session {
     if (bad !== null) return { status: 'rejected', reason: bad };
     if (s.type === 'roll') {
       const was = rollBefore as { kept: number; mark: { head: Hex; stalled: number[] } };
+      // Not a requesting move on the walk (not held, off the walk, or no roll requested there and judged above).
       if (!this.current.requests.has(s.moveId)) return { status: 'stored' };
       // Only a contribution new to the roll store can change the walk (every valid one of a (seat, M, n) has the
       // same D).
@@ -459,15 +461,16 @@ export class GameSessionV2 implements Session {
   /**
    * Why roll Shares event `ev` by `seat` is invalid as a whole (PROTOCOL-v2 §4.2), or null: its requesting move is
    * held but is not a game action; a contribution does not verify against the move's points (V2-32); or the move is
-   * on the chain and requested fewer rolls than the event names. Null while the move is not held (it waits). For a
-   * held game action off the chain, how many rolls it requested is known only from a fold of its line, so only the
-   * proofs are judged here.
+   * on the chain and requested fewer rolls than the event names (checked before any proof). Null while the move is
+   * not held (it waits), and for a held game action off the chain: how many rolls it requested is a fact of its
+   * line, so the event is judged on that line when it is folded (PROTOCOL-v2 §4.2; a side line the cutoff needs,
+   * T11). Until then nothing is verified for it (review of T9, L3): the walk never reads it.
    */
   private rollProblem(ev: ParsedRollShares, seat: number): string | null {
     const move = this.store.moves.get(ev.moveId);
     if (move === undefined) return null;
     if (move.m.content.type !== 'action') return `the requesting move ${ev.moveId} is not a game action`;
-    if (this.chainSeq(ev.moveId) === null) return rollProofProblem(this.ctx, this.caches.rolls, seat, ev);
+    if (this.chainSeq(ev.moveId) === null) return null;
     const requested = this.current.requests.get(ev.moveId) ?? 0;
     return rollEventProblem(this.ctx, this.caches.rolls, seat, ev, requested);
   }
@@ -751,6 +754,15 @@ export class GameSessionV2 implements Session {
   }
 
   /**
+   * The view's `pendingSince`: the progress time P, except while a fork is held, when no seat is stalled (§5.7) and
+   * it is the root's first-seen time, the floor of P (review of T9, I1). P itself depends on which Shares events
+   * this client accepted before the fork surfaced, so it would differ between arrival orders of the same events.
+   */
+  private pendingSince(): number {
+    return this.current.fork === null ? this.progress() : this.rootSeenAt;
+  }
+
+  /**
    * The seats stalled at the head (v1 §8.1 as PROTOCOL-v2 §8.1 amends it), ascending: none while a fork is held;
    * after `over`, every seat whose secret is not in (with a deck; none deckless); during the shuffle, the seat whose
    * step is next; during the deal, every seat missing deal shares (there is no shuffle-fork exception: a held fork
@@ -856,7 +868,7 @@ export class GameSessionV2 implements Session {
       head: { id: head.id, seq: head.seq },
       state: head.state,
       pending: this.pendingView(head),
-      pendingSince: this.progress(),
+      pendingSince: this.pendingSince(),
       outcome: status.outcome,
       forfeits: status.forfeits,
       resigned: [],

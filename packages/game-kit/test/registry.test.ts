@@ -64,6 +64,12 @@ describe('roll entries (PROTOCOL-v2 §6.2, §10)', () => {
     expect(isRollEntry({ id: 3, last: 1 })).toBe(false);
     expect(isRollEntry({ id: 0, count: 0, sides: 6 })).toBe(false);
     expect(isRollEntry({ id: 0, count: 2, sides: 1.5 })).toBe(false);
+    // The range faces draws (PROTOCOL-v2 §10): count 1..64, sides 2..256.
+    expect(isRollEntry({ id: 0, count: 64, sides: 256 })).toBe(true);
+    expect(isRollEntry({ id: 0, count: 1, sides: 2 })).toBe(true);
+    expect(isRollEntry({ id: 0, count: 65, sides: 6 })).toBe(false);
+    expect(isRollEntry({ id: 0, count: 2, sides: 1 })).toBe(false);
+    expect(isRollEntry({ id: 0, count: 2, sides: 257 })).toBe(false);
     expect(isRollEntry({ id: '0', count: 2, sides: 6 })).toBe(false);
     expect(isRollEntry(null)).toBe(false);
     expect(isRollEntry(undefined)).toBe(false);

@@ -1,7 +1,8 @@
 /*
  * The protocol 2 roll contract (PROTOCOL-v2 §6.2, §10), as a helper for the client and web module-contract tests.
  * A module version that runs under protocol 2 and rolls must:
- * - list only `RollEntry`s (`{id, count, sides}`, positive safe integers), ids never reused, the list append-only;
+ * - list only `RollEntry`s (`{id, count, sides}`: count 1..64, sides 2..256, the range `faces` draws; PROTOCOL-v2
+ *   §10), ids never reused, the list append-only;
  * - append entries only when applying a game action, never on a derived reveal or a derived roll (learns are a
  *   view-mode matter, and these games run in full mode);
  * - pend `{type: 'beacon', id}` for a new entry at once after the game action that appended it (build plan D-C);

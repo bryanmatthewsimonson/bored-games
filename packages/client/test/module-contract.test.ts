@@ -76,6 +76,14 @@ describe('protocol versions and the protocol 2 module contract (PROTOCOL-v2 §2 
       rolls: (s: { rolls: { id: number }[] }) => s.rolls.map((r) => ({ id: r.id, last: 0 })),
     };
     expect(() => checkRollContract(v1Rolls, [2])).toThrow(/not a RollEntry/);
+    // An entry outside the range faces draws (count 1..64, sides 2..256) could never be derived (PROTOCOL-v2 §10).
+    for (const bad of [{ count: 65 }, { count: 0 }, { sides: 1 }, { sides: 257 }]) {
+      const outOfRange: AnyModule = {
+        ...toy,
+        rolls: (s: unknown) => (toy.rolls?.(s as never) ?? []).map((r) => ({ ...r, ...bad })),
+      };
+      expect(() => checkRollContract(outOfRange, [2]), JSON.stringify(bad)).toThrow(/not a RollEntry/);
+    }
     const late: AnyModule = {
       ...toy,
       pending: (s: { beacon: number | null }) =>

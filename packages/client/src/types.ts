@@ -171,7 +171,8 @@ export interface ResultId {
 /**
  * The view of a protocol 2 session (PROTOCOL-v2 §5–§7): every `SessionView` field, read as v2 defines it, plus the
  * fork stop, the result's identity and the end attestations. `equivocators` holds the seats recorded as
- * equivocators (review M1).
+ * equivocators (review M1). While a fork is held and no result stands, no seat is stalled (§5.7) and `pendingSince`
+ * is the root's first-seen time, so that it is the same in every arrival order of the same events.
  */
 export interface SessionViewV2 extends SessionView {
   proto: 2;
