@@ -7,6 +7,7 @@ import {
   TIER_DECKS,
   workshop,
 } from '@bored-games/luster';
+import { COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 import { LUSTER_POLICIES } from '../../../tools/fuzz/src/luster.ts';
@@ -25,10 +26,16 @@ async function open(browser: Browser, profile: string, from?: string) {
   await page.goto(url(profile, from));
   return page;
 }
+/**
+ * The rules these games are created with: the `any` gem option, chosen in the New table form, so the payment
+ * exercise below can gather exactly the colors it needs (RULES.md C11; the published default is checked there).
+ */
+const E2E_RULES = { target: 15, gems: 'any' } as const;
+
 /** Reads only rendered information, including the current player's private reservation. */
 async function stateOf(page: Page, seat: number): Promise<LusterState> {
   const seats = await page.locator('.luster-players > section').count();
-  const init = lusterRules.setup({ rules: lusterRules.defaultRules(), seats, mode: 'view', viewer: seat });
+  const init = lusterRules.setup({ rules: E2E_RULES, seats, mode: 'view', viewer: seat });
   if (!init.ok) throw new Error(init.error.message);
   const snapshot = await board(page).evaluate((root, seat) => {
     const slots = (parent: Element | null): CardSlot[] =>
@@ -159,7 +166,16 @@ for (const seats of [2, 3, 4]) {
     if (!a) throw new Error('Missing creator');
     await a.getByLabel('Search games').fill('Luster');
     await a.getByRole('link', { name: 'Luster', exact: true }).click();
+    // "Compare to" the published game, linked to its BoardGameGeek entry by id, and no entry of its own (D060).
+    await expect(a.getByRole('link', { name: COMPARE_PHRASE, exact: true })).toHaveAttribute(
+      'href',
+      'https://boardgamegeek.com/boardgame/148228',
+    );
+    await expect(a.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveCount(0);
     await a.getByLabel('Players', { exact: true }).selectOption(String(seats));
+    // New tables default to the published gem rule (C11); these games choose the other option.
+    await expect(a.getByRole('radio', { name: LUSTER_THEME.gems.published })).toBeChecked();
+    await a.getByRole('radio', { name: LUSTER_THEME.gems.any }).check();
     await a.getByRole('button', { name: 'Create table', exact: true }).click();
     await a.getByRole('button', { name: 'Create anyway', exact: true }).click();
     const share = await a.getByLabel('Table link').inputValue();

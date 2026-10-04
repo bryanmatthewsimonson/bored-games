@@ -4,16 +4,17 @@
  * (public-build.test.ts, `pnpm scan:dist`) over the built files.
  *
  * Two kinds of term:
- * - the fixed list below (the reference game's name, its designer's, and its published editions' chain names),
- *   matched case-insensitively anywhere inside a word, so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught;
- *   a handful of ordinary words that contain one (Preact's `hydrate`) are allowed;
+ * - the fixed list below (each reference game's name, its designer's, and for Chain Reaction its published
+ *   editions' chain names; for Luster, also its publisher's), matched case-insensitively anywhere inside a word,
+ *   so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's
+ *   `hydrate`) are allowed;
  * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
  *   and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is covered
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053): the exact phrases in `ALLOWED_PHRASES` ("Compare to" the reference title, as a store brand
- * says it) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
+ * One exception (D053, D060): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title, as a store
+ * brand says it; one per game that has one) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
  * repo guard, the public build scan and `pnpm scan:dist`) let them through. Only the whole phrase, spelled exactly:
  * the title alone, in another case or inside another word is still caught.
  */
@@ -37,6 +38,20 @@ export const RESTRICTED_NAMES: readonly string[] = [
   'America',
   'Quantum',
   'Phoenix',
+  // Luster's reference game (D060): its title, its publisher and its designer (with and without the accent).
+  'Splendor',
+  'Space Cowboys',
+  'SpaceCowboys',
+  'Space_Cowboys',
+  'Space-Cowboys',
+  'Marc André',
+  'Marc Andre',
+  'MarcAndre',
+  'MarcAndré',
+  'Marc-Andre',
+  'Marc-André',
+  'Marc_Andre',
+  'Marc_André',
 ];
 
 /** Ordinary words that contain a restricted name (lower case). Keep this short: each entry is a hole. */
@@ -49,11 +64,17 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053), case-sensitive. Each
- * is stored as one string literal in its game's `src` (Chain Reaction: `src/compare.ts`), which a guard test
- * checks. Keep this to whole phrases: never add the bare title, here or to ALLOWED_WORDS.
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060), case-sensitive:
+ * one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which a guard test
+ * checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS.
  */
-export const ALLOWED_PHRASES: readonly string[] = ['Compare to Acquire'];
+export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
+  'packages/games/chain-reaction/src/compare.ts': 'Compare to Acquire',
+  'packages/games/luster/src/compare.ts': 'Compare to Splendor',
+};
+
+/** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */
+export const ALLOWED_PHRASES: readonly string[] = Object.values(ALLOWED_PHRASE_HOMES);
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -61,6 +82,9 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * `text` with every allowed phrase replaced by a space: only where it stands as a whole phrase, so a phrase run
  * into a longer word on either side ("Compare to Acquired"), or followed by a hyphen or a typographic apostrophe
  * ("…-style", "…’s"), is left for the matchers to catch. The ASCII `'` may follow: it closes a quoted literal.
+ * Known and accepted gap: a phrase followed by a space and an unrestricted word ("Compare to <Title> Duel") is cut
+ * like the phrase alone, so the word passes (repo-guards.test.ts documents it); each phrase is spelled only in its
+ * own compare.ts, which a guard test checks.
  */
 export function withoutAllowedPhrases(text: string): string {
   return ALLOWED_PHRASES.reduce(

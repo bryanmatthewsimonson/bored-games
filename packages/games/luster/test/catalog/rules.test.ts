@@ -5,7 +5,7 @@ import { DECK_SIZES, PATRONS, TIER_DECKS, WORKSHOPS } from '../../src/data.ts';
 import { bonuses, payments, score } from '../../src/engine.ts';
 import { luster } from '../../src/module.ts';
 import type { LusterAction } from '../../src/types.ts';
-import { collection, holding, ORDERS, player, ready, revealAll, step } from '../helpers.ts';
+import { ANY, collection, holding, ORDERS, player, ready, revealAll, step } from '../helpers.ts';
 
 describe('Luster base rules', () => {
   it('C01 exact components and setup for every player count', () => {
@@ -46,7 +46,9 @@ describe('Luster base rules', () => {
     expect(luster.apply(holding(s, 1, [1, 0, 0, 0, 0, 0]), { ...a, tokens: [2, 0, 0, 0, 0, 0] }).ok).toBe(
       false,
     );
-    expect(luster.apply(s, { ...a, tokens: [1, 0, 0, 0, 0, 0] }).ok).toBe(true);
+    // Fewer than three colors while five are available: not under the published rule (C11), yes under `any`.
+    expect(luster.apply(s, { ...a, tokens: [1, 0, 0, 0, 0, 0] }).ok).toBe(false);
+    expect(luster.apply(ready(2, ANY), { ...a, tokens: [1, 0, 0, 0, 0, 0] }).ok).toBe(true);
     s = step(holding(s, 0, [2, 2, 2, 2, 1, 1]), a);
     expect(s.phase).toBe('return');
     expect(s.turn).toBe(0);
@@ -105,7 +107,7 @@ describe('Luster base rules', () => {
     ]);
   });
   it('C05 requires one free patron, with an explicit choice when several qualify', () => {
-    let s = player(ready(), 0, { bought: collection([4, 4, 4, 4, 4]) });
+    let s = player(ready(2, ANY), 0, { bought: collection([4, 4, 4, 4, 4]) });
     s = step(s, { type: 'take', actor: 0, tokens: [1, 0, 0, 0, 0, 0] });
     expect(s.phase).toBe('patron');
     expect(s.turn).toBe(0);
@@ -117,7 +119,7 @@ describe('Luster base rules', () => {
     expect(score(s.players[0]!)).toBe(before + 3);
     expect(bonuses(s.players[0]!)).toEqual(bs);
     expect(s.patrons.some((p) => p.card === 0)).toBe(false);
-    let one = player(ready(), 0, { bought: collection([0, 0, 4, 4, 0]) });
+    let one = player(ready(2, ANY), 0, { bought: collection([0, 0, 4, 4, 0]) });
     one = step(one, { type: 'take', actor: 0, tokens: [1, 0, 0, 0, 0, 0] });
     expect(one.players[0]?.patrons).toEqual([0]);
     expect(one.turn).toBe(1);
@@ -129,7 +131,7 @@ describe('Luster base rules', () => {
       card: 3 + i * 4,
       private: false,
     }));
-    let s = player(ready(), 0, { bought: valued });
+    let s = player(ready(2, ANY), 0, { bought: valued });
     s = player(s, 1, { bought: [...valued, ...collection([1, 0, 0, 0, 0])] });
     s = step(s, { type: 'take', actor: 0, tokens: [1, 0, 0, 0, 0, 0] });
     expect(s.finalRound).toBe(true);
@@ -137,11 +139,11 @@ describe('Luster base rules', () => {
     expect(s.turn).toBe(1);
     s = step(s, { type: 'take', actor: 1, tokens: [1, 0, 0, 0, 0, 0] });
     expect(s.result).toEqual({ scores: [15, 15], places: [1, 2], reason: 'radiance' });
-    let tie = player(player(ready(), 0, { bought: valued }), 1, { bought: valued });
+    let tie = player(player(ready(2, ANY), 0, { bought: valued }), 1, { bought: valued });
     tie = { ...tie, turn: 1 };
     tie = step(tie, { type: 'take', actor: 1, tokens: [1, 0, 0, 0, 0, 0] });
     expect(tie.result?.places).toEqual([1, 1]);
-    let late = player(ready(4), 3, { bought: valued });
+    let late = player(ready(4, ANY), 3, { bought: valued });
     late = { ...late, turn: 3 };
     late = step(late, { type: 'take', actor: 3, tokens: [1, 0, 0, 0, 0, 0] });
     expect(late.result?.places[3]).toBe(1);
@@ -197,6 +199,9 @@ describe('Luster base rules', () => {
     }
     expect(luster.validateRules({ target: 16 }).ok).toBe(false);
     expect(luster.validateRules({ target: 15, extra: true }).ok).toBe(false);
+    expect(luster.validateRules({ target: 15, gems: 'some' }).ok).toBe(false);
+    expect(luster.validateRules({ target: 15, gems: null }).ok).toBe(false);
+    expect(luster.validateRules({ target: 15, gems: 'any', extra: true }).ok).toBe(false);
     expect(luster.setup({ rules: s.rules, seats: 5, mode: 'full', deckOrders: ORDERS }).ok).toBe(false);
     expect(
       luster.setup({
@@ -217,7 +222,7 @@ describe('Luster base rules', () => {
         .ok,
     ).toBe(false);
     expect(JSON.stringify(s)).toBe(before);
-    expect(luster.apply(s, { tokens: [1, 0, 0, 0, 0, 0], actor: 0, type: 'take' }).ok).toBe(true);
+    expect(luster.apply(s, { tokens: [1, 1, 1, 0, 0, 0], actor: 0, type: 'take' }).ok).toBe(true);
   });
   it('C09 exhausted tiers leave holes and buying a reservation frees capacity', () => {
     let s = ready();

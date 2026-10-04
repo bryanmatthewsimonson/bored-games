@@ -4,6 +4,10 @@
  */
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { catalogProblems } from '@bored-games/game-kit';
+import {
+  COMPARE_PHRASE as LUSTER_COMPARE_PHRASE,
+  COMPARE_TITLE as LUSTER_COMPARE_TITLE,
+} from '@bored-games/luster/compare';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { catalogItems, GameCard } from '../src/components/game-catalog.tsx';
@@ -40,7 +44,7 @@ describe('game catalog', () => {
     });
   }
 
-  it('records the agreed facts for Chain Reaction and Chess', () => {
+  it('records the agreed facts for Chain Reaction, Chess, Luster and Bank', () => {
     const cr = CATALOG.get('chain-reaction')?.entry;
     expect(cr).toMatchObject({
       players: { min: 3, max: 6, best: [4, 5] },
@@ -70,8 +74,14 @@ describe('game catalog', () => {
       hiddenInfo: false,
       randomness: false,
     });
+    // Luster, like Chain Reaction: no entry of its own, "Compare to" the published game (D060).
+    const luster = CATALOG.get('luster')?.entry;
+    expect(luster?.bggId).toBeNull();
+    expect(luster?.compareTo).toEqual({ title: LUSTER_COMPARE_TITLE, bggId: 148228 });
+    expect(`Compare to ${luster?.compareTo?.title}`).toBe(LUSTER_COMPARE_PHRASE);
+    // Bank is a folk game under its own name: its own BoardGameGeek entry, no "Compare to" (D060).
     const bank = CATALOG.get('bank')?.entry;
-    expect(bank?.bggId).toBeNull();
+    expect(bank?.bggId).toBe(412804);
     expect(bank?.compareTo).toBeNull();
     expect(bank?.art).toBeNull();
     expect(bank).toMatchObject({
@@ -94,6 +104,9 @@ describe('game catalog', () => {
       return spokenText(renderTree(h(GameCard, { item })));
     };
     expect(card('chain-reaction')).toContain(COMPARE_PHRASE);
+    expect(card('luster')).toContain(LUSTER_COMPARE_PHRASE);
+    expect(card('chain-reaction')).not.toContain(LUSTER_COMPARE_PHRASE);
+    expect(card('luster')).not.toContain(COMPARE_PHRASE);
     expect(card('chess')).not.toContain('Compare to');
     expect(card('bank')).not.toContain('Compare to');
   });

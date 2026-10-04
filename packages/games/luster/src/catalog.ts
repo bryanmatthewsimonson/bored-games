@@ -1,9 +1,17 @@
+/*
+ * Luster in the game catalog (D046): facts only. The names and summary come from a brand pack (theme.ts).
+ */
 import type { CatalogEntry } from '@bored-games/game-kit';
+import { COMPARE_BGG_ID, COMPARE_TITLE } from './compare.ts';
 import { LUSTER_ID } from './module.ts';
+
 export const LUSTER_CATALOG: CatalogEntry = {
   id: LUSTER_ID,
+  // An implementation of a published game's mechanics under its own names, so no BoardGameGeek entry of its own;
+  // the catalog says "Compare to" that game instead, with a link to its entry (compare.ts, D060), as Chain
+  // Reaction does (D053).
   bggId: null,
-  compareTo: null,
+  compareTo: { title: COMPARE_TITLE, bggId: COMPARE_BGG_ID },
   year: null,
   status: 'beta',
   players: { min: 2, max: 4, best: [3] },
