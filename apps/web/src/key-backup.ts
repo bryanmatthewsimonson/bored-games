@@ -135,19 +135,42 @@ export async function publishKeyBackup(
 /** How long a backup query waits for the relays before it settles for what it has. */
 export const BACKUP_QUERY_MS = 15_000;
 
+/** What a backup query found: the events, those a root relay sent, and whether the answer is complete. */
+export interface BackupQuery {
+  events: NostrEvent[];
+  /** The events that at least one of the root's relays sent (the relays every seat's devices ask). */
+  onRoot: NostrEvent[];
+  /**
+   * Every root relay answered (EOSE) before the pool's deadline and ours (`BACKUP_QUERY_MS`): only then does "no
+   * backup" mean none is there, rather than relays that were slow or down.
+   */
+  complete: boolean;
+}
+
+/** Whether `info` is a complete answer from every relay in `rootRelays` (D065, review L1). */
+export function completeAnswer(info: EoseInfo | null, rootRelays: readonly string[]): boolean {
+  if (info === null || info.timedOut) return false;
+  if (info.eosedUrls === undefined) return info.eose === info.relays;
+  const eosed = new Set(info.eosedUrls);
+  return rootRelays.every((u) => eosed.has(u));
+}
+
 /**
  * Ask the pool's relays (the caller adds the root's and the player's own) for the player's backups of `tableAddress`.
- * `complete` is false when the query timed out before the relays answered.
+ * Relays are not trusted to filter: only valid backups of that author and table are kept.
  */
 export function fetchKeyBackups(
   pool: PoolLike,
   timers: Timers,
   pubkey: Hex,
   tableAddress: string,
+  rootRelays: readonly string[],
   ms = BACKUP_QUERY_MS,
-): Promise<{ events: NostrEvent[]; complete: boolean }> {
+): Promise<BackupQuery> {
   return new Promise((resolve) => {
     const events = new Map<string, NostrEvent>();
+    const onRoot = new Map<string, NostrEvent>();
+    const roots = new Set(rootRelays);
     let settled = false;
     let stop: (() => void) | null = null;
     let cancel: (() => void) | null = null;
@@ -156,12 +179,18 @@ export function fetchKeyBackups(
       settled = true;
       stop?.();
       cancel?.();
-      resolve({ events: [...events.values()], complete: info !== null });
+      resolve({
+        events: [...events.values()],
+        onRoot: [...onRoot.values()],
+        complete: completeAnswer(info, rootRelays),
+      });
     };
     const s = pool.subscribe(
       [{ kinds: [KIND.backup], authors: [pubkey], '#d': [keyBackupD(tableAddress)] }],
-      (ev) => {
-        if (isKeyBackupEvent(ev, pubkey, tableAddress)) events.set(ev.id, ev);
+      (ev, url) => {
+        if (!isKeyBackupEvent(ev, pubkey, tableAddress)) return;
+        events.set(ev.id, ev);
+        if (roots.has(url)) onRoot.set(ev.id, ev);
       },
       finish,
     );

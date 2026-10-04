@@ -1352,6 +1352,7 @@ export class GameController {
         this.#d.timers,
         this.#d.signer.pubkey,
         root.tableAddress,
+        root.relays,
         CHECK_TIMEOUT_MS,
       );
       if (this.#disposed) return;
