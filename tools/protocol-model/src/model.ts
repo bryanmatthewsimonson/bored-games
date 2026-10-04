@@ -1526,7 +1526,7 @@ class Explorer {
               trace,
             );
       const lost = f.voided;
-      if (lost !== null && lost.forfeit.some((x) => this.coalition.has(x))) {
+      if (lost?.forfeit.some((x) => this.coalition.has(x))) {
         const by = f.end === 'stop' ? `the stop of seat ${f.view.stopSeat}` : `${f.end} (stood)`;
         const detail = `a fork at ${f.path.at(-1) ?? ROOT} voids seat ${lost.forfeit.join(',')}'s counted ${lost.reason} (now ${by})`;
         // Round 3: a counted claim or resign that did not stand is overridden by design (A2: the stop wins on
