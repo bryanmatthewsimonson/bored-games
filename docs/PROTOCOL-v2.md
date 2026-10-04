@@ -335,12 +335,12 @@ A v2 client MAY publish its Secret reveal as soon as its result needs it, or onc
 **A stop's places are fixed at the stop** (§5.6). Nothing that happens after it, a missing secret included, demotes a seat, except a proven audit failure.
 - **Secrets.** Every seat SHOULD publish its Secret reveal once its client holds the stop, E included. The secrets let anyone audit the hidden claims made before the fork. They expose only values of a game that has ended.
 - **No Timeout claim counts after a stop.** No seat is stalled after a stop, and a client accepts no claim, whoever it names. **Why none, rather than claims against E only:**
-  - E is already strictly last and rated (§5.6), so a claim against E would change no place.
+  - E is already last and rated (§5.6), so a claim against E would change no place.
   - Any accepted claim needs a deadline on each client's own clock. A client whose player was away sees every event fresh when it comes back, so clients would disagree, and E could pick the moment of its fork so that the deadline runs while an honest player is away (an async game promises no seat must be online out of turn, §6.4).
   - With no claims, the outcome of a stop stays a function of the events alone.
 - **A missing secret.** A seat whose Secret reveal never arrives is **recorded** as "secret withheld" (shown and kept for stats). It **never forfeits** for it. E's place cannot get worse. For any other seat, the stop already fixed its place.
 - **The partial audit runs on the secrets that arrive.** Whenever the client's held secrets, together with the held shares, decrypt every final-deck position (a position needs, for each seat, that seat's secret or its verified share of that position), it runs the partial audit: full mode with that order, replaying the interleaved action log up to P, with no outcome comparison (v1 §8.3). Otherwise the audit does not run, and the stop's places stand.
-- **Only a proven audit failure demotes a seat.** The first game action the replay rejects fails its actor. A failed seat moves to just above E, and failed seats share that place. A verdict that fails every seat (a rejected derived reveal or roll, an undecryptable position, a refused setup; v1 §7 step 3) demotes nobody after a stop: no single seat is proven to blame.
+- **Only a proven audit failure demotes a seat.** The first game action the replay rejects fails its actor. A failed seat that is not an equivocator moves to just above the equivocators (§5.6), and failed seats share that place. A verdict that fails every seat (a rejected derived reveal or roll, an undecryptable position, a refused setup; v1 §7 step 3) demotes nobody after a stop: no single seat is proven to blame.
 - **Override of v1.** After a stop, v1 §8.2's "At the end" rule (seats with a withheld secret move to shared last places) and v1 §8.3's "a claim against a missing secret" do **not** apply.
 - A deckless game has no Secret phase and no audit after a stop.
 
@@ -491,7 +491,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-19** MUST NOT let events at or past a result's head block it, and MUST count an unresolved anchor as off the line (§5.4).
 - **V2-20** MUST give the same result as a function of the held events, whatever their arrival order, whenever a fork is held (§5.5).
 - **V2-21** MUST let a held fork override a counted claim or Resign that does not stand (§5.5).
-- **V2-22** MUST score a stop as §5.6 says: cancelled only when no game action is held at or past P on any line; 2 seats, E's rated loss; 3 or more seats, E strictly last and rated, the others by `standings` at P (all tied, scores 0, when P comes before play) and unrated.
+- **V2-22** MUST score a stop as §5.6 says: cancelled only when no game action is held at or past P on any line; 2 seats, E's rated loss; 3 or more seats, E last (shared only with other equivocators) and rated, the others by `standings` at P (all tied, scores 0, when P comes before play) and unrated.
 - **V2-50** MUST record as an equivocator every seat that signed two valid-looking moves (well-formed shuffle steps) with one `prev` and `seq`, on any held line with a valid line to that `prev`, and in a stop MUST place every equivocator in the shared last places, each rated last (§5.2, §5.6, §7.5).
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
 - **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
@@ -517,7 +517,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-37** MUST publish an end attestation of its result once it has one and holds no fork, signed by the session key, and MUST NOT publish one while it holds a fork or for a result it does not compute (§7.1).
 - **V2-38** MUST NOT publish an end attestation or a stats attestation for a stop or a cancelled game (§5.6, §7.4).
 - **V2-39** MUST compute the audit verdict from the events on the game's result and apply it to places and scores, never to which result stands (§7.2).
-- **V2-40** After a stop, MUST keep the places fixed at the stop, MUST accept no Timeout claim, MUST NOT demote a seat for a missing secret (only record "secret withheld"), and MUST demote a seat (to just above E) only for a proven audit failure of the partial audit, run once the held secrets and shares decrypt every position (§7.3).
+- **V2-40** After a stop, MUST keep the places fixed at the stop, MUST accept no Timeout claim, MUST NOT demote a seat for a missing secret (only record "secret withheld"), and MUST demote a seat (to just above the equivocators) only for a proven audit failure of the partial audit, run once the held secrets and shares decrypt every position (§7.3).
 - **V2-41** MUST count a stop in stats from its fork certificate (§7.5).
 
 **Timeouts and Resign**
