@@ -167,7 +167,7 @@
 ### Phase v2: Protocol version 2 (outline; spec `docs/PROTOCOL-v2.md`)
 Outline only; each task gets its own plan before it starts. Nothing ships until every task's tests pass and `pnpm check` is green.
 - **Build status (branch `v2-build`).** T1, the v1 freeze, is done:
-  - the v1 golden corpus: `packages/client/test/golden-v1/` holds 23 signed v1 event sets (whole games of Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries, and the stale-rival, freeze and shuffle-fork-deal sets) with the digest of every fold in three arrival orders; `golden-v1.test.ts` folds them again, and `scripts/golden-v1.ts` recorded them;
+  - the v1 golden corpus: `packages/client/test/golden-v1/` holds 25 signed v1 event sets (whole games of Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries; the stale-rival, freeze and shuffle-fork-deal sets; Chess noise and deadline claims) with the digest of every fold in three arrival orders; the `golden-v1*.test.ts` files fold them again (valid shuffle proofs verified untrusted for one Chain Reaction and one Luster set), and `scripts/golden-v1.ts` recorded them;
   - Bank 0.1.0 fixtures: `packages/games/bank/test/golden-v1/`, per-step hashes over 20 seeded games of 2 to 6 seats;
   - the conformance guard `tests/conformance-v2.test.ts`: every V2-nn of PROTOCOL-v2 §12.1 needs an `it('V2-nn …')`. Its allowlist holds every id a task has not covered yet and only shrinks; V2-48 is deferred.
   - The fixtures are never regenerated during the build. A difference is a v1 regression.
