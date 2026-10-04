@@ -47,11 +47,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'in-game parsers against the game proto, "3" and two proto tags (packages/protocol/test/game-v2.test.ts, ' +
       'vectors-v2.test.ts); validateRoot and foldLobby reject a root or Join of another proto (lobby tests)',
   },
-  'V2-03': {
-    until: 'T6 (dispatch by the root: a v1 root gives GameSession, a v2 root GameSessionV2)',
-    partial:
-      'v1 games fold by the frozen v1 rules: the golden corpus (packages/client/test/golden-v1.test.ts)',
-  },
   'V2-04': { until: 'T14' },
   'V2-05': {
     until: 'T14: the lobby filters tables with validateTable',

@@ -9,7 +9,7 @@ import {
   type PosShare,
   parseMove,
 } from '@bored-games/protocol';
-import type { GameSession } from '../src/session.ts';
+import { type Session, v1Session } from '../src/session-api.ts';
 import type { Adversary, SimPolicy, SimReport, SimTurn } from '../src/sim.ts';
 import { forgeAction, lenientSkips } from './cheat.ts';
 
@@ -49,7 +49,7 @@ function withBadShare(t: SimTurn, ev: NostrEvent): NostrEvent | null {
   return finalizeEvent(tmpl, t.identity.sessionSk, t.rnd);
 }
 
-const decides = (s: GameSession): boolean => s.duties().some((d) => d.kind === 'decide');
+const decides = (s: Session): boolean => s.duties().some((d) => d.kind === 'decide');
 
 /**
  * `badShare`: at its first decision whose move carries a share or a reveal, the seat publishes the move with one
@@ -89,7 +89,10 @@ export function forgedSkip(seat: number): Adversary {
       const legal = t.session.legalActions() as readonly { type: string }[];
       if (!legal.some((a) => a.type === 'place')) return 'honest';
       done = true;
-      t.publish(forgeAction(t.session, { type: 'skipPlace', actor: seat }, t.rnd, t.now), 'forgedSkip');
+      t.publish(
+        forgeAction(v1Session(t.session), { type: 'skipPlace', actor: seat }, t.rnd, t.now),
+        'forgedSkip',
+      );
       return 'pass';
     },
   };

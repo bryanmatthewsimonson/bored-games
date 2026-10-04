@@ -64,7 +64,7 @@ describe('the v1 golden corpus', () => {
  */
 describe('the v1 golden corpus: shuffle proofs verified, nothing trusted', () => {
   for (const name of ['cr-vanish-early', 'luster-honest']) {
-    it(`V2-03 (v1 half): ${name}: the spectator verifies every valid shuffle step and folds as recorded`, () => {
+    it(`V2-03 v1 rules: ${name}: the spectator verifies every valid shuffle step and folds as recorded`, () => {
       const fx = loadFixture(name);
       const published = fx.orders[0];
       expect(published?.name).toBe('published');
@@ -86,9 +86,9 @@ describe('the v1 golden corpus: shuffle proofs verified, nothing trusted', () =>
 describe('the v1 golden corpus: Chess and Bank 0.1.0', () => {
   for (const c of goldenCases(GOLDEN_GROUPS.deckless)) {
     if (c.v253) {
-      it(`V2-03, V2-53 (v1 halves): ${c.what}`, c.run);
+      it(`V2-53 (v1 half): ${c.what} (V2-03: by v1 rules)`, c.run);
     } else {
-      it(`V2-03 (v1 half): ${c.what}`, c.run);
+      it(`V2-03 v1 rules: ${c.what}`, c.run);
     }
   }
 });

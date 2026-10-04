@@ -15,6 +15,7 @@ export {
 } from './lobby.ts';
 export { seatForGameKeys } from './recover.ts';
 export { GameSession } from './session.ts';
+export { openSession, type Session, statsAttestTemplate, v1Session } from './session-api.ts';
 export {
   type Adversary,
   type CheatRecord,
@@ -29,7 +30,10 @@ export type {
   Identity,
   Phase,
   ReceiveResult,
+  ResultId,
   SessionAudit,
   SessionInput,
   SessionView,
+  SessionViewV2,
 } from './types.ts';
+export { GameSessionV2 } from './v2/session.ts';

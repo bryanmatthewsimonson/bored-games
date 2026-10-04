@@ -1,5 +1,5 @@
 /*
- * The game controller: binds the relay pool to a `GameSession` for one game (PROTOCOL §6–§9).
+ * The game controller: binds the relay pool to a game `Session` (`openSession`) for one game (PROTOCOL §6–§9).
  *
  * - It loads the root, the table and the Joins, builds the session for this player's seat (from the saved game
  *   secrets) or as a spectator, and folds in every game event from the relays.
@@ -23,10 +23,12 @@
 import {
   ClientError,
   type Duty,
-  GameSession,
   type Identity,
+  openSession,
+  type Session,
   type SessionView,
   seatForGameKeys,
+  v1Session,
 } from '@bored-games/client';
 import { moduleFor } from '@bored-games/game-kit';
 import {
@@ -208,8 +210,7 @@ interface AttestApi {
   attestTemplate?(createdAt: number): EventTemplate;
 }
 
-const canAttest = (s: GameSession): boolean =>
-  typeof (s as unknown as AttestApi).attestTemplate === 'function';
+const canAttest = (s: Session): boolean => typeof (s as unknown as AttestApi).attestTemplate === 'function';
 
 /** While nothing changes, the Home status entry is rewritten this often (s), so it stays fresh while the game is open. */
 export const STATUS_REFRESH_S = 300;
@@ -255,7 +256,7 @@ export class GameController {
   readonly table: Signal<ParsedTable | null> = signal(null);
   /** The table's address, from the root, once it is known. */
   readonly tableAddress: Signal<string | null> = signal(null);
-  /** The seats the game waits on at the head (`GameSession.waitingFor`, D057), ascending. */
+  /** The seats the game waits on at the head (`Session.waitingFor`, D057), ascending. */
   readonly waiting: Signal<readonly number[]> = signal([]);
   /**
    * The card reveal the game waits on (D060): the seats that owe their share and when their deadline passes, or
@@ -271,7 +272,7 @@ export class GameController {
   readonly clock: Signal<number>;
 
   readonly #d: ControllerDeps;
-  #session: GameSession | null = null;
+  #session: Session | null = null;
   #rootEv: NostrEvent | null = null;
   #root: ParsedRoot | null = null;
   /**
@@ -564,7 +565,7 @@ export class GameController {
    * Fold `ev` in at the time this profile first saw it (now, the first time), and record that time unless the
    * session rejects the event.
    */
-  #receive(session: GameSession, ev: NostrEvent): ReturnType<GameSession['receive']> {
+  #receive(session: Session, ev: NostrEvent): ReturnType<Session['receive']> {
     const first = this.#seen.get(ev.id);
     const now = this.#d.now();
     // Own events from the outbox too: the head may be this seat's own move, not yet back from a relay.
@@ -782,7 +783,7 @@ export class GameController {
    * What to do with a saved move or Resign (`#vetSaved`): `send` it, let it `wait` (a move whose parent this client
    * does not hold on its chain yet), or the reason to discard it.
    */
-  #verdict(session: GameSession, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
+  #verdict(session: Session, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
     if (slot === 'deal') return 'it is not signed by your key in this game';
     if (slot.startsWith('share:')) return this.#shareVerdict(session, ev, fed);
     if (slot.startsWith('move:')) {
@@ -810,7 +811,7 @@ export class GameController {
    * this seat (for one not folded in yet: the session's `share` duty lists it; for one folded in: no other Shares
    * event of this seat carrying it is at the relays). Otherwise the reason to discard it (`shareVerdict`).
    */
-  #shareVerdict(session: GameSession, ev: NostrEvent, fed: boolean): 'send' | string {
+  #shareVerdict(session: Session, ev: NostrEvent, fed: boolean): 'send' | string {
     const positions = sharePositions(ev);
     if (positions === null) return 'it is not a valid card reveal';
     const duty = fed ? undefined : session.duties().find((d) => d.kind === 'share');
@@ -824,7 +825,7 @@ export class GameController {
   }
 
   /** Every deck position the module has dealt on the session's head (`GameModule.dealt`); empty before setup. */
-  #dealt(session: GameSession): readonly { pos: number; to: number | null }[] {
+  #dealt(session: Session): readonly { pos: number; to: number | null }[] {
     const v = session.view();
     // The root's own engine version (`moduleFor`): a v1 Bank game is Bank 0.1.0 even though `bank` is 0.2.0.
     const root = this.#root;
@@ -842,7 +843,7 @@ export class GameController {
    * the relays and the session accepts it; otherwise it is kept as an orphan: never discarded, never published,
    * never built again (`#blocked`, `#single`), and still fed to the session so it owes no deal.
    */
-  #vetDeal(session: GameSession, entry: OutboxEntry, fed: boolean): void {
+  #vetDeal(session: Session, entry: OutboxEntry, fed: boolean): void {
     const ev = entry.event;
     this.#unvetted.delete('deal');
     let why: string | null = this.#otherMine('shares', ev) ? 'another deal of yours is on the relays' : null;
@@ -945,7 +946,7 @@ export class GameController {
    * or one that descends from a parent it does not hold and that the relays have not been found to lack
    * (`#ignoredParents`).
    */
-  #behind(session: GameSession): boolean {
+  #behind(session: Session): boolean {
     return session.aheadOfHead() || session.missingParents().some((id) => !this.#ignoredParents.has(id));
   }
 
@@ -954,7 +955,7 @@ export class GameController {
    * answered, those none sent are ignored from then on: a seat's junk move naming a random parent cannot hold
    * saved events or the Secret reveal back. Each parent is asked once per load.
    */
-  #resolveMissing(session: GameSession): void {
+  #resolveMissing(session: Session): void {
     const ids = session
       .missingParents()
       .filter((id) => !this.#ignoredParents.has(id) && !this.#askedParents.has(id));
@@ -994,8 +995,8 @@ export class GameController {
     return this.#secretSince === null || this.#d.now() - this.#secretSince < HOLD_CAP_S;
   }
 
-  /** Republish the rival shuffle steps of a held shuffle fork (`GameSession.forkSteps`), once each per load. */
-  #echoFork(session: GameSession): void {
+  /** Republish the rival shuffle steps of a held shuffle fork (`Session.forkSteps`), once each per load. */
+  #echoFork(session: Session): void {
     const root = this.#root;
     if (root === null) return;
     for (const id of session.forkSteps()) {
@@ -1223,7 +1224,7 @@ export class GameController {
     let problem = '';
     for (const t of tables) {
       try {
-        GameSession.create({ ...base, table: t, me: null });
+        openSession({ ...base, table: t, me: null });
         table = t;
         break;
       } catch (e) {
@@ -1237,9 +1238,9 @@ export class GameController {
     }
     const input = { ...base, table };
     const me = this.#identity(root);
-    let session: GameSession;
+    let session: Session;
     try {
-      session = GameSession.create({ ...input, me });
+      session = openSession({ ...input, me });
     } catch (e) {
       if (me === null) {
         this.error.value = `This game cannot be loaded: ${errorText(e)}`;
@@ -1247,7 +1248,7 @@ export class GameController {
       }
       this.recovered.value = null;
       try {
-        session = GameSession.create({ ...input, me: null });
+        session = openSession({ ...input, me: null });
         this.error.value = 'Your saved keys do not match your seat in this game, so you are watching it.';
       } catch (e2) {
         this.error.value = `This game cannot be loaded: ${errorText(e2)}`;
@@ -1277,7 +1278,7 @@ export class GameController {
    * This player's seat and secrets, or null to watch as a spectator. The seat is the one the key in use joined
    * with; failing that (D057), the seat whose session key and deck key both match the game keys this browser saved
    * for the table, for a player whose key was lost or replaced after joining. Only keys already in this browser's
-   * storage are tried, and `GameSession.create` checks them against the seat again.
+   * storage are tried, and `openSession` checks them against the seat again.
    */
   #identity(root: ParsedRoot): Identity | null {
     const seat = root.seats.findIndex((s) => s.npub === this.#d.signer.pubkey);
@@ -1562,7 +1563,7 @@ export class GameController {
    * signed when the answer brought this seat's own event for the slot from another device (the session folded it).
    */
   // biome-ignore lint/suspicious/noConfusingVoidType: every branch but a hold returns its commit's result.
-  async #perform(session: GameSession, kind: Duty['kind']): Promise<'held' | 'wait' | void> {
+  async #perform(session: Session, kind: Duty['kind']): Promise<'held' | 'wait' | void> {
     const head = session.view().head;
     const { rnd, now } = this.#d;
     if (kind === 'shuffle' || kind === 'beacon') {
@@ -1597,7 +1598,7 @@ export class GameController {
       const at = plan?.at ?? now();
       const built =
         this.#reusable(slot, head.id) ??
-        (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
+        (kind === 'shuffle' ? session.buildShuffle(det, at) : v1Session(session).buildBeacon(det, at));
       return this.#commit(slot, built);
     }
     if ((kind === 'deal' || kind === 'share') && this.#live(this.#dutySlot(session, kind)) === null) {
@@ -1614,7 +1615,7 @@ export class GameController {
     if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
     if (kind === 'share') {
       // Per-position slots persist/reuse public shares without replacing the one-time setup deal.
-      return this.#single(this.#dutySlot(session, 'share'), () => session.buildShares(rnd, now()));
+      return this.#single(this.#dutySlot(session, 'share'), () => v1Session(session).buildShares(rnd, now()));
     }
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
@@ -1625,7 +1626,7 @@ export class GameController {
   }
 
   /** The outbox slot of a Shares duty: `deal`, or `share:<positions>` for the positions the share duty lists. */
-  #dutySlot(session: GameSession, kind: 'deal' | 'share'): string {
+  #dutySlot(session: Session, kind: 'deal' | 'share'): string {
     if (kind === 'deal') return 'deal';
     const duty = session.duties().find((d) => d.kind === 'share');
     return `share:${duty?.kind === 'share' ? duty.positions.join(',') : ''}`;
@@ -1636,7 +1637,7 @@ export class GameController {
    * already sent: a move of this seat on `parent` that the session has not taken (pooled, waiting for something)
    * must not get a rival, so the duty fails at this head.
    */
-  async #clearToSign(session: GameSession, kind: Duty['kind'], parent: string | null): Promise<boolean> {
+  async #clearToSign(session: Session, kind: Duty['kind'], parent: string | null): Promise<boolean> {
     const rival = (): boolean => parent !== null && this.#otherMine(`move:${parent}`, null);
     if (rival()) throw new ClientError('another device of yours already sent it');
     const check = await this.#checkBeforeSign(session, `${kind}@${session.view().head.id}`);
@@ -1654,7 +1655,7 @@ export class GameController {
    * republish); otherwise `hold`, until `HOLD_CAP_S` has passed since the first such answer for this `slot`
    * (`kind@headId`), or Send anyway.
    */
-  async #checkBeforeSign(session: GameSession, slot: string): Promise<'clear' | 'hold'> {
+  async #checkBeforeSign(session: Session, slot: string): Promise<'clear' | 'hold'> {
     const me = this.#mySession;
     if (me === null || this.#root === null || this.#disposed) return 'clear';
     const head = session.view().head.id;
@@ -1723,7 +1724,7 @@ export class GameController {
    * `MAX_WAIT_S` and a quarter of the table's deadline; a date further ahead falls back (null). Two devices that
    * straddle that bound are then hours apart, so the later one's check before signing finds the earlier one's event.
    */
-  #buildDate(session: GameSession, headId: string): { at: number; wait: number } | null {
+  #buildDate(session: Session, headId: string): { at: number; wait: number } | null {
     const root = this.#rootEv;
     const headAt = headId === this.rootId ? root?.created_at : this.#dates.get(headId);
     if (headAt === undefined || root === null || this.#root === null) return null;
@@ -1762,7 +1763,7 @@ export class GameController {
    * The attestation: the session's `attestTemplate(createdAt)`, signed by the player's npub (§4.8), dated now or
    * `notBefore`, whichever is later.
    */
-  async #attestEvent(session: GameSession, notBefore = 0): Promise<NostrEvent> {
+  async #attestEvent(session: Session, notBefore = 0): Promise<NostrEvent> {
     const api = session as unknown as AttestApi;
     if (typeof api.attestTemplate !== 'function') throw new ClientError('this session cannot attest');
     const ev = await this.#d.signer.sign(api.attestTemplate(Math.max(this.#d.now(), notBefore)));
@@ -1896,7 +1897,7 @@ export class GameController {
    * some seats only is held by every client the deal reaches, and the stall falls on the equivocator there too.
    * Once per step per load.
    */
-  async #echoDeck(session: GameSession, root: ParsedRoot): Promise<void> {
+  async #echoDeck(session: Session, root: ParsedRoot): Promise<void> {
     const sends: Promise<unknown>[] = [];
     for (const id of session.deckSteps()) {
       if (this.#echoedSteps.has(id)) continue;

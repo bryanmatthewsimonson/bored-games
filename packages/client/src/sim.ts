@@ -13,12 +13,12 @@ import {
 } from '@bored-games/protocol';
 import { buildJoinTemplate, buildRootTemplate, foldLobby, type GameKeys, newGameKeys } from './lobby.ts';
 import { MemoryRelay } from './memory-relay.ts';
-import { GameSession } from './session.ts';
+import { openSession, type Session, statsAttestTemplate, v1Session } from './session-api.ts';
 import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.ts';
 
 /*
  * Asynchronous multi-client game simulation over an in-memory relay (Phase 2d Task 7). Every player runs its own
- * `GameSession`, a spectator follows along, and nobody coordinates. Each round one random client syncs at the
+ * game `Session` (`openSession`), a spectator follows along, and nobody coordinates. Each round one random client syncs at the
  * simulated clock: it queries the relay for every event of the game and receives, in its own shuffled order, the
  * ones it has not received yet (some of them twice) plus a few it has, at random places (`fullSync`: all of them
  * again). Then it does what an honest client does: its duties (shuffle, deal, share, a public dice share,
@@ -48,7 +48,7 @@ type Modules = ReadonlyMap<string, GameModule<any, any, any>>;
 /** What an adversary's hook sees and may do on its seat's turn, after the seat synced. */
 export interface SimTurn {
   seat: number;
-  session: GameSession;
+  session: Session;
   identity: Identity;
   /** The seat's npub secret key, which signs its attestations. */
   npubSk: Uint8Array;
@@ -170,7 +170,7 @@ function secretKey(rnd: RandomBytes): Uint8Array {
 interface Client {
   label: string;
   seat: number | null;
-  session: GameSession;
+  session: Session;
   identity: Identity | null;
   npubSk: Uint8Array | null;
   rng: Rng;
@@ -284,7 +284,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     const modules =
       adversary !== null && adversary.seat === seat ? (adversary.modules ?? opts.modules) : opts.modules;
     const joins = events.filter((ev) => ev.kind === KIND.join);
-    const session = GameSession.create({
+    const session = openSession({
       modules,
       table: tableEv,
       joins,
@@ -311,7 +311,7 @@ export function simulateGame(opts: SimOptions): SimReport {
   const spectator: Client = {
     label: 'spectator',
     seat: null,
-    session: GameSession.create({
+    session: openSession({
       modules: opts.modules,
       table: tableEv,
       joins: spec.events.filter((ev) => ev.kind === KIND.join),
@@ -413,15 +413,18 @@ export function simulateGame(opts: SimOptions): SimReport {
       case 'deal':
         return s.buildDeal(c.rnd, clock);
       case 'share':
-        return s.buildShares(c.rnd, clock);
+        return v1Session(s).buildShares(c.rnd, clock);
       case 'beacon':
-        return s.buildBeacon(c.rnd, clock);
+        return v1Session(s).buildBeacon(c.rnd, clock);
       case 'decide':
         return s.buildAction(choose(c), c.rnd, clock);
       case 'secret':
         return s.buildSecret(c.rnd, clock);
       case 'attest':
-        return finalizeEvent(s.attestTemplate(clock), c.npubSk as Uint8Array, c.rnd);
+        return finalizeEvent(statsAttestTemplate(s, clock), c.npubSk as Uint8Array, c.rnd);
+      default:
+        // The protocol 2 duties (release, roll, end) are not simulated yet (build plan T19).
+        throw new Error(`the sim does not build ${duty.kind} duties yet`);
     }
   };
 

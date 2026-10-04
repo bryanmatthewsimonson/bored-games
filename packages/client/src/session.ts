@@ -74,6 +74,7 @@ import {
   shuffleStepGroup,
   shuffleStepSeat,
 } from './partitioned-deck.ts';
+import type { Session } from './session-api.ts';
 import { ShareStore } from './shares.ts';
 import type {
   Duty,
@@ -317,7 +318,12 @@ function playerSentDice(action: unknown): boolean {
   return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'rolled';
 }
 
-export class GameSession {
+export class GameSession implements Session {
+  /** The protocol version this class folds: v1 only (PROTOCOL-v2 §2). */
+  get proto(): 1 {
+    return 1;
+  }
+
   private readonly module: AnyModule;
   private readonly root: ParsedRoot;
   private readonly rules: unknown;
