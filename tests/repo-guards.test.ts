@@ -9,7 +9,10 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
+import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
 import {
+  ALLOWED_PHRASE_HOMES,
   ALLOWED_PHRASES,
   ALLOWED_WORDS,
   BINARY,
@@ -168,8 +171,8 @@ describe('branding', () => {
     expect(findRestricted('hotel chainsaw', ['hotel chains'])).toEqual([]);
   });
 
-  describe('the one allowed phrase (D053)', () => {
-    const companies = [
+  describe('the allowed phrases (D053, D060)', () => {
+    const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
       'Zeta',
@@ -179,58 +182,118 @@ describe('branding', () => {
       'Quantum',
       'Phoenix',
     ];
+    /** Luster's reference game's publisher and designer, as they are commonly written (D060). */
+    const lusterCompanies = [
+      'Space Cowboys',
+      'SPACE COWBOYS',
+      'space-cowboys',
+      'space_cowboys',
+      'SpaceCowboys',
+      'Marc André',
+      'MARC ANDRÉ',
+      'Marc Andre',
+      'marc andre',
+      'MarcAndre',
+    ];
+    const games = [
+      {
+        game: 'Chain Reaction',
+        home: 'packages/games/chain-reaction/src/compare.ts',
+        phrase: 'Compare to Acquire',
+        compare: { COMPARE_BGG_ID, COMPARE_PHRASE, COMPARE_PREFIX, COMPARE_TITLE },
+        entry: CHAIN_REACTION_CATALOG,
+        bggId: 5,
+        companies: crCompanies,
+      },
+      {
+        game: 'Luster',
+        home: 'packages/games/luster/src/compare.ts',
+        phrase: 'Compare to Splendor',
+        compare: LUSTER_COMPARE,
+        entry: LUSTER_CATALOG,
+        bggId: 148228,
+        companies: lusterCompanies,
+      },
+    ];
 
-    it('is exactly "Compare to" the reference title, stored once in compare.ts', () => {
-      expect(ALLOWED_PHRASES).toEqual(['Compare to Acquire']);
-      expect(ALLOWED_PHRASES).toEqual([COMPARE_PHRASE]);
-      expect(COMPARE_PREFIX + COMPARE_TITLE).toBe(COMPARE_PHRASE);
+    it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
+      expect(ALLOWED_PHRASE_HOMES).toEqual(Object.fromEntries(games.map((g) => [g.home, g.phrase])));
+      expect(ALLOWED_PHRASES).toEqual(['Compare to Acquire', 'Compare to Splendor']);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
-      expect(CHAIN_REACTION_CATALOG.compareTo).toEqual({ title: COMPARE_TITLE, bggId: COMPARE_BGG_ID });
-      expect(COMPARE_BGG_ID).toBe(5);
-      // compare.ts writes the phrase as one literal and never the title on its own.
-      const code = readFileSync(join(root, 'packages/games/chain-reaction/src/compare.ts'), 'utf8');
-      expect(code.split(`'${COMPARE_PHRASE}'`)).toHaveLength(2);
-      expect(findRestricted(code.replace(`'${COMPARE_PHRASE}'`, ''), strings)).toEqual([]);
     });
 
-    it('passes the guard, alone and in code, with the licensed strings in the scan', () => {
-      expect(strings).toContain(COMPARE_TITLE);
-      for (const text of [
-        'Compare to Acquire',
-        'const p = "Compare to Acquire";',
-        '`Compare to Acquire`.replace(/^Compare to /, ``)',
-        "<a>Compare to Acquire</a> and 'Compare to Acquire'",
-      ])
-        expect(findRestricted(text, strings), text).toEqual([]);
-    });
+    for (const g of games) {
+      const { phrase } = g;
+      const title = g.compare.COMPARE_TITLE;
 
-    it('lets nothing else through: the bare title, other cases, other words and every company', () => {
-      expect(ALLOWED_WORDS.has(COMPARE_TITLE.toLowerCase())).toBe(false);
-      for (const text of [
-        'Acquire',
-        'acquire',
-        'ACQUIRE',
-        'acquires',
-        'reacquired',
-        'AcquireRules',
-        'compare to Acquire',
-        'Compare to acquire',
-        'COMPARE TO ACQUIRE',
-        'Compare  to Acquire',
-        'Compare to Acquired',
-        'Compare to Acquire_x',
-        'xCompare to Acquire',
-        'Compare to Acquire, the Acquire company',
-        'Compare to Acquire Tower',
-        'Compare to Acquire-style',
-        'Compare to Acquire’s',
-      ])
-        expect(findRestricted(text, strings), text).not.toEqual([]);
-      for (const name of companies) {
-        expect(findRestricted(name, strings), name).not.toEqual([]);
-        expect(findRestricted(`Compare to ${name}`, strings), name).not.toEqual([]);
-        expect(findRestricted(`Compare to Acquire ${name}`, strings), name).not.toEqual([]);
-      }
+      it(`${g.game}: "${phrase.slice(0, 11)}…" is stored once, in ${g.home}, and nowhere else in a package`, () => {
+        expect(g.compare.COMPARE_PHRASE).toBe(phrase);
+        expect(g.compare.COMPARE_PREFIX + title).toBe(phrase);
+        expect(g.entry.bggId).toBeNull();
+        expect(g.entry.compareTo).toEqual({ title, bggId: g.compare.COMPARE_BGG_ID });
+        expect(g.compare.COMPARE_BGG_ID).toBe(g.bggId);
+        // compare.ts writes the phrase as one literal and never the title on its own.
+        const code = readFileSync(join(root, g.home), 'utf8');
+        expect(code.split(`'${phrase}'`)).toHaveLength(2);
+        expect(findRestricted(code.replace(`'${phrase}'`, ''), strings)).toEqual([]);
+        // The other game's phrase is not in it either (it would pass the scan, since the guard cuts it).
+        for (const other of ALLOWED_PHRASES.filter((p) => p !== phrase)) expect(code).not.toContain(other);
+        // No other package file spells the phrase: everything else builds it from the catalog entry.
+        const elsewhere = shippedFiles()
+          .filter((f) => relative(root, f) !== g.home && readFileSync(f, 'utf8').includes(phrase))
+          .map((f) => relative(root, f));
+        expect(elsewhere).toEqual([]);
+      });
+
+      it(`${g.game}: the phrase passes the guard, alone and in code, with the licensed strings in the scan`, () => {
+        for (const text of [
+          phrase,
+          `const p = "${phrase}";`,
+          `\`${phrase}\`.replace(/^Compare to /, \`\`)`,
+          `<a>${phrase}</a> and '${phrase}'`,
+        ])
+          expect(findRestricted(text, strings), text).toEqual([]);
+      });
+
+      it(`${g.game}: nothing else gets through: the bare title, other cases, other words and every company`, () => {
+        expect(ALLOWED_WORDS.has(title.toLowerCase())).toBe(false);
+        const upper = title.toUpperCase();
+        const lower = title.toLowerCase();
+        for (const text of [
+          title,
+          lower,
+          upper,
+          `${lower}s`,
+          `re${lower}d`,
+          `${title}Rules`,
+          `cr-${lower}-x`,
+          `compare to ${title}`,
+          `Compare to ${lower}`,
+          `COMPARE TO ${upper}`,
+          `Compare  to ${title}`,
+          `Compare to ${title}d`,
+          `Compare to ${title}_x`,
+          `xCompare to ${title}`,
+          `${phrase}, the ${title} company`,
+          `${phrase} Tower`,
+          `${phrase}-style`,
+          `${phrase}’s`,
+          `${title} Duel`,
+        ])
+          expect(findRestricted(text, strings), text).not.toEqual([]);
+        for (const name of g.companies) {
+          expect(findRestricted(name, strings), name).not.toEqual([]);
+          expect(findRestricted(`Compare to ${name}`, strings), name).not.toEqual([]);
+          for (const p of ALLOWED_PHRASES)
+            expect(findRestricted(`${p} ${name}`, strings), `${p} ${name}`).not.toEqual([]);
+        }
+      });
+    }
+
+    it("does not let one game's phrase stand for the other's title", () => {
+      expect(findRestricted('Compare to Acquire Splendor', strings)).toEqual(['Splendor']);
+      expect(findRestricted('Compare to Splendor Acquire', strings)).toEqual(['Acquire']);
+      expect(findRestricted('Compare to Splendor and Compare to Acquire', strings)).toEqual([]);
     });
   });
 

@@ -7,6 +7,7 @@ import {
   TIER_DECKS,
   workshop,
 } from '@bored-games/luster';
+import { COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 import { LUSTER_POLICIES } from '../../../tools/fuzz/src/luster.ts';
@@ -159,6 +160,12 @@ for (const seats of [2, 3, 4]) {
     if (!a) throw new Error('Missing creator');
     await a.getByLabel('Search games').fill('Luster');
     await a.getByRole('link', { name: 'Luster', exact: true }).click();
+    // "Compare to" the published game, linked to its BoardGameGeek entry by id, and no entry of its own (D060).
+    await expect(a.getByRole('link', { name: COMPARE_PHRASE, exact: true })).toHaveAttribute(
+      'href',
+      'https://boardgamegeek.com/boardgame/148228',
+    );
+    await expect(a.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveCount(0);
     await a.getByLabel('Players', { exact: true }).selectOption(String(seats));
     await a.getByRole('button', { name: 'Create table', exact: true }).click();
     await a.getByRole('button', { name: 'Create anyway', exact: true }).click();

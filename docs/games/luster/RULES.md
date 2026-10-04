@@ -16,7 +16,7 @@ Shuffle each development tier separately and reveal four cards per tier. Shuffle
 
 Choose exactly one main action:
 
-- **Take gems:** take one token in each of up to three different regular colors, or two of one regular color if at least four of that color are in the supply before taking them. Gold tokens cannot be gathered. Taking fewer than three different colors is allowed.
+- **Take gems:** take one token in each of up to three different regular colors, or two of one regular color if at least four of that color are in the supply before taking them. Gold tokens cannot be gathered. Taking fewer than three different colors is allowed (**OPEN**, see [Open questions and platform rules](#open-questions-and-platform-rules)).
 - **Reserve:** take one exposed development or the unseen top development of one tier. Keep at most three reservations. Take one Gold token if any remain, even if this takes you past ten tokens; you may reserve when no Gold tokens remain. Keep reserved cards face down in your hand. A card taken from the market was already public and may be remembered from the move history; an unseen draw is private to you. Reservations cannot be discarded or exchanged and grant no discount or prestige until purchased.
 - **Purchase:** buy one exposed development or one of your reservations. For each color, subtract the number of your purchased developments with that color bonus from its cost, stopping at zero. Pay the remaining price using colored tokens and/or Gold tokens; Gold tokens may replace colored tokens even if you have the colored tokens. Choose exactly how to pay. Put paid tokens into the supply and add the development to your collection. The new development's discount is usable on future turns. Free purchases still use your main action.
 
@@ -24,7 +24,14 @@ Immediately replace an exposed card that was bought or reserved with the next ca
 
 After your main action, return tokens of your choice until you hold at most ten, counting Gold tokens. You may return tokens just taken. Then check nobles: if your purchased development bonuses meet a visible noble's requirements, take it at no cost. You must take an eligible noble; if several qualify, choose exactly one. A noble is worth three prestige and grants no development discount. A noble visit is additional to your main action and is checked after every turn, including gathering or reserving.
 
-The game has no discretionary pass. If no main action can be performed, pass. There is no invented round limit, stalemate scoring, or automatic end before 15 prestige.
+The game has no discretionary pass. If no main action can be performed, pass (a **platform rule**, see [Open questions and platform rules](#open-questions-and-platform-rules)). There is no invented round limit, stalemate scoring, or automatic end before 15 prestige.
+
+## Open questions and platform rules
+
+Checked on 2026-10-04 against the published base-game rulebook's turn actions (the English rules as reproduced by rulespal.com, "Splendor rulebook", and Dized's licensed rules, "Taking tokens") and the Dized Splendor FAQ. BoardGameGeek and the publisher's PDF host were not reachable, so these are secondary sources.
+
+- **Taking fewer than three colors: OPEN.** The rulebook's action is "Take 3 gem tokens of different colors", with no "up to". The Dized FAQ answers the case where three cannot be taken: "The action 'take three different tokens' allows you to pick only two different tokens, or even one, if all the other piles are depleted. So take as many as you can and are allowed." So the published rule, as the FAQ reads it, allows fewer only when fewer colors are available. Luster's engine (and this page, above) allow fewer than three different colors at any time, which is the looser, common house reading. Until the owner rules, the current behaviour stands; the strict reading would be a rules option (for example `takeFewer: 'always' | 'onlyWhenShort'`) and a DECISIONS entry. A rule-change in the engine must also change `legalActions` and catalog C02.
+- **Pass when no main action is possible: platform rule.** The published rules have no pass and do not say what happens when a player can neither take gems, reserve nor buy (possible when the supply is drained, the player holds three reservations and can afford nothing). Luster adds a forced pass in exactly that case so that a turn always has a legal move; a discretionary pass is not allowed. This is a platform necessity (CLAUDE.md: a game must never stall), not a published rule.
 
 ## Online play
 
