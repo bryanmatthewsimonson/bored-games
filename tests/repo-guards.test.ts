@@ -91,6 +91,25 @@ describe('engine purity', () => {
   }
 });
 
+describe('promptShares (D050, D059 item 8)', () => {
+  // The automatic share duty in play is an owner-authorized exception for Luster only. Outside the type that
+  // declares the flag and the session that reads it, only Luster's deck spec may name it, so no other game can
+  // switch it on, registered in the web app or not (apps/web/test/prompt-shares.test.ts checks the modules).
+  const ALLOWED = [
+    'packages/game-kit/src/types.ts',
+    'packages/client/src/session.ts',
+    'packages/games/luster/src/transport.ts',
+  ];
+  it('is named only by the type, the session and Luster in any package source', () => {
+    const named = srcDirs()
+      .flatMap((d) => files(d, /\.(ts|tsx)$/))
+      .filter((f) => /\bpromptShares\b/.test(stripComments(readFileSync(f, 'utf8'))))
+      .map((f) => relative(root, f))
+      .sort();
+    expect(named).toEqual([...ALLOWED].sort());
+  });
+});
+
 describe('web app impurity', () => {
   // apps/web is not a pure package, but clock, randomness and storage enter only through three files.
   const allowed = ['clock.ts', 'random.ts', 'storage.ts'];
