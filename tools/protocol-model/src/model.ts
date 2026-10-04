@@ -814,9 +814,15 @@ class Explorer {
         const rivals = moves.filter((m) => m.prev === p.id);
         if (rivals.length >= s.rivalsPerPrev) continue;
         const kinds: Kind[] =
-          p.depth < setup ? ['shuf', 'junk'] : s.multiDraw === true ? ['draw', 'draw2', 'pass'] : ['draw', 'pass'];
+          p.depth < setup
+            ? ['shuf', 'junk']
+            : s.multiDraw === true
+              ? ['draw', 'draw2', 'pass']
+              : ['draw', 'pass'];
         const cheats =
-          s.secrets === true && p.depth >= setup && counts.cheat < (s.advCheats ?? 0) ? [false, true] : [false];
+          s.secrets === true && p.depth >= setup && counts.cheat < (s.advCheats ?? 0)
+            ? [false, true]
+            : [false];
         for (const kind of kinds) {
           for (let v = 0; v < s.rivalsPerPrev; v++) {
             for (const cheat of cheats) {
@@ -980,7 +986,8 @@ class Explorer {
     const has = new Map<number, Set<Seat>>();
     for (const e of st.events.values()) {
       if (e.t === 'share' && e.to === null) addTo(has, e.pos, e.seat);
-      if (e.t === 'move') for (const r of e.rel) if (r.endsWith(':*')) addTo(has, Number(r.split(':')[0]), e.seat);
+      if (e.t === 'move')
+        for (const r of e.rel) if (r.endsWith(':*')) addTo(has, Number(r.split(':')[0]), e.seat);
     }
     const out = new Map<string, Seat[]>();
     for (const g of this.publicGrants(st)) {
@@ -1445,9 +1452,7 @@ class Explorer {
     const views = st.clients.map((c) => this.view(st, c));
     const finals = st.clients.map((c, i) => this.finalOf(c, views[i] as View));
     // S3.
-    const sig = finals.map(
-      (f) => `${f.end}:${f.head}${f.end === 'claim' ? `:${f.forfeit.join('.')}` : ''}`,
-    );
+    const sig = finals.map((f) => `${f.end}:${f.head}${f.end === 'claim' ? `:${f.forfeit.join('.')}` : ''}`);
     if (new Set(sig).size > 1) {
       // The pre-existing claim race: some client ended on a claim or resign, and no client holds a fork. A
       // difference with a fork held is a genuine divergence (round 3, A2).
@@ -1462,7 +1467,8 @@ class Explorer {
     for (const f of finals) {
       // Round 3: a fork records its equivocators (M1: every seat with a fork on a valid line); never an honest seat.
       for (const x of f.view.allEquivocators)
-        if (!this.coalition.has(x)) this.report('honest-flagged', `honest seat ${x} is recorded as an equivocator`, trace);
+        if (!this.coalition.has(x))
+          this.report('honest-flagged', `honest seat ${x} is recorded as an equivocator`, trace);
       if (f.end === 'claim') {
         for (const seat of f.forfeit) {
           if (this.coalition.has(seat)) continue;
@@ -1471,7 +1477,9 @@ class Explorer {
           // residual. (Ended on a counted resign instead, it needs a fork: F8, reported as an honest forfeit.)
           const ended = st.clients
             .filter((c) => c.seat === seat)
-            .every((c) => c.frozen !== null && c.frozen.reason === 'claim' && !c.frozen.forfeit.includes(seat));
+            .every(
+              (c) => c.frozen !== null && c.frozen.reason === 'claim' && !c.frozen.forfeit.includes(seat),
+            );
           this.report(
             ended ? 'claim-race' : 'honest-forfeit',
             `honest seat ${seat} timed out at ${f.head}${ended ? ' after its own client ended the game' : ''}`,
@@ -1555,7 +1563,11 @@ class Explorer {
         if (f.end === 'stop')
           for (const [k, x] of f.score.entries())
             if (x !== f.base[k] && !f.auditFailed.includes(k))
-              this.report('stop-demotion', `seat ${k} moves from ${f.base[k]} to ${x} after the stop at ${f.head}`, trace);
+              this.report(
+                'stop-demotion',
+                `seat ${k} moves from ${f.base[k]} to ${x} after the stop at ${f.head}`,
+                trace,
+              );
       }
       // N1 (PROTOCOL-v2 §5.4): a cheat on the line of an `over` result is audited (every secret held) or its End
       // phase is open (a seat whose secret is missing is stalled, and forfeits once a deadline passes).
@@ -2004,7 +2016,8 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   const secrets = new Set<Seat>();
   for (const e of evs) {
     if (e.t === 'share' && e.to === null) addTo(pub, e.pos, e.seat);
-    if (e.t === 'move') for (const r of e.rel) if (r.endsWith(':*')) addTo(pub, Number(r.split(':')[0]), e.seat);
+    if (e.t === 'move')
+      for (const r of e.rel) if (r.endsWith(':*')) addTo(pub, Number(r.split(':')[0]), e.seat);
     if (e.t === 'secret' || e.t === 'resign') secrets.add(e.seat);
   }
   /** The seats missing a share of the blocking reveal or roll that move `h` requested; [] when none. */
@@ -2062,8 +2075,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     return i < 0 ? head : (line[i] as MoveEv).id;
   };
   const resignCancels = (head: string, k: Seat): boolean =>
-    depthOf(head) <= setup &&
-    !pathOf(sOf(head, k)).some((id) => get(id).seat === k && get(id).depth > setup);
+    depthOf(head) <= setup && !pathOf(sOf(head, k)).some((id) => get(id).seat === k && get(id).depth > setup);
 
   const acks = new Map<string, Set<Seat>>();
   const ackedByMe = new Set<string>();
@@ -2183,7 +2195,9 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     if (s.resignAt === 'counted')
       return evs.some((e) => e.t === 'resign' && e.seat === k && ancestor(e.head, r.head));
     // `named`: the identity is the head the resign names, and it must not cancel.
-    return evs.some((e) => e.t === 'resign' && e.seat === k && e.head === r.head) && !resignCancels(r.head, k);
+    return (
+      evs.some((e) => e.t === 'resign' && e.seat === k && e.head === r.head) && !resignCancels(r.head, k)
+    );
   };
   /**
    * The one result that stands at the fork after `at` (successors `ks`, signed by E): a valid result on the walk's
@@ -2374,13 +2388,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
 export type ModelEvent = Ev;
 
 /** A move by `seat` on `prev` (null for the root); its id names its path, as in the explorer's traces. */
-export function modelMove(
-  prev: ModelEvent | null,
-  seat: Seat,
-  kind: Kind,
-  v = 0,
-  cheat = false,
-): ModelEvent {
+export function modelMove(prev: ModelEvent | null, seat: Seat, kind: Kind, v = 0, cheat = false): ModelEvent {
   const p = prev === null ? null : (prev as MoveEv);
   return {
     t: 'move',
@@ -2412,7 +2420,14 @@ export function foldView(
   scores: string[];
 } {
   const v = computeView(scope, events, seat);
-  const end = v.status === 'stop' ? (v.cancelled ? 'cancel' : 'stop') : v.status === 'stood' ? (v.standing?.kind ?? 'over') : v.status;
+  const end =
+    v.status === 'stop'
+      ? v.cancelled
+        ? 'cancel'
+        : 'stop'
+      : v.status === 'stood'
+        ? (v.standing?.kind ?? 'over')
+        : v.status;
   const head = v.status === 'stood' ? (v.standing?.head ?? v.head) : v.head;
   const forfeit = v.status === 'stop' ? v.equivocators : (v.standing?.forfeit ?? []);
   return {
