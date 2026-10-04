@@ -14,6 +14,11 @@ export const LUSTER_THEME = {
   colors: ['Diamond', 'Sapphire', 'Emerald', 'Ruby', 'Onyx', 'Gold'],
   symbols: ['○', '◇', '△', '♡', '⬡', '✦'],
   tiers: ['Mines', 'Workshops', 'Guilds'],
+  /** The gem rule option's labels (New table form, rules page; RULES.md C11). */
+  gems: {
+    published: 'Three colors (fewer only when fewer are left)',
+    any: 'Any number of colors, up to three',
+  },
   patrons: [
     'Orchard',
     'Nightfall',

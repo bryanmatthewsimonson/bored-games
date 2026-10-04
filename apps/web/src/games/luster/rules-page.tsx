@@ -49,9 +49,11 @@ export function LusterRulesContent() {
         <p>Choose one main action:</p>
         <ul>
           <li>
-            <strong>Take gems:</strong> take one token in each of up to three different regular colors.
-            Alternatively, take two tokens of one color if at least four of that color are in the supply
-            beforehand. You may take fewer different colors. Gold cannot be taken this way.
+            <strong>Take gems:</strong> take one token in each of three different regular colors; when fewer
+            than three colors are left in the supply, take one of each color that is left. Alternatively, take
+            two tokens of one color if at least four of that color are in the supply beforehand. Gold cannot
+            be taken this way. A table may instead allow any number of different colors, up to three, at any
+            time (chosen under New table; older tables work this way).
           </li>
           <li>
             <strong>Reserve a card:</strong> take an exposed card or the unseen top card of a tier. Keep at
