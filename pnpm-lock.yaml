@@ -50,6 +50,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/luster':
+        specifier: workspace:*
+        version: link:../../packages/games/luster
       '@bored-games/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -142,6 +145,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/luster:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/protocol:
     dependencies:
       '@bored-games/deck':
@@ -197,6 +206,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/luster':
+        specifier: workspace:*
+        version: link:../../packages/games/luster
 
   tools/protocol-model: {}
 

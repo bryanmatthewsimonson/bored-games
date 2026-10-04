@@ -78,7 +78,7 @@ const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, 
 export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
-const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'secret', 'attest'];
+const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'secret', 'attest'];
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -1344,6 +1344,12 @@ export class GameController {
     // a deal that no relay confirmed may still be on one. The session itself owes no deal once it holds this seat's
     // deal on a rival deck.
     if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
+    if (kind === 'share') {
+      const duty = session.duties().find((d) => d.kind === 'share');
+      if (duty?.kind !== 'share') return;
+      // Per-position slots persist/reuse public shares without replacing the one-time setup deal.
+      return this.#single(`share:${duty.positions.join(',')}`, () => session.buildShares(rnd, now()));
+    }
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
       // A new attestation must be later than the refused one, or it would not replace it (latest wins).

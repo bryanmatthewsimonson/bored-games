@@ -1,0 +1,244 @@
+.luster-game {
+  --luster-edge: #d5c8ad;
+  --luster-paper: #fbf8ef;
+  display: grid;
+  gap: 1rem;
+  color: #302f36;
+}
+.luster-game h2,
+.luster-game h3,
+.luster-game h4,
+.luster-game p {
+  margin: 0;
+}
+.luster-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: #242d3a;
+  color: #fff4d8;
+}
+.luster-status a {
+  color: inherit;
+}
+.luster-status h2 {
+  font-size: clamp(1.1rem, 3vw, 1.55rem);
+}
+.luster-status .luster-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.luster-panel {
+  padding: 1rem;
+  border: 1px solid var(--luster-edge);
+  border-radius: 0.85rem;
+  background: var(--luster-paper);
+  display: grid;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.luster-color-0 {
+  color: #756343;
+}
+.luster-color-1 {
+  color: #225e96;
+}
+.luster-color-2 {
+  color: #346d40;
+}
+.luster-color-3 {
+  color: #a02d4c;
+}
+.luster-color-4 {
+  color: #50445f;
+}
+.luster-color-5 {
+  color: #846009;
+}
+.luster-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  vertical-align: middle;
+}
+.luster-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.4rem;
+  background: #fff;
+  border: 1px solid currentColor;
+  border-radius: 0.35rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.luster-token-form {
+  margin: 0;
+  border: 1px solid var(--luster-edge);
+  border-radius: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+.luster-token-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+.luster-token-grid label {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 4rem;
+  flex: 1;
+  font-size: 0.85rem;
+}
+.luster-token-grid input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem;
+  box-sizing: border-box;
+}
+.luster-market-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  justify-content: space-between;
+}
+.luster-market-head small {
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+.luster-market {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.luster-card {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  background: #fff;
+  border: 1px solid var(--luster-edge);
+  border-radius: 0.65rem;
+  padding: 0.7rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.luster-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+.luster-card-head > span {
+  white-space: nowrap;
+}
+.luster-art {
+  width: 100%;
+  height: 64px;
+  background: linear-gradient(135deg, #fbf7ec, #edf2f2);
+  border-radius: 0.35rem;
+}
+.luster-card-caption {
+  font-size: 0.75rem;
+}
+.luster-card-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+.luster-card-actions button {
+  flex: 1 1 6rem;
+  padding: 0.4rem;
+  font-size: 0.85rem;
+}
+.luster-game button {
+  min-height: 2.75rem;
+}
+.luster-patrons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.luster-patron {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border: 1px solid var(--luster-edge);
+  border-radius: 0.5rem;
+  background: #fff;
+  flex: 1;
+  min-width: 10rem;
+}
+.luster-players {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.luster-active {
+  border: 2px solid #846009;
+}
+.luster-reservations {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+.luster-payment {
+  border: 2px solid #225e96;
+}
+.luster-payment > .luster-card {
+  max-width: 16rem;
+}
+.luster-payment label {
+  display: grid;
+  gap: 0.3rem;
+}
+.luster-payment select {
+  width: 100%;
+  min-width: 0;
+}
+.luster-empty {
+  display: grid;
+  place-content: center;
+  min-height: 10rem;
+  opacity: 0.6;
+}
+.luster-rules {
+  max-width: 52rem;
+  margin: auto;
+  line-height: 1.7;
+}
+.luster-rules section {
+  margin-block: 2rem;
+}
+.luster-rules h2 {
+  scroll-margin-top: 5rem;
+}
+.luster-rules nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+@media (max-width: 700px) {
+  .luster-market {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .luster-players {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .luster-status {
+    padding: 1rem;
+  }
+  .luster-panel {
+    padding: 0.7rem;
+  }
+}

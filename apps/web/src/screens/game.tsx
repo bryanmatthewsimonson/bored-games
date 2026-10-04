@@ -174,8 +174,13 @@ function lockedReason(status: GameStatus): string {
 /** The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). */
 export function setupStep(view: SessionView | null, copy: SetupCopy | null): string {
   if (view === null) return 'Looking for the game on your relays…';
-  if (view.phase === 'shuffle')
-    return `${copy?.shuffling ?? 'Shuffling'}: ${view.head.seq} of ${view.seats} players done.`;
+  if (view.phase === 'shuffle') {
+    const completed =
+      view.shuffleSteps > view.seats
+        ? Math.floor(view.head.seq / (view.shuffleSteps / view.seats))
+        : view.head.seq;
+    return `${copy?.shuffling ?? 'Shuffling'}: ${completed} of ${view.seats} players done.`;
+  }
   if (view.phase === 'deal') return copy?.dealing ?? 'Dealing…';
   return 'Loading the game…';
 }

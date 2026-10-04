@@ -3,6 +3,14 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     projects: [
+      {
+        test: {
+          name: 'luster',
+          root: 'packages/games/luster',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
       { test: { name: 'game-kit', root: 'packages/game-kit', include: ['test/**/*.test.ts'] } },
       { test: { name: 'dice', root: 'packages/dice', include: ['test/**/*.test.ts'] } },
       {
