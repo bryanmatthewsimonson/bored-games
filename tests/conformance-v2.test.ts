@@ -11,6 +11,13 @@
  * A test that covers one half of a requirement says so in its title, right after the ids: `(v1 half)` or
  * `(v1 halves)` for the v1 side (the golden corpus: v1 games keep folding by v1 rules), `(partial)` otherwise. Such a
  * test does not cover the id, which stays allowlisted, and its allowlist entry must name the half that is covered.
+ *
+ * Comments are stripped before the scan, and a counted title must open its line (after indentation), so a title in
+ * a comment or inside a string does not count. A test-like V2 title anywhere else on a line fails as loose.
+ *
+ * Only vitest files (`*.test.ts`) are scanned: Playwright specs (`apps/web/e2e/*.spec.ts`) are not, so a UI
+ * requirement (V2-49, V2-52, V2-55) must be covered by a vitest test (a component or controller test), even when an
+ * e2e spec also exercises it.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -133,27 +140,36 @@ interface Title {
 }
 
 /**
- * A counted title: `it(` or `test(`, optionally through `.each(…)`, then a quote and the ids, then a half marker or
- * not, then a space or a colon.
+ * A counted title: at the start of a line after indentation, `it(` or `test(`, optionally through `.each(…)`, then
+ * a quote and the ids, then a half marker or not, then a space or a colon.
  */
 const COUNTED =
-  /\b(?:it|test)(?:\.each\((?:[^()]|\([^()]*\))*\))?\(\s*['"`]((?:V2-\d{2}, )*V2-\d{2})( \((?:v1 half|v1 halves|partial)\))?[ :]/g;
+  /^[ \t]*(?:it|test)(?:\.each\((?:[^()]|\([^()]*\))*\))?\(\s*['"`]((?:V2-\d{2}, )*V2-\d{2})( \((?:v1 half|v1 halves|partial)\))?[ :]/gm;
 /** Any test-like call whose title starts with something like a V2 id. */
 const ANY = /\b(?:it|test)\b[\w.]*(?:\((?:[^()'"`]|\([^()]*\))*\))?\(\s*['"`]\s*v2-/gi;
+
+/** `code` without its comments, keeping its line breaks (a `//` after a colon, as in a URL, is kept). */
+function stripComments(code: string): string {
+  return code.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, '')).replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+const lineOf = (src: string, index: number): number => src.slice(0, index).split('\n').length;
 
 function scan(): { titles: Title[]; loose: string[] } {
   const titles: Title[] = [];
   const loose: string[] = [];
   for (const path of testFiles()) {
-    const src = readFileSync(path, 'utf8');
+    const src = stripComments(readFileSync(path, 'utf8'));
     const file = relative(root, path);
     const counted = new Set<number>();
     for (const m of src.matchAll(COUNTED)) {
-      counted.add(m.index);
+      counted.add(lineOf(src, m.index));
       titles.push({ file, ids: (m[1] as string).split(', '), partial: m[2] !== undefined });
     }
     for (const m of src.matchAll(ANY)) {
-      if (!counted.has(m.index)) loose.push(`${file}: ${src.slice(m.index, m.index + 80).split('\n')[0]}`);
+      const line = lineOf(src, m.index);
+      if (!counted.has(line))
+        loose.push(`${file}:${line}: ${src.slice(m.index, m.index + 80).split('\n')[0]}`);
     }
   }
   return { titles, loose };
