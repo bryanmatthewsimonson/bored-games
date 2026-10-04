@@ -159,6 +159,16 @@ describe('the encryptor is not trusted (review L2)', () => {
     }
   });
 
+  it('a new backup is dated after the last one known, so a relay replaces it (NIP-01 addressable events)', async () => {
+    store.removeItem(backupRecordKey('p', address));
+    const d = deps(honest);
+    const r = await publishKeyBackup(d.deps, address, { tableRelays: ['wss://r'], notBefore: 100 });
+    expect(r.ok && r.event.created_at).toBe(100);
+    // Again in the same second: after the recorded one.
+    const r2 = await publishKeyBackup(d.deps, address, { tableRelays: ['wss://r'] });
+    expect(r2.ok && r2.event.created_at).toBe(101);
+  });
+
   it('ciphertextProblem refuses content that carries a secret', async () => {
     const text = `{"x":"${'ab'.repeat(32)}"}`;
     const payload = await honest.encrypt(pubkey, text);

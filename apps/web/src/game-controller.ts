@@ -310,6 +310,8 @@ export class GameController {
   readonly restore: Signal<RestoreState | null> = signal(null);
   /** The backup of this seat's game keys from this browser (D065); null when there is nothing to back up. */
   readonly backup: Signal<BackupState | null> = signal(null);
+  /** The earliest date a new backup may carry: after every backup the relays sent or this page published. */
+  #backupFloor = 0;
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
   readonly clock: Signal<number>;
 
@@ -1420,6 +1422,8 @@ export class GameController {
         CHECK_TIMEOUT_MS,
       );
       if (this.#disposed || saved === null) return;
+      // A new backup must be dated after every one the relays hold, or an addressable-event relay keeps the old one.
+      for (const ev of q.events) this.#backupFloor = Math.max(this.#backupFloor, ev.created_at + 1);
       const record = loadBackupRecord(profile, storage, root.tableAddress);
       if (await backupHealthy(signer, root, seat, saved, q.onRoot, record, this.#d.timers)) {
         if (this.#disposed) return;
@@ -1451,8 +1455,10 @@ export class GameController {
       tableRelays: root.relays,
       rootId: root.id,
       seat,
+      notBefore: this.#backupFloor,
     });
     if (this.#disposed) return;
+    if (r.ok) this.#backupFloor = Math.max(this.#backupFloor, r.event.created_at + 1);
     this.backup.value = r.ok ? 'done' : { error: r.error };
   }
 

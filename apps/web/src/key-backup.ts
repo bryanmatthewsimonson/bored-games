@@ -138,7 +138,16 @@ export type BackupResult = { ok: true; event: NostrEvent } | { ok: false; error:
 export async function publishKeyBackup(
   deps: BackupDeps,
   tableAddress: string,
-  opts: { tableRelays: readonly string[]; rootId?: Hex | null; seat?: number | null },
+  opts: {
+    tableRelays: readonly string[];
+    rootId?: Hex | null;
+    seat?: number | null;
+    /**
+     * The earliest `created_at`: a backup replaces the one at its address only if it is newer (NIP-01), so it is
+     * dated after the last one known (the relays' newest, or this profile's record).
+     */
+    notBefore?: number;
+  },
 ): Promise<BackupResult> {
   const { signer, storage, profile } = deps;
   const secrets = loadSecrets(profile, storage, tableAddress);
@@ -171,7 +180,9 @@ export async function publishKeyBackup(
       deps.timers,
     );
     if (problem !== null) return { ok: false, error: problem };
-    const event = await signer.sign(keyBackupTemplate(tableAddress, content, deps.now()));
+    const recorded = loadBackupRecord(profile, storage, tableAddress)?.at ?? 0;
+    const at = Math.max(deps.now(), opts.notBefore ?? 0, recorded + 1);
+    const event = await signer.sign(keyBackupTemplate(tableAddress, content, at));
     const results = await deps.pool.publish(event, unionRelays(opts.tableRelays, deps.relays()));
     // Only the game's own relays count (review M1): every device of the seat asks them, while the player's own relays
     // may differ from device to device.
