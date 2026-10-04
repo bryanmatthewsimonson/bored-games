@@ -202,6 +202,59 @@ describe('vector 7: dice in Bank 0.2.0 (PROTOCOL-v2 §12.2 item 7)', () => {
       swapped.receive((v.contributions[v.secondDevice.seat] as { event: NostrEvent }).event, NOW).status,
     ).toBe('duplicate');
   });
+
+  it("a rival Roll is a fork at the root: the roller's stop, the same in every order, no contribution to either Roll owed (vector 7, T10)", () => {
+    const fresh = (): GameSessionV2 =>
+      GameSessionV2.create({
+        modules: MODULES,
+        table: v.table,
+        joins: v.joins,
+        root: v.root,
+        me: null,
+        rootSeenAt: ROOT_SEEN,
+      });
+    const r = v.rival;
+    const roller = v.requester;
+    expect(r.orders.length).toBeGreaterThanOrEqual(4);
+    const ends = new Set<string>();
+    for (const o of r.orders) {
+      const s = fresh();
+      for (const [i, x] of o.order.entries()) {
+        const ev =
+          x === 'M'
+            ? v.move
+            : x === 'rival'
+              ? r.event
+              : (v.contributions[x] as DiceVectors['contributions'][number]).event;
+        expect(s.receive(ev, NOW).status).toBe(o.statuses[i]);
+      }
+      const view = s.view();
+      expect(view.fork).toEqual(o.fork);
+      expect(view.fork).toEqual({
+        at: v.root.id,
+        seat: roller,
+        certificate: [v.move.id, r.event.id].sort(),
+      });
+      // Not cancelled (both Rolls are valid game actions at P), P before play: the others share first, all 0.
+      expect(view.stop).toEqual({ at: v.root.id, seat: roller, cancelled: false });
+      expect(o.stop).toEqual(view.stop);
+      expect(view.equivocators).toEqual([roller]);
+      expect(view.outcome).toEqual({
+        places: [0, 1, 2].map((k) => (k === roller ? 3 : 1)),
+        reason: 'stop',
+        scores: [0, 0, 0],
+      });
+      expect(o.outcome).toEqual(view.outcome);
+      expect(view.phase).toBe('done');
+      expect(s.waitingFor()).toEqual([]);
+      expect(view.owed.roll).toEqual([]);
+      // No roll was derived on the walk: it ends at the root.
+      expect(rolledOf(s)).toEqual([]);
+      ends.add(snapshot(s));
+    }
+    expect(ends.size).toBe(1);
+    expect(r.duties).toEqual([[], [], []]);
+  });
 });
 
 describe('Bank 0.2.0 under protocol 2: the first roll (3 seats)', () => {

@@ -59,17 +59,35 @@ export type PrefixInput = Omit<AuditInput, 'outcome'>;
  * after the last entry, or the verdict of the first failure.
  */
 function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
-  const { module, seats } = input;
-  const deckOrders: Record<string, number[]> = {};
+  const { seats } = input;
+  let order: number[] | null = null;
   if (input.deckId !== null) {
-    const order: number[] = [];
+    order = [];
     for (const [pos, ct] of input.deck.entries()) {
       const card = cardOf(input.cards, decryptWithSecrets(ct, input.secrets));
       if (card === null) return { fail: everyone(seats, `deck position ${pos} decrypts to no card`) };
       order.push(card);
     }
-    deckOrders[input.deckId] = order;
   }
+  return replayOrder({ ...input, order });
+}
+
+/** What `replayOrder` reads: the deck's card order (null deckless) in place of the deck and the secrets. */
+export interface OrderInput {
+  module: AnyModule;
+  rules: unknown;
+  seats: number;
+  deckId: string | null;
+  /** The final deck's card at each position, or null for a deckless game. */
+  order: readonly number[] | null;
+  log: readonly LoggedAction[];
+}
+
+/** Set the module up in full mode with `order` and replay the log (PROTOCOL §7 step 3), as `replay` does. */
+function replayOrder(input: OrderInput): { state: unknown } | { fail: Audit } {
+  const { module, seats } = input;
+  const deckOrders: Record<string, number[]> = {};
+  if (input.deckId !== null && input.order !== null) deckOrders[input.deckId] = [...input.order];
   const init = module.setup({ rules: input.rules, seats, mode: 'full', deckOrders });
   if (!init.ok)
     return { fail: everyone(seats, `full-mode setup fails: ${init.error.code}: ${init.error.message}`) };
@@ -124,6 +142,22 @@ export function auditGame(input: AuditInput): Audit {
 export function auditPrefix(input: PrefixInput): Audit {
   const r = replay(input);
   return 'fail' in r ? r.fail : 'pass';
+}
+
+/**
+ * The partial audit from a known card order (PROTOCOL-v2 §7.3, after a stop): the full-mode setup with `order` and
+ * the replay of the log, with the verdicts of `auditPrefix` and no outcome comparison. The caller decrypts the order
+ * from whatever it holds (secrets and verified shares); a position that decrypts to no card is the caller's
+ * all-seat failure.
+ */
+export function auditOrder(input: OrderInput): Audit {
+  const r = replayOrder(input);
+  return 'fail' in r ? r.fail : 'pass';
+}
+
+/** Every seat fails, for `reason` (a failure no single seat is to blame for, PROTOCOL §7 step 3). */
+export function failEveryone(seats: number, reason: string): Audit {
+  return everyone(seats, reason);
 }
 
 /**

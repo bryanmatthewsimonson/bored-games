@@ -149,7 +149,8 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
     const fork = at('fork');
     expect(fork.fork).not.toBeNull();
     expect(fork.head).toEqual(at('draw').head);
-    for (const s of fork.seats) expect(s.duty).toEqual([]);
+    // Stopped (§5.6): no release, the owed one included; only the after-stop Secret reveal (§7.3).
+    for (const s of fork.seats) expect(s.duty).toEqual([{ kind: 'secret' }]);
   });
 });
 

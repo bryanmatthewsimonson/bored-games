@@ -8,8 +8,9 @@
  *   dealt to another seat or to nobody;
  * - `draw`: after the first move that deals a tile to its actor, the other seats' `release` duties, anchored on
  *   that move, holding the drawn position, and none for the drawer (never its own position);
- * - `fork`: the next seat then signs two moves on that head, so every client holds a fork: no duty at all, the
- *   owed release included.
+ * - `fork`: the next seat then signs two moves on that head, so every client holds a fork: the game stops there
+ *   (PROTOCOL-v2 §5.6), and no release is owed, the owed one included; the only duty is the after-stop Secret
+ *   reveal (§7.3).
  *
  * The file holds every signed event, so it is reproducible outside this repository (review of T8, L4): the table,
  * the Joins and the root, then `events`, every event delivered to the seats in order (shuffle steps, deals, moves,

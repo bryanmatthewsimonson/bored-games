@@ -1,8 +1,8 @@
 /**
  * pnpm --filter @bored-games/client vectors
  *
- * Writes `test/vectors/dice-v2.json`, PROTOCOL-v2 §12.2 item 7 for Bank 0.2.0 (the rival Roll, a stop, follows with
- * T10): a seeded 3-seat protocol 2 game played by real `GameSessionV2`s, up to its first roll.
+ * Writes `test/vectors/dice-v2.json`, PROTOCOL-v2 §12.2 item 7 for Bank 0.2.0: a seeded 3-seat protocol 2 game
+ * played by real `GameSessionV2`s, up to its first roll.
  * - `move`: the roller's Roll, the requesting move M. It requests one roll, (M, 0), of two six-sided dice.
  * - `contributions`: each seat's roll Shares event (built by its `roll` duty, anchored on M), with its `D`.
  * - `seed` and `faces`: the SHA-256 of the three `D` points in seat order (33 compressed bytes each), and
@@ -13,6 +13,12 @@
  * - `twoDevices`: a second device of seat `secondDevice.seat` publishes its own contribution to (M, 0): the same `D`
  *   with another proof. Delivered after that seat's first one it is a `duplicate`, and nothing else changes: Shares
  *   events are not moves, so it is never a fork.
+ * - `rival` (T10): the roller signs a second Roll on M's prev, the root: a fork at the root, signed by the roller.
+ *   The game stops there (PROTOCOL-v2 §5.6): not cancelled (both Rolls are valid game actions at or past P), P
+ *   before play (every other seat shares first place, the roller last, every score 0). Its `orders` deliver M, the
+ *   rival and the three contributions to M in several orders to a spectator; each ends at the same stop, with no
+ *   duty for any seat and nobody stalled, and each contribution to M is `stored` once the fork is held (M is off
+ *   the walk) or `accepted` before.
  *
  * Every signed event is in the file (the table, the Joins, the root, M and the Shares events), with the seats'
  * secrets: these are test vectors, and an implementation outside this repository reproduces them from the file.
@@ -24,7 +30,7 @@ import { bank } from '@bored-games/bank';
 import { encodePoint, G, moveRollPoint, rollSeed, type Share } from '@bored-games/deck';
 import { faces } from '@bored-games/dice';
 import { canonicalJson } from '@bored-games/game-kit';
-import { type Hex, type NostrEvent, parseSharesV2 } from '@bored-games/protocol';
+import { finalizeEvent, type Hex, moveTemplate, type NostrEvent, parseSharesV2 } from '@bored-games/protocol';
 import type { LoggedAction } from '../src/audit.ts';
 import type { Duty, Identity, ReceiveResult } from '../src/types.ts';
 import { GameSessionV2 } from '../src/v2/session.ts';
@@ -42,7 +48,7 @@ export interface DiceStep {
 }
 
 export interface DiceVectors {
-  version: 1;
+  version: 2;
   seed: string;
   game: string;
   engine: string;
@@ -62,6 +68,23 @@ export interface DiceVectors {
   orders: { order: number[]; requesterLast: boolean; steps: DiceStep[] }[];
   secondDevice: { seat: number; D: string; event: NostrEvent };
   twoDevices: { steps: DiceStep[] };
+  /** The rival Roll: a fork at the root, the roller's stop (T10). */
+  rival: {
+    event: NostrEvent;
+    orders: {
+      /** The events delivered, in order: `M`, `rival`, or a contribution's seat. */
+      order: (number | 'M' | 'rival')[];
+      statuses: ReceiveResult['status'][];
+      fork: { at: Hex; seat: number; certificate: Hex[] } | null;
+      stop: { at: Hex; seat: number; cancelled: boolean } | null;
+      equivocators: number[];
+      outcome: unknown;
+      phase: string;
+      waiting: number[];
+    }[];
+    /** Each seat's duties once it holds every event: none. */
+    duties: Duty[][];
+  };
 }
 
 const hex = (b: Uint8Array): Hex => Buffer.from(b).toString('hex');
@@ -140,8 +163,50 @@ export function generateDiceVectors(): DiceVectors {
   for (const p of players) for (const ev of events) p.receive(ev, NOW);
   const logged = actionLog(players[0] as GameSessionV2).find((x) => x.actor === 'beacon');
   if (logged === undefined) throw new Error('the roll was not derived');
+  // The rival Roll, made last so that every value above keeps its bytes: the roller's second move 1 on the root.
+  const rivalEvent = finalizeEvent(
+    moveTemplate(
+      {
+        rootId: game.rootId,
+        prevId: game.rootId,
+        seq: 1,
+        content: { type: 'action', action: roll, reveals: [], shares: [] },
+      },
+      NOW + 1,
+      '2',
+    ),
+    (ids[requester] as Identity).sessionSk,
+    game.rnd,
+  );
+  const rivalOrders = (
+    [
+      ['M', 0, 1, 2, 'rival'],
+      ['M', 'rival', 0, 1, 2],
+      ['rival', 2, 'M', 1, 0],
+      [1, 'rival', 0, 'M', 2],
+    ] as (number | 'M' | 'rival')[][]
+  ).map((order) => {
+    const spectator = diceSession(game, null);
+    const statuses = order.map(
+      (x) =>
+        spectator.receive(x === 'M' ? move : x === 'rival' ? rivalEvent : (events[x] as NostrEvent), NOW)
+          .status,
+    );
+    const v = spectator.view();
+    return {
+      order,
+      statuses,
+      fork: v.fork,
+      stop: v.stop,
+      equivocators: v.equivocators,
+      outcome: v.outcome,
+      phase: v.phase,
+      waiting: spectator.waitingFor(),
+    };
+  });
+  for (const p of players) p.receive(rivalEvent, NOW);
   return {
-    version: 1,
+    version: 2,
     seed: DICE_SEED,
     game: bank.id,
     engine: bank.version,
@@ -165,6 +230,7 @@ export function generateDiceVectors(): DiceVectors {
     orders,
     secondDevice: { seat: twin, D: dOf(secondEvent), event: secondEvent },
     twoDevices: { steps },
+    rival: { event: rivalEvent, orders: rivalOrders, duties: players.map((p) => p.duties()) },
   };
 }
 

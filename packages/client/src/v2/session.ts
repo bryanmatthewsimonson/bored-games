@@ -63,6 +63,8 @@ import { moveShape, nextShuffler, pendingAt } from './line.ts';
 import { attestedResult, endAttestedSeats, endVerdict, lineLogHash, ownResult } from './results.ts';
 import { contributions, rollEventProblem } from './rolls.ts';
 import { cardSharesProblem, DeckCaches, type LineShares, shareCtx } from './shares.ts';
+import { SideLines } from './sides.ts';
+import { type AfterStopAudit, demotedBy, partialAudit, type Stop, stopAt, stopOutcome } from './stop.ts';
 import { EventStoreV2, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
 import { type Walk, walk } from './walk.ts';
@@ -74,17 +76,21 @@ import { type Walk, walk } from './walk.ts';
  * root: there is no fork choice. The game's result, its end attestations and the duties are functions of the held
  * events and the walk, so every client that holds the same events reaches the same state (V2-20).
  *
- * Built so far (tasks T7 to T9): intake of every kind, seats by session key (and by npub for attestations), the walk
- * with C(h) and the topmost fork (reported in the view; its scoring, the stop, is T10), play to `over` with the
+ * Built so far (tasks T7 to T10): intake of every kind, seats by session key (and by npub for attestations), the walk
+ * with C(h) and the topmost fork, play to `over` with the
  * module's audit, end attestations (built with the session key, counted with either key, checked against the line
  * to their head) and the npub's stats attestation. With a deck (T8): the shuffle (partitioned decks included), the
  * deal (a card Shares event anchored on the last shuffle step), card Shares events verified against each line's
  * final deck, derived reveals and learns, prompt release (`release` duty, PROTOCOL-v2 §6.1) beside the slow path
  * (owed shares on game actions), the Secret phase and the full audit at `over`. `DeckSpec.promptShares` is
  * ignored (§6.3). With dice (T9, §6.2): roll Shares events kept in a roll store by (seat, requesting move, index),
- * derived rolls along the walk, the `roll` duty and `buildRoll`, and stalls on a pending beacon. Not yet: the stop
- * and the equivocators (T10), the cutoff (T11), Timeout claims and Resigns as results (T12; both are stored, never
- * counted), the outbox rule and the rebroadcast set (T13).
+ * derived rolls along the walk, the `roll` duty and `buildRoll`, and stalls on a pending beacon. The stop (T10,
+ * §5.6, `stop.ts`): a held fork with no result standing stops the game at P, cancelled only when no game action is
+ * held at or past P on a valid line (H1), otherwise scored with every M1 equivocator last (`equivocators.ts`, over
+ * side lines folded by `sides.ts`); while stopped nothing is owed but, in a deck game, the Secret reveal, and the
+ * partial audit runs once the held secrets and shares decrypt every position (§7.3). Not yet: the cutoff (T11),
+ * Timeout claims and Resigns as results (T12; both are stored, never counted), the outbox rule and the rebroadcast
+ * set (T13).
  */
 
 /** The module events `view().events` keeps (as v1). */
@@ -162,6 +168,13 @@ export class GameSessionV2 implements Session {
    */
   private stallProgress = Number.NEGATIVE_INFINITY;
   private current: Walk;
+  /**
+   * The stop at the walk's fork (PROTOCOL-v2 §5.6), computed when first needed after each held event (it reads side
+   * lines, whose validity any held event may change); undefined until then, null while no fork is held.
+   */
+  private stopCache: Stop | null | undefined = undefined;
+  /** The partial audit after a stop, by P, once it ran (its verdict depends on P's line alone). */
+  private readonly stopAudits = new Map<Hex, AfterStopAudit>();
   /** Audits by the log hash of the line they ran on. */
   private readonly audits = new Map<Hex, SessionAudit>();
   /** The latest local clock reading seen by `receive` or `tick`. */
@@ -298,6 +311,8 @@ export class GameSessionV2 implements Session {
   }
 
   private intake(ev: unknown, now: number): ReceiveResult {
+    // Any held event may change a side line's validity (shares, contributions, moves): the stop is recomputed.
+    this.stopCache = undefined;
     const id = idOf(ev);
     if (id !== null) {
       // A known event is answered before it is parsed again (its id was authenticated when it was parsed).
@@ -532,8 +547,8 @@ export class GameSessionV2 implements Session {
 
   /**
    * A Secret reveal (v1 §4.7 at proto 2): a deckless game has none; with a deck, `x·G` must be the seat's deck key.
-   * It is kept, and counts once the game is over (`accepted` then, `stored` before); a seat has one secret, so
-   * another event with it is a `duplicate`.
+   * It is kept, and counts once the game is over or stopped and scored (`accepted` then, `stored` before); a seat
+   * has one secret, so another event with it is a `duplicate`.
    */
   private intakeSecret(ev: unknown, now: number): ReceiveResult {
     let s: ReturnType<typeof parseSecret>;
@@ -559,7 +574,9 @@ export class GameSessionV2 implements Session {
     this.store.secrets.set(s.id, { ev: s, seat });
     if (known) return { status: 'duplicate' };
     this.noteProgress(before, s.id);
-    return this.result() === null ? { status: 'stored' } : { status: 'accepted' };
+    return this.result() === null && !this.secretPhaseAfterStop()
+      ? { status: 'stored' }
+      : { status: 'accepted' };
   }
 
   /** Seat `seat`'s verified deck secret, or null. */
@@ -682,9 +699,51 @@ export class GameSessionV2 implements Session {
     return points[points.length - 1] as LinePoint;
   }
 
-  /** This client's result (PROTOCOL-v2 §5.5): null while live, and while a fork is held (scored from T10). */
+  /**
+   * This client's result (PROTOCOL-v2 §5.5): null while live, and while a fork is held (the stop, `stopNow`; a result
+   * standing against the fork is T11's cutoff).
+   */
   private result(): ResultId | null {
     return ownResult(this.ctx, this.current);
+  }
+
+  /**
+   * The stop at the walk's fork (PROTOCOL-v2 §5.6), or null while no fork is held. With a fork held and no result
+   * standing (the cutoff is T11), the game is stopped: cancelled, or scored.
+   */
+  private stopNow(): Stop | null {
+    if (this.current.fork === null) return null;
+    if (this.stopCache === undefined)
+      this.stopCache = stopAt(
+        this.ctx,
+        this.store,
+        this.current,
+        new SideLines(this.ctx, this.store, this.caches),
+      );
+    return this.stopCache;
+  }
+
+  /** Whether the game is stopped and scored in a game with a deck: the after-stop Secret phase (§7.3). */
+  private secretPhaseAfterStop(): boolean {
+    const stop = this.stopNow();
+    return stop !== null && !stop.cancelled && this.ctx.deckId !== null;
+  }
+
+  /**
+   * After a scored stop in a deck game (§7.3): the seats whose secret is not held ("secret withheld"), the partial
+   * audit (run once the held secrets and shares decrypt every position of the final deck at P, cached by P once it
+   * ran), and the seats a proven failure demotes.
+   */
+  private afterStop(stop: Stop): { withheld: number[]; audit: AfterStopAudit; demoted: number[] } {
+    const secrets = Array.from({ length: this.ctx.seats }, (_, k) => this.secretOf(k));
+    const withheld = secrets.flatMap((x, k) => (x === null ? [k] : []));
+    let audit = this.stopAudits.get(stop.at);
+    if (audit === undefined) {
+      audit = partialAudit(this.ctx, this.current, secrets);
+      if (audit.state === 'ran') this.stopAudits.set(stop.at, audit);
+    }
+    const demoted = audit.state === 'ran' ? demotedBy(audit.verdict, this.ctx.seats, stop.equivocators) : [];
+    return { withheld, audit, demoted };
   }
 
   /** Whether a seat may resign this game (v1 §8.3, unchanged): never in a 2-seat game with a deck, nor when the module opts out. */
@@ -726,6 +785,8 @@ export class GameSessionV2 implements Session {
    * stop and the cutoff are T10, T11).
    */
   private status(): Status {
+    const stop = this.stopNow();
+    if (stop !== null) return this.stopStatus(stop);
     const head = this.head();
     const r = this.result();
     if (r === null || r.kind !== 'over' || (this.ctx.deckId !== null && !this.allSecrets())) {
@@ -740,6 +801,32 @@ export class GameSessionV2 implements Session {
         : rankWithForfeits(declared.scores, failed, declared.places);
     const copy = typeof audit === 'object' ? { fail: [...audit.fail], reason: audit.reason } : audit;
     return { phase: 'done', outcome, audit: copy, forfeits: failed };
+  }
+
+  /**
+   * A stopped game's phase, outcome, audit and forfeits (PROTOCOL-v2 §5.6, §7.3): `cancelled` with no outcome; or
+   * `done` with the stop's places at once. In a deck game the audit is the partial audit's verdict once it ran
+   * (`pending` meanwhile: "audit incomplete"), and only a proven failure demotes a seat. A deckless game has no audit
+   * after a stop: it records the equivocators with reason `stop`, as a timeout records its forfeits (v1 §8.2).
+   */
+  private stopStatus(stop: Stop): Status {
+    if (stop.cancelled) return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits: [] };
+    const eq = [...stop.equivocators];
+    if (this.ctx.deckId === null)
+      return {
+        phase: 'done',
+        outcome: stopOutcome(this.ctx, stop, []),
+        audit: { fail: eq, reason: 'stop' },
+        forfeits: eq,
+      };
+    const after = this.afterStop(stop);
+    const verdict = after.audit.state === 'ran' ? after.audit.verdict : 'pending';
+    return {
+      phase: 'done',
+      outcome: stopOutcome(this.ctx, stop, after.demoted),
+      audit: typeof verdict === 'object' ? { fail: [...verdict.fail], reason: verdict.reason } : verdict,
+      forfeits: ascending([...eq, ...after.demoted]),
+    };
   }
 
   /**
@@ -859,6 +946,8 @@ export class GameSessionV2 implements Session {
     const r = this.result();
     const events = w.line.events.slice(0, head.eventsLength);
     const fork = w.fork;
+    const stop = this.stopNow();
+    const after = stop !== null && this.secretPhaseAfterStop() ? this.afterStop(stop) : null;
     return {
       phase: status.phase,
       rootId: this.root.id,
@@ -874,7 +963,7 @@ export class GameSessionV2 implements Session {
       resigned: [],
       resignOverridden: [],
       resignId: null,
-      equivocators: [],
+      equivocators: stop === null ? [] : [...stop.equivocators],
       audit: status.audit,
       logHash: lineLogHash(this.store, head.id) as Hex,
       resultLogHash:
@@ -889,9 +978,9 @@ export class GameSessionV2 implements Session {
           : { at: fork.at, seat: fork.seat, certificate: fork.successors.slice(0, 2) as Hex[] },
       result: r === null ? null : { kind: r.kind, head: r.head, forfeit: [...r.forfeit] },
       stood: false,
-      stop: null,
-      secretWithheld: [],
-      auditIncomplete: false,
+      stop: stop === null ? null : { at: stop.at, seat: stop.seat, cancelled: stop.cancelled },
+      secretWithheld: after === null ? [] : after.withheld,
+      auditIncomplete: after !== null && after.audit.state === 'incomplete',
       endAttested: r === null ? [] : endAttestedSeats(this.store, r),
       owed: { reveal: this.owedReveal(), roll: this.owedRoll() },
       ownForfeit: null,
@@ -937,8 +1026,10 @@ export class GameSessionV2 implements Session {
   /* ---------------------------------------------------------------------------------------------- duties */
 
   /**
-   * What this seat must publish next, as of the walk's head. Spectators have none, and neither does a seat whose
-   * client holds a fork (PROTOCOL-v2 §5.7; the Secret phase after a stop is T10). While the game is live:
+   * What this seat must publish next, as of the walk's head. Spectators have none. While a fork is held and no
+   * result stands, the game is stopped (PROTOCOL-v2 §5.7): no decision, release, roll, end or stats attestation is
+   * owed (V2-24, V2-38); in a deck game whose stop is scored (not cancelled) the only duty is `secret`, until my
+   * secret is held (§7.3). While the game is live:
    * - `shuffle`: the next shuffle step is mine;
    * - `deal`: the deal phase, and I owe shares (`releasable`): the seat's deal (§6.1), built once;
    * - `release`: the play phase, and I owe shares of positions dealt to another seat or to nobody: a prompt release
@@ -954,7 +1045,10 @@ export class GameSessionV2 implements Session {
    */
   duties(): Duty[] {
     const me = this.me;
-    if (me === null || this.current.fork !== null) return [];
+    if (me === null) return [];
+    if (this.current.fork !== null)
+      // Stopped (no result stands, §5.7): nothing but the after-stop Secret reveal in a deck game (§7.3).
+      return this.secretPhaseAfterStop() && this.secretOf(me.seat) === null ? [{ kind: 'secret' }] : [];
     const r = this.result();
     if (r === null) {
       const head = this.head();
@@ -1170,7 +1264,10 @@ export class GameSessionV2 implements Session {
     return ev;
   }
 
-  /** My Secret reveal (`secret` duty, v1 §4.7 at proto 2), once the game is over and my end attestation is in. */
+  /**
+   * My Secret reveal (`secret` duty, v1 §4.7 at proto 2): once the game is over and my end attestation is in, or once
+   * this client holds a scored stop in a deck game (PROTOCOL-v2 §7.3).
+   */
   buildSecret(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('secret');
     const t = secretTemplate({ rootId: this.root.id, deckSecret: me.deckSecret }, createdAt, '2');
