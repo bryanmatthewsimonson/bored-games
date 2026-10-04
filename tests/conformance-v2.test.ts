@@ -37,12 +37,13 @@ interface Allowed {
 const ALLOWLIST: Record<string, Allowed> = {
   'V2-01': {
     until:
-      'T8, T9, T12 (the session builders for the shuffle, deal, Secret, release, roll, Resign and Timeout claim), ' +
+      'T9, T12 (the session builders for the roll, Resign and Timeout claim), ' +
       'T14 (the controller creates tables and joins at proto 2)',
     partial:
       'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts), the lobby helpers carrying ' +
       "the table's proto (packages/client/test/lobby.test.ts), and the v2 session's move, end attestation and " +
-      'stats attestation (packages/client/test/v2/core-deckless.test.ts)',
+      'stats attestation (packages/client/test/v2/core-deckless.test.ts), shuffle step, deal, release and Secret ' +
+      'reveal (packages/client/test/v2/deck.test.ts)',
   },
   'V2-04': { until: 'T14' },
   'V2-05': {
@@ -52,17 +53,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'session refuses such a root (packages/protocol/test/lobby.test.ts, packages/client/test/bank-versions.test.ts); ' +
       'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
   },
-  'V2-14': {
-    until: 'T8, T10 (two well-formed shuffle steps of one seat on one prev are a fork, proofs unverified)',
-    partial:
-      'the walk ends at a fork when a head has two valid-looking game actions, at the root or below the head ' +
-      '(packages/client/test/v2/core-deckless.test.ts)',
-  },
   'V2-56': {
     until: 'T11 (rule (b) reads the held set), T13 (the rebroadcast reads it)',
     partial:
       'the session holds every Shares event and end attestation with a seated signer whatever its validity, in ' +
-      'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts)',
+      'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts); card Shares ' +
+      'events that fail against the final deck or lie outside it stay held (packages/client/test/v2/deck.test.ts)',
   },
   'V2-15': { until: 'T10' },
   'V2-16': { until: 'T10' },
@@ -77,11 +73,24 @@ const ALLOWLIST: Record<string, Allowed> = {
   'V2-24': { until: 'T10' },
   'V2-54': { until: 'T11' },
   'V2-52': { until: 'T12, T17' },
-  'V2-25': { until: 'T8, T15' },
-  'V2-26': { until: 'T8' },
-  'V2-27': { until: 'T8, T9' },
-  'V2-28': { until: 'T8' },
-  'V2-29': { until: 'T8, T15' },
+  'V2-25': {
+    until: 'T15 (the controller publishes only what the session owes)',
+    partial:
+      'the session owes and builds no card Shares event while it holds a fork, after its result, or before the ' +
+      'final deck (packages/client/test/v2/prompt-release.test.ts)',
+  },
+  'V2-27': {
+    until: 'T9 (roll Shares events)',
+    partial:
+      'the deal and every prompt release are anchored on the head they were built on ' +
+      '(packages/client/test/v2/prompt-release.test.ts)',
+  },
+  'V2-29': {
+    until: 'T15 (the controller publishes the release at once)',
+    partial:
+      'the session owes one release of every granted position as soon as it links the granting move ' +
+      '(packages/client/test/v2/prompt-release.test.ts)',
+  },
   'V2-31': { until: 'T9' },
   'V2-32': {
     until:
@@ -102,10 +111,11 @@ const ALLOWLIST: Record<string, Allowed> = {
   },
   'V2-38': { until: 'T10, T15' },
   'V2-39': {
-    until: 'T8 (over with a deck), T11 (a standing result), T12 (claims and resigns)',
+    until: 'T11 (a standing result), T12 (claims and resigns)',
     partial:
       'over in a deckless game: the audit runs on the result at once and a failed seat forfeits in places and ' +
-      'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts)',
+      'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts); over with a deck: the ' +
+      'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts)',
   },
   'V2-40': { until: 'T10' },
   'V2-41': { until: 'T10' },

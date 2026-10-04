@@ -24,7 +24,6 @@ import {
   replay,
   runAuto,
   send,
-  shuffleAll,
   trustSteps,
   type V2Table,
   v2Session,

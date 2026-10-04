@@ -11,6 +11,7 @@
       "!**/playwright-report",
       "!packages/deck/test/vectors",
       "!packages/protocol/test/vectors",
+      "!packages/client/test/vectors",
       "!packages/client/test/golden-v1/*.json",
       "!packages/games/bank/test/golden-v1/*.json",
       "!.claude"

@@ -505,7 +505,7 @@ describe('GameSessionV2: the walk', () => {
     }
   });
 
-  it('V2-14 (partial) ends the walk at a fork when the root has two valid-looking first moves, in any arrival order', () => {
+  it('V2-14 ends the walk at a fork when the root has two valid-looking first moves, in any arrival order', () => {
     const t = table('v2-fork-root');
     const a = rawMove(t, 0, t.game.rootId, 1, move(0, 'e2e4'));
     const b = rawMove(t, 0, t.game.rootId, 1, move(0, 'd2d4'));
@@ -529,7 +529,7 @@ describe('GameSessionV2: the walk', () => {
     }
   });
 
-  it('V2-14 (partial) a fork below the head ends the walk there; moves past it are held, never linked', () => {
+  it('V2-14 a fork below the head ends the walk there; moves past it are held, never linked', () => {
     const t = table('v2-fork-deep');
     const m1 = play(t, 0, 'e2e4');
     const m2 = play(t, 1, 'e7e5');
