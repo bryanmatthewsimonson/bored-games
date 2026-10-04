@@ -888,3 +888,5 @@ The owner answered the eight questions of `docs/proposals/prompt-reveal.md` §10
    - It is to be specified in PROTOCOL and then built.
    - The unproven model scopes (§6.7) must be finished, or re-run on a bigger machine, before the build.
    - Until it is built, D050 stands: no game ships a prompt duty.
+
+**Luster exception (owner, 2026-10-04).** The owner told the author of Luster to override D050 for Luster only, so its "isolated prompt shares" are an owner-approved exception. No other game may ship a prompt duty before protocol v2. The owner's next step is to implement protocol version 2, and Luster moves onto v2's prompt-reveal design when it lands.
