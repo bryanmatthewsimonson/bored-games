@@ -9,6 +9,7 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
+import { webGame } from '../games/registry.ts';
 import { joinGate, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
@@ -66,7 +67,10 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               ? cardGameStatus(cached, lobby.now())
               : { status: null, check: false };
           // A card reveal owed out of turn (D060): this player's app must be open, or who the game waits for.
-          const reveal = blocked || t.table.status === 'cancelled' ? null : revealDetail(cached, lobby.now());
+          const reveal =
+            blocked || t.table.status === 'cancelled'
+              ? null
+              : revealDetail(cached, lobby.now(), webGame(t.table.game)?.setupCopy(true)?.share);
           const chip = tableChip(t.table, t.lobby, known.status);
           const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
           return (

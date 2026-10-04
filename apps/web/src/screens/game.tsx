@@ -383,6 +383,8 @@ export function GameScreen(props: { rootId: string }) {
     );
   // A card reveal owed out of turn (D060): who owes it and when they can be timed out for it.
   const owed = ctl.owed.value;
+  // How this game names the share (Chain Reaction: a share of a tile; Luster: a card reveal).
+  const shareWords = game?.setupCopy(true)?.share;
   const waiting =
     view === null || status !== 'waiting'
       ? null
@@ -393,9 +395,11 @@ export function GameScreen(props: { rootId: string }) {
           waiting: ctl.waiting.value,
           names,
           ...(view.phase === 'play' && owed !== null ? { secondsLeft: owed.until - now } : {}),
+          ...(shareWords === undefined ? {} : { share: shareWords }),
         });
   // This seat's own reveal, when its app is not sending it right now (held back, stuck or undelivered).
-  const ownReveal = view === null || status === 'working' ? null : ownRevealLine(owed, view.mySeat, now);
+  const ownReveal =
+    view === null || status === 'working' ? null : ownRevealLine(owed, view.mySeat, now, shareWords);
 
   if (status === 'cancelled') {
     const quit = resignedSeats(view);

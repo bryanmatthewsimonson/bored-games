@@ -40,6 +40,12 @@ describe('game registry', () => {
     expect(webGame('chain-reaction')?.setupCopy(true)).toEqual({
       shuffling: 'Shuffling the deck',
       dealing: 'Dealing the tiles…',
+      share: { act: 'send their share of a tile', owed: 'a share of a tile' },
+    });
+    // Each deck game names the share it may wait for out of turn in its own words (D060).
+    expect(webGame('luster')?.setupCopy(true)?.share).toEqual({
+      act: 'reveal a card',
+      owed: 'a card reveal',
     });
     expect(webGame('chain-reaction')?.setupCopy(false)).toBeNull();
     expect(webGame('chess')?.setupCopy(false)).toBeNull();

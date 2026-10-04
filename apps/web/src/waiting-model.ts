@@ -22,6 +22,18 @@ function duration(seconds: number): string {
   return formatDeadline(seconds).replace(/ left$/, '');
 }
 
+/**
+ * How a game names a share it waits for out of turn (D060), from its web registry entry (`SetupCopy.share`):
+ * `act` follows "Waiting for Ann to", `owed` follows "You owe".
+ */
+export interface ShareWords {
+  act: string;
+  owed: string;
+}
+
+/** The wording for a game that names none: neutral, true of any share. */
+export const NEUTRAL_SHARE: ShareWords = { act: 'send their share', owed: 'a share' };
+
 /** "Ann", "Ann and Bo", "Ann, Bo and Cy". */
 export function listNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';
@@ -42,6 +54,8 @@ export interface WaitingInput {
    * so the line says when (D060). Left out, the line names no deadline.
    */
   secondsLeft?: number;
+  /** How this game names the share (`ShareWords`); `NEUTRAL_SHARE` when left out. */
+  share?: ShareWords;
 }
 
 /**
@@ -88,9 +102,14 @@ function deadlineSentence(who: string, secondsLeft: number, plural: boolean): st
  * This client's own line when its seat owes a card reveal (D060): its app sends the share by itself, so the player
  * only has to keep the game open; shown when it is not sending right now (held back, stuck, or not delivered).
  */
-export function ownRevealLine(owed: OwedReveal | null, mySeat: number | null, now: number): string | null {
+export function ownRevealLine(
+  owed: OwedReveal | null,
+  mySeat: number | null,
+  now: number,
+  share: ShareWords = NEUTRAL_SHARE,
+): string | null {
   if (owed === null || mySeat === null || !owed.seats.includes(mySeat)) return null;
-  return `You owe a card reveal: keep this game open until it is sent. ${deadlineSentence('you', owed.until - now, false)}`;
+  return `You owe ${share.owed}: keep this game open until it is sent. ${deadlineSentence('you', owed.until - now, false)}`;
 }
 
 /**
@@ -120,8 +139,8 @@ export function waitingLine(input: WaitingInput): string | null {
     case 'play':
       // A card reveal owed out of turn (D060): who owes it, and when they can be timed out for it.
       return input.secondsLeft === undefined
-        ? `Waiting for ${who} to reveal a card. ${open}`
-        : `Waiting for ${who} to reveal a card. ${open} ${deadlineSentence(who, input.secondsLeft, others.length > 1)}`;
+        ? `Waiting for ${who} to ${(input.share ?? NEUTRAL_SHARE).act}. ${open}`
+        : `Waiting for ${who} to ${(input.share ?? NEUTRAL_SHARE).act}. ${open} ${deadlineSentence(who, input.secondsLeft, others.length > 1)}`;
     case 'end':
       return `Waiting for ${who} to send their end-of-game ${others.length === 1 ? 'secret' : 'secrets'}. ${open}`;
     default:

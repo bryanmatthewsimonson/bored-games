@@ -59,14 +59,16 @@ describe('waiting for (D057)', () => {
     expect(waitingLine(input({ phase: 'play', pending: decide, waiting: [1] }))).toBeNull();
     // Seat 1 decides, but needs a tile seat 2 has not shared yet.
     expect(waitingLine(input({ phase: 'play', pending: decide, waiting: [2], mySeat: 1 }))).toBe(
-      `Waiting for ${NAMES[2]} to reveal a card. Their app must be open on this game.`,
+      `Waiting for ${NAMES[2]} to send their share. Their app must be open on this game.`,
     );
     // A public reveal.
     expect(
       waitingLine(
         input({ phase: 'play', pending: { type: 'reveal', deck: 'tiles', positions: [0] }, waiting: [0, 1] }),
       ),
-    ).toBe(`Waiting for ${NAMES[0]} and ${NAMES[1]} to reveal a card. Their apps must be open on this game.`);
+    ).toBe(
+      `Waiting for ${NAMES[0]} and ${NAMES[1]} to send their share. Their apps must be open on this game.`,
+    );
   });
 
   it('the end: the seats whose secret is not in; nothing once the game waits on nobody', () => {
@@ -84,6 +86,7 @@ describe('waiting for (D057)', () => {
   it('play: names who owes a card reveal and when they can be timed out for it (D060)', () => {
     const refill: Pending = { type: 'reveal', deck: 'glass', positions: [7] };
     const one = input({
+      share: { act: 'reveal a card', owed: 'a card reveal' },
       phase: 'play',
       pending: refill,
       waiting: [0, 2],
@@ -127,10 +130,14 @@ describe('a card reveal owed out of turn (D060)', () => {
   it('tells the owing player to keep the game open, with the deadline; nothing for anyone else', () => {
     const owed = { seats: [0, 2], until: 1000 + 3 * 3600 + 600 };
     expect(ownRevealLine(owed, 2, 1000)).toBe(
-      'You owe a card reveal: keep this game open until it is sent. If it is not sent within 3h 10m, you can be timed out.',
+      'You owe a share: keep this game open until it is sent. If it is not sent within 3h 10m, you can be timed out.',
     );
+    // In the game's own words (Chain Reaction's tiles).
+    expect(
+      ownRevealLine(owed, 2, 1000, { act: 'send their share of a tile', owed: 'a share of a tile' }),
+    ).toMatch(/^You owe a share of a tile: /);
     expect(ownRevealLine(owed, 2, owed.until)).toBe(
-      'You owe a card reveal: keep this game open until it is sent. The deadline has passed: you can be timed out.',
+      'You owe a share: keep this game open until it is sent. The deadline has passed: you can be timed out.',
     );
     expect(ownRevealLine(owed, 1, 1000)).toBeNull();
     expect(ownRevealLine(owed, null, 1000)).toBeNull();
