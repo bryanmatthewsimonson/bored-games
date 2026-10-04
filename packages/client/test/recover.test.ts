@@ -1,7 +1,7 @@
 import { parseRoot } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
-import { seatForGameKeys } from '../src/recover.ts';
+import { backupSeat, seatForGameKeys } from '../src/recover.ts';
 import { GameSession } from '../src/session.ts';
 import { makeGame, ROOT_SEEN } from './helpers.ts';
 
@@ -55,5 +55,22 @@ describe('seat recovery from saved game keys (D057)', () => {
     expect(() =>
       GameSession.create({ ...input, me: { seat: 1, sessionSk: id.sessionSk, deckSecret: id.deckSecret } }),
     ).toThrow(ClientError);
+  });
+});
+
+describe('a restored key backup must be the npub’s own seat (D065)', () => {
+  it('accepts the seat of that npub with both of its keys', () => {
+    for (const [seat, id] of game.ids.entries())
+      expect(backupSeat(root, root.seats[seat]?.npub as string, id.sessionSk, id.deckSecret)).toBe(seat);
+  });
+
+  it('refuses another npub’s seat, mixed keys and malformed keys', () => {
+    const [a, b] = game.ids;
+    if (a === undefined || b === undefined) throw new Error('no seats');
+    const npubA = root.seats[0]?.npub as string;
+    expect(backupSeat(root, root.seats[1]?.npub as string, a.sessionSk, a.deckSecret)).toBeNull();
+    expect(backupSeat(root, npubA, a.sessionSk, b.deckSecret)).toBeNull();
+    expect(backupSeat(root, npubA, b.sessionSk, a.deckSecret)).toBeNull();
+    expect(backupSeat(root, npubA, new Uint8Array(32), a.deckSecret)).toBeNull();
   });
 });

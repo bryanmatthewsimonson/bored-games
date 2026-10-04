@@ -10,6 +10,7 @@
       "!**/test-results",
       "!**/playwright-report",
       "!packages/deck/test/vectors",
+      "!packages/protocol/test/vectors",
       "!.claude"
     ]
   },
