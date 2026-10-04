@@ -9,6 +9,8 @@ export const KIND = {
   reveal: 7455,
   attest: 7456,
   resign: 7457,
+  /** The encrypted self-backup of a seat's game keys (NIP-78 app data, PROTOCOL §3, D065). */
+  backup: 30078,
 } as const;
 
 /** Protocol version, carried as `["proto","1"]` on every game event. */

@@ -53,11 +53,15 @@ Each player has:
 | **session key** | one game | All in-game events (kinds 7452–7455), and the Join's `sessionSig` proving possession (below). Clients generate it locally; no signer prompt per move. |
 | **deck key** `x_k`, `X_k = x_k·G` | one game | ElGamal secret share; must be distinct from the session key. |
 
-**Backup.** Clients SHOULD back up the session key and deck key as a NIP-78 event:
-- kind 30078, `d` tag `bored-games:<rootId>`
-- content NIP-44-encrypted to the player's own npub.
+**Backup (D065).** Clients SHOULD back up a seat's session key and deck key as a NIP-78 app-data event, so another device holding the same npub can play the seat:
+- kind 30078 (addressable), signed by the player's npub, with the single tag `["d","bored-games/keys/<tableAddress>"]` (the table address of §3's context strings). One `d` per table: the keys exist from the Join, before any root, and a table has one root, so a later backup at the same table replaces the earlier one.
+- content: NIP-44 version 2 (https://github.com/nostr-protocol/nips/blob/master/44.md) encrypted by the npub to its own pubkey (the conversation key of the player's secret key and own public key), with a fresh 32-byte nonce. The plaintext is the JSON `{"v":1,"table":"<tableAddress>","session":"<session secret key hex>","deck":"<x_k, 64 hex>","root":"<rootId>"|null,"seat":<n>|null}`; `root` and `seat` are null in a backup made at the Join.
+- published to the table's (root's) relays and the player's own, after the Join. This client publishes it in the background once the Join is out, and counts it as made only when one of the table's relays accepted it (the player's own relays may differ between devices). Its game screen then looks for it on the root's relays and, with a local key, decrypts it and checks it like a restore (below) against the keys it holds; one that is missing, does not decrypt or fails the check is published again (with a NIP-07 extension, which would prompt to decrypt, it checks only that the backup it published is there, and offers **Back up this game's keys** otherwise; **Back up again** stays available).
+- an encryptor that is not the client's own code (a NIP-07 extension's `window.nostr.nip44`) is not trusted: before signing, the client checks that the content is a NIP-44 v2 payload of exactly the plaintext's padded length that contains neither secret, and, where the extension allows it, decrypts it once and compares.
 
-That lets another device resume the game. Before the root exists, the table address substitutes for `rootId`.
+A client whose npub is seated in a root but which holds no game keys for it MAY restore them: it asks the root's relays and its own (an answer counts as complete, so that "no backup" can be said, only when every root relay sent EOSE before any deadline) for `{"kinds":[30078],"authors":[npub],"#d":["bored-games/keys/<tableAddress>"]}`, drops any event that is not a valid signed event of that author with that `d`, decrypts the newest first, and accepts one only if `table` is the root's table address, `root` is null or the root's id, and both keys are that npub's seat in the root: `getPublicKey(session)` is the seat's `session` and `deck`·G is its `deckKey` (`backupSeat`, the check of seat recovery, D057). Anything else (no event, a payload that does not decrypt or fails the MAC, another seat's or game's keys) is refused and the client watches. A restored client is one more device of the seat: §9's outbox rule, the check before signing and the deterministic builds apply to it as to any device; its player should still play on one device at a time (§9's residuals: two devices acting within seconds can sign rival moves). Each decryption by an extension is bounded in time, and a refused prompt is reported as such, not as a bad backup.
+
+**What the backup changes (review L3).** Without it, the npub signs only the Joins, roots, Tables and Result attestations, and a seat's moves need its session key, which never leaves the device that joined. With it, the npub's secret key, and anything allowed to decrypt with it (a NIP-07 extension's per-site `nip44.decrypt` permission, a NIP-46 signer later), can read the backup and so take full control of the seat in every live game and see its hidden cards. That is the price of a second device. Clients SHOULD tell extension users to allow decryption only for sites they trust (this client does, in Settings and next to its backup button).
 
 **Proof of knowledge.** `X_k` is published with a Schnorr proof of knowledge `pok = (c, s)`, which defeats rogue-key attacks on the joint key:
 - the prover picks `w`, computes `T = w·G` and `c = HS("pok", tableAddress, npub, sessionPub, X_k, T)`, then `s = w + c·x_k`
@@ -84,7 +88,7 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 | 7455 | Secret reveal | regular | session key |
 | 7456 | Result attestation | regular | player npub |
 | 7457 | Resign | regular | session key |
-| 30078 | Key backup (NIP-78) | addressable | player npub |
+| 30078 | Key backup (NIP-78, §3) | addressable | player npub |
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
 

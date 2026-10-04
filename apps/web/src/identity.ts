@@ -1,10 +1,13 @@
 import {
   type EventTemplate,
   finalizeEvent,
+  getConversationKey,
   getPublicKey,
   type Hex,
   isHex64,
   type NostrEvent,
+  nip44Decrypt,
+  nip44Encrypt,
   verifyEvent,
 } from '@bored-games/protocol';
 import { decodeNostrKey, nsecEncode } from './bech32.ts';
@@ -38,6 +41,29 @@ export interface Signer {
   exportNsec?: () => string;
   /** Keep this page's local key among the kept keys if storage no longer holds it (`LoadedSigner.rescue`). */
   rescue?: () => boolean;
+  /**
+   * NIP-44 v2 encryption with the player key (the game key backup, D065): the local key's, or the extension's
+   * `window.nostr.nip44` when it has one. Absent for an extension without it: backups are then unavailable.
+   */
+  nip44?: Nip44;
+}
+
+/** NIP-44 v2 encryption to and from `pubkey` with the player key (NIP-07's `nip44` object has this shape). */
+export interface Nip44 {
+  encrypt(pubkey: Hex, plaintext: string): Promise<string>;
+  decrypt(pubkey: Hex, payload: string): Promise<string>;
+}
+
+/** NIP-44 with the local secret key `sk`; each message's 32-byte nonce comes from `rnd`. */
+export function localNip44(sk: Uint8Array, rnd: RandomBytes): Nip44 {
+  return {
+    encrypt: async (pubkey, plaintext) => {
+      const nonce = rnd(32);
+      if (nonce.length !== 32) throw new RangeError('random source returned the wrong number of bytes');
+      return nip44Encrypt(plaintext, getConversationKey(sk, pubkey), nonce);
+    },
+    decrypt: async (pubkey, payload) => nip44Decrypt(payload, getConversationKey(sk, pubkey)),
+  };
 }
 
 /** The parts of the Web Locks API (`navigator.locks`) that `loadIdentity` uses. */
@@ -62,6 +88,11 @@ export type LoadedSigner = Signer & { persistent: boolean; lostPrevious: boolean
 export interface Nip07 {
   getPublicKey(): Promise<string>;
   signEvent(t: EventTemplate): Promise<unknown>;
+  /** NIP-07's optional NIP-44 methods; not every extension has them. */
+  nip44?: {
+    encrypt(pubkey: string, plaintext: string): Promise<unknown>;
+    decrypt(pubkey: string, payload: string): Promise<unknown>;
+  };
 }
 
 declare global {
@@ -141,15 +172,32 @@ function guardedLocalSigner(
       return finalizeEvent(t, sk, rnd);
     },
     exportNsec: () => nsecEncode(bytesToHex(sk)),
+    nip44: localNip44(sk, rnd),
+  };
+}
+
+/** The extension's NIP-44 methods, checked, or undefined when it has none (D065). */
+function extensionNip44(ext: Nip07): Nip44 | undefined {
+  const n = ext.nip44;
+  if (typeof n?.encrypt !== 'function' || typeof n.decrypt !== 'function') return undefined;
+  const text = (v: unknown, what: string): string => {
+    if (typeof v !== 'string') throw new Error(`the browser extension returned no ${what}`);
+    return v;
+  };
+  return {
+    encrypt: async (pubkey, plaintext) => text(await n.encrypt(pubkey, plaintext), 'ciphertext'),
+    decrypt: async (pubkey, payload) => text(await n.decrypt(pubkey, payload), 'plaintext'),
   };
 }
 
 async function nip07Signer(ext: Nip07): Promise<Signer> {
   const pubkey = await ext.getPublicKey();
   if (!isHex64(pubkey)) throw new Error('the browser extension returned a malformed public key');
+  const nip44 = extensionNip44(ext);
   return {
     kind: 'nip07',
     pubkey,
+    ...(nip44 === undefined ? {} : { nip44 }),
     sign: async (t) => {
       // Hand the extension a plain copy so that it cannot alias our template.
       const template: EventTemplate = {

@@ -13,7 +13,7 @@ export {
   newGameKeys,
   rootSeatOrder,
 } from './lobby.ts';
-export { seatForGameKeys } from './recover.ts';
+export { backupSeat, seatForGameKeys } from './recover.ts';
 export { GameSession } from './session.ts';
 export {
   type Adversary,
