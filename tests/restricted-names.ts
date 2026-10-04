@@ -48,6 +48,10 @@ export const RESTRICTED_NAMES: readonly string[] = [
   'Marc Andre',
   'MarcAndre',
   'MarcAndré',
+  'Marc-Andre',
+  'Marc-André',
+  'Marc_Andre',
+  'Marc_André',
 ];
 
 /** Ordinary words that contain a restricted name (lower case). Keep this short: each entry is a hole. */

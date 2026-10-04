@@ -213,6 +213,10 @@ describe('branding', () => {
       'Marc Andre',
       'marc andre',
       'MarcAndre',
+      'Marc-Andre',
+      'Marc-André',
+      'Marc_Andre',
+      'Marc_André',
     ];
     const games = [
       {
