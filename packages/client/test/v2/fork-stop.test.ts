@@ -430,7 +430,11 @@ describe('forks in the shuffle and the deal, and late forks there (Chain Reactio
     for (const s of r.all) {
       const v = s.view();
       expect(v.stop).toEqual({ at: base.game.rootId, seat: 0, cancelled: false });
-      expect(v).toMatchObject({ secretWithheld: [], auditIncomplete: false, audit: { fail: [0], reason: 'stop' } });
+      expect(v).toMatchObject({
+        secretWithheld: [],
+        auditIncomplete: false,
+        audit: { fail: [0], reason: 'stop' },
+      });
     }
     for (const p of r.players) expect(p.duties()).toEqual([]);
     expect(() => (r.players[1] as GameSessionV2).buildSecret(r.game.rnd, NOW)).toThrow(/no secret duty/);
