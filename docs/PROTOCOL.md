@@ -6,6 +6,8 @@ This document specifies how players run a turn-based multiplayer board game with
 
 - Games are asynchronous. A player is never required to be online outside their own turn.
 - The design was approved by the owner on 2026-10-01; decisions D018–D022 in `docs/DECISIONS.md` record it. The game-session rulings of Phase 2d (D030) amend §6–§8 and §11. D045 adds deckless games (§6.1, §10) and Resign (§4.9, §8.3).
+- **Luster's partitioned deck and share duty** (§5.5, §6.2a) shipped in v1 under the owner's Luster-only exception to D050 (D059, D060). They are documented here so an independent client can fold a v1 Luster game; they are not part of the general v1 design.
+- **Protocol version 2** is specified in [`PROTOCOL-v2.md`](PROTOCOL-v2.md) (D059, D060). A game keeps the version its root declares (§12).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -337,13 +339,38 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 
+### 5.5 Partitioned decks (Luster; shipped under the owner's exception)
+**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
+
+**The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
+- the list holds 1 to 16 groups;
+- group ids are distinct, non-empty strings;
+- every size is a positive safe integer, and the sizes sum to the deck's `size`.
+
+Group g's **offset** is the sum of the sizes of the groups before it, so the groups tile positions `0..size−1` in list order. Its **domain** is `<deck id>/<group id>` (for Luster: `glass/tier-1`, `glass/tier-2`, `glass/tier-3`, `glass/patrons`, sizes 40, 30, 20, 10, offsets 0, 40, 70, 90). A deck without `partitions` is one group with id and domain equal to the deck id, offset 0 and the deck's size.
+
+**Card points and the initial packet.** Unchanged (§5.1): card `m` is `H2C("card:" + deckId + ":" + m)` with the deck id (`glass`), for `m = 0..size−1`, and `E_0` is the trivial encryption of every card in card order. So group g's slice of `E_0` holds cards `offset_g .. offset_g + size_g − 1`, and a card never leaves its group. The module maps its logical decks and positions onto this packet (Luster's `transport.ts`).
+
+**Shuffle steps.** With G groups and S seats there are **N = G·S** steps. Step `s` (0-based; it is move `s+1`):
+- shuffles group `g = s mod G`;
+- is signed by seat `k = floor(s / G)`. Each seat shuffles every group, in group order, before the next seat starts;
+- takes the slice `[offset_g, offset_g + size_g)` of the previous packet `E_s` as its input, and its `deck` holds exactly `size_g` output ciphertexts;
+- yields `E_{s+1}`: `E_s` with that slice replaced by the output, every other position unchanged;
+- is proven as in §5.3 with `n = size_g`, the input slice and output, `k = floor(s / G)`, and `deckId` the group's domain. A proof for one group therefore fails for another group, or at another step. For a deck without `partitions` the domain is the deck id and `k = s`, exactly as §5.3.
+
+The final deck is `E_N`. Shares, reveals, `dealt`, `revealsOf`, the deal round and the audit all use **global packet positions** and the **deck id** (`glass`), unchanged (§5.4, §6, §7): `ShareCtx` is `{rootId, deckId: "glass", pos}`.
+
+**Parsing.** The Move format is unchanged (§4.4); a shuffle step carries one group. A client parses a shuffle step by trying each size in the set {the deck's `size`, every group's size} (`parsePartitionMove`) and keeps the first parse that succeeds; the session then requires the step's `deck` to have exactly `size_g` ciphertexts for its step (`shuffle output has the wrong group size`). Stall attribution in the shuffle names seat `floor(chain length / G)`.
+
+**Fork choice and the deal** are unchanged (§6.1, §6.6): two well-formed steps by one seat on one prev are equivocation, and a seat deals once.
+
 ## 6. Game flow
 
 ### 6.1 Phases
-**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). Game actions are moves N+1 onward.
+**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats. Game actions are moves N+1 onward.
 
 1. **Table:** Table, Joins, then Game root.
-2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order.
+2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order (with a partitioned deck, one step per seat and group, §5.5).
 3. **Deal:** every seat publishes one Shares event (7453) covering every position that is either:
    - assigned to *another* seat in the module's initial deal, or
    - a public position (the setup positions that `pending()` will request as reveals).
@@ -368,6 +395,30 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **Buffering.** A move that fails only this rule MUST be buffered, not rejected. The missing shares may still arrive, for example in a Shares event published earlier that reaches this client later. The move links once they are held. Clients therefore converge whatever order events arrive in.
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
+
+### 6.2a The Luster share duty (shipped under the owner's exception)
+**Status.** Shipped in v1 for Luster only, under the owner's exception (D050, D059, D060). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only Luster's production module sets it.
+
+**The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
+- no timeout claim was accepted and no Resign ended the game;
+- the deck sets `promptShares`;
+- the game is in the play phase;
+- its seat holds no Shares event that fails against the current final deck (it did not deal on a rival deck, §6.1);
+- the positions below are not empty.
+
+The positions: with more than one group, every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2). With one group (no module ships this), only the positions of a pending public reveal of that deck that `dealt(S)` lists as public and that lack its share. A seat never publishes a share of a position dealt to itself.
+
+**Publishing.** The open app builds one Shares event (§4.5, v1 format: the root tag only, no anchor) holding a share for every such position, sorted by position, and publishes it at once, with no human action and no check for a held fork. The duty comes before `decide`. Receivers fold it as any Shares event (§5.4, §6.2): a verified share counts once per seat and position. In Luster this releases:
+- **public refills:** after a buy or a reserve from the display, the engine assigns the next card of that tier to `null` and pends its public reveal. Every seat, the actor included, releases its share, and every client derives the reveal (§6.3) once all are held. Moves wait meanwhile (§6.5), so without this duty no seat could move to carry the shares, and a v1 Luster game would deadlock at its first refill;
+- **blind reservations:** a reserve from a tier deck assigns the top card to the actor. Every other seat releases its share, so the owner learns the card (§6.4) within about one relay round trip.
+
+**Stall attribution** is §8.1's: while a public reveal is pending, every seat missing a share of a listed position is stalled, whether or not it is that seat's turn, and can be timed out. D060 keeps this timeout; the game screen and Home must say who owes the reveal and when the deadline passes.
+
+**Known residuals** (Luster audit, accepted by the owner's exception until v2):
+- **F1, a lone equivocator reads a later blind reservation (D039).** E signs a blind reserve A, collects every other seat's automatic share and reads the card, then signs a same-length rival B on the same prev with a lower id. Fork choice moves every client to B; the next seat later draws that card, and its owner's share already went out on A, so the card is public. E is flagged and ranked last, and play goes on.
+- **F2, two devices of one honest seat** that each sign a move for one turn make the same exposure with no adversary.
+- **F3, stale share outbox entries are not vetted:** a saved, unconfirmed Shares event built on a branch that lost fork choice can later publish a share of a position that is now the seat's own card.
+- Resign is disabled for Luster (`resignAllowed` returns false): its mid-game public reveals have no Resign rule (§8.3, D052).
 
 ### 6.3 Public reveals
 - **When.** Once the deal is complete, whenever `pending()` requests a public reveal and every listed position has all N verified shares, every client derives, for each listed position in ascending order, the module action `{"type":"reveal","actor":"deck","deck":…,"pos":p,"card":m}` and applies it. It repeats while the module requests reveals it can satisfy. The setup reveals are the first.
@@ -547,7 +598,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4).
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck may be split into contiguous groups shuffled apart (`partitions`, §5.5).
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)
@@ -605,3 +656,4 @@ It MUST also meet these contract rules, which the session relies on:
 - This is protocol version 1, carried in the `proto` tag. The rules module id and version are pinned in the root.
 - A game is always replayed with the engine version it started on.
 - Incompatible protocol changes bump `proto`.
+- **Protocol version 2** (`PROTOCOL-v2.md`) replaces fork choice with the fork stop and adds prompt release, anchored Shares events, end attestations and the move-bound dice beacon. A game declares its version in its Table, Joins and root, and keeps it for good: a v1 game is always folded by these v1 rules, also by a client that implements v2.
