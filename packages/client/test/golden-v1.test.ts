@@ -1,19 +1,23 @@
 import { readdirSync } from 'node:fs';
+import type { Hex } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { goldenCases, loadFixture } from './golden-v1/cases.ts';
 import {
   clientsFor,
+  foldClient,
   GOLDEN_FORMAT,
   GOLDEN_GROUPS,
   GOLDEN_MODULES,
   GOLDEN_NAMES,
+  goldenSession,
   labelOf,
 } from './golden-v1/fold.ts';
 
 /*
  * The v1 golden corpus (protocol v2 build plan, T1 and D-A). Each fixture holds a signed v1 event set (whole games
- * from `simulateGame` for Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries, and the
- * hand-built sets of stale-rival.test.ts and shuffle-fork-deal.test.ts) and, for three arrival orders, the digest of each fold of it by a fresh v1 `GameSession`: every receive
+ * from `simulateGame` for Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries, the
+ * hand-built sets of stale-rival.test.ts and shuffle-fork-deal.test.ts, and hand-built Chess noise and deadline
+ * claims) and, for three arrival orders, the digest of each fold of it by a fresh v1 `GameSession`: every receive
  * status, every rejection reason, the duty sequence, a hash over every step's view, and the final view, state hash
  * and attestation content. The corpus folds the stored events again and requires the same digests, so the v1 fold
  * stays byte-identical whatever v2 adds. This file holds the deckless games and the checks on the corpus itself;
@@ -46,6 +50,32 @@ describe('the v1 golden corpus', () => {
       }
     }
   });
+});
+
+/*
+ * Every other fold marks the valid shuffle steps' proofs as verified up front (a proof costs about a second). These
+ * verify them: the stored steps were built with v1's proof context (root id, seat, deck id, the partition's input
+ * slice), so a drift in that context rejects them here. Chain Reaction has one deck; Luster has four groups.
+ */
+describe('the v1 golden corpus: shuffle proofs verified, nothing trusted', () => {
+  for (const name of ['cr-vanish-early', 'luster-honest']) {
+    it(`V2-03 (v1 half): ${name}: the spectator verifies every valid shuffle step and folds as recorded`, () => {
+      const fx = loadFixture(name);
+      const published = fx.orders[0];
+      expect(published?.name).toBe('published');
+      expect(fx.trusted.length).toBeGreaterThan(0);
+      const s = goldenSession({ ...fx, trusted: [] }, null);
+      for (const i of published?.deliveries ?? []) {
+        const ev = fx.events[i];
+        if (ev !== undefined) s.receive(ev, ev.created_at);
+      }
+      const internals = s as unknown as { shuffleChecked: Map<Hex, boolean>; shuffleVerifications: number };
+      expect(internals.shuffleVerifications).toBe(fx.trusted.length);
+      expect(fx.trusted.filter((id) => internals.shuffleChecked.get(id) !== true)).toEqual([]);
+      const got = foldClient({ ...fx, trusted: [] }, published?.deliveries ?? [], null);
+      expect(got).toEqual(published?.clients.spectator);
+    });
+  }
 });
 
 describe('the v1 golden corpus: Chess and Bank 0.1.0', () => {
