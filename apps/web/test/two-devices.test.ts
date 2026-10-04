@@ -159,9 +159,12 @@ describe('The check before signing is bounded (D059 item 2)', () => {
   }, 60_000);
 });
 
-describe('A deterministic build does not copy an implausible head date (D063)', () => {
-  /** A 2-seat Bank game whose roller signs its Roll dated `at` outside any controller; the contributor's controller. */
-  async function rollDated(at: number) {
+describe('A deterministic build is dated from shared events, never from a device clock (D063)', () => {
+  /**
+   * A 2-seat Bank game whose roller signs its Roll dated `at` outside any controller, and the contributor's devices,
+   * one per clock offset in `skews` (seconds). Returns the Roll, the root and the contributions at the relay.
+   */
+  async function rollDated(at: number, skews: number[]) {
     const { rootId, address, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
     const rootEv = (await h.query([{ ids: [rootId] }]))[0] as NostrEvent;
     const root = parseRoot(rootEv);
@@ -187,21 +190,43 @@ describe('A deterministic build does not copy an implausible head date (D063)', 
     const roll = rs.legalActions().find((a) => (a as { type?: string }).type === 'roll');
     const ev = rs.buildAction(roll, rnd, at);
     const contributor = bySeat[1 - roller] as Profile;
-    const g = h.game(rootId, contributor.deps);
-    await waitFor('the contributor loaded', () => g.view.value !== null && g.status.value !== 'syncing');
+    const devices = skews.map((skew, i) => {
+      const dev = i === 0 ? contributor : h.secondDevice(contributor, address);
+      return h.game(rootId, { ...dev.deps, now: () => now() + skew });
+    });
+    for (const g of devices)
+      await waitFor('a device loaded', () => g.view.value !== null && g.status.value !== 'syncing');
     await h.pool().publish(ev);
-    await waitFor('the contribution', () => g.view.value?.head.seq === 2);
     const key = root.seats[1 - roller]?.session as string;
-    return (await movesOn(ev.id, key))[0] as NostrEvent;
+    return { roll: ev, rootEv, devices, contributions: () => movesOn(ev.id, key) };
   }
 
-  it('a Roll dated an hour ahead, or in 1970, gets a contribution dated now', async () => {
-    for (const at of [now() + 3600, 1]) {
-      const before = now();
-      const c = await rollDated(at);
-      expect(c.created_at).toBeGreaterThanOrEqual(before);
-      expect(c.created_at).toBeLessThanOrEqual(now());
-    }
+  it('two devices seconds apart around the sign-ahead bound wait for the Roll date and sign the same contribution', async () => {
+    // Dated 62 s ahead: the device 3 s ahead signs at once, the one 3 s behind waits about 5 s; both date it so.
+    const { roll, devices, contributions } = await rollDated(now() + 62, [3, -3]);
+    for (const g of devices) await waitFor('the contribution', () => g.view.value?.head.seq === 2, 30_000);
+    const cs = await contributions();
+    expect(cs).toHaveLength(1);
+    expect(cs[0]?.created_at).toBe(roll.created_at);
+    for (const g of devices) expect(g.view.value?.equivocators).toEqual([]);
+  }, 60_000);
+
+  it('a Roll dated in 1970 gives way to the root date: two devices with different clocks sign the same contribution', async () => {
+    const { rootEv, devices, contributions } = await rollDated(1, [0, 4]);
+    for (const g of devices) await waitFor('the contribution', () => g.view.value?.head.seq === 2, 30_000);
+    const cs = await contributions();
+    expect(cs).toHaveLength(1);
+    expect(cs[0]?.created_at).toBe(rootEv.created_at);
+    for (const g of devices) expect(g.view.value?.equivocators).toEqual([]);
+  }, 60_000);
+
+  it('a Roll dated beyond the wait bound (a quarter of the deadline) falls back to now', async () => {
+    const before = now();
+    const { devices, contributions } = await rollDated(now() + 2 * 86_400, [0]);
+    await waitFor('the contribution', () => devices[0]?.view.value?.head.seq === 2, 30_000);
+    const c = (await contributions())[0] as NostrEvent;
+    expect(c.created_at).toBeGreaterThanOrEqual(before);
+    expect(c.created_at).toBeLessThanOrEqual(now());
   }, 60_000);
 });
 

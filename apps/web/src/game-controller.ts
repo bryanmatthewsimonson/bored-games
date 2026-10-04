@@ -106,9 +106,13 @@ const vetted = (slot: string): boolean =>
  */
 export const CHECK_TIMEOUT_MS = 15_000;
 
-/** The latest and the oldest head date a deterministic build takes (s): now + 5 minutes, and a year back. */
-const MAX_FUTURE_S = 300;
-const MAX_AGE_S = 365 * 86_400;
+/**
+ * Dating a deterministic build (D063): it is signed once the local clock is within `SIGN_AHEAD_S` of its date, and
+ * waits at most `MAX_WAIT_S` (and at most a quarter of the table's deadline) for that; a head dated further ahead
+ * falls back to now and fresh randomness.
+ */
+const SIGN_AHEAD_S = 60;
+const MAX_WAIT_S = 86_400;
 
 /** Why `act` refuses a move this seat already made on another device (D059 item 2). */
 export const ALREADY_MOVED = 'you already played this turn on another device';
@@ -292,9 +296,11 @@ export class GameController {
   readonly #events = new Map<string, NostrEvent>();
   /**
    * Every seated game event's `created_at`, by id, kept past `MAX_BUFFER` (unlike `#events`), so a deterministic build
-   * dates its event at the head's date on every device (`#buildTime`).
+   * dates its event at the head's date on every device (`#buildDate`).
    */
   readonly #dates = new Map<string, number>();
+  /** This seat's own moves the session was fed, with their `created_at`: the floor of a deterministic date. */
+  readonly #ownMoves = new Map<string, number>();
   /** This player's session key in the game, or null for a spectator. */
   #mySession: string | null = null;
   /** This player's seat and game secrets once the session holds a seat, for deterministic builds (`#buildRnd`). */
@@ -560,6 +566,7 @@ export class GameController {
     const now = this.#d.now();
     // Own events from the outbox too: the head may be this seat's own move, not yet back from a relay.
     this.#dates.set(ev.id, ev.created_at);
+    if (ev.kind === KIND.move && ev.pubkey === this.#mySession) this.#ownMoves.set(ev.id, ev.created_at);
     const r = session.receive(ev, first ?? now);
     // An own event the session refuses (built by a bug or an outdated client) can never link: it must not lock the
     // seat out of the slot (`#otherMine`). One it accepts later (after a rebuild) counts again.
@@ -1521,7 +1528,10 @@ export class GameController {
           // A duty still due after its event was folded in would loop forever: stop at the second try.
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');
           done.add(key);
-          if ((await this.#perform(session, kind)) === 'held') {
+          const r = await this.#perform(session, kind);
+          // Waiting for the event's date (`#buildDate`): retried by its own timer, or the next tick.
+          if (r === 'wait') this.#heldDuties.add(key);
+          if (r === 'held') {
             this.#heldDuties.add(key);
             this.#holding(
               'it is not yet known whether another device of yours already sent it (not every relay has answered)',
@@ -1545,7 +1555,7 @@ export class GameController {
    * signed when the answer brought this seat's own event for the slot from another device (the session folded it).
    */
   // biome-ignore lint/suspicious/noConfusingVoidType: every branch but a hold returns its commit's result.
-  async #perform(session: GameSession, kind: Duty['kind']): Promise<'held' | void> {
+  async #perform(session: GameSession, kind: Duty['kind']): Promise<'held' | 'wait' | void> {
     const head = session.view().head;
     const { rnd, now } = this.#d;
     if (kind === 'shuffle' || kind === 'beacon') {
@@ -1554,15 +1564,26 @@ export class GameController {
       const slot = moveSlot(head.seq + 1, head.id);
       const saved = this.#reusable(slot, head.id);
       if (saved !== null) return this.#commit(slot, saved);
+      // The date the event will carry (`#buildDate`), chosen from events both devices hold alike. The local clock
+      // decides only when to sign: a date ahead of it is waited for, never changed.
+      const plan = this.#buildDate(session, head.id);
+      if (plan !== null && plan.wait > 0) {
+        const key = `${kind}@${head.id}`;
+        this.#stops.push(
+          this.#d.timers.later(plan.wait * 1000, () => {
+            this.#heldDuties.delete(key);
+            this.#queueDuties();
+          }),
+        );
+        return 'wait';
+      }
       if (!(await this.#clearToSign(session, kind, head.id))) return 'held';
       if (session.view().head.id !== head.id || !session.duties().some((d) => d.kind === kind)) return;
       // Both statements are fixed by the head, so the event is built from this seat's deterministic stream: two
-      // devices that build it at the same moment sign the very same event, not two rivals (audit-bank F3).
-      // The head's date is signed by the previous mover, so it is used only when plausible (`#buildTime`);
-      // otherwise the event is dated now with fresh randomness, as before (the check above still applies).
-      const headAt = this.#buildTime(head.id);
-      const det = headAt === null ? rnd : this.#buildRnd(`${kind}:${head.id}`);
-      const at = headAt ?? now();
+      // devices that build it sign the very same event, not two rivals (audit-bank F3). With no plan (a head dated
+      // too far ahead) it is dated now with fresh randomness, as before; the check above still applies.
+      const det = plan === null ? rnd : this.#buildRnd(`${kind}:${head.id}`);
+      const at = plan?.at ?? now();
       const built =
         this.#reusable(slot, head.id) ??
         (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
@@ -1683,19 +1704,24 @@ export class GameController {
   }
 
   /**
-   * A date both devices of the seat agree on for an event built on `headId`: the head's own `created_at`, when it is
-   * plausible; otherwise null (the event is then dated now, with fresh randomness).
+   * The date of a deterministic build on `headId`, and how long (s) to wait before signing it, or null to date it now
+   * with fresh randomness (D063). The date depends only on events both devices of the seat hold alike: the head's
+   * `created_at` (chosen by the previous mover), raised to the latest date of this seat's own moves on the chain, or
+   * the root's (so an ancient or 1970 date gives way to an honest one). The local clock only sets the wait: a date
+   * more than `SIGN_AHEAD_S` ahead of it is waited for (relays refuse events dated far ahead), up to the smaller of
+   * `MAX_WAIT_S` and a quarter of the table's deadline; a date further ahead falls back (null). Two devices that
+   * straddle that bound are then hours apart, so the later one's check before signing finds the earlier one's event.
    */
-  #buildTime(headId: string): number | null {
+  #buildDate(session: GameSession, headId: string): { at: number; wait: number } | null {
     const root = this.#rootEv;
-    const at = headId === this.rootId ? root?.created_at : this.#dates.get(headId);
-    if (at === undefined || root === null) return null;
-    // The previous mover chose that date: a future or ancient one would get the event refused by relays with
-    // `created_at` limits, and the stall blamed on this seat. Only a date between the root's and now + 5 minutes,
-    // and less than a year old, is used.
-    const now = this.#d.now();
-    if (at < root.created_at || at > now + MAX_FUTURE_S || now - at > MAX_AGE_S) return null;
-    return at;
+    const headAt = headId === this.rootId ? root?.created_at : this.#dates.get(headId);
+    if (headAt === undefined || root === null || this.#root === null) return null;
+    let floor = root.created_at;
+    for (const [id, at] of this.#ownMoves) if (at > floor && session.chainSeq(id) !== null) floor = at;
+    const at = Math.max(headAt, floor);
+    const ahead = at - this.#d.now();
+    if (ahead > Math.min(MAX_WAIT_S, Math.floor(this.#root.deadline / 4))) return null;
+    return { at, wait: Math.max(0, ahead - SIGN_AHEAD_S) };
   }
 
   /**
