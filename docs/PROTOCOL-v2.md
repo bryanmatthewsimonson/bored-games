@@ -215,6 +215,8 @@ Only valid results are candidates (§5.3), and a valid result's head lies on the
 
 **Then:** if exactly one result X stands, the game's result is X, and the fork only records E: nobody forfeits for it, and X's places and scores do not change for it. Otherwise the game **stops at P** (§5.6).
 
+**A standing result is played out as if no fork were held** (review N1). For stall attribution, Timeout claims, the Secret phase and X's audit, a client whose result X stands acts exactly as a client that holds no fork and has X as its result. v1's End rules apply at the head v1 names for X: X's head, or S for a resign (v1 §8.1 "End", §8.2 "At the end", §8.3). So a seat whose secret is missing is stalled; a claim against it is accepted under v1's own-clock rule; it forfeits for the withheld secret; and the full audit (or the partial audit after a Resign) demotes a seat it fails. Otherwise a cheater who won with a hidden-card cheat could fork at one of its own old prevs after the end attestations, so that its result stands, then withhold its secret: no seat would be stalled, and the audit that would catch it would never run. The rest of §5.7 still applies (no moves, no prompt release, no new end attestation).
+
 **What the clauses are for** (proposal §5.2, §6.7). Without (b), a seat's second device that attests side B while its first device released a share on side A lets B stand: an exposure. Without the forfeiting seat in (a), two colluders time out an honest seat, attest it and fork. With attestations left out of (b), or events past the head counted, a 2-seat game with two devices and a resign gives the opponent a rating gain. The model checks each of these as a regression.
 
 ### 5.5 The game's result
@@ -237,7 +239,8 @@ The stop ends the game at P. It is never resumed. Its outcome:
 **Why E is rated last with 3 or more seats.** Scored as an unrated abort alone, a timed-out seat could fork at its own head and turn its rated last place into an unrated abort, now that a stop overrides a counted claim (the model's `void-forfeit`). Scored as E's timeout at P, E would choose the position the others are rated at.
 
 ### 5.7 While a fork is held
-- No seat is stalled, so no Timeout claim counts, including after a stop (§7.3).
+- **If the game is stopped** (no result stands): no seat is stalled, so no Timeout claim counts, also after the stop (§7.3).
+- **If a result stands** (§5.4): stalls, claims, the Secret phase and that result's audit follow v1's End rules, as without a fork (§5.4, review N1).
 - The client owes no decision and releases nothing: no Move, no Shares event, no roll contribution, no end attestation (§6, §7.1).
 - It keeps folding every event it receives, so that the cutoff and the topmost fork stay current (§5.5).
 
@@ -366,11 +369,11 @@ A v2 client MAY publish its Secret reveal as soon as its result needs it, or onc
 
 ### 8.1 Timeout
 - **Stalled seats:** v1 §8.1, with these changes:
-  - while the client holds a fork, no seat is stalled, also after a stop (§7.3);
+  - while the game is stopped at a fork, no seat is stalled, also after the stop (§7.3). When a result stands against the fork, stalls follow v1 for that result, as without a fork (§5.4, review N1);
   - a pending beacon stalls every seat without a contribution (§6.2);
   - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - **Progress:** v1 §8.1, roll Shares events included.
-- **Accepting a claim:** v1 §8.1, and the client holds no fork (§7.3: no claim counts after a stop).
+- **Accepting a claim:** v1 §8.1, and the game is not stopped: no claim counts while a fork is held and no result stands (§7.3). A client whose result stands against a fork accepts claims for that result's End phase (a withheld secret) as v1 says (§5.4, review N1).
 - **Accepting one's own forfeit at once** (review L2). A client SHOULD accept, without waiting for its own deadline, a valid Timeout claim that names its current head and whose stalled seats at that head are its own seat alone. It forfeits only itself, so nothing is lost by trusting the claimant's clock. Without this, a client that comes back after a timeout sees every event as fresh (new first-seen times) and offers its player a move, so it never accepts the claim, never attests it, and the timeout can never stand (F1).
 - **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
 
@@ -494,7 +497,8 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-22** MUST score a stop as §5.6 says: cancelled only when no game action is held at or past P on any line; 2 seats, E's rated loss; 3 or more seats, E last (shared only with other equivocators) and rated, the others by `standings` at P (all tied, scores 0, when P comes before play) and unrated.
 - **V2-50** MUST record as an equivocator every seat that signed two valid-looking moves (well-formed shuffle steps) with one `prev` and `seq`, on any held line with a valid line to that `prev`, and in a stop MUST place every equivocator in the shared last places, each rated last (§5.2, §5.6, §7.5).
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
-- **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
+- **V2-24** MUST NOT accept a Timeout claim while it holds a fork and no result stands (§5.7, §8.1).
+- **V2-54** When a result stands against a fork, MUST apply v1's stall attribution, End-phase claims (a withheld secret, judged at the result's head) and audit to that result, as without a fork (§5.4, review N1).
 - **V2-52** SHOULD accept at once a valid Timeout claim that names its current head and forfeits only its own seat (§8.1).
 
 **Prompt release**
@@ -558,7 +562,8 @@ Each as a JSON file under the package that owns it, with every intermediate valu
    - a fork at the root, or at an old shuffle step, signed after play began: a stop scored as E's loss, not a cancel (review H1); and a shuffle fork with no game action held past it: a cancel;
    - a colluder's fork above another seat's fork: both seats are equivocators sharing the last places, and P is the higher fork (review M1);
    - a stop in a deck game where an honest seat's secret never arrives: places unchanged, "secret withheld" recorded, no claim accepted (review H2); and a stop where the partial audit proves a failure;
-   - a returning client accepting at once a claim that forfeits only its own seat (review L2).
+   - a returning client accepting at once a claim that forfeits only its own seat (review L2);
+   - **N1:** in a 2-seat Chain Reaction game C wins with a hidden-card cheat (a forged `skipPlace`). Both seats end-attest `over`. C then signs a rival move at one of its own old prevs, so the result stands against the fork, and withholds its Secret reveal. Expected: C is stalled at the result's head, H's claim is accepted after H's deadline, C forfeits for the withheld secret (H first), and no step is blocked by the held fork. With C's secret published instead, the full audit fails C.
 6. **Prompt release scenarios:** the positions a seat releases after a Chain Reaction draw, a Luster refill and a Luster blind reservation; none while a fork is held; none of its own positions.
 7. **Dice scenarios:** a Bank roll with contributions arriving in every order, the requester's last; a rival Roll (a stop); two devices contributing the same `D` (not a fork).
 8. **Outbox scenarios:** a stale saved move discarded; a saved Shares event discarded once its position is dealt to its own seat; a saved end attestation discarded once a fork is held.
