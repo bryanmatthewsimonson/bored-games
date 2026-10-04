@@ -124,8 +124,8 @@ class Seating {
 /**
  * Fold the lobby events seen for one table. `tableEv` is the latest version of the Table; `events` may hold
  * anything: Joins and roots for this table count, everything else (unparseable events and non-events, other
- * tables, Joins committed to other rules or another version, bad proofs of knowledge, a session key equal to the
- * Join's own npub or to its deck key's x-coordinate) is ignored. Order and duplicates do not matter: the result is
+ * tables, Joins committed to other rules, another version or another proto (PROTOCOL-v2 §2), bad proofs of
+ * knowledge, a session key equal to the Join's own npub or to its deck key's x-coordinate) is ignored. Order and duplicates do not matter: the result is
  * a function of the set of events. Throws `ClientError` only if `tableEv` itself is not a valid Table.
  *
  * Seating, in this order:
@@ -159,6 +159,7 @@ export function foldLobby(
         if (join === null || joins.has(join.id)) continue;
         if (join.tableAddress !== table.address) continue;
         if (join.rulesHash !== hash || join.version !== table.version) continue;
+        if (join.proto !== table.proto) continue;
         if (join.session === join.npub || deckX(join.deckKey) === join.session) continue;
         if (!verifyJoin(join)) continue;
         joins.set(join.id, { join, created_at: ev.created_at });
@@ -222,10 +223,10 @@ export function rootSeatOrder(view: LobbyView): ParsedJoin[] {
 
 /**
  * The unsigned Join for `table`, claiming a seat for `npub` with these keys. The npub's signer signs it, outside
- * this package. It commits to the table's rules hash and version (PROTOCOL §4.2) and carries the session key's
- * proof of possession (D033). Throws `ClientError` when `keys.sessionPub` is not the public key of
- * `keys.sessionSk`, or when the session key equals `npub` or the deck key's x-coordinate, since peers drop such a
- * Join.
+ * this package. It commits to the table's rules hash and version (PROTOCOL §4.2), carries the table's proto
+ * (PROTOCOL-v2 §2) and the session key's proof of possession (D033). Throws `ClientError` when `keys.sessionPub`
+ * is not the public key of `keys.sessionSk`, or when the session key equals `npub` or the deck key's
+ * x-coordinate, since peers drop such a Join.
  */
 export function buildJoinTemplate(
   table: ParsedTable,
@@ -257,6 +258,7 @@ export function buildJoinTemplate(
       sessionSig: signSession(keys.sessionSk, table.address, npub, rnd),
       rulesHash: rulesHash(table.rules),
       version: table.version,
+      proto: table.proto,
     },
     createdAt,
   );
@@ -319,5 +321,8 @@ export function buildRootTemplate(
     if (picked.problems.length > 0) throw new ClientError(`invalid seat list: ${picked.problems.join('; ')}`);
     joins = picked.joins;
   }
-  return rootTemplate({ table: view.table, joins, rules: view.table.rules, relays: [...relays] }, createdAt);
+  return rootTemplate(
+    { table: view.table, joins, rules: view.table.rules, relays: [...relays], proto: view.table.proto },
+    createdAt,
+  );
 }

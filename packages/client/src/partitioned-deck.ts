@@ -1,5 +1,5 @@
 import type { DeckSpec } from '@bored-games/game-kit';
-import { type ParsedMove, parseMove } from '@bored-games/protocol';
+import { type ParsedMove, type Proto, parseMove } from '@bored-games/protocol';
 import { ClientError } from './errors.ts';
 
 export interface DeckPartition {
@@ -32,12 +32,20 @@ export function deckPartitions(deck: DeckSpec | null): readonly DeckPartition[] 
   });
 }
 
-/** The wire format is unchanged: each shuffle step carries the active group's deck and proof. */
-export function parsePartitionMove(ev: unknown, size: number, groups: readonly DeckPartition[]): ParsedMove {
+/**
+ * The wire format is unchanged: each shuffle step carries the active group's deck and proof. `proto` is the game's
+ * protocol version, passed through to `parseMove`.
+ */
+export function parsePartitionMove(
+  ev: unknown,
+  size: number,
+  groups: readonly DeckPartition[],
+  proto: Proto = '1',
+): ParsedMove {
   let error: unknown;
   for (const n of new Set([Math.max(1, size), ...groups.map((g) => g.size)])) {
     try {
-      return parseMove(ev, n);
+      return parseMove(ev, n, proto);
     } catch (e) {
       error = e;
     }

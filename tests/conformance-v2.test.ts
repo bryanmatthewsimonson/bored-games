@@ -35,24 +35,37 @@ interface Allowed {
 
 /** Every id not yet covered. Each task removes the ids it covers; nothing is ever added back. */
 const ALLOWLIST: Record<string, Allowed> = {
-  'V2-01': { until: 'T3, T7, T14' },
-  'V2-02': { until: 'T3, T7' },
+  'V2-01': {
+    until: 'T7 (session builders), T14 (the controller creates tables and joins at proto 2)',
+    partial:
+      'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts) and the lobby helpers carrying ' +
+      "the table's proto (packages/client/test/lobby.test.ts)",
+  },
+  'V2-02': {
+    until: 'T7 (the v2 session rejects events of another proto)',
+    partial:
+      'in-game parsers against the game proto, "3" and two proto tags (packages/protocol/test/game-v2.test.ts, ' +
+      'vectors-v2.test.ts); validateRoot and foldLobby reject a root or Join of another proto (lobby tests)',
+  },
   'V2-03': {
     until: 'T6 (dispatch by the root: a v1 root gives GameSession, a v2 root GameSessionV2)',
     partial:
       'v1 games fold by the frozen v1 rules: the golden corpus (packages/client/test/golden-v1.test.ts)',
   },
   'V2-04': { until: 'T14' },
-  'V2-05': { until: 'T2, T3, T5' },
-  'V2-06': { until: 'T3' },
-  'V2-07': { until: 'T3' },
+  'V2-05': {
+    until: 'T5 (Bank 0.2.0 declares [2], Bank 0.1.0 is kept as bank@0.1.0 with [1])',
+    partial:
+      'validateRoot and validateTable reject a (module, version) that does not support the proto, through ' +
+      'moduleFor and moduleProtocols (packages/protocol/test/lobby.test.ts)',
+  },
   'V2-08': { until: 'T7, T8' },
-  'V2-09': { until: 'T3' },
-  'V2-10': { until: 'T3' },
-  'V2-11': { until: 'T3, T7' },
+  'V2-11': {
+    until: 'T7 (both keys count for the seat)',
+    partial:
+      'parseAttestV2 accepts an end attestation signed by any key (packages/protocol/test/game-v2.test.ts)',
+  },
   'V2-12': { until: 'T7' },
-  'V2-13': { until: 'T3' },
-  'V2-51': { until: 'T3' },
   'V2-14': { until: 'T7, T10' },
   'V2-15': { until: 'T10' },
   'V2-16': { until: 'T10' },

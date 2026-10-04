@@ -10,12 +10,12 @@ import {
   type RandomBytes,
   verifyPok,
 } from '@bored-games/deck';
-import { canonicalJson, type GameModule } from '@bored-games/game-kit';
+import { canonicalJson, type GameModule, moduleFor, moduleProtocols } from '@bored-games/game-kit';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { ProtocolError } from './errors.ts';
-import { DEADLINES, KIND, MAX_EVENT_BYTES, PROTO } from './kinds.ts';
+import { DEADLINES, KIND, MAX_EVENT_BYTES, type Proto } from './kinds.ts';
 import { type EventTemplate, eventBytes, type Hex, isHex64, type NostrEvent, verifyEvent } from './nostr.ts';
 import { many, named, one, requireProto } from './tags.ts';
 
@@ -42,9 +42,11 @@ export interface TableSpec {
   relays: string[];
   status: TableStatus;
   rules: unknown;
+  /** The game's protocol version, the `proto` tag (PROTOCOL-v2 §2). The template's default is `'1'`. */
+  proto?: Proto | undefined;
 }
 
-export type ParsedTable = TableSpec & { creator: Hex; address: string };
+export type ParsedTable = TableSpec & { creator: Hex; address: string; proto: Proto };
 
 export interface JoinSpec {
   tableAddress: string;
@@ -63,9 +65,11 @@ export interface JoinSpec {
   rulesHash: Hex;
   /** The table's engine version, the `v` tag. */
   version: string;
+  /** The table's protocol version, the `proto` tag (PROTOCOL-v2 §2). The template's default is `'1'`. */
+  proto?: Proto | undefined;
 }
 
-export type ParsedJoin = JoinSpec & { id: Hex; npub: Hex };
+export type ParsedJoin = JoinSpec & { id: Hex; npub: Hex; proto: Proto };
 
 export interface RootSeat {
   deckKey: Point;
@@ -79,6 +83,11 @@ export interface RootSpec {
   joins: ParsedJoin[];
   rules: unknown;
   relays: string[];
+  /**
+   * The game's protocol version, the `proto` tag (PROTOCOL-v2 §2): the root MUST carry its table's. The template
+   * uses `table.proto` when this is absent, and `'1'` when both are.
+   */
+  proto?: Proto | undefined;
 }
 
 export interface ParsedRoot {
@@ -94,6 +103,8 @@ export interface ParsedRoot {
   relays: string[];
   rules: unknown;
   seats: RootSeat[];
+  /** The game's protocol version (PROTOCOL-v2 §2). */
+  proto: Proto;
 }
 
 /* ----------------------------------------------------------------------------------- field checks */
@@ -262,8 +273,17 @@ export function reason(e: unknown): string {
   return 'invalid value';
 }
 
-/** The size cap, then NIP-01 validity, the kind and the `proto` tag; then `body`. Throws only `ProtocolError`. */
-export function parseEvent<T>(ev: unknown, kind: number, body: (ev: NostrEvent) => T): T {
+/**
+ * The size cap, then NIP-01 validity, the kind and the `proto` tag; then `body`, given the event's proto. Throws
+ * only `ProtocolError`. `proto` is the game's expected proto (in-game events), or null for any accepted proto
+ * (lobby events, which declare the game's proto). Required, so no in-game parser can forget it.
+ */
+export function parseEvent<T>(
+  ev: unknown,
+  kind: number,
+  body: (ev: NostrEvent, proto: Proto) => T,
+  proto: Proto | null,
+): T {
   try {
     let size: number;
     try {
@@ -276,8 +296,8 @@ export function parseEvent<T>(ev: unknown, kind: number, body: (ev: NostrEvent) 
     if (!verifyEvent(ev))
       throw new ProtocolError('invalid-event', 'not a valid NIP-01 event (shape, id or signature)');
     if (ev.kind !== kind) throw new ProtocolError('wrong-kind', `expected kind ${kind}, got ${ev.kind}`);
-    requireProto(ev.tags);
-    return body(ev);
+    const found = requireProto(ev.tags, proto ?? undefined);
+    return body(ev, found);
   } catch (e) {
     if (isProtocolError(e)) throw e;
     throw new ProtocolError('malformed', reason(e));
@@ -301,7 +321,7 @@ export function tableTemplate(spec: TableSpec, createdAt: number): EventTemplate
       ['open', String(spec.open)],
       ...spec.relays.map((r) => ['relay', r]),
       ['status', spec.status],
-      ['proto', PROTO],
+      ['proto', spec.proto ?? '1'],
     ],
     content: canonicalJson({ rules: spec.rules }),
   };
@@ -313,45 +333,51 @@ export function tableTemplate(spec: TableSpec, createdAt: number): EventTemplate
  * `ws://` or `wss://` URLs.
  */
 export function parseTable(ev: unknown): ParsedTable {
-  return parseEvent(ev, KIND.table, (e) => {
-    const tags = e.tags;
-    const tableId = one(tags, 'd');
-    if (!TABLE_ID.test(tableId)) badTag('"d" must be 1 to 64 characters of [A-Za-z0-9._-]');
-    const game = shortText(one(tags, 'game'), 'game');
-    const version = shortText(one(tags, 'v'), 'v');
-    const seats = decimal(one(tags, 'seats'), 'seats');
-    if (seats < 2) badTag('a table needs at least 2 seats');
-    if (seats > MAX_SEATS) badTag(`a table has at most ${MAX_SEATS} seats`);
-    const deadline = deadlineOf(one(tags, 'deadline'));
-    const invited = many(tags, 'p');
-    const seen = new Set<string>();
-    for (const p of invited) {
-      if (!isHex64(p)) badTag('"p" must be 64 lowercase hex characters');
-      if (p === e.pubkey) badTag('the creator cannot invite itself');
-      if (seen.has(p)) badTag('a pubkey is invited twice');
-      seen.add(p);
-    }
-    const open = decimal(one(tags, 'open'), 'open');
-    if (invited.length + open !== seats - 1) badTag('invited plus open seats must equal seats minus 1');
-    const relays = relayTags(tags);
-    const status = one(tags, 'status');
-    if (!STATUSES.includes(status)) badTag(`"status" must be one of ${STATUSES.join(', ')}`);
-    const content = record(canonicalContent(e.content), 'content', ['rules']);
-    return {
-      tableId,
-      game,
-      version,
-      seats,
-      deadline,
-      invited,
-      open,
-      relays,
-      status: status as TableStatus,
-      rules: content.rules,
-      creator: e.pubkey,
-      address: tableAddress(e.pubkey, tableId),
-    };
-  });
+  return parseEvent(
+    ev,
+    KIND.table,
+    (e, proto) => {
+      const tags = e.tags;
+      const tableId = one(tags, 'd');
+      if (!TABLE_ID.test(tableId)) badTag('"d" must be 1 to 64 characters of [A-Za-z0-9._-]');
+      const game = shortText(one(tags, 'game'), 'game');
+      const version = shortText(one(tags, 'v'), 'v');
+      const seats = decimal(one(tags, 'seats'), 'seats');
+      if (seats < 2) badTag('a table needs at least 2 seats');
+      if (seats > MAX_SEATS) badTag(`a table has at most ${MAX_SEATS} seats`);
+      const deadline = deadlineOf(one(tags, 'deadline'));
+      const invited = many(tags, 'p');
+      const seen = new Set<string>();
+      for (const p of invited) {
+        if (!isHex64(p)) badTag('"p" must be 64 lowercase hex characters');
+        if (p === e.pubkey) badTag('the creator cannot invite itself');
+        if (seen.has(p)) badTag('a pubkey is invited twice');
+        seen.add(p);
+      }
+      const open = decimal(one(tags, 'open'), 'open');
+      if (invited.length + open !== seats - 1) badTag('invited plus open seats must equal seats minus 1');
+      const relays = relayTags(tags);
+      const status = one(tags, 'status');
+      if (!STATUSES.includes(status)) badTag(`"status" must be one of ${STATUSES.join(', ')}`);
+      const content = record(canonicalContent(e.content), 'content', ['rules']);
+      return {
+        tableId,
+        game,
+        version,
+        seats,
+        deadline,
+        invited,
+        open,
+        relays,
+        status: status as TableStatus,
+        rules: content.rules,
+        creator: e.pubkey,
+        address: tableAddress(e.pubkey, tableId),
+        proto,
+      };
+    },
+    null,
+  );
 }
 
 /* ------------------------------------------------------------------------------------------- join */
@@ -409,7 +435,7 @@ export function joinTemplate(spec: JoinSpec, createdAt: number): EventTemplate {
       ['p', spec.creator],
       ['rules-hash', spec.rulesHash],
       ['v', spec.version],
-      ['proto', PROTO],
+      ['proto', spec.proto ?? '1'],
     ],
     content: canonicalJson({
       deckKey: encodePoint(spec.deckKey),
@@ -427,43 +453,49 @@ export function joinTemplate(spec: JoinSpec, createdAt: number): EventTemplate {
  * the npub (D033); `verifyJoin` checks the deck key's proof of knowledge.
  */
 export function parseJoin(ev: unknown): ParsedJoin {
-  return parseEvent(ev, KIND.join, (e) => {
-    const address = one(e.tags, 'a');
-    const { creator } = addressOf(address);
-    if (one(e.tags, 'p') !== creator) badTag('"p" must be the creator named in the table address');
-    const hash = one(e.tags, 'rules-hash');
-    if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
-    const version = shortText(one(e.tags, 'v'), 'v');
-    const c = record(canonicalContent(e.content), 'content', [
-      'deckKey',
-      'pok',
-      'relays',
-      'session',
-      'sessionSig',
-    ]);
-    const deckKey = point(c.deckKey, 'deckKey');
-    const pok = pokOf(c.pok, 'pok');
-    const relays = relayList(c.relays, 'relays');
-    const session = hex64(c.session, 'session');
-    const sessionSig = c.sessionSig;
-    if (typeof sessionSig !== 'string' || !HEX128.test(sessionSig))
-      badContent('sessionSig: expected 128 lowercase hex characters');
-    if (!verifySession(sessionSig as Hex, session, address, e.pubkey))
-      badContent('sessionSig: not a signature by the session key over this table address and npub');
-    return {
-      id: e.id,
-      npub: e.pubkey,
-      tableAddress: address,
-      creator,
-      deckKey,
-      pok,
-      relays,
-      session,
-      sessionSig: sessionSig as Hex,
-      rulesHash: hash,
-      version,
-    };
-  });
+  return parseEvent(
+    ev,
+    KIND.join,
+    (e, proto) => {
+      const address = one(e.tags, 'a');
+      const { creator } = addressOf(address);
+      if (one(e.tags, 'p') !== creator) badTag('"p" must be the creator named in the table address');
+      const hash = one(e.tags, 'rules-hash');
+      if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
+      const version = shortText(one(e.tags, 'v'), 'v');
+      const c = record(canonicalContent(e.content), 'content', [
+        'deckKey',
+        'pok',
+        'relays',
+        'session',
+        'sessionSig',
+      ]);
+      const deckKey = point(c.deckKey, 'deckKey');
+      const pok = pokOf(c.pok, 'pok');
+      const relays = relayList(c.relays, 'relays');
+      const session = hex64(c.session, 'session');
+      const sessionSig = c.sessionSig;
+      if (typeof sessionSig !== 'string' || !HEX128.test(sessionSig))
+        badContent('sessionSig: expected 128 lowercase hex characters');
+      if (!verifySession(sessionSig as Hex, session, address, e.pubkey))
+        badContent('sessionSig: not a signature by the session key over this table address and npub');
+      return {
+        id: e.id,
+        npub: e.pubkey,
+        tableAddress: address,
+        creator,
+        deckKey,
+        pok,
+        relays,
+        session,
+        sessionSig: sessionSig as Hex,
+        rulesHash: hash,
+        version,
+        proto,
+      };
+    },
+    null,
+  );
 }
 
 /** The Join's proof of knowledge of its deck key, over `[tableAddress, npub, session]`. */
@@ -497,7 +529,7 @@ export function rootTemplate(spec: RootSpec, createdAt: number): EventTemplate {
       ['rules-hash', rulesHash(spec.rules)],
       ...joins.map((j, i) => ['e', j.id, j.relays[0] ?? '', `seat:${i}`]),
       ...spec.relays.map((r) => ['relay', r]),
-      ['proto', PROTO],
+      ['proto', spec.proto ?? table.proto ?? '1'],
     ],
     content: canonicalJson({
       rules: spec.rules,
@@ -512,59 +544,97 @@ export function rootTemplate(spec: RootSpec, createdAt: number): EventTemplate {
  * against its table and Joins.
  */
 export function parseRoot(ev: unknown): ParsedRoot {
-  return parseEvent(ev, KIND.root, (e) => {
-    const tags = e.tags;
-    const address = one(tags, 'a');
-    addressOf(address);
-    const game = shortText(one(tags, 'game'), 'game');
-    const version = shortText(one(tags, 'v'), 'v');
-    const deadline = deadlineOf(one(tags, 'deadline'));
-    const hash = one(tags, 'rules-hash');
-    if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
-    const eTags = named(tags, 'e');
-    if (eTags.length === 0) badTag('expected one "e" tag per seat');
-    const joinIds: Hex[] = [];
-    eTags.forEach((tag, i) => {
-      const [, id, relay, marker] = tag;
-      if (tag.length !== 4 || !isHex64(id) || marker !== `seat:${i}`) {
-        badTag(`"e" tag ${i} must be ["e", <join id>, <relay>, "seat:${i}"]`);
-      }
-      if (relay !== '' && !isRelayUrl(relay)) badTag(`"e" tag ${i} has a bad relay hint`);
-      if (joinIds.includes(id as Hex)) badTag(`join ${id} is listed twice`);
-      joinIds.push(id as Hex);
-    });
-    const relays = relayTags(tags);
-    const c = record(canonicalContent(e.content), 'content', ['rules', 'seats']);
-    const rawSeats = list(c.seats, 'seats');
-    if (rawSeats.length !== joinIds.length)
-      badContent(`${rawSeats.length} seats but ${joinIds.length} "e" tags`);
-    const seats = rawSeats.map((s, i): RootSeat => {
-      const seat = record(s, `seats[${i}]`, ['deckKey', 'npub', 'session']);
+  return parseEvent(
+    ev,
+    KIND.root,
+    (e, proto) => {
+      const tags = e.tags;
+      const address = one(tags, 'a');
+      addressOf(address);
+      const game = shortText(one(tags, 'game'), 'game');
+      const version = shortText(one(tags, 'v'), 'v');
+      const deadline = deadlineOf(one(tags, 'deadline'));
+      const hash = one(tags, 'rules-hash');
+      if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
+      const eTags = named(tags, 'e');
+      if (eTags.length === 0) badTag('expected one "e" tag per seat');
+      const joinIds: Hex[] = [];
+      eTags.forEach((tag, i) => {
+        const [, id, relay, marker] = tag;
+        if (tag.length !== 4 || !isHex64(id) || marker !== `seat:${i}`) {
+          badTag(`"e" tag ${i} must be ["e", <join id>, <relay>, "seat:${i}"]`);
+        }
+        if (relay !== '' && !isRelayUrl(relay)) badTag(`"e" tag ${i} has a bad relay hint`);
+        if (joinIds.includes(id as Hex)) badTag(`join ${id} is listed twice`);
+        joinIds.push(id as Hex);
+      });
+      const relays = relayTags(tags);
+      const c = record(canonicalContent(e.content), 'content', ['rules', 'seats']);
+      const rawSeats = list(c.seats, 'seats');
+      if (rawSeats.length !== joinIds.length)
+        badContent(`${rawSeats.length} seats but ${joinIds.length} "e" tags`);
+      const seats = rawSeats.map((s, i): RootSeat => {
+        const seat = record(s, `seats[${i}]`, ['deckKey', 'npub', 'session']);
+        return {
+          deckKey: point(seat.deckKey, `seats[${i}].deckKey`),
+          npub: hex64(seat.npub, `seats[${i}].npub`),
+          session: hex64(seat.session, `seats[${i}].session`),
+        };
+      });
       return {
-        deckKey: point(seat.deckKey, `seats[${i}].deckKey`),
-        npub: hex64(seat.npub, `seats[${i}].npub`),
-        session: hex64(seat.session, `seats[${i}].session`),
+        id: e.id,
+        creator: e.pubkey,
+        tableAddress: address,
+        game,
+        version,
+        deadline,
+        rulesHash: hash,
+        joinIds,
+        relays,
+        rules: c.rules,
+        seats,
+        proto,
       };
-    });
-    return {
-      id: e.id,
-      creator: e.pubkey,
-      tableAddress: address,
-      game,
-      version,
-      deadline,
-      rulesHash: hash,
-      joinIds,
-      relays,
-      rules: c.rules,
-      seats,
-    };
-  });
+    },
+    null,
+  );
+}
+
+/**
+ * Every reason no module in `modules` can play `table` (PROTOCOL-v2 §2 item 6, §10), as short sentences; empty means
+ * playable: a module for its (game, version) (`moduleFor`), which supports its proto, accepts its rules, and seats
+ * its seat count. A client lists or joins only such a table. Never throws.
+ */
+export function validateTable(
+  table: ParsedTable,
+  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
+  modules: ReadonlyMap<string, GameModule<any, any, any>>,
+): string[] {
+  const problems: string[] = [];
+  try {
+    const proto = table.proto ?? '1';
+    const module = moduleFor(modules, table.game, table.version);
+    if (module === undefined) return [`there is no module for game ${table.game} ${table.version}`];
+    if (!moduleProtocols(module).includes(Number(proto) as 1 | 2))
+      problems.push(`${table.game} ${table.version} does not support proto ${proto}`);
+    const rules = module.validateRules(table.rules);
+    if (!rules.ok) problems.push(`rules rejected by the module: ${rules.error.message}`);
+    else {
+      const { min, max } = module.seatRange(rules.value);
+      if (table.seats < min || table.seats > max)
+        problems.push(`${table.seats} seats are outside the module's seat range ${min} to ${max}`);
+    }
+  } catch (e) {
+    problems.push(`the table could not be validated: ${reason(e)}`);
+  }
+  return problems;
 }
 
 /**
  * Every reason `root` is not a valid start of the game at `table` (PROTOCOL §4.3), as short sentences; empty
- * means valid. `joinsById` holds the parsed Joins the client has seen; `modules` the rules modules by id.
+ * means valid. `joinsById` holds the parsed Joins the client has seen; `modules` the rules modules by id, older
+ * versions kept under `id@version` (`moduleFor`). The root, its table and every seat's Join must carry one proto,
+ * and the module version must support it (PROTOCOL-v2 §2 items 2 and 6); an object without `proto` is proto 1.
  * Never throws.
  */
 export function validateRoot(
@@ -584,6 +654,8 @@ export function validateRoot(
       add(`version ${root.version} differs from the table's ${table.version}`);
     if (root.deadline !== table.deadline)
       add(`deadline ${root.deadline} differs from the table's ${table.deadline}`);
+    const proto = table.proto ?? '1';
+    if ((root.proto ?? '1') !== proto) add(`proto ${root.proto} differs from the table's ${proto}`);
 
     const n = root.seats.length;
     if (n !== table.seats) add(`the root has ${n} seats but the table has ${table.seats}`);
@@ -603,6 +675,7 @@ export function validateRoot(
         if (join.session !== seat.session) add(`seat ${i}: the session differs from its join`);
         if (join.rulesHash !== root.rulesHash) add(`seat ${i}: the join committed to other rules`);
         if (join.version !== root.version) add(`seat ${i}: the join committed to version ${join.version}`);
+        if ((join.proto ?? '1') !== proto) add(`seat ${i}: the join is for proto ${join.proto}`);
         if (!join.deckKey.equals(seat.deckKey)) add(`seat ${i}: the deck key differs from its join`);
         if (!verifyJoin(join)) add(`seat ${i}: the join's proof of knowledge does not verify`);
       } catch {
@@ -644,12 +717,14 @@ export function validateRoot(
 
     if (n > 0 && jointKey(root.seats.map((s) => s.deckKey)).is0()) add('the joint key is the identity');
 
-    const module = modules.get(root.game);
+    const module = moduleFor(modules, root.game, root.version) ?? modules.get(root.game);
     if (module === undefined) {
       add(`there is no module for game ${root.game}`);
     } else {
       if (module.version !== root.version)
         add(`version ${root.version} is not the module's version ${module.version}`);
+      else if (!moduleProtocols(module).includes(Number(proto) as 1 | 2))
+        add(`${root.game} ${root.version} does not support proto ${proto}`);
       const rules = module.validateRules(root.rules);
       if (!rules.ok) {
         add(`rules rejected by the module: ${rules.error.message}`);

@@ -556,6 +556,8 @@ export class GameSession {
     } catch (e) {
       throw new ClientError(`the table or root does not parse: ${message(e)}`);
     }
+    // v1 folds only proto-1 games, for good (PROTOCOL-v2 §2 item 2): a proto-2 root is GameSessionV2's.
+    if ((root.proto ?? '1') !== '1') throw new ClientError(`the root is proto ${root.proto}, not a v1 game`);
     const joins = new Map<Hex, ParsedJoin>();
     for (const ev of input.joins) {
       try {

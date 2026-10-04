@@ -6,7 +6,7 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, expect, it } from 'vitest';
 import { ProtocolError } from '../src/errors.ts';
-import { KIND, MAX_EVENT_BYTES } from '../src/kinds.ts';
+import { KIND, MAX_EVENT_BYTES, type Proto } from '../src/kinds.ts';
 import {
   joinTemplate,
   makeJoinPok,
@@ -24,6 +24,7 @@ import {
   tableAddress,
   tableTemplate,
   validateRoot,
+  validateTable,
   verifyJoin,
 } from '../src/lobby.ts';
 import { type EventTemplate, finalizeEvent, getPublicKey, type Hex, type NostrEvent } from '../src/nostr.ts';
@@ -125,6 +126,8 @@ interface JoinOpts {
   table?: ParsedTable;
   rulesHash?: Hex;
   version?: string;
+  /** The Join's proto; the table's (or `'1'`) when absent. */
+  proto?: Proto;
 }
 
 function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
@@ -142,6 +145,7 @@ function joinEvent(p: Player, o: JoinOpts = {}): NostrEvent {
     sessionSig: o.sessionSig ?? signSession(sessionSk, address, p.npub, rnd),
     rulesHash: o.rulesHash ?? rulesHash(o.table?.rules ?? RULES),
     version: o.version ?? o.table?.version ?? tableSpec.version,
+    proto: o.proto ?? o.table?.proto,
   };
   return sign(joinTemplate(spec, T0 + 10), p.sk);
 }
@@ -232,10 +236,18 @@ describe('tag helpers', () => {
     expect(codeOf(() => many(tags, 'long'))).toBe('bad-tag');
   });
 
-  it('requireProto accepts exactly one ["proto","1"]', () => {
-    expect(() => requireProto(tags)).not.toThrow();
+  it('requireProto accepts exactly one proto tag, "1" or "2" (or the expected one), and returns it', () => {
+    expect(requireProto(tags)).toBe('1');
+    expect(requireProto([['proto', '2']])).toBe('2');
+    expect(requireProto(tags, '1')).toBe('1');
     expect(codeOf(() => requireProto([]))).toBe('bad-proto');
-    expect(codeOf(() => requireProto([['proto', '2']]))).toBe('bad-proto');
+    expect(codeOf(() => requireProto([['proto', '3']]))).toBe('bad-proto');
+    expect(codeOf(() => requireProto([['proto', '2']], '1'))).toBe('bad-proto');
+    expect(codeOf(() => requireProto(tags, '2'))).toBe('bad-proto');
+    // A caller's bad expected value never admits it.
+    expect(codeOf(() => requireProto([['proto', '3']], '3' as never))).toBe('bad-proto');
+    // The expected form keeps v1's message.
+    expect(() => requireProto([['proto', '2']], '1')).toThrow('expected exactly one ["proto","1"] tag');
     expect(
       codeOf(() =>
         requireProto([
@@ -253,7 +265,7 @@ describe('tag helpers', () => {
 describe('round trips', () => {
   it('table: the template parses back to its spec, with the creator and address', () => {
     expect(tableEv.kind).toBe(KIND.table);
-    expect(table).toEqual({ ...tableSpec, creator: A.npub, address: ADDRESS });
+    expect(table).toEqual({ ...tableSpec, creator: A.npub, address: ADDRESS, proto: '1' });
     expect(ADDRESS).toBe(`37450:${A.npub}:friday-game.1`);
     expect(tableEv.content).toBe(canonicalJson({ rules: RULES }));
     expect(tableEv.tags).toContainEqual(['proto', '1']);
@@ -385,9 +397,15 @@ for (const c of parsers) {
       expect(codeOf(() => c.parse(re((t) => ({ tags: [...t.tags, ['proto', '1']] }))))).toBe('bad-proto');
       expect(
         codeOf(() =>
-          c.parse(re((t) => ({ tags: t.tags.map((x) => (x[0] === 'proto' ? ['proto', '2'] : x)) }))),
+          c.parse(re((t) => ({ tags: t.tags.map((x) => (x[0] === 'proto' ? ['proto', '3'] : x)) }))),
         ),
       ).toBe('bad-proto');
+    });
+
+    it('accepts proto "2" too, and reports the proto (PROTOCOL-v2 §2 item 3)', () => {
+      expect(c.parse(c.ev)).toMatchObject({ proto: '1' });
+      const v2 = re((t) => ({ tags: t.tags.map((x) => (x[0] === 'proto' ? ['proto', '2'] : x)) }));
+      expect(c.parse(v2)).toMatchObject({ proto: '2' });
     });
 
     for (const name of [...c.once, ...c.atLeastOnce]) {
@@ -1018,5 +1036,102 @@ describe('validateRoot', () => {
   it('never throws, even on a hostile join map', () => {
     const hostile = new Map<Hex, ParsedJoin>([[jA.id, null as unknown as ParsedJoin]]);
     expect(validateRoot(root, table, hostile, modules).length).toBeGreaterThan(0);
+  });
+});
+
+describe('protocol versions in the lobby (PROTOCOL-v2 §2, §10)', () => {
+  const table2 = parseTable(tableEvent({ proto: '2' }));
+  const j2 = (p: Player, o: JoinOpts = {}) => join(p, { table: table2, ...o });
+  const [kA, kB, kC] = [j2(A), j2(B), j2(C)];
+  const rootAt = (t: ParsedTable, joins: ParsedJoin[], proto?: Proto) =>
+    parseRoot(sign(rootTemplate({ table: t, joins, rules: RULES, relays: RELAYS, proto }, T0 + 100), A.sk));
+  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
+  type Registry = ReadonlyMap<string, GameModule<any, any, any>>;
+  const only = (protocols: readonly (1 | 2)[]): Registry =>
+    new Map([[chainReaction.id, { ...chainReaction, protocols }]]);
+
+  it("templates carry the table's proto: a proto-2 table, its Joins and root parse as proto 2", () => {
+    expect(table2.proto).toBe('2');
+    expect([kA, kB, kC].map((j) => j.proto)).toEqual(['2', '2', '2']);
+    expect(rootAt(table2, [kA, kB, kC]).proto).toBe('2');
+    expect(root.proto).toBe('1');
+  });
+
+  it("V2-02 (partial) validateRoot rejects a root or a Join whose proto differs from its table's", () => {
+    expect(validateRoot(rootAt(table2, [kA, kB, kC]), table2, byId(kA, kB, kC), modules)).toEqual([]);
+    expect(validateRoot(rootAt(table2, [kA, kB, kC], '1'), table2, byId(kA, kB, kC), modules)).toContainEqual(
+      "proto 1 differs from the table's 2",
+    );
+    expect(validateRoot(rootAt(table, [jA, jB, jC], '2'), table, byId(jA, jB, jC), modules)).toContainEqual(
+      "proto 2 differs from the table's 1",
+    );
+    const old = j2(C, { proto: '1' });
+    expect(validateRoot(rootAt(table2, [kA, kB, old]), table2, byId(kA, kB, old), modules)).toContainEqual(
+      'seat 2: the join is for proto 1',
+    );
+    const ahead = join(C, { proto: '2' });
+    expect(validateRoot(rootAt(table, [jA, jB, ahead]), table, byId(jA, jB, ahead), modules)).toContainEqual(
+      'seat 2: the join is for proto 2',
+    );
+    // An object without `proto` (a caller's hand-made v1 object) is proto 1.
+    const bare = <T extends { proto: Proto }>(o: T) => ({ ...o, proto: undefined }) as unknown as T;
+    expect(validateRoot(bare(root), bare(table), byId(...[jA, jB, jC].map(bare)), modules)).toEqual([]);
+  });
+
+  it('V2-05 (partial) validateRoot and validateTable reject a module version that does not support the proto', () => {
+    const r1 = root;
+    const r2 = rootAt(table2, [kA, kB, kC]);
+    const v1 = byId(jA, jB, jC);
+    const v2 = byId(kA, kB, kC);
+    expect(validateRoot(r1, table, v1, only([1]))).toEqual([]);
+    expect(validateRoot(r2, table2, v2, only([1]))).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 2`,
+    ]);
+    expect(validateRoot(r2, table2, v2, only([2]))).toEqual([]);
+    expect(validateRoot(r1, table, v1, only([2]))).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 1`,
+    ]);
+    // A module without `protocols` runs under protocol 1 only.
+    const bareModule = { ...chainReaction } as Record<string, unknown>;
+    delete bareModule.protocols;
+    const noList = new Map([[chainReaction.id, bareModule]]) as unknown as Registry;
+    expect(validateRoot(r1, table, v1, noList)).toEqual([]);
+    expect(validateRoot(r2, table2, v2, noList)).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 2`,
+    ]);
+
+    expect(validateTable(table, only([1]))).toEqual([]);
+    expect(validateTable(table2, only([1]))).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 2`,
+    ]);
+    expect(validateTable(table2, modules)).toEqual([]);
+    expect(validateTable(table, only([2]))).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 1`,
+    ]);
+    expect(validateTable(table, new Map())).toEqual([
+      `there is no module for game chain-reaction ${chainReaction.version}`,
+    ]);
+    expect(validateTable(parseTable(tableEvent({ seats: 9, open: 7 })), modules)).toEqual([
+      "9 seats are outside the module's seat range 3 to 6",
+    ]);
+  });
+
+  it('a version kept under `id@version` validates the games of that version, with its own protocols (D-B)', () => {
+    const newer = { ...chainReaction, version: '99.0.0', protocols: [2] as const };
+    const kept = (protocols: readonly (1 | 2)[]): Registry =>
+      new Map([
+        [chainReaction.id, newer],
+        [`${chainReaction.id}@${chainReaction.version}`, { ...chainReaction, protocols }],
+      ]);
+    expect(validateRoot(root, table, byId(jA, jB, jC), kept([1]))).toEqual([]);
+    expect(validateTable(table, kept([1]))).toEqual([]);
+    expect(validateRoot(rootAt(table2, [kA, kB, kC]), table2, byId(kA, kB, kC), kept([1]))).toEqual([
+      `chain-reaction ${chainReaction.version} does not support proto 2`,
+    ]);
+    // Without the kept version the v1 message stands: the module's current version is another.
+    const none: Registry = new Map([[chainReaction.id, newer]]);
+    expect(validateRoot(root, table, byId(jA, jB, jC), none)).toContainEqual(
+      `version ${chainReaction.version} is not the module's version 99.0.0`,
+    );
   });
 });

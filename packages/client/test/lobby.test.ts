@@ -546,3 +546,69 @@ describe('buildRootTemplate: an explicit seat list', () => {
     }
   });
 });
+
+describe('protocol versions in the lobby (PROTOCOL-v2 §2)', () => {
+  const v2Table = finalizeEvent(
+    tableTemplate(
+      {
+        tableId: 'lobby-table',
+        game: chainReaction.id,
+        version: chainReaction.version,
+        seats: 3,
+        deadline: 259200,
+        invited: [invited.npub],
+        open: 1,
+        relays: RELAYS,
+        status: 'open',
+        rules,
+        proto: '2',
+      },
+      T0,
+    ),
+    creator.sk,
+    rnd,
+  );
+  const parsed2 = parseTable(v2Table);
+  const join2 = (p: Player, at: number) =>
+    finalizeEvent(buildJoinTemplate(parsed2, p.npub, p.keys, RELAYS, rnd, at), p.sk, rnd);
+  const v2Joins = [join2(creator, T0 + 1), join2(invited, T0 + 2), join2(open1, T0 + 3)];
+  const v1Joins = [joinEv(creator, T0 + 1), joinEv(invited, T0 + 2), joinEv(open1, T0 + 3)];
+
+  it("V2-01, V2-02 (partial) Joins and roots carry the table's proto, and a Join of another proto is ignored", () => {
+    // One table address, two protos: each fold seats only the Joins of its own table's proto.
+    expect(parsed2.address).toBe(parsed.address);
+    expect(v2Joins.map((j) => j.tags.filter((t) => t[0] === 'proto'))).toEqual(
+      v2Joins.map(() => [['proto', '2']]),
+    );
+    const v2 = foldLobby(v2Table, [...v1Joins, ...v2Joins], MODULES);
+    expect(v2.full).toBe(true);
+    expect(v2.candidates.map((j) => j.proto)).toEqual(['2', '2', '2']);
+    const v1 = fold([...v1Joins, ...v2Joins]);
+    expect(v1.candidates.map((j) => j.proto)).toEqual(['1', '1', '1']);
+    expect(foldLobby(v2Table, v1Joins, MODULES).seatsFilled).toBe(0);
+
+    const root2 = finalizeEvent(buildRootTemplate(v2, RELAYS, T0 + 10), creator.sk, rnd);
+    expect(root2.tags.filter((t) => t[0] === 'proto')).toEqual([['proto', '2']]);
+    expect(
+      validateRoot(parseRoot(root2), v2.table, new Map(v2.joins.map((j) => [j.id, j])), MODULES),
+    ).toEqual([]);
+    expect(foldLobby(v2Table, [...v2Joins, root2], MODULES).root?.id).toBe(root2.id);
+    // A v1 table's fold never takes the v2 root.
+    expect(fold([...v1Joins, root2]).root).toBeNull();
+  });
+
+  it('the v1 session refuses a proto-2 root: v1 folds only proto-1 games', () => {
+    const v2 = foldLobby(v2Table, v2Joins, MODULES);
+    const root2 = finalizeEvent(buildRootTemplate(v2, RELAYS, T0 + 10), creator.sk, rnd);
+    expect(() =>
+      GameSession.create({
+        modules: MODULES,
+        table: v2Table,
+        joins: v2Joins,
+        root: root2,
+        me: null,
+        rootSeenAt: T0 + 10,
+      }),
+    ).toThrow(new ClientError('the root is proto 2, not a v1 game'));
+  });
+});

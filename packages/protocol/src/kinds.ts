@@ -9,10 +9,18 @@ export const KIND = {
   reveal: 7455,
   attest: 7456,
   resign: 7457,
+  /** The Device note, protocol 2 only (PROTOCOL-v2 §4.4). */
+  device: 7458,
 } as const;
 
-/** Protocol version, carried as `["proto","1"]` on every game event. */
+/** Protocol version 1, carried as `["proto","1"]` on every event of a v1 game; the default of every v1 caller. */
 export const PROTO = '1';
+
+/** A protocol version as the `proto` tag carries it (PROTOCOL-v2 §2). */
+export type Proto = '1' | '2';
+
+/** Every protocol version this client accepts (PROTOCOL-v2 §2 item 3). */
+export const PROTOS: readonly Proto[] = ['1', '2'];
 
 /** Allowed move deadlines in seconds: one day, three days (the default) and one week (D020). */
 export const DEADLINES = [86400, 259200, 604800] as const;

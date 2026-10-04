@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createRng } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { ProtocolError } from '../src/errors.ts';
-import { DEADLINES, DEFAULT_DEADLINE, KIND, MAX_EVENT_BYTES, PROTO } from '../src/kinds.ts';
+import { DEADLINES, DEFAULT_DEADLINE, KIND, MAX_EVENT_BYTES, PROTO, PROTOS } from '../src/kinds.ts';
 import {
   type EventTemplate,
   eventBytes,
@@ -259,8 +259,10 @@ describe('helpers and constants', () => {
       reveal: 7455,
       attest: 7456,
       resign: 7457,
+      device: 7458,
     });
     expect(PROTO).toBe('1');
+    expect(PROTOS).toEqual(['1', '2']);
     expect(DEADLINES).toEqual([86400, 259200, 604800]);
     expect(DEFAULT_DEADLINE).toBe(259200);
     expect(DEADLINES).toContain(DEFAULT_DEADLINE);

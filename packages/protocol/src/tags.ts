@@ -1,5 +1,5 @@
 import { ProtocolError } from './errors.ts';
-import { PROTO } from './kinds.ts';
+import { PROTOS, type Proto } from './kinds.ts';
 
 /*
  * Strict tag helpers. A protocol tag has exactly the items PROTOCOL §4 lists: `one` and `many` read
@@ -28,13 +28,27 @@ export function many(tags: readonly (readonly string[])[], name: string): string
   return named(tags, name).map((tag) => pairValue(tag, name));
 }
 
-/** Exactly one `["proto", "1"]` tag. Throws `bad-proto` otherwise. */
-export function requireProto(tags: readonly (readonly string[])[]): void {
+/**
+ * The one `["proto", <version>]` tag, returned. With `expected` (an in-game parser: the game's proto), the value
+ * must be `expected`; without it (a lobby parser), any of `PROTOS`. Throws `bad-proto` on a missing, repeated or
+ * malformed tag and on any other value (PROTOCOL-v2 §2). With `expected` the message is v1's, naming that value.
+ */
+export function requireProto(tags: readonly (readonly string[])[], expected?: Proto): Proto {
   const found = named(tags, 'proto');
   const tag = found[0];
-  if (found.length !== 1 || tag === undefined || tag.length !== 2 || tag[1] !== PROTO) {
-    throw new ProtocolError('bad-proto', `expected exactly one ["proto","${PROTO}"] tag`);
+  const value = tag?.[1];
+  const ok =
+    found.length === 1 &&
+    tag !== undefined &&
+    tag.length === 2 &&
+    (PROTOS as readonly unknown[]).includes(value) &&
+    (expected === undefined || value === expected);
+  if (!ok) {
+    const want =
+      expected === undefined ? PROTOS.map((p) => `["proto","${p}"]`).join(' or ') : `["proto","${expected}"]`;
+    throw new ProtocolError('bad-proto', `expected exactly one ${want} tag`);
   }
+  return value as Proto;
 }
 
 function pairValue(tag: string[], name: string): string {
