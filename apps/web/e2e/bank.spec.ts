@@ -48,7 +48,7 @@ const ACTIONS = ['Bank', 'Stay', 'Roll', 'Show the dice'] as const;
 async function enabledActions(page: Page): Promise<string[]> {
   return page.evaluate(
     (names) => {
-      const wanted = new Set(names);
+      const wanted = new Set<string>(names);
       return [...document.querySelectorAll('button')]
         .filter((el) => !el.disabled && wanted.has(el.textContent?.trim() ?? ''))
         .map((el) => el.textContent?.trim() ?? '');
