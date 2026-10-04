@@ -166,7 +166,7 @@ Everything in this section is a function of the events the client holds: no cloc
   - if C(h) holds **two or more** moves, the walk **ends at a fork at h** (§5.2);
   - if C(h) holds exactly one move and it is **valid** (it also passes the owed-shares rule, and a shuffle step's proof verifies), it is linked: the head becomes that move, and the walk continues;
   - otherwise (no move, or one that waits or is invalid), the walk **ends at h**: h is the client's head.
-- **The chain** is the walk's moves. Derived reveals and rolls are applied along it exactly as in v1 §6.3 and §6.2 here. The walk does not stop at a counted claim or a counted Resign: moves past them are linked, so that forks past them are found, but they are never scored (§5.5).
+- **The chain** is the walk's moves. Derived reveals (v1 §6.3) and derived rolls (§6.2) are applied along it as the fold reaches them. The walk does not stop at a counted claim or a counted Resign: moves past them are linked, so that forks past them are found, but they are never scored (§5.5).
 - **Holding a fork.** A client **holds a fork** exactly when its walk ends at a fork. Then it holds no head to play on.
 
 ### 5.2 Forks and the fork certificate
@@ -266,7 +266,7 @@ A module that rolls (§10) requests rolls with game actions; every seat contribu
   ```
   with `rootId` and `M` as 64 lowercase hex characters and `n` in decimal. A rival requesting move has another id, so another point.
 - **A contribution.** Seat k's contribution is `D = x_k·H(M, n)`, with the Chaum–Pedersen proof of v1 §5.4 for the ciphertext `(a, b) = (H(M, n), H(M, n))` and the context deck id `roll`, position `n`: `c = HS("dleq", rootId, "roll", n, X_k, H(M, n), D, T1, T2)`. The point binds M, so a proof for one requesting move fails for any other. The deck key was fixed at Join, so seat k has exactly one valid `D` per roll; proofs differ, `D` does not.
-- **Release.** A client publishes **one roll Shares event per requesting move** (§4.2: `move` M, a contribution for every roll index of M that its seat has not contributed, with `pos` = n), anchored on its head, when:
+- **Release.** A client publishes **one roll Shares event per requesting move** (§4.2: `move` M, a contribution for every roll index of M for which it holds no verified contribution by its seat, with `pos` = n), anchored on its head, when:
   - it holds no fork;
   - M is on its chain; and
   - the game has no result on this client.
@@ -325,9 +325,9 @@ A v2 client MAY publish its Secret reveal as soon as its result (or a stop, §7.
 ### 7.3 After a stop in a game with a deck
 The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigning seat's place:
 - every seat owes its Secret reveal, E included;
-- the event that made the client hold the fork is progress (v1 §8.1), and the deadline for the secrets runs from it. A claim against a missing secret is judged as at the end: the stalled seats are those whose secret is not in;
+- the event that made the client hold the fork is progress (v1 §8.1), and the deadline for the secrets runs from it. A claim against a missing secret names P as its head and is judged as at the end: the stalled seats are those whose secret is not in. Honest clients never end-attest such a claim (§7.1), so it is never a standing `claim` result;
 - once every secret is in, the partial audit replays the interleaved action log up to P (v1 §8.3), without comparing an outcome. The seats it fails forfeit and are placed just above E, who stays strictly last;
-- a deckless game has no Secret phase: the stop's outcome is final at once.
+- a deckless game has no Secret phase and no audit after a stop.
 
 **OPEN** (proposal §9, "press on": the stop's Secret phase and partial audit). This section is the default this specification takes; the owner or the next review may change it. Its rationale: it checks the hidden claims made before the fork with machinery that is already built and reviewed, and publishing every secret after a stop exposes only values of a game that has ended.
 
