@@ -7,13 +7,14 @@ const buttons = (t: ReturnType<typeof renderTree>) =>
   findAll(t, (el) => el.tag === 'button').map((b) => spokenText([b]));
 
 describe('the game screen’s key backup notices (D065)', () => {
-  it('says the keys are being restored, then that both devices can play', () => {
+  it('says the keys are being restored, then to play on one device at a time (review L5)', () => {
     const restoring = renderTree(RestoreNotice({ state: 'restoring', onRetry: () => {} }));
     expect(spokenText(restoring)).toBe('Restoring your game keys from your backup…');
     expect(buttons(restoring)).toEqual([]);
     const done = spokenText(renderTree(RestoreNotice({ state: 'restored', onRetry: () => {} })));
     expect(done).toBe(RESTORE_TEXT.restored);
-    expect(done).toContain('You can play on both devices');
+    expect(done).toContain('Play on one device at a time');
+    expect(done).not.toContain('both devices');
   });
 
   it('a failed restore tells the player what to do, with Try again', () => {

@@ -402,7 +402,7 @@ export function saveRestored(
 export const RESTORE_TEXT = {
   restoring: 'Restoring your game keys from your backup…',
   restored:
-    'Your game keys were restored from your backup, so you can play your seat here too. You can play on both devices: each checks the relays before it signs, and a turn saved on the other device but never sent is dropped once this one has played it.',
+    'Your game keys were restored from your backup, so you can play your seat here. Play on one device at a time: two devices acting at the same moment can sign two rival moves, which counts against your seat. A turn saved on the other device but never sent is dropped once this one has played it.',
   none: "You're watching this game: this browser does not hold your game keys for it, and no backup of them was found on its relays. Open the game on the device you joined with: when it opens the game it looks for its backup there and publishes it again if it is missing (with a browser extension, tap its backup button there). Then try again here.",
   incomplete:
     "You're watching this game: this browser does not hold your game keys for it, and your relays did not answer in time to find a backup. Try again, or open the game on the device you joined with.",
