@@ -7,7 +7,7 @@ import { startDevRelay } from '@bored-games/dev-relay';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ALREADY_MOVED, type GameController } from '../src/game-controller.ts';
-import { Harness, laggingOwn, outboxSlots, pause, type Profile, waitFor } from './net-harness.ts';
+import { Harness, laggingOwn, outboxSlots, type Profile, pause, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -56,7 +56,11 @@ describe('The check before signing (D059 item 2)', () => {
   it("queries the player's own relays too: a move held only there is found (D059 item 2, F2)", async () => {
     const own = await startDevRelay({ port: 0 });
     h.later(() => own.close());
-    const { rootId, address, bySeat } = await h.start2('chess', h.profile('a', { extra: [own.url] }), h.profile('b'));
+    const { rootId, address, bySeat } = await h.start2(
+      'chess',
+      h.profile('a', { extra: [own.url] }),
+      h.profile('b'),
+    );
     const [white] = bySeat;
     const wKey = await sessionKey(rootId, 0);
     // The phone's move reached only the player's own relay (the root's relay lost it, or never got it).
@@ -115,7 +119,8 @@ describe('Bank: two devices of one seat contribute to a roll once (audit-bank F3
     await roller.act(rollOf(roller));
     const rollId = roller.view.value?.head.id as string;
     // Both devices of the contributor build their share of the roll at once.
-    for (const g of [...games, t]) await waitFor('the roll resolved', () => (g.view.value?.head.seq ?? 0) >= 2);
+    for (const g of [...games, t])
+      await waitFor('the roll resolved', () => (g.view.value?.head.seq ?? 0) >= 2);
     const contributions = await movesOn(rollId, key);
     expect(contributions).toHaveLength(1);
     await pause(300);

@@ -476,7 +476,9 @@ export class GameController {
         if (this.#otherMine('resign', null)) throw new Error('you already resigned on another device');
         if (!session.canResign()) throw new Error('the game is no longer live');
         if (check === 'hold')
-          throw new Error('not every relay has answered yet, so it is not known whether you resigned elsewhere');
+          throw new Error(
+            'not every relay has answered yet, so it is not known whether you resigned elsewhere',
+          );
         saved = this.#live('resign');
       }
       this.#commit('resign', saved ?? session.buildResign(this.#d.rnd, this.#d.now()));
@@ -1452,6 +1454,7 @@ export class GameController {
    * signing (D059 item 2): `held` when not every live relay answered (tried again on the next tick), and nothing is
    * signed when the answer brought this seat's own event for the slot from another device (the session folded it).
    */
+  // biome-ignore lint/suspicious/noConfusingVoidType: every branch but a hold returns its commit's result.
   async #perform(session: GameSession, kind: Duty['kind']): Promise<'held' | void> {
     const head = session.view().head;
     const { rnd, now } = this.#d;

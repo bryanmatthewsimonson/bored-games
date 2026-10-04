@@ -38,7 +38,11 @@ export interface ShareVetInput {
 }
 
 /** Why a saved Shares event would reveal this seat's own private card, or null when it would not. */
-export function ownCardReason(positions: readonly number[], mySeat: number | null, dealt: readonly DealtLike[]) {
+export function ownCardReason(
+  positions: readonly number[],
+  mySeat: number | null,
+  dealt: readonly DealtLike[],
+) {
   if (mySeat === null) return null;
   const mine = new Set(dealt.filter((d) => d.to === mySeat).map((d) => d.pos));
   return positions.some((pos) => mine.has(pos)) ? 'it would reveal your own private card' : null;
@@ -55,7 +59,8 @@ export function shareVerdict(input: ShareVetInput): 'send' | string {
   const own = ownCardReason(positions, mySeat, dealt);
   if (own !== null) return own;
   const drawn = new Set(dealt.map((d) => d.pos));
-  if (positions.some((pos) => !drawn.has(pos))) return 'the game went another way, and that card is not drawn';
+  if (positions.some((pos) => !drawn.has(pos)))
+    return 'the game went another way, and that card is not drawn';
   if (input.owed !== null) {
     const owed = new Set(input.owed);
     if (positions.some((pos) => !owed.has(pos))) return 'that card reveal is no longer owed';

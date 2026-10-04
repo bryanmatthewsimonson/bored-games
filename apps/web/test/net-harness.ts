@@ -120,7 +120,10 @@ export class Harness {
     const rootId = await la.start(address);
     await waitFor('the root', () => lb.table(address).value?.root?.id === rootId);
     const seats = la.table(address).value?.root?.seats.map((s) => s.npub) ?? [];
-    const bySeat = seats.map((npub) => [a, b].find((p) => p.deps.signer.pubkey === npub)) as [Profile, Profile];
+    const bySeat = seats.map((npub) => [a, b].find((p) => p.deps.signer.pubkey === npub)) as [
+      Profile,
+      Profile,
+    ];
     return { rootId, address, bySeat };
   }
 
@@ -142,7 +145,11 @@ export class Harness {
   }
 }
 
-export async function waitFor<T>(what: string, get: () => T | null | undefined | false, ms = 60_000): Promise<T> {
+export async function waitFor<T>(
+  what: string,
+  get: () => T | null | undefined | false,
+  ms = 60_000,
+): Promise<T> {
   const until = Date.now() + ms;
   for (;;) {
     const v = get();
