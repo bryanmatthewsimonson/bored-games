@@ -174,6 +174,7 @@ Everything in this section is a function of the events the client holds: no cloc
 - **The fork certificate** is a pair of distinct Move events with the same `prev` P, the same `seq` and the same signer E, both valid-looking at P, with P on the walk. It is self-proving: anyone who holds the game's events up to P, and the shares the two moves' validity depends on, can check it by folding to P. Shuffle steps need only be well-formed.
 - **A rival that becomes valid-looking later** (its reveal shares arrive late, proposal R4) makes the fork when it becomes valid-looking, and not before.
 - A fork never flags E for later: it either **stops** the game at P (§5.5) or, if a result stands (§5.4), only **records** E. E is recorded in both cases, by the certificate.
+- **Every equivocator is recorded** (review M1). A seat F is an **equivocator** when the client holds two distinct Moves signed by F with the same `prev` Q and the same `seq`, both valid-looking at Q (both well-formed, for shuffle steps), where Q is the root or a held move whose line is valid. Q **need not be on the walk**: such a pair is a certificate against F wherever it lies. The topmost fork on the walk still fixes P and E (who is always an equivocator). Without this, a colluder's later fork higher up would move the topmost fork above a lower equivocator's, and erase that seat's record and rated loss (and let the coalition choose the position the standings are taken at).
 
 ### 5.3 Results and their identity
 A **result** is a natural end, a counted Timeout claim or a counted Resign. A cancelled game (a claim or Resign before the first game action, v1 §8.2, §8.3) has no result. **A result's identity is (kind, head, forfeiting seats)** (D059 item 7; proposal §5.1 rule 6, F4):
@@ -221,7 +222,8 @@ Only valid results are candidates (§5.3), and a valid result's head lies on the
 The stop ends the game at P. It is never resumed. Its outcome:
 - **Cancelled only if nothing was played** (review H1). The game is **cancelled** (no result, no attestation, no rating change; E is recorded) only when the client holds **no game action at or past P on any line**: no held Move that is a game action, whose line is valid and passes through P (it is at or past P, §5.1). The test is on what was played, not on where P is: a fork at the root or at an old shuffle step, signed after play began, is a stop scored as below, never a cancel. Otherwise E could escape a lost game at any time by signing a second move 1, or a second well-formed step on its old shuffle prev (whose proof need not verify).
 - **2 seats:** E is last and the other seat first. Scores are the module's `standings` at P; the reason is `stop`. The result is **rated**: a loss for E.
-- **3 or more seats:** E is **strictly last** and its last place is **rated**. The other seats are ranked by `standings` at P, ties sharing places; scores are the standings; the reason is `stop`. The result is **unrated for every seat other than E**, and E is recorded as the seat that ended it.
+- **3 or more seats:** E is **strictly last** (with any other equivocator, below) and its last place is **rated**. The other seats are ranked by `standings` at P, ties sharing places; scores are the standings; the reason is `stop`. The result is **unrated for every seat other than E**, and E is recorded as the seat that ended it.
+- **Every equivocator shares the last places** (review M1, §5.2). Every equivocator, E included, is placed below every other seat. Equivocators share one place, and each one's last place is rated. With 3 or more seats E stays the seat recorded as having ended the game. The other seats are ranked by `standings` at P, as above, and are unrated among themselves. With 2 seats, if both seats are equivocators they share the place, and the result is rated as a tie.
 - **P before play.** When the walk up to P holds no game action (P is the root, a shuffle step, or the head during the deal or before the first action) but the stop is not a cancel, `standings` at P are not used: every seat other than E shares first place, E is last, and every score is 0. The 2-seat and 3-or-more-seat rules above still decide what is rated.
 - **A game with a deck:** secrets and a partial audit up to P may follow; they never change the places except for a proven audit failure (§7.3).
 - **No time limit** (D059 item 3): a seat can cause a stop at any time while the game is live, as it can resign; after the end, only until the result stands (F1, accepted, D059 item 6).
@@ -348,9 +350,10 @@ A v2 client MAY publish its Secret reveal as soon as its result needs it, or onc
 - **A stop counts from its fork certificate, never from attestations** (there are none):
   - 2 seats: a rated loss for E and a rated win for the other seat;
   - 3 or more seats: E's rating moves as a last place against every other seat, and no other pair's rating moves;
+  - every other equivocator (§5.2) is rated like E, last against every non-equivocator, and the equivocators tie among themselves (review M1);
   - E is recorded as the seat that ended the game, for the anti-griefing count of v1 §7 step 4;
   - the stop counts as no completion and no win for the other seats.
-- **A result that stood against a fork** counts like any result. E is recorded for the fork, with no change to its place.
+- **A result that stood against a fork** counts like any result. E, and every other equivocator whose forks lie past the result's head, is recorded with no change to its place. (A fork on the result's path by a seat other than E keeps it from standing, by §5.4 (b).)
 - **A cancelled game** (a fork with no game action held at or past it, §5.6) counts for nothing; the seat that forked is recorded.
 
 ## 8. Timeouts and Resign (amends v1 §8)
@@ -478,6 +481,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-20** MUST give the same result as a function of the held events, whatever their arrival order, whenever a fork is held (§5.5).
 - **V2-21** MUST let a held fork override a counted claim or Resign that does not stand (§5.5).
 - **V2-22** MUST score a stop as §5.6 says: cancelled only when no game action is held at or past P on any line; 2 seats, E's rated loss; 3 or more seats, E strictly last and rated, the others by `standings` at P (all tied, scores 0, when P comes before play) and unrated.
+- **V2-50** MUST record as an equivocator every seat that signed two valid-looking moves (well-formed shuffle steps) with one `prev` and `seq`, on any held line with a valid line to that `prev`, and in a stop MUST place every equivocator in the shared last places, each rated last (§5.2, §5.6, §7.5).
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
 - **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
 
