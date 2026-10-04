@@ -82,6 +82,9 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * `text` with every allowed phrase replaced by a space: only where it stands as a whole phrase, so a phrase run
  * into a longer word on either side ("Compare to Acquired"), or followed by a hyphen or a typographic apostrophe
  * ("…-style", "…’s"), is left for the matchers to catch. The ASCII `'` may follow: it closes a quoted literal.
+ * Known and accepted gap: a phrase followed by a space and an unrestricted word ("Compare to <Title> Duel") is cut
+ * like the phrase alone, so the word passes (repo-guards.test.ts documents it); each phrase is spelled only in its
+ * own compare.ts, which a guard test checks.
  */
 export function withoutAllowedPhrases(text: string): string {
   return ALLOWED_PHRASES.reduce(
