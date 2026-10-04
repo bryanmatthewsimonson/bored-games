@@ -1,10 +1,10 @@
 /*
  * End to end: three players play a short Bank game through the UI, against the dev relay.
  *
- * a creates a 3-seat table of 5 rounds with table banking. b and c join. The roller rolls, the others show
- * the dice, and the first roll is on every screen. Later rounds open on Roll again. All three see the same
- * winner line, the result is signed, and the rules page says why Show the dice exists. 390px does not scroll
- * sideways.
+ * a creates a 3-seat table of 5 rounds with table banking. b and c join. The roller rolls, and the faces
+ * appear on every screen with no further tap. Later rounds open on Roll again. All three see the same
+ * winner line, the result is signed, and the rules page says the roll is the same for every player. 390px
+ * does not scroll sideways.
  *
  * Run it with `pnpm e2e bank.spec.ts`.
  */
@@ -42,7 +42,7 @@ async function noSideScroll(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 1000 });
 }
 
-const ACTIONS = ['Bank', 'Stay', 'Roll', 'Show the dice'] as const;
+const ACTIONS = ['Bank', 'Stay', 'Roll'] as const;
 
 /** Enabled action labels on one screen. A DOM read, so a disappearing button cannot stall the test. */
 async function enabledActions(page: Page): Promise<string[]> {
@@ -83,7 +83,7 @@ async function press(players: readonly Player[], name: string): Promise<void> {
   throw new Error(`nobody could press ${name}`);
 }
 
-test('three players play five rounds of Bank and read why the dice are shown', async ({ browser }) => {
+test('three players play five rounds of Bank and see one public roll', async ({ browser }) => {
   const a = await open(browser, 'a');
   const b = await open(browser, 'b');
   const c = await open(browser, 'c');
@@ -123,13 +123,17 @@ test('three players play five rounds of Bank and read why the dice are shown', a
   expect(opening).toEqual(['Roll']);
 
   await press(players, 'Roll');
-  await expect(a.page.getByText('The roll was fixed when the roller chose to roll.')).toBeVisible({
-    timeout: MOVE_MS,
-  });
-  await press(players, 'Show the dice');
-  await press(players, 'Show the dice');
 
-  await expect(a.page.getByTestId('bank-dice')).not.toHaveAttribute('data-faces', '', { timeout: MOVE_MS });
+  // The other windows publish their share of the same roll. No seat is asked to show the dice.
+  await expect
+    .poll(
+      async () => {
+        expect(await a.page.getByRole('button', { name: 'Show the dice' }).count()).toBe(0);
+        return (await a.page.getByTestId('bank-dice').getAttribute('data-faces')) ?? '';
+      },
+      { timeout: MOVE_MS },
+    )
+    .toMatch(/^[1-6],[1-6]$/);
   const faces = await a.page.getByTestId('bank-dice').getAttribute('data-faces');
   expect(faces).toMatch(/^[1-6],[1-6]$/);
   for (const p of players) {
@@ -147,7 +151,7 @@ test('three players play five rounds of Bank and read why the dice are shown', a
     if ((await a.page.getByTestId('bank-winner').count()) > 0) break;
     const before = await offered();
     let clicked = false;
-    for (const label of ['Bank', 'Roll', 'Show the dice'] as const) {
+    for (const label of ['Bank', 'Roll'] as const) {
       if (await clickNow(players, label)) {
         clicked = true;
         const until = Date.now() + 5_000;
@@ -175,7 +179,8 @@ test('three players play five rounds of Bank and read why the dice are shown', a
   await a.page.goto(`${appUrl('a')}#/rules/bank`);
   await expect(a.page.getByRole('heading', { name: 'How to play Bank' })).toBeVisible();
   await expect(a.page.getByRole('heading', { name: 'Playing on this site' })).toBeVisible();
-  await expect(a.page.getByText('The roll was fixed when the roller chose to roll.')).toBeVisible();
+  await expect(a.page.getByText('nothing to hide and no extra tap')).toBeVisible();
+  await expect(a.page.getByText('Show the dice')).toHaveCount(0);
   await noSideScroll(a.page);
 
   for (const p of players) await p.page.context().close();

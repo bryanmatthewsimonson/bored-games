@@ -8,8 +8,10 @@ import { deliver, makeModuleGame, NOW, newSession, statuses, T0, type TestGame }
 
 /*
  * The dice beacon (D058). Bank is deckless, so there is no shuffle and no deal. A roll and a contribution each
- * carry one share of the roll point. The session derives the faces once every seat has published; a player who
- * sends the faces is rejected. Chess stays on the deckless path and is covered in deckless.test.ts.
+ * carry one share of the roll point. The roller decides to roll. Each other seat's share is a beacon duty: the
+ * open app publishes it, and `legalActions()` is empty, because the roll is the same for every seat. The session
+ * derives the faces once every seat has published; a player who sends the faces is rejected. Chess stays on the
+ * deckless path and is covered in deckless.test.ts.
  */
 
 const roll = (seat: number, rollId: number) => ({ type: 'roll', actor: seat, rollId });
@@ -29,10 +31,12 @@ function table(seed: string, seats = 2): Table {
   return { game, players, spectator, all: [...players, spectator] };
 }
 
-/** Seat `seat` builds `action` and every session receives it. */
+/** Seat `seat` builds `action` and every session receives it. A contribution is the automatic beacon duty. */
 function play(t: Table, seat: number, action: unknown, now = NOW): NostrEvent {
   const s = t.players[seat] as GameSession;
-  const ev = s.buildAction(action, t.game.rnd, now);
+  const automatic =
+    typeof action === 'object' && action !== null && (action as { type?: unknown }).type === 'contribute';
+  const ev = automatic ? s.buildBeacon(t.game.rnd, now) : s.buildAction(action, t.game.rnd, now);
   const r = statuses(deliver(t.all, [ev], undefined, now));
   expect(r).toEqual(t.all.map(() => 'accepted'));
   return ev;
@@ -75,7 +79,12 @@ describe('a dice beacon session (Bank)', () => {
       expect(state.log.some((line) => line.kind === 'dice')).toBe(false);
       expect(s.view().pending).toEqual({ type: 'player', seat: 1, decision: 'contribute' });
     }
-    expect(t.players[1]?.legalActions()).toEqual([contribute(1, 0)]);
+    expect(t.players[1]?.duties()).toEqual([{ kind: 'beacon' }]);
+    expect(t.players[0]?.duties()).toEqual([]);
+    expect(t.players[1]?.legalActions()).toEqual([]);
+    expect(() => (t.players[1] as GameSession).buildAction(contribute(1, 0), t.game.rnd, NOW)).toThrow(
+      /no decide duty/,
+    );
 
     play(t, 1, contribute(1, 0));
     const first = diceOf(t.spectator);
@@ -172,8 +181,8 @@ describe('a dice beacon session (Bank)', () => {
     const t = table('beacon-fork');
     const rolled = play(t, 0, roll(0, 0));
     const seat = t.players[1] as GameSession;
-    const a = seat.buildAction(contribute(1, 0), t.game.rnd, NOW);
-    const b = seat.buildAction(contribute(1, 0), t.game.rnd, NOW + 1);
+    const a = seat.buildBeacon(t.game.rnd, NOW);
+    const b = seat.buildBeacon(t.game.rnd, NOW + 1);
     const late = newSession(t.game, null);
     expect(statuses(deliver(t.all, [a, b]))).toEqual([
       'accepted',

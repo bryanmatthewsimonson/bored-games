@@ -10,8 +10,9 @@ import {
   pendingLabels,
   pips,
   potWords,
-  SHOW_DICE,
+  roundLog,
   seatStatus,
+  statusLine,
   winnerLine,
 } from '../src/games/bank/model.ts';
 
@@ -46,7 +47,7 @@ function resolve(state: BankState, dice: readonly [number, number]): BankState {
 }
 
 describe('Bank screen model', () => {
-  it('labels Bank, Stay, Roll and Show the dice from the legal actions', () => {
+  it('labels Bank, Stay and Roll, and offers no button for a public roll', () => {
     const state = start();
     const pending = bank.pending(state);
     expect(pendingLabels(pending)).toEqual([BANK_THEME.decisions.roll]);
@@ -61,10 +62,17 @@ describe('Bank screen model', () => {
       'Roll',
     ]);
     const rolled = act(calling, { type: 'roll', actor: calling.roller, rollId: calling.nextRollId });
-    expect(decisionButtons(bank.legalActions(rolled, rolled.owe[0] ?? 0)).map((b) => b.label)).toEqual([
-      'Show the dice',
-    ]);
-    expect(SHOW_DICE).toContain('fixed when the roller chose to roll');
+    const contributor = rolled.owe[0] ?? 0;
+    const collecting = bank.pending(rolled);
+    expect(decisionButtons(bank.legalActions(rolled, contributor))).toEqual([]);
+    expect(pendingLabels(collecting)).toEqual([]);
+    expect(statusLine(rolled, ['Ada', 'Bea'], contributor, collecting, false)).toBe('Rolling the dice.');
+    expect(statusLine(rolled, ['Ada', 'Bea'], calling.roller, collecting, false)).toBe('Rolling the dice.');
+    expect(seatStatus(rolled, contributor, collecting)).toBe('In');
+    const names = ['Ada', 'Bea'];
+    const played = resolve(start(2), [1, 2]);
+    expect(roundLog(played, names).some((line) => line.includes('showed'))).toBe(false);
+    expect(roundLog(played, names).some((line) => line.includes('rolled'))).toBe(true);
   });
 
   it('says what the pot just did', () => {

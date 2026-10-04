@@ -4,7 +4,6 @@
 import { DEFAULT_RULES } from '@bored-games/bank';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
-import { SHOW_DICE } from '../src/games/bank/model.ts';
 import { BANK_RULES_SECTIONS, BankRulesContent } from '../src/games/bank/rules-page.tsx';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
@@ -25,12 +24,13 @@ describe('BankRulesContent', () => {
     }
   });
 
-  it('states the default rounds, the safe seven, the cap, and why Show the dice exists', () => {
+  it('states the default rounds, the safe seven, the cap, and that the dice are one public roll', () => {
     expect(text).toContain(`${DEFAULT_RULES.rounds} rounds`);
     expect(text).toContain('70');
     expect(text).toContain(`${DEFAULT_RULES.maxRollsPerRound} rolls`);
-    expect(text).toContain('Show the dice');
-    expect(text).toContain(SHOW_DICE);
+    expect(text).toContain('nothing to hide');
+    expect(text).toContain('no extra tap');
+    expect(text).not.toContain('Show the dice');
     expect(text).not.toContain('Compare to');
   });
 

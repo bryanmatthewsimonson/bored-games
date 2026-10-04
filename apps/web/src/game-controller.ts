@@ -3,8 +3,8 @@
  *
  * - It loads the root, the table and the Joins, builds the session for this player's seat (from the saved game
  *   secrets) or as a spectator, and folds in every game event from the relays.
- * - It performs this seat's automatic duties one at a time (shuffle, deal, secret, attest). Only `decide` waits
- *   for the player, through `act`.
+ * - It performs this seat's automatic duties one at a time (shuffle, deal, share, beacon, secret, attest). Only
+ *   `decide` waits for the player, through `act`. A beacon duty publishes this seat's share of a public dice roll.
  * - Every event it builds is saved to an outbox in storage before it is published. A duty whose event is already
  *   in the outbox reuses it: nothing is signed twice. A move is kept under the head it was built on, and one the
  *   session no longer accepts (an orphan, after the chain moved on) is never republished.
@@ -56,7 +56,7 @@ import {
 
 /**
  * - `syncing`: loading from the relays
- * - `working`: performing an automatic duty (shuffle, deal, secret, attest)
+ * - `working`: performing an automatic duty (shuffle, deal, share, beacon, secret, attest)
  * - `stuck`: an automatic duty failed at this head and is not retried until the game moves on
  * - `your-turn`: this seat's decision, with no move of its own already waiting at this head
  */
@@ -78,7 +78,7 @@ const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, 
 export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
-const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'secret', 'attest'];
+const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'beacon', 'secret', 'attest'];
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -1278,7 +1278,9 @@ export class GameController {
    * deal of this seat is out), whether or not a relay confirmed it: a seat never deals twice.
    */
   #blocked(kind: Duty['kind'], v: SessionView): boolean {
-    if (kind === 'shuffle') return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
+    if (kind === 'shuffle' || kind === 'beacon') {
+      return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
+    }
     if (kind === 'secret') return this.#secretHeld();
     if (kind !== 'deal') return false;
     if (this.#unvetted.has('deal')) return true;
@@ -1336,6 +1338,12 @@ export class GameController {
     if (kind === 'shuffle') {
       const slot = moveSlot(head.seq + 1, head.id);
       return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildShuffle(rnd, now()));
+    }
+    if (kind === 'beacon') {
+      // A public roll's share is a move on this head. Reusing the saved one is what keeps the seat from signing
+      // two contributions on one parent.
+      const slot = moveSlot(head.seq + 1, head.id);
+      return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildBeacon(rnd, now()));
     }
     // A secret or attestation the session refused (an orphan: a changed result) is built anew: a seat's secret is
     // one value, and its latest attestation is the one that counts. A deal is not (D056, review F7): a seat deals

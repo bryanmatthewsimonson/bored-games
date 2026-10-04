@@ -2678,6 +2678,9 @@ export class GameSession {
       const positions = this.sharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
     }
+    // A public dice roll is the same for every seat (D058). The open app publishes this seat's share. Card
+    // shares stay on `share`, and only when the module opts in (D050).
+    if (this.owesBeacon(me)) return [{ kind: 'beacon' }];
     if (this.decides(me)) return [{ kind: 'decide' }];
     if (live && this.phase === 'end' && this.hasDeck() && !this.secrets.has(me.seat))
       return [{ kind: 'secret' }];
@@ -2695,13 +2698,27 @@ export class GameSession {
   /**
    * Whether the play phase pends `me`'s decision and the module lists legal actions for it (D030 Ruling 4). A
    * module lists none while their legality depends on hidden cards this seat has not learned, so the list is
-   * exact whenever it is not empty.
+   * exact whenever it is not empty. A public dice contribution is not a decision: `owesBeacon` covers it.
    */
   private decides(me: Identity): boolean {
+    if (this.owesBeacon(me)) return false;
     if (this.phase !== 'play' || this.timedOut !== null || this.resignedBy !== null) return false;
     const p = this.module.pending(this.state);
     if (p.type !== 'player' || p.seat !== me.seat) return false;
     return this.module.legalActions(this.state, me.seat).length > 0;
+  }
+
+  /**
+   * This seat owes its share of the open public dice roll (D058). The faces are one result for every seat, so
+   * the share releases nothing another seat is hiding. A closed window still stalls this seat, and a timeout
+   * can be claimed against it.
+   */
+  private owesBeacon(me: Identity): boolean {
+    if (!this.usesBeacon() || this.phase !== 'play' || this.timedOut !== null || this.resignedBy !== null) {
+      return false;
+    }
+    const p = this.module.pending(this.state);
+    return p.type === 'player' && p.seat === me.seat && p.decision === 'contribute';
   }
 
   /** My legal actions when a decision is mine (`decide` duty); otherwise none. A fresh, frozen list. */
@@ -2801,6 +2818,18 @@ export class GameSession {
   }
 
   /**
+   * This seat's share of the open public roll. The module lists one legal contribution, and the share is the
+   * one the deck key already determines. Build it once per head: a second move on the same prev is equivocation.
+   */
+  buildBeacon(rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('beacon');
+    const legal = this.module.legalActions(this.state, me.seat);
+    const action = legal.length === 1 ? legal[0] : undefined;
+    if (action === undefined) throw new ClientError('no contribution is legal now');
+    return this.actionEvent(me, action, rnd, createdAt);
+  }
+
+  /**
    * My game-action move: `action` (one of `legalActions()`), every share I owe as of the head (R1) and my reveal
    * shares for the cards it shows (`revealsOf`), each sorted by position. Throws `ClientError` unless a decision
    * is mine and the action is legal. Build it once per decision: a second move on the same prev is equivocation.
@@ -2815,6 +2844,11 @@ export class GameSession {
     }
     const legal = this.module.legalActions(this.state, me.seat).find((a) => canonicalJson(a) === wanted);
     if (legal === undefined) throw new ClientError('the action is not legal now');
+    return this.actionEvent(me, legal, rnd, createdAt);
+  }
+
+  /** The signed move for `action`, with the shares that action owes. The caller has already checked the duty. */
+  private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
     let shares: PosShare[];
     let reveals: PosShare[];
     if (this.usesBeacon()) {

@@ -8,7 +8,6 @@ export const BANK_THEME = {
     bank: 'Bank',
     stay: 'Stay',
     roll: 'Roll',
-    contribute: 'Show the dice',
   },
   effects: {
     add: 'added',

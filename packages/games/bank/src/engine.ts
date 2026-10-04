@@ -34,8 +34,9 @@ function nobodyBanked(n: number): (number | null)[] {
 }
 
 /**
- * Seats still owing a contribution. The walk starts two seats after the roller and skips the roller, so it ends
- * on the seat after the roller. That seat publishes last and is the first who can learn the faces (D058).
+ * Seats still owing a contribution, in the order their open apps publish. The walk starts two seats after the
+ * roller and skips the roller, so it ends on the seat after the roller. That seat publishes last and is the
+ * first who can learn the faces (D058). A closed window can still withhold; that is a timeout.
  */
 export function contributeOrder(roller: number, seats: number): number[] {
   const out: number[] = [];
