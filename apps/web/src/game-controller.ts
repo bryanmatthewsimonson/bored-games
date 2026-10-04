@@ -49,6 +49,7 @@ import { ownCardReason, sharePositions, shareVerdict } from './share-vet.ts';
 import {
   type GameStatusName,
   loadSecrets,
+  type RevealCache,
   readJson,
   removeItem,
   saveGameStatus,
@@ -56,6 +57,7 @@ import {
   storageKey,
   writeJson,
 } from './storage.ts';
+import { type OwedReveal, owedReveal } from './waiting-model.ts';
 
 /**
  * - `syncing`: loading from the relays
@@ -247,6 +249,11 @@ export class GameController {
   /** The seats the game waits on at the head (`GameSession.waitingFor`, D057), ascending. */
   readonly waiting: Signal<readonly number[]> = signal([]);
   /**
+   * The card reveal the game waits on (D060): the seats that owe their share and when their deadline passes, or
+   * null. This seat counts as owing while a reveal it built has reached no relay yet.
+   */
+  readonly owed: Signal<OwedReveal | null> = signal(null);
+  /**
    * Set when this player holds a seat through the game keys saved in this browser, not the key in use (D057): the
    * seat, and the npub it joined with. That npub signs the Result attestation, which this browser then cannot send.
    */
@@ -339,7 +346,7 @@ export class GameController {
   #dutyQueued = false;
   #refreshQueued = false;
   /** The last status entry saved for Home, so it is written only on a change (or when it is getting old). */
-  #savedStatus: { status: GameStatusName; seq: number; at: number } | null = null;
+  #savedStatus: { status: GameStatusName; seq: number; at: number; reveal: string } | null = null;
   /** Automatic duties that failed at a head (`kind@headId`), not retried until the head moves. */
   readonly #failed = new Set<string>();
   readonly #stops: (() => void)[] = [];
@@ -1281,13 +1288,15 @@ export class GameController {
     this.view.value = v;
     const waiting = session.waitingFor();
     if (waiting.join() !== this.waiting.value.join()) this.waiting.value = waiting;
+    const owed = this.#owedNow(v, waiting);
+    if (JSON.stringify(owed) !== JSON.stringify(this.owed.value)) this.owed.value = owed;
     this.legal.value = this.#synced && !this.#ownMovePending(v) ? session.legalActions() : [];
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
     this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
-    this.#cacheStatus(v.head.seq, this.status.value, now);
+    this.#cacheStatus(v.head.seq, this.status.value, now, owed);
     this.#maybePrune(v, duties);
   }
 
@@ -1330,12 +1339,53 @@ export class GameController {
    * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it or the head changed, or the
    * saved entry is older than `STATUS_REFRESH_S`. Not while loading: `syncing` says nothing.
    */
-  #cacheStatus(seq: number, status: GameStatus, now: number): void {
+  #cacheStatus(seq: number, status: GameStatus, now: number, owed: OwedReveal | null): void {
     if (status === 'syncing' || this.#disposed) return;
+    const seats = this.seats.value;
+    const mySeat = this.view.value?.mySeat ?? null;
+    const reveal: RevealCache | undefined =
+      owed === null
+        ? undefined
+        : {
+            npubs: owed.seats.filter((k) => k !== mySeat).map((k) => seats[k] as string),
+            mine: mySeat !== null && owed.seats.includes(mySeat),
+            until: owed.until,
+          };
+    const key = JSON.stringify(reveal ?? null);
     const last = this.#savedStatus;
-    if (last?.status === status && last.seq === seq && now - last.at < STATUS_REFRESH_S) return;
-    if (saveGameStatus(this.#d.profile, this.#d.storage, this.rootId, { status, seq, updatedAt: now }))
-      this.#savedStatus = { status, seq, at: now };
+    if (
+      last?.status === status &&
+      last.seq === seq &&
+      last.reveal === key &&
+      now - last.at < STATUS_REFRESH_S
+    )
+      return;
+    const entry = { status, seq, updatedAt: now, ...(reveal === undefined ? {} : { reveal }) };
+    if (saveGameStatus(this.#d.profile, this.#d.storage, this.rootId, entry))
+      this.#savedStatus = { status, seq, at: now, reveal: key };
+  }
+
+  /**
+   * The card reveal the game waits on now (D060, `owedReveal`), with this seat added while a Shares event of its
+   * own prompt shares (`share:*`) has reached no relay: the other clients still wait for it.
+   */
+  #owedNow(v: SessionView, waiting: readonly number[]): OwedReveal | null {
+    const owed = owedReveal({
+      phase: v.phase,
+      pending: v.pending,
+      waiting,
+      pendingSince: v.pendingSince,
+      deadline: v.deadline,
+    });
+    const me = v.mySeat;
+    const undelivered = [...this.#outbox].some(
+      ([slot, e]) => slot.startsWith('share:') && !e.confirmed && !e.orphan,
+    );
+    if (me === null || !undelivered || v.phase !== 'play' || owed?.seats.includes(me)) return owed;
+    return {
+      seats: [...(owed?.seats ?? []), me].sort((a, b) => a - b),
+      until: owed?.until ?? v.pendingSince + v.deadline,
+    };
   }
 
   #statusOf(v: SessionView, duties: readonly Duty[]): GameStatus {

@@ -5,6 +5,7 @@
  */
 import type { Hex } from '@bored-games/protocol';
 import { decodeNostrKey, npubEncode, shortNpub } from './bech32.ts';
+import { formatDeadline, listNames } from './waiting-model.ts';
 
 /** The deadline choices of the New table form (PROTOCOL §4.1), in seconds. */
 export const DEADLINE_CHOICES: readonly { seconds: number; label: string }[] = [
@@ -181,6 +182,31 @@ export function cardGameStatus(
   if (status === 'done' || status === 'cancelled' || status === 'your-turn') return { status, check: false };
   if (now - cached.updatedAt > STATUS_FRESH_S) return { status: null, check: true };
   return { status, check: false };
+}
+
+/**
+ * What Home says about a card reveal the game waited on when its screen was last open (D060), or null:
+ * - this player's seat owes it: "Your app must be open: you owe a card reveal (2d 4h left)." however old the entry
+ *   (only this player's app can send it);
+ * - other seats owe it, while the entry is fresh (`STATUS_FRESH_S`): "Waiting for npub1… to reveal a card (2d 4h
+ *   left)."
+ */
+export function revealDetail(
+  cached: {
+    status: string;
+    updatedAt: number;
+    reveal?: { npubs: readonly string[]; mine: boolean; until: number };
+  } | null,
+  now: number,
+): string | null {
+  const r = cached?.reveal;
+  if (cached === null || r === undefined || cached.status === 'done' || cached.status === 'cancelled')
+    return null;
+  const left = formatDeadline(r.until - now);
+  if (r.mine) return `Your app must be open: you owe a card reveal (${left}).`;
+  if (now - cached.updatedAt > STATUS_FRESH_S || r.npubs.length === 0) return null;
+  const who = listNames(r.npubs.map((n) => shortNpub(npubEncode(n as Hex))));
+  return `Waiting for ${who} to reveal a card (${left}).`;
 }
 
 export type TableChip = 'open' | 'full' | 'started' | 'done' | 'cancelled';

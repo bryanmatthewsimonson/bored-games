@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { GameController } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import { MODULES } from '../src/net.ts';
-import { loadSecrets } from '../src/storage.ts';
+import { loadGameStatus, loadSecrets } from '../src/storage.ts';
 import { Harness, now, offlinePool, outboxSlots, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
@@ -89,6 +89,16 @@ describe('Luster: saved card reveals are vetted before they are published (D056,
     const slot = `share:${p}`;
     for (const dev of [t1Dev, t2Dev])
       await waitFor('the saved reveal', () => outboxSlots(dev, rootId).includes(slot), 60_000);
+    // Both seats owe that reveal now (D060): E has not sent its share, and T1's is saved but on no relay. The game
+    // screen and Home name them, with the deadline.
+    await waitFor('the owed reveal', () => t1.owed.value?.seats.length === 2);
+    expect(t1.owed.value?.until).toBe((t1.view.value?.pendingSince ?? 0) + 86400);
+    const cached = loadGameStatus(t1Dev.name, t1Dev.deps.storage, rootId);
+    expect(cached?.reveal).toEqual({
+      npubs: [root.seats[e]?.npub],
+      mine: true,
+      until: t1.owed.value?.until,
+    });
     t2.dispose();
 
     // B, with the lower id, arrives: fork choice moves to B, where p is not drawn.
