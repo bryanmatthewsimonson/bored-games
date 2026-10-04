@@ -186,6 +186,8 @@ A **result** is a natural end, a counted Timeout claim or a counted Resign. A ca
 | `resign` | the head the counted Resign names (its `head` tag) | the resigning seat |
 
 - The resign's head is the head it **names**, not its scoring position S, so every client that counts the same Resign gives it the same identity. Its scoring position is computed from that head (§8.3).
+  - **Safety argument.** Honest events on a side of a fork between H and the head where a client counted the Resign are "past H", so they do not block the result. But S stops at the first held fork past H (§8.3), so no move on either side of such a fork is scored, and every value granted there is post-end.
+  - **Not yet model-checked** (review M3). The model attests a resign at the head where it was counted, on or past H, which is the stricter variant. The model must be aligned before the build (PLAN, Phase v2 task 0).
 - With a single stalled seat a claim's identity is the approved (kind, head, seat). A claim can forfeit several seats (a pending public reveal, v1 §8.1), so the forfeiting seats are a list.
 - The audit is not part of a result (§7.2).
 
