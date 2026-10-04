@@ -192,7 +192,7 @@ A **result** is a natural end, a counted Timeout claim or a counted Resign. A ca
 - its head is the root or a held move whose line is valid; and
 - `over`: the forfeiting list is empty and the module is over at the head;
 - `claim`: the list is non-empty, the module is not over at the head, the line to the head holds a game action, and the client holds a Timeout claim (7454) naming that head, signed by a seat not in the list. No clock and no stall check: rule (a) below asks every seat but E, the forfeiting seats included, to have attested it;
-- `resign`: the list is one seat k, the client holds a valid Resign (v1 §4.9) by k naming the head, and it does not cancel (v1 §8.3: the line to its scoring position holds a game action at or after the first game action, or a game action by k).
+- `resign`: the list is one seat k, the client holds a valid Resign (v1 §4.9) by k naming the head, and it does not cancel (v1 §8.3): its head is at or after the first game action, or the line to its scoring position (§8.3) holds a game action by k.
 
 ### 5.4 The cutoff
 When the walk ends at a fork at P, signed by E, a result X **stands** against it when all three hold:
@@ -303,3 +303,265 @@ A module that rolls (§10) requests rolls with game actions; every seat contribu
 - **The timeout stays.** v1 §8.1's stall attribution is unchanged: while the module pends a public reveal, every seat missing a share of a listed position is stalled, and while it pends a beacon, every seat missing a contribution is (§6.2), whether or not it is that seat's turn. After the deadline a Timeout claim forfeits them.
 - **What that means for async play.** v1 §6.2's guarantee, "no seat is ever needed online outside its own turn", holds in v2 only for modules that pend no public reveal and no beacon during play (Chain Reaction, Chess). In Luster every refill, and in Bank every roll, waits for every seat's app, or for its player to come back within the deadline. The owner accepted this for Luster (D060) and for Bank's dice (D050, D060).
 - **The client MUST say so.** A client with a user interface MUST show, on the game screen and in its list of games (Home), which seats owe a reveal or a contribution, and when the deadline passes on this client's clock (D060).
+
+## 7. End of game, audit and attestations (amends v1 §7)
+
+### 7.1 End attestations (proposal §5.1 rule 6; D059 item 7)
+- **When.** A client MUST publish an end attestation (§4.3) of its result as soon as it has one (§5.5, no fork held): the module over on its chain, an accepted Timeout claim or a counted Resign. It MUST NOT publish one while it holds a fork, and MUST NOT attest a result it does not compute. It attests before the Secret phase and before any audit.
+- **Who.** Every seat, the forfeiting seats included: a timed-out seat's client attests its own timeout when it comes back, and a resigner's client its Resign. Every device that computes the result may attest it, except view-only devices in audit-`'none'` games (§9.5).
+- **How.** Signed by the session key, automatically, with no signer prompt. A client builds at most one end attestation per result identity, persists it before publishing, and rebroadcasts that same event (v1 §6.5, build once).
+- **Not attested:** a cancelled game, and a stop (§5.6).
+- **Counting.** For the cutoff every valid end attestation counts (§5.4 (a)). Unlike the stats attestation, there is no "latest per seat".
+
+### 7.2 The audit verdict, from the events (F4)
+The audit verdict is a function of the held events (the secrets, the claims and the log). It needs no attestation. It is computed on the game's result (§5.5), and it changes that result's places and scores (forfeits), never which result stands. A seat that fails the audit has already attested the end, so it cannot keep the result from standing by refusing to attest its own audit forfeit.
+- **`over`:** every seat owes its Secret reveal (v1 §7 step 1). Once every secret is in, the full audit runs (v1 §7 steps 2–3), and the seats it fails forfeit with the end adjustment (v1 §8.2). A withheld secret is claimed as in v1 §8.1 ("End"); such a claim names a head where the module is over, and is never a `claim` result (§5.3).
+- **`resign`:** the partial audit up to the scoring position S, as in v1 §8.3; the Secret phase as there.
+- **`claim` during play:** no audit, as in v1: the audit field records the forfeits with reason `timeout`.
+- **A stop:** §7.3.
+
+A v2 client MAY publish its Secret reveal as soon as its result (or a stop, §7.3) needs it: v1 §9's wait for a full view protected the freeze, which v2 does not have. Without fork choice no game goes on after a fork, so a published secret helps nobody play.
+
+### 7.3 After a stop in a game with a deck
+The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigning seat's place:
+- every seat owes its Secret reveal, E included;
+- the event that made the client hold the fork is progress (v1 §8.1), and the deadline for the secrets runs from it. A claim against a missing secret is judged as at the end: the stalled seats are those whose secret is not in;
+- once every secret is in, the partial audit replays the interleaved action log up to P (v1 §8.3), without comparing an outcome. The seats it fails forfeit and are placed just above E, who stays strictly last;
+- a deckless game has no Secret phase: the stop's outcome is final at once.
+
+**OPEN** (proposal §9, "press on": the stop's Secret phase and partial audit). This section is the default this specification takes; the owner or the next review may change it. Its rationale: it checks the hidden claims made before the fork with machinery that is already built and reviewed, and publishing every secret after a stop exposes only values of a game that has ended.
+
+### 7.4 The stats attestation (v1 §7 step 4, kept for stats only)
+- The v1 attestation `{audit, logHash, outcome}`, signed by the npub. A client SHOULD publish it once its result and audit verdict are final, as in v1. `logHash` covers the chain up to the result's scoring head: S for a Resign, the result's head otherwise.
+- A client keeps the latest per seat, as in v1, for display.
+- It plays **no part** in the cutoff.
+- It MUST NOT be published for a stop or a cancelled game.
+
+### 7.5 Stats and ratings (F5)
+- **A valid result** is the game's result (§5.5) with the audit verdict (§7.2). Anyone holding the events can recompute it.
+- **Ratings exclude unrated results**, as in v1 §7 (a Resign of 3 or more seats).
+- **A stop counts from its fork certificate, never from attestations** (there are none):
+  - 2 seats: a rated loss for E and a rated win for the other seat;
+  - 3 or more seats: E's rating moves as a last place against every other seat, and no other pair's rating moves;
+  - E is recorded as the seat that ended the game, for the anti-griefing count of v1 §7 step 4;
+  - the stop counts as no completion and no win for the other seats.
+- **A result that stood against a fork** counts like any result. E is recorded for the fork, with no change to its place.
+- **A cancelled game** counts for nothing; a seat that forked before the first game action is recorded.
+
+## 8. Timeouts and Resign (amends v1 §8)
+
+### 8.1 Timeout
+- **Stalled seats:** v1 §8.1, with these changes:
+  - while the client holds a fork, no seat is stalled in play; after a stop in a game with a deck, the seats whose secret is not in are (§7.3);
+  - a pending beacon stalls every seat without a contribution (§6.2);
+  - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled.
+- **Progress:** v1 §8.1, roll Shares events included.
+- **Accepting a claim:** v1 §8.1, and the client holds no fork, except for a withheld secret after a stop (§7.3).
+- **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
+
+### 8.2 Forfeits
+v1 §8.2 for timeouts and failed audits. Equivocation is no longer a forfeit at the end: a fork stops the game (E rated last, §5.6) or only records E (§5.4).
+
+### 8.3 Resign
+v1 §4.9 and §8.3, with these changes:
+- **It counts once its named head is on the client's chain** (the root or a move on its walk). v1's side-branch case is gone: a Resign naming a move on a side of a held fork is judged by the cutoff, where it is a valid `resign` result (§5.3) whether or not it counted.
+- **Finality:** as for a claim (§8.1): final while no fork is held.
+- **The scoring position S** is computed as in v1 §8.3 steps 2–3, starting from the named head H (step 1's H' is H), along **H's line forward**: from H, the client follows the unique valid successor while there is exactly one, and **stops at the first held fork past H**. Without a fork this is the chain, as in v1. With a fork past H, no move on either side of it is scored, so every value granted on a side is post-end. When a `resign` result stands against a fork at P above H (H on one side), S is computed along that side from H.
+- **The identity** of a resign result is (resign, H, k), and its end attestation names H with `logHash` of H's line (§4.3). Its stats attestation's `logHash` covers the line up to S, as in v1 §8.3 step 5.
+- Everything else in v1 §8.3 is unchanged: the 2-seat deck-game refusal and the module opt-out, the early secret, cancelling, the resigner strictly last, unrated with 3 or more seats, the partial audit.
+
+## 9. Devices and relays (amends v1 §9; proposal §5.1 rules 8 and 9; D059 item 2)
+
+### 9.1 Gossip (A3)
+- A client MUST rebroadcast **both moves of every fork it holds** (the fork certificate) to the root's relays and its own relays, as soon as it holds them.
+- It SHOULD rebroadcast every game event of the game it holds (Moves, Shares events, Timeout claims, Resigns, Secret reveals, end attestations) to the root's relays, for example once after each sync.
+- Rebroadcasting republishes the same signed event; it never re-signs (v1 §9).
+
+The design assumes (A3) that every event an honest client holds reaches every honest client within the game's deadline. Today's timeouts already assume it for moves.
+
+### 9.2 The outbox rule (MUST)
+A saved event that no relay has confirmed is republished only after the client's sync with every counted relay, as v1 §9 says ("Saved events that may be stale"), with the client's own relays counted (§9.4). Then:
+- **A Move** is published only if its `prev` is the client's current head, the client holds no other move by its seat on that `prev`, and the client holds no fork. It is **discarded** if another move by its seat on that `prev` is held, if its `prev` is on the chain below the head, or if its `prev` is held but not on the chain. It waits while its `prev` is not held, as in v1.
+- **A Shares event other than the deal** (a prompt release or a roll contribution) is published only if its anchor is on the client's chain (the head or below it), the client holds no fork and has no result, and:
+  - card variant: every position in it is still dealt to another seat or to `null` at the head's state, and the client holds no verified share by its seat for it;
+  - roll variant: its requesting move is on the chain.
+
+  Otherwise it is **discarded**. In particular a saved share of a position that is now dealt to its own seat is never published (the Luster audit's F3).
+- **The deal** is kept and never rebuilt, as in v1 §6.1 and §9.
+- **A Resign:** as in v1 §9.
+- **An end attestation** is published only while the client holds no fork and still computes that result; otherwise it is discarded.
+- **A Timeout claim, Secret reveal, stats attestation or Device note** is republished as in v1.
+
+A discarded event is removed from storage and logged (v1 §9). Without this rule, a tablet's move saved offline, after the human played that turn otherwise on a phone, would fork the honest seat weeks later: the game would stop as that seat's forfeit, or record it as an equivocator after the end (the model's `honest-forfeit` and `honest-flagged`; proposal §6.7).
+
+### 9.3 Check before signing (SHOULD)
+Before signing a Move, a Resign or a Timeout claim, a device SHOULD:
+1. fetch its seat's own events of this game from the root's relays and its own relays: authors its session key and its npub, `#e` the root, kinds 7452–7458;
+2. fetch the moves those events build on, and the claim or Resign each end attestation names;
+3. wait until every counted relay has answered (v1 §9's hold and its **Send anyway** after 10 minutes apply);
+4. fold all of it, then decide on what it holds. In particular:
+   - it never signs a move on a `prev` where its seat already has a move;
+   - it treats a Timeout claim signed by its own seat (another device), naming a head on its chain, as accepted;
+   - it adopts a claim or Resign result its own seat end-attested (from another device) as its own result.
+
+This keeps one seat's devices from ending on different results, and stops a human moving twice on one turn except within the seconds a move takes to reach the relays (residual, §11). The model finds it unnecessary for safety under the amended cutoff, but on thin evidence, so it stays a SHOULD (round-3 review).
+
+### 9.4 Own relays (F2)
+A device SHOULD also query, and publish to, relays of its player's own choosing (its configured or NIP-65 relays), not only the root's: before publishing a saved event (§9.2), before signing (§9.3), and when syncing. These relays count in v1 §9's sync as "the player's own relays". Reason: the root's relays are picked by its creator, who may be the opponent; an opponent who controls every root relay can hide one device's move from another, so that the outbox rule publishes a stale move (A6, proposal §9 residual 6).
+
+### 9.5 One playing device per seat, in audit-`'none'` games (D059 items 1 and 2)
+A module may declare audit `'none'` (§10; poker-like games, where cards are never all revealed). In such a game a seat MUST play from one device at a time. No current module declares it (GAME-SYSTEMS §4.1.7); this section is built with the first one.
+- **The playing device** of seat k is the device named by k's Device note (§4.4) with the highest `n`, when exactly one note has that `n`. With no note, it is the device that built the seat's Join (implicitly `n = 0`). When two or more notes share the highest `n`, no device of seat k plays until a note with a higher `n` exists.
+- **View-only devices.** Any other device of the seat is view-only: it shows the game and publishes no event of its seat except a Device note. A device that restored the seat's keys from the backup starts view-only.
+- **Handing over.** On an explicit human action ("Play on this device"), a device runs the check before signing (§9.3), with Device notes, then publishes a note with `n` one more than the highest it holds, naming its own device id, and plays from then on.
+- **Giving up.** A device that receives a higher note naming another device becomes view-only at once, and discards every saved event it has not published.
+- **Why.** In a game whose cards are never revealed, a seat's second device may play on a branch that a stop later voids, so a coalition would learn a card and the decisions made with it (proposal residual 1, the review's A1). With one playing device no honest player ever plays on a voided branch.
+- **Residuals.** Two handovers at once leave no playing device until a further note (a human acts again). The old device can sign a move in the seconds before the note reaches it.
+- In every other game devices are not restricted: the outbox rule and the check before signing apply (§9.2, §9.3).
+
+## 10. Requirements on rules modules (amends v1 §10)
+v1 §10 holds, with these changes:
+- **Protocol versions.** A module version declares which protocol versions it supports (for example a `protocols` list beside its version). A table or root for a version it does not support is rejected (§2 item 6).
+- **Rolls.** A module that rolls exposes `rolls(state)`, an append-only list of `{id, count, sides}` entries: `id` never reused, `count` and `sides` positive safe integers. Only applying a game action may append entries, never a derived reveal, a derived roll or a learn. After a game action that appends a roll, the module pends `{type:'beacon', id}` for it before any player decision that should not see it. The engine does not import `deck` or `dice`, and rejects a player-sent `{type:'rolled'}` (CLAUDE.md, D058). `beaconOf` is not used by v2 sessions.
+- **Partitioned decks.** Any module may set `partitions` (v1 §5.5). `promptShares` is ignored.
+- **Audit mode.** A module may declare `audit(rules)`: `'reveal'` (the default: every card is public at the end) or `'none'`. `'none'` requires §9.5.
+- **Unchanged:** one deck or none; deterministic dealing with hands assigned at setup; `pending` with public reveal requests; `learn`, `knownTo`, `view`, `outcome`; `standings` (now also scoring a stop, §5.6); `dealt`; `revealsOf`; round-robin liveness; `legalActions` exact or empty; `learn` commutes with every action; a game with public reveals during play needs a Resign rule for them before Resign is enabled (D052).
+
+## 11. Security considerations
+v1 §11 holds for everything that does not concern fork choice. In addition (proposal §9, round 3):
+1. **Values read on a stopped branch** (post-end). An equivocator or a coalition can read values released before its fork surfaced: its own draw, or a card that would have gone to another seat on the rival. The game stops at the fork as its forfeit, so nothing is played with them. With audit `'none'` and two devices an honest player's second device might have played on the voided branch; §9.5 removes that.
+2. **Coalitions of 3 or more seats.** A colluder that never attests keeps a finished game open to its partner's fork, and a coalition can void a colluder's counted timeout before it stands. The forker takes a rated last place and is recorded; the others are unrated.
+3. **Stops are unbounded in time** (accepted, D059 items 3 and 6). During play a seat can stop the game at any of its earlier turns, as it can resign. After the end, a lone equivocator can stop the game until every other seat has attested, which an absent player never does, and a timed-out seat (absent by definition) never attests its own timeout, so a counted timeout almost never stands (F1). Each stop costs the equivocator a rated last place and exposes nothing; with 2 seats nothing changes for the opponent.
+4. **Two devices.** The check before signing leaves a race of seconds. Shares and end attestations are automatic on every device, so a seat's second device acting on the other side of a fork keeps an attested result from standing (the stop is then E's forfeit). Two devices of one seat can also end on different results with no fork held (a claim or Resign race between them), as two clients can.
+5. **The claim and resign races** with no fork held (v1 §11), unchanged.
+6. **Assumptions.** A3 (gossip within the deadline, §9.1) and A6 (the relays a device queries return its own seat's events; at least one honest relay). When the opponent picks every root relay, A6 can fail; §9.4 mitigates it.
+7. **Unresolved anchors.** A Shares event or end attestation anchored on an event nobody holds counts as off every result's line (§5.4). Only a seat other than E can block a result that way, and an honest client anchors only on moves it holds and rebroadcasts (§9.1), so this is the same as a colluder withholding its attestation (item 2). The model does not include unresolved anchors.
+8. **Selective abort on dice.** Contributions are unordered (§6.2), so any seat, not only one fixed seat as in v1, can try to contribute last, see the faces first and withhold. Withholding is a timeout forfeit, and no seat can choose the faces.
+9. **Owed reveals and contributions out of turn** (§6.4): a seat whose app stays closed can be timed out in Luster and Bank when it is not its turn. Accepted by the owner (D060).
+10. **Denial of service.** v1 §11's bounds hold, with these changes. A shuffle fork needs only two well-formed steps, so no rival step's proof is verified (the candidate cap of v1 is gone). Junk game actions by the pending seat cost one validity check each, paid for with its own signed events, as in v1. The cutoff folds a side line only to judge a valid result on it, at most once per line and event set. Shares events, end attestations and Device notes are size-capped like every event (262,144 bytes); a client MAY drop duplicate end attestations of one identity by one seat, which never changes the cutoff.
+11. **Not a proof.** The model's limits (proposal §9 residual 7): small scopes, abstract crypto, one pending seat per prev, a draw/pass game, hash compaction, attestations delivered at once. D059 item 8 requires the unproven scopes to finish before the build.
+
+## 12. Conformance
+
+### 12.1 Requirements
+Each item is a testable requirement on a v2 client (session, protocol package or controller). "Reject" means the event is refused and changes nothing.
+
+**Versioning**
+- **V2-01** MUST put exactly one `["proto", "2"]` tag on every Table, Join, root and in-game event of a v2 game (§2).
+- **V2-02** MUST reject a Join, root or in-game event whose proto differs from its game's, and any proto value other than `"1"` or `"2"` (§2).
+- **V2-03** MUST fold a proto-1 game by v1 rules and a proto-2 game by v2 rules, selected by the root (§2).
+- **V2-04** MUST create new tables at proto 2 (§2).
+- **V2-05** MUST reject a Table or root whose (module, engine version) does not support its proto (§2, §10).
+
+**Parsers**
+- **V2-06** MUST reject a v2 Shares event without exactly one `root` and one `anchor` `e` tag (§4.2).
+- **V2-07** MUST reject a Shares event with an empty `shares`, non-ascending `pos`, a `type` other than `"shares"` or `"roll"`, or a key set that does not match its `type` (§4.2).
+- **V2-08** MUST reject a card variant in a deckless game and a roll variant in a game that does not roll (§4.2).
+- **V2-09** MUST reject an end attestation without a `head` tag, with keys other than `end`, with `forfeit` not strictly ascending, or with `forfeit` not matching `kind` (`over` empty, `resign` one seat, `claim` one or more) (§4.3).
+- **V2-10** MUST reject a stats attestation with a `head` tag, and one whose `endedBy.type` is `"fork"` (§4.3).
+- **V2-11** MUST accept an end attestation from a seat's session key or its npub, and count both for that seat (§4.3).
+- **V2-12** MUST ignore an end attestation whose `logHash` does not match the line to its head once that line is held (§4.3).
+- **V2-13** MUST reject a Device note whose `device` is not 32 lowercase hex characters or whose `n` is not an integer of at least 1 without leading zeros (§4.4).
+
+**The walk, forks and the cutoff**
+- **V2-14** MUST end the walk at a fork when a head has two or more valid-looking successors, and treat any two well-formed shuffle steps of one seat on one chain prev as a fork without verifying their proofs (§5.1, §5.2).
+- **V2-15** MUST NOT pick a branch at a fork: no move past the fork is ever scored, whatever its length, id or end (§5.2, §5.5).
+- **V2-16** MUST judge only the topmost fork on the walk (§5.2).
+- **V2-17** MUST compute result identities as §5.3 says, and judge validity without a clock (§5.3).
+- **V2-18** MUST let a result stand only when (a), (b) and (c) of §5.4 hold, counting every end attestation ever held and testing (b) globally over every held Move, Shares event and end attestation by a seat other than E (§5.4).
+- **V2-19** MUST NOT let events at or past a result's head block it, and MUST count an unresolved anchor as off the line (§5.4).
+- **V2-20** MUST give the same result as a function of the held events, whatever their arrival order, whenever a fork is held (§5.5).
+- **V2-21** MUST let a held fork override a counted claim or Resign that does not stand (§5.5).
+- **V2-22** MUST score a stop as §5.6 says: cancelled before the first game action; 2 seats, E's rated loss; 3 or more seats, E strictly last and rated, the others by `standings` at P and unrated.
+- **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
+- **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
+
+**Prompt release**
+- **V2-25** MUST NOT publish a card Shares event while it holds a fork, after its result, or before the final deck is complete (§6.1).
+- **V2-26** MUST NOT publish a share of a position dealt to its own seat, or of a position `dealt` does not list (§6.1).
+- **V2-27** MUST anchor every Shares event on its head at build time (§4.2, §6.1).
+- **V2-28** MUST still attach every owed, unheld share to its own game action (the slow path, §6.1).
+- **V2-29** SHOULD release owed card shares in one Shares event as soon as it links a move that grants positions (§6.1).
+
+**Dice**
+- **V2-30** MUST compute roll points as `H2C("roll:" + rootId + ":" + M + ":" + n)` with M the requesting move (§6.2).
+- **V2-31** MUST map the roll entries a game action appends to (M, 0) … (M, r−1) in list order (§6.2).
+- **V2-32** MUST verify each contribution with the context deck id `roll`, position n, against its requesting move's point, and keep one per (seat, M, n) (§6.2).
+- **V2-33** MUST reject a Move that carries a contribution, a player-sent `rolled` action, and any game action while a beacon is pending (§6.2).
+- **V2-34** MUST publish its own contribution only once the requesting move is on its chain, while it holds no fork and has no result; the requester's contribution comes after its own move (§6.2).
+- **V2-35** MUST derive faces from the seat-ordered seed with the module's `count` and `sides`, by `faces` (§6.2).
+- **V2-36** MUST treat every seat without a contribution to a pending roll as stalled (§6.2, §8.1).
+
+**Attestations, audit and stats**
+- **V2-37** MUST publish an end attestation of its result once it has one and holds no fork, signed by the session key, and MUST NOT publish one while it holds a fork or for a result it does not compute (§7.1).
+- **V2-38** MUST NOT publish an end attestation or a stats attestation for a stop or a cancelled game (§5.6, §7.4).
+- **V2-39** MUST compute the audit verdict from the events on the game's result and apply it to places and scores, never to which result stands (§7.2).
+- **V2-40** After a stop in a game with a deck, MUST run the Secret phase and the partial audit up to P (§7.3, OPEN default).
+- **V2-41** MUST count a stop in stats from its fork certificate (§7.5).
+
+**Timeouts and Resign**
+- **V2-42** MUST count a Resign only once its named head is on its chain (§8.3).
+- **V2-43** MUST compute a Resign's scoring position along its named head's line, stopping at the first held fork past it (§8.3).
+
+**Devices and relays**
+- **V2-44** MUST rebroadcast both moves of every fork it holds to the root's relays and its own (§9.1).
+- **V2-45** MUST apply the outbox rule to saved Moves, Shares events and end attestations (§9.2).
+- **V2-46** SHOULD run the check before signing before every Move, Resign and Timeout claim (§9.3).
+- **V2-47** SHOULD query and publish to the player's own relays besides the root's (§9.4).
+- **V2-48** In an audit-`'none'` game, a device that is not the seat's playing device MUST NOT publish any event of its seat except a Device note (§9.5).
+- **V2-49** A client with a user interface MUST show which seats owe a reveal or a contribution and when the deadline passes, on the game screen and in its list of games (§6.4).
+
+### 12.2 Test vectors to produce
+Each as a JSON file under the package that owns it, with every intermediate value, secrets included, and a test that reproduces it (as v1's `packages/deck/test/vectors/v1.json`):
+1. **Roll points** (`packages/deck`): rootId, requesting move id and n for n = 0, 1, 2, with `H(M, n)` as compressed points; per seat of a 3-seat game, the secret, the contribution `D`, its proof and the DLEQ transcript; the seed, and the faces for (2, 6) and one other (count, sides). Include two requesting moves on one prev, to show different points.
+2. **Partitioned shuffle** (`packages/deck`, a v1 gap, D060): a 2-seat, 2-group deal (for example groups of 5 and 3) with every step's group, seat, domain, input slice, output, proof transcript, the full packet after each step, one share per seat and position, and the decrypted cards. Conforming v1 clients must reproduce it too.
+3. **Parser vectors** (`packages/protocol`), accepted and rejected:
+   - Shares, card and roll variants, with anchors; rejections for a missing or doubled anchor, a third `e` tag, an empty list, descending `pos`, a wrong key set, a non-hex `move`;
+   - end attestations of each kind; rejections for a missing `head` tag, a mismatched `forfeit` and `kind`, an unsorted `forfeit`, extra keys;
+   - stats attestations, and the rejected `"type":"fork"` and stats-with-`head` cases;
+   - Device notes, and rejections for a bad `device` or `n`;
+   - proto: the same event with `"1"`, `"2"`, `"3"` and two proto tags, against v1 and v2 games.
+4. **Log hashes** for end attestations: the empty line (the root), a shuffle-only line, and a line through game actions.
+5. **Fold scenarios** (`packages/client`): event sets with the expected walk, fork, result or stop, and outcome, each also fed in several arrival orders:
+   - a 2-seat and a 3-seat stop during play, with the outcomes of §5.6;
+   - a shuffle fork (cancelled) and a deal-phase fork (cancelled);
+   - a standing `over` result after a later fork by a seat that attested nothing;
+   - the same, blocked by a share anchored on the rival side (the proposal's §6.7 "cutoff without the anchor clause" trace);
+   - the same, not blocked by events past the result's head;
+   - two devices and a resign (proposal §6.7, both traces), and two devices and a claim;
+   - a claim that does not stand overridden by a stop (A2), and a claim that stands;
+   - two valid attested results (rule (c): stop);
+   - a fork below another fork (the topmost decides);
+   - an unresolved anchor blocking a result;
+   - a Resign whose scoring position stops at a fork past its named head.
+6. **Prompt release scenarios:** the positions a seat releases after a Chain Reaction draw, a Luster refill and a Luster blind reservation; none while a fork is held; none of its own positions.
+7. **Dice scenarios:** a Bank roll with contributions arriving in every order, the requester's last; a rival Roll (a stop); two devices contributing the same `D` (not a fork).
+8. **Outbox scenarios:** a stale saved move discarded; a saved Shares event discarded once its position is dealt to its own seat; a saved end attestation discarded once a fork is held.
+9. **Model traces as session tests:** every regression trace of proposal §6.3, §6.4 and §6.7 that applies to `stop3`, replayed through `GameSession` with real events, with the model's verdict.
+
+## Appendix A. v1 sections and their v2 status
+
+| v1 section | v2 |
+|---|---|
+| §2, §3 | unchanged |
+| §4 parsing, field formats | unchanged, proto per §2 |
+| §4.1–§4.3 lobby events | unchanged, proto per §2 |
+| §4.4 Move | unchanged; no contribution in a Move (§6.2) |
+| §4.5 Shares | changed: anchor, roll variant (§4.2) |
+| §4.6, §4.7, §4.9 | unchanged |
+| §4.8 Result attestation | changed: end attestation added, stats attestation kept without `"fork"` (§4.3) |
+| — | new: Device note, kind 7458 (§4.4) |
+| §5.1–§5.4 | unchanged |
+| §5.5 partitioned decks | unchanged; any module (§6.3) |
+| §6.1, §6.2 | unchanged; prompt release added (§6.1) |
+| §6.2a Luster share duty | replaced by §6.1, §6.3 |
+| §6.3, §6.4 | unchanged |
+| §6.3a dice | replaced by §6.2 |
+| §6.5 | rule 1's fork choice replaced by the walk (§5.1); the rest unchanged |
+| §6.6 | replaced by §5 |
+| §7 | amended by §7 |
+| §8 | amended by §8 |
+| §9 | amended by §9 |
+| §10 | amended by §10 |
+| §11 | amended by §11 |
+| §12 | v2 is proto 2 (§2) |
