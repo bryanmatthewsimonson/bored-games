@@ -1,5 +1,5 @@
-import { createRng, type GameModule, type Rng } from '@bored-games/game-kit';
-import type { Hex, NostrEvent } from '@bored-games/protocol';
+import { canonicalJson, createRng, type GameModule, type Rng } from '@bored-games/game-kit';
+import { finalizeEvent, type Hex, moveTemplate, type NostrEvent } from '@bored-games/protocol';
 import { expect } from 'vitest';
 import type { Duty, Identity, ReceiveResult } from '../../src/types.ts';
 import { GameSessionV2 } from '../../src/v2/session.ts';
@@ -172,4 +172,53 @@ export function replay(t: V2Table, log: readonly NostrEvent[] = t.log, order?: r
   trustSteps(copy.all, log.filter(isStep));
   for (const i of order ?? log.map((_, j) => j)) send(copy, log[i] as NostrEvent);
   return copy;
+}
+
+/** A Move signed by `seat`'s session key on `prev` with `seq` and `content`, built by hand (no duty check). */
+export function signedMove(
+  t: V2Table,
+  seat: number,
+  prevId: Hex,
+  seq: number,
+  content: Parameters<typeof moveTemplate>[0]['content'],
+  at = NOW,
+): NostrEvent {
+  return finalizeEvent(
+    moveTemplate({ rootId: t.game.rootId, prevId, seq, content }, at, '2'),
+    (t.game.ids[seat] as Identity).sessionSk,
+    t.game.rnd,
+  );
+}
+
+/** A game-action Move by `seat` on `prev` (no shares or reveals), built by hand. */
+export const actionAt = (t: V2Table, seat: number, prevId: Hex, seq: number, action: unknown, at = NOW) =>
+  signedMove(t, seat, prevId, seq, { type: 'action', action, reveals: [], shares: [] }, at);
+
+/** Everything a session shows: every session's view, each player's duties, the spectator's waiting seats. */
+export const digest = (t: V2Table): string =>
+  canonicalJson({
+    views: t.all.map((s) => s.view()),
+    duties: t.players.map((s) => s.duties()),
+    waiting: t.spectator.waitingFor(),
+    held: t.spectator.heldSet(),
+  });
+
+/**
+ * Replays `log` into fresh tables in `count` shuffled orders (each with a few duplicates) and the given order, and
+ * expects the same digest from every one; returns the in-order table.
+ */
+export function inOrders(t: V2Table, log: readonly NostrEvent[], seed: string, count = 3): V2Table {
+  const reference = replay(t, log);
+  const want = digest(reference);
+  const rng = createRng(seed);
+  for (let n = 0; n < count; n++) {
+    const order = log.map((_, i) => i);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = rng.int(i + 1);
+      [order[i], order[j]] = [order[j] as number, order[i] as number];
+    }
+    for (let d = 0; d < 3; d++) order.splice(rng.int(order.length + 1), 0, rng.int(log.length));
+    expect(digest(replay(t, log, order)), `order ${n} of ${seed}`).toBe(want);
+  }
+  return reference;
 }
