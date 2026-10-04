@@ -5,11 +5,11 @@ import {
   type LusterState,
   lusterRules,
   TIER_DECKS,
+  workshop,
 } from '@bored-games/luster';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 import { LUSTER_POLICIES } from '../../../tools/fuzz/src/luster.ts';
-import { tokenText } from '../src/games/luster/model.ts';
 
 const url = (profile: string, from?: string) => {
   const u = new URL(from ?? process.env.E2E_BASE_URL ?? 'http://localhost:4173/');
@@ -18,6 +18,7 @@ const url = (profile: string, from?: string) => {
   return u.toString();
 };
 const board = (page: Page) => page.getByTestId('luster-game');
+const goldPaymentsChecked = new Set<number>();
 async function open(browser: Browser, profile: string, from?: string) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   const page = await context.newPage();
@@ -37,15 +38,11 @@ async function stateOf(page: Page, seat: number): Promise<LusterState> {
         card: h.dataset.card === 'hidden' ? null : Number(h.dataset.card),
         private: h.dataset.private === 'true',
       }));
-    const counts = (parent: Element | null) =>
-      Array.from(parent?.querySelectorAll<HTMLElement>(':scope > .luster-counts > .luster-light') ?? []).map(
-        (e) => Number(e.dataset.count),
-      );
     const players = Array.from(root.querySelectorAll<HTMLElement>('.luster-players > section')).map((p) => ({
       tokens: p.dataset.tokens?.split(',').map(Number) ?? [],
       bought: slots(p.querySelector('details')),
       reserved: slots(p.querySelector(':scope > .luster-reservations')),
-      patrons: [] as number[],
+      patrons: p.dataset.patrons?.split(',').filter(Boolean).map(Number) ?? [],
     }));
     const market = ['tier-1', 'tier-2', 'tier-3'].map((deck) =>
       Array.from(root.querySelectorAll<HTMLElement>(`.luster-market .luster-card[data-deck="${deck}"]`)).map(
@@ -60,7 +57,7 @@ async function stateOf(page: Page, seat: number): Promise<LusterState> {
       players,
       market,
       patrons,
-      supply: counts(root.querySelector('section.luster-panel')),
+      supply: root.querySelector<HTMLElement>('.luster-bank')?.dataset.supply?.split(',').map(Number) ?? [],
       turn: Number((root as HTMLElement).dataset.turn),
       startingSeat: Number((root as HTMLElement).dataset.startingSeat),
       phase: (root as HTMLElement).dataset.phase as LusterState['phase'],
@@ -82,29 +79,58 @@ async function act(page: Page, a: LusterAction) {
   if (a.type === 'take' || a.type === 'return') {
     const label = a.type === 'take' ? 'Take' : 'Return';
     for (let i = 0; i < (a.type === 'take' ? 5 : 6); i++)
-      await page.getByLabel(`${label} ${LUSTER_THEME.colors[i]}`, { exact: true }).fill(String(a.tokens[i]));
+      for (let n = 0; n < (a.tokens[i] ?? 0); n++)
+        await page.getByRole('button', { name: `${label} ${LUSTER_THEME.colors[i]}`, exact: true }).click();
     await page
       .getByRole('button', {
-        name: a.type === 'take' ? 'Gather selected light' : 'Return selected light',
+        name: a.type === 'take' ? 'Take gems' : 'Return gems',
         exact: true,
       })
       .click();
   } else if (a.type === 'reserve') {
     const visible = page.locator(`.luster-market [data-deck="${a.deck}"][data-pos="${a.pos}"]`);
-    if (await visible.count()) await visible.getByRole('button', { name: 'Reserve', exact: true }).click();
+    if (await visible.count()) await visible.getByRole('button').click();
     else
       await page
         .getByRole('button', { name: `Reserve blind tier ${TIER_DECKS.indexOf(a.deck) + 1}`, exact: true })
         .click();
+    await page.getByRole('button', { name: /^Reserve card/ }).click();
   } else if (a.type === 'buy') {
     await page
       .locator(`.luster-card[data-deck="${a.deck}"][data-pos="${a.pos}"]`)
-      .getByRole('button', { name: 'Purchase', exact: true })
+      .getByRole('button', { name: /^Select / })
       .click();
-    await page.getByLabel('Choose payment').selectOption({
-      label: a.pay.every((n) => n === 0) ? 'Free — use workshop discounts' : tokenText(a.pay),
-    });
-    await page.getByRole('button', { name: 'Confirm purchase', exact: true }).click();
+    const seats = await page.locator('.luster-players > section').count();
+    const swap = page.locator('.luster-payment-row button:enabled[aria-label^="Use gold instead"]');
+    if (!goldPaymentsChecked.has(seats) && (await swap.count())) {
+      const paymentBefore = await page.locator('[data-payment]').getAttribute('data-payment');
+      const label = await swap.first().getAttribute('aria-label');
+      await swap.first().click();
+      await expect(page.locator('[data-payment]')).not.toHaveAttribute('data-payment', paymentBefore ?? '');
+      await page
+        .getByRole('button', {
+          name: `Use ${label?.replace('Use gold instead of ', '')} instead of gold`,
+          exact: true,
+        })
+        .click();
+      await expect(page.locator('[data-payment]')).toHaveAttribute('data-payment', paymentBefore ?? '');
+      goldPaymentsChecked.add(seats);
+    }
+    for (let color = 0; color < 5; color++) {
+      let current =
+        (await page.locator('[data-payment]').getAttribute('data-payment'))?.split(',').map(Number) ?? [];
+      while ((current[color] ?? 0) !== a.pay[color]) {
+        const name =
+          (current[color] ?? 0) > (a.pay[color] ?? 0)
+            ? `Use gold instead of ${LUSTER_THEME.colors[color]}`
+            : `Use ${LUSTER_THEME.colors[color]} instead of gold`;
+        await page.getByRole('button', { name, exact: true }).click();
+        current =
+          (await page.locator('[data-payment]').getAttribute('data-payment'))?.split(',').map(Number) ?? [];
+      }
+    }
+    await expect(page.locator('[data-payment]')).toHaveAttribute('data-payment', a.pay.join(','));
+    await page.getByRole('button', { name: 'Buy card', exact: true }).click();
   } else if (a.type === 'patron')
     await page.getByRole('button', { name: `Choose ${LUSTER_THEME.patrons[a.card]}`, exact: true }).click();
   else if (a.type === 'pass')
@@ -165,6 +191,45 @@ for (const seats of [2, 3, 4]) {
       await expect(board(p)).toHaveAttribute('data-turn', String(startingSeat));
       await expect(p.getByText(/First player: .*chosen at random/)).toBeVisible();
     }
+    await expect(first.locator('.luster-bank')).toHaveAttribute(
+      'data-supply',
+      Array(5)
+        .fill(seats === 2 ? 4 : seats === 3 ? 5 : 7)
+        .concat(5)
+        .join(','),
+    );
+    await expect(board(first).getByRole('spinbutton')).toHaveCount(0);
+    expect(
+      await first
+        .locator('.luster-landscape stop')
+        .first()
+        .evaluate((stop) => getComputedStyle(stop).stopColor),
+    ).not.toBe('rgb(0, 0, 0)');
+    await expect(first.getByRole('region', { name: 'Your resources', exact: true })).toBeVisible();
+    const diamond = first.getByRole('button', { name: 'Take Diamond', exact: true });
+    await expect(diamond).toBeEnabled();
+    await diamond.click();
+    await diamond.click();
+    await expect(first.getByRole('button', { name: 'Remove selected Diamond' })).toHaveCount(2);
+    await expect(first.getByRole('button', { name: 'Take Sapphire', exact: true })).toBeDisabled();
+    await diamond.click();
+    await expect(first.getByRole('button', { name: 'Remove selected Diamond' })).toHaveCount(0);
+    for (const name of ['Diamond', 'Sapphire', 'Emerald'])
+      await first.getByRole('button', { name: `Take ${name}`, exact: true }).click();
+    await expect(first.getByRole('button', { name: 'Take Ruby', exact: true })).toBeDisabled();
+    await first.getByRole('button', { name: 'Remove selected Emerald', exact: true }).click();
+    await expect(first.getByRole('button', { name: 'Take Ruby', exact: true })).toBeEnabled();
+    await first.getByRole('button', { name: 'Clear', exact: true }).click();
+    await expect(first.getByRole('button', { name: 'Take Gold', exact: true })).toBeDisabled();
+    const face = first.locator('.luster-market .luster-card-face').first();
+    await face.focus();
+    await face.press('Enter');
+    await expect(first.getByRole('dialog')).toBeVisible();
+    await expect(first.getByRole('button', { name: 'Buy card', exact: true })).toBeDisabled();
+    await mobile(first, `${seats}-card`);
+    await first.keyboard.press('Escape');
+    await expect(first.getByRole('dialog')).toHaveCount(0);
+    await expect(face).toBeFocused();
     await expect(first.getByRole('button', { name: 'Reserve blind tier 1', exact: true })).toBeEnabled({
       timeout: 120_000,
     });
@@ -178,11 +243,77 @@ for (const seats of [2, 3, 4]) {
     const spectator = await open(browser, `luster-${seats}-spectator`, a.url());
     await expect(board(spectator)).toBeVisible({ timeout: 120_000 });
     await expect(board(spectator)).toHaveAttribute('data-starting-seat', String(startingSeat));
-    await expect(
-      spectator.getByRole('button', { name: 'Gather selected light', exact: true }),
-    ).toBeDisabled();
+    await expect(spectator.getByRole('button', { name: 'Take gems', exact: true })).toBeDisabled();
     await expect(spectator.locator(reservationSelector)).toHaveAttribute('data-card', 'hidden');
+    await a.screenshot({ path: `/tmp/luster-${seats}-start-1280.png`, fullPage: true });
     await mobile(a, `${seats}-start`);
+    // Collect the full colored price while keeping the reservation's gold. This deliberately
+    // exercises optional gold substitution even when the player owns all the colored gems.
+    const initial = await stateOf(first, startingSeat);
+    const goal = initial.market[0]
+      ?.filter((slot): slot is CardSlot => slot !== null && slot.card !== null)
+      .sort((a, b) => {
+        const total = (slot: CardSlot) =>
+          workshop(slot.deck, slot.card ?? 0)?.cost.reduce((x, y) => x + y, 0) ?? 99;
+        return total(a) - total(b);
+      })[0];
+    if (!goal) throw new Error('No development for payment exercise');
+    const price = workshop(goal.deck, goal.card ?? 0)?.cost ?? [];
+    for (let preparation = 0; preparation < seats * 5; preparation++) {
+      const turn = Number(await board(a).getAttribute('data-turn'));
+      const page = pages[turn];
+      if (!page) throw new Error('Invalid turn');
+      await expect(page.locator('.luster-market .luster-card[data-card="hidden"]')).toHaveCount(0);
+      await expect(page.locator('.luster-token-form')).toBeEnabled();
+      const state = await stateOf(page, turn);
+      const actions = lusterRules.legalActions(state, turn) as readonly LusterAction[];
+      if (turn === startingSeat) {
+        const missing = price.map((n, i) => Math.max(0, n - (state.players[turn]?.tokens[i] ?? 0)));
+        if (missing.every((n) => n === 0)) {
+          await expect(
+            page.locator(`.luster-market .luster-card[data-deck="${goal.deck}"][data-pos="${goal.pos}"]`),
+          ).toHaveClass(/luster-card-affordable/);
+          const purchase = actions.find(
+            (action) =>
+              action.type === 'buy' &&
+              action.deck === goal.deck &&
+              action.pos === goal.pos &&
+              action.pay[5] === 1,
+          );
+          if (!purchase) throw new Error('No optional gold payment');
+          await act(page, purchase);
+          break;
+        }
+        const take = actions
+          .filter(
+            (action): action is Extract<LusterAction, { type: 'take' }> =>
+              action.type === 'take' && action.tokens.every((n, i) => n <= (missing[i] ?? 0)),
+          )
+          .sort((x, y) => y.tokens.reduce((a, b) => a + b, 0) - x.tokens.reduce((a, b) => a + b, 0))[0];
+        if (!take) throw new Error('Cannot collect the payment exercise gems');
+        await act(page, take);
+      } else {
+        const idle =
+          actions.find(
+            (action) =>
+              action.type === 'reserve' &&
+              action.deck === 'tier-3' &&
+              action.pos === state.decks['tier-3'].next,
+          ) ??
+          actions.find(
+            (action) =>
+              action.type === 'take' && action.tokens.every((n, i) => n === 0 || (price[i] ?? 0) === 0),
+          );
+        if (!idle) throw new Error('No preparation move');
+        await act(page, idle);
+      }
+      const seq = Number(await board(page).getAttribute('data-seq'));
+      for (const other of pages)
+        await expect
+          .poll(async () => Number(await board(other).getAttribute('data-seq')))
+          .toBeGreaterThanOrEqual(seq);
+    }
+    expect(goldPaymentsChecked.has(seats)).toBe(true);
     const rng = createRng('luster-browser');
     let finished = false;
     for (let n = 0; n < 180; n++) {
@@ -215,6 +346,7 @@ for (const seats of [2, 3, 4]) {
       }
     }
     expect(finished).toBe(true);
+    expect(goldPaymentsChecked.has(seats)).toBe(true);
     for (const p of [...pages, spectator]) {
       await expect(p.getByText('Deck audit passed.', { exact: true })).toBeVisible({ timeout: 120_000 });
       await expect(
@@ -225,7 +357,7 @@ for (const seats of [2, 3, 4]) {
           { exact: true },
         ),
       ).toBeVisible({ timeout: 120_000 });
-      await expect(p.getByRole('button', { name: 'Gather selected light', exact: true })).toBeDisabled();
+      await expect(p.getByRole('button', { name: 'Take gems', exact: true })).toBeDisabled();
     }
     await a.screenshot({ path: `/tmp/luster-${seats}-result-1280.png`, fullPage: true });
     await mobile(a, `${seats}-result`);
