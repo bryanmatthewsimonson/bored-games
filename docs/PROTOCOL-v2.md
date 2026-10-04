@@ -111,7 +111,7 @@ Decryption shares and dice contributions outside the move chain: the deal, promp
 Two content variants under one kind (D059 item 7).
 
 **End attestation** (new): names a result's identity (§5.3), with no audit.
-- **Tags:** `["e", <rootId>, "", "root"]`, `["e", <headId>, "", "head"]` (the result's head, §5.3), `["proto", "2"]`.
+- **Tags:** `["e", <rootId>, "", "root"]`, `["e", <headId>, "", "head"]` (the result's head, §5.3), `["proto", "2"]`. Exactly these two `e` tags: an end attestation with any other `e` tag is rejected.
 - **Content:**
   ```json
   {"end":{"forfeit":[<seat>, …],"kind":"over"|"claim"|"resign","logHash":"<64 hex>"}}
@@ -125,7 +125,7 @@ Two content variants under one kind (D059 item 7).
 - **Consistency:** once the client holds the head and the line to it (§5.1), it checks that `logHash` is that line's log hash. A mismatch makes the attestation invalid, and it is ignored for every purpose. Until then the attestation is kept as unresolved.
 
 **Stats attestation** (v1 §4.8 and §7, kept for stats and display only):
-- **Tags:** `["e", <rootId>, "", "root"]`, `["proto", "2"]`, and no `head` tag.
+- **Tags:** `["e", <rootId>, "", "root"]`, `["proto", "2"]`. Exactly one `e` tag: a stats attestation with a `head` tag or any other `e` tag is rejected.
 - **Content:** `{"audit":…,"logHash":"…","outcome":{…}}` exactly as v1 §4.8, except that `endedBy.type` is only `"resign"`: v2 has no frozen ends, so a v2 client rejects `"type":"fork"`.
 - **Signer:** the player's npub only, as in v1.
 
@@ -134,7 +134,7 @@ Two content variants under one kind (D059 item 7).
 ### 4.4 Device note (7458)
 Hands one seat's play over from one device to another in a game whose module declares audit `'none'` (§9.5). Other games never need one; clients ignore a note in such a game, apart from storing it.
 
-**Tags:** `["e", <rootId>, "", "root"]`, `["proto", "2"]`.
+**Tags:** `["e", <rootId>, "", "root"]`, `["proto", "2"]`. Exactly one `e` tag: a Device note with any other `e` tag is rejected.
 
 **Content:**
 ```json
@@ -313,7 +313,7 @@ A module that rolls (§10) requests rolls with game actions; every seat contribu
 
 ### 7.1 End attestations (proposal §5.1 rule 6; D059 item 7)
 - **When.** A client MUST publish an end attestation (§4.3) of its result as soon as it has one (§5.5, no fork held): the module over on its chain, an accepted Timeout claim or a counted Resign. It MUST NOT publish one while it holds a fork, and MUST NOT attest a result it does not compute. It attests before the Secret phase and before any audit.
-- **Who.** Every seat, the forfeiting seats included: a timed-out seat's client attests its own timeout when it comes back, and a resigner's client its Resign. Every device that computes the result may attest it, except view-only devices in audit-`'none'` games (§9.5).
+- **Who.** Every seat, the forfeiting seats included: a timed-out seat's client attests its own timeout when it comes back (§8.1, accepting its own forfeit at once), and a resigner's client its Resign. Every device that computes the result may attest it, except view-only devices in audit-`'none'` games (§9.5).
 - **How.** Signed by the session key, automatically, with no signer prompt. A client builds at most one end attestation per result identity, persists it before publishing, and rebroadcasts that same event (v1 §6.5, build once).
 - **Not attested:** a cancelled game, and a stop (§5.6).
 - **Counting.** For the cutoff every valid end attestation counts (§5.4 (a)). Unlike the stats attestation, there is no "latest per seat".
@@ -367,6 +367,7 @@ A v2 client MAY publish its Secret reveal as soon as its result needs it, or onc
   - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - **Progress:** v1 §8.1, roll Shares events included.
 - **Accepting a claim:** v1 §8.1, and the client holds no fork (§7.3: no claim counts after a stop).
+- **Accepting one's own forfeit at once** (review L2). A client SHOULD accept, without waiting for its own deadline, a valid Timeout claim that names its current head and whose stalled seats at that head are its own seat alone. It forfeits only itself, so nothing is lost by trusting the claimant's clock. Without this, a client that comes back after a timeout sees every event as fresh (new first-seen times) and offers its player a move, so it never accepts the claim, never attests it, and the timeout can never stand (F1).
 - **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
 
 ### 8.2 Forfeits
@@ -444,7 +445,7 @@ v1 §11 holds for everything that does not concern fork choice. In addition (pro
 2. **Coalitions of 3 or more seats.** A colluder that never attests keeps a finished game open to its partner's fork, and a coalition can void a colluder's counted timeout before it stands. The forker takes a rated last place and is recorded; the others are unrated.
 3. **Stops are unbounded in time** (accepted, D059 items 3 and 6). During play a seat can stop the game at any of its earlier turns, as it can resign. After the end, a lone equivocator can stop the game until every other seat has attested, which an absent player never does, and a timed-out seat (absent by definition) never attests its own timeout, so a counted timeout almost never stands (F1). Each stop costs the equivocator a rated last place and exposes nothing; with 2 seats nothing changes for the opponent.
 4. **Two devices.** The check before signing leaves a race of seconds. Shares and end attestations are automatic on every device, so a seat's second device acting on the other side of a fork keeps an attested result from standing (the stop is then E's forfeit). Two devices of one seat can also end on different results with no fork held (a claim or Resign race between them), as two clients can.
-5. **The claim and resign races** with no fork held (v1 §11), unchanged.
+5. **The claim and resign races** with no fork held (v1 §11), unchanged. Part of the claim race: a claim's forfeit list is the stall set at its head when a client accepts it, and that set depends on which shares the client holds by then. Clients that accept at different moments can give one claim different identities (§5.3). That adds no harm: rule (a) needs the forfeiting seats' own attestations, so differing identities only keep a claim from standing (review L3).
 6. **Assumptions.** A3 (gossip within the deadline, §9.1) and A6 (the relays a device queries return its own seat's events; at least one honest relay). When the opponent picks every root relay, A6 can fail; §9.4 mitigates it.
 7. **Unresolved anchors.** A Shares event or end attestation anchored on an event nobody holds counts as off every result's line (§5.4). Only a seat other than E can block a result that way, and an honest client anchors only on moves on its chain, which it MUST rebroadcast (§9.1), so this is the same as a colluder withholding its attestation (item 2). The model does not include unresolved anchors.
 8. **Selective abort on dice.** Contributions are unordered (§6.2), so any seat, not only one fixed seat as in v1, can try to contribute last, see the faces first and withhold. Withholding is a timeout forfeit, and no seat can choose the faces.
@@ -473,6 +474,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-11** MUST accept an end attestation from a seat's session key or its npub, and count both for that seat (§4.3).
 - **V2-12** MUST ignore an end attestation whose `logHash` does not match the line to its head once that line is held (§4.3).
 - **V2-13** MUST reject a Device note whose `device` is not 32 lowercase hex characters or whose `n` is not an integer of at least 1 without leading zeros (§4.4).
+- **V2-51** MUST reject an end attestation without exactly two `e` tags (`root`, `head`), and a stats attestation or a Device note without exactly one (`root`) (§4.3, §4.4).
 
 **The walk, forks and the cutoff**
 - **V2-14** MUST end the walk at a fork when a head has two or more valid-looking successors, and treat any two well-formed shuffle steps of one seat on one chain prev as a fork without verifying their proofs (§5.1, §5.2).
@@ -487,6 +489,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-50** MUST record as an equivocator every seat that signed two valid-looking moves (well-formed shuffle steps) with one `prev` and `seq`, on any held line with a valid line to that `prev`, and in a stop MUST place every equivocator in the shared last places, each rated last (§5.2, §5.6, §7.5).
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
 - **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
+- **V2-52** SHOULD accept at once a valid Timeout claim that names its current head and forfeits only its own seat (§8.1).
 
 **Prompt release**
 - **V2-25** MUST NOT publish a card Shares event while it holds a fork, after its result, or before the final deck is complete (§6.1).
