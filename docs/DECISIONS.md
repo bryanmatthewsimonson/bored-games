@@ -1003,3 +1003,44 @@ Client-side fixes for D059 item 2, D060 and the audits (audit-luster F2–F4, au
   - reveal-block and roll with resigns and with devices;
   - the `resignAt: counted` comparison.
 - **Older battery figures** (round 3) predate these model changes and are superseded once T0c reports.
+
+## D065: The encrypted backup of a seat's game keys, and Other keys for keys this browser no longer holds (fix-keys, 2026-10-04)
+The owner's two reports of 2026-10-03 (PLAN, "Known bugs"). **No consensus change:** a new NIP-78 app-data event outside the game's events (PROTOCOL §3 already reserved kind 30078), plus client code.
+- **Bug 1, cause.** A seat's session key and deck secret were made and kept only in the browser that joined. The same nsec in another browser found its npub seated and no keys, and watched. Not a regression from D056/D057: the controller did this from its first version. ARCHITECTURE §Backup's promise was never built (Phase 2e).
+- **NIP-44 v2, no new dependency.** `packages/protocol/src/nip44.ts` implements the spec (HKDF-extract over the unhashed ECDH x with salt "nip44-v2", HKDF-expand to the ChaCha20 key, nonce and HMAC key, padding, HMAC-SHA256 over nonce and ciphertext, version byte 2, strict base64 and UTF-8). ChaCha20 (RFC 8439) is written out, since @noble/ciphers is not in the repo and the cipher is 60 lines. HKDF, HMAC and SHA-256 come from @noble/hashes and ECDH from @noble/curves, both already dependencies. It is pinned by the official vector file (whose SHA-256 is the one NIP-44 publishes; every valid and invalid set) and RFC 8439's ChaCha20 test.
+- **The backup event (PROTOCOL §3).** Kind 30078 by the player's npub, `["d","bored-games/keys/<tableAddress>"]`, content NIP-44 v2 from the npub to itself of `{"v":1,"table","session","deck","root","seat"}` (root and seat are null before the start).
+  - One `d` per table rather than per root: the keys exist from the Join, before any root, and a table has one root.
+  - Published to the table's relays and the player's own after each Join or table creation, in the background (a failure does not undo the join).
+  - Published again from the game screen when the check below finds it missing or wrong: automatically with a local key; on **Back up this game's keys** with a NIP-07 extension, since each backup is an encrypt and a sign prompt and should not be asked unprompted mid-game. Games joined before this are covered as soon as their joining browser opens them.
+  - `Signer.nip44` is the local key's, or `window.nostr.nip44` when the extension has it. Without it, backup and restore are unavailable and the screen says so.
+- **The backup is checked, not just marked (review M1).** A backup counts as made only when one of the table's relays accepted it; the record keeps its id. On every load, the game screen of a seat held with its own npub looks for it on the root's relays.
+  - With a local key, it decrypts the backup and checks it like a restore, against the keys saved here (`backupHealthy`).
+  - With an extension, which would prompt, it checks only that the recorded backup is there.
+  - A missing, unreadable or wrong backup is published again. **Back up again** stays available.
+  - A query counts as complete only when every root relay answered before any deadline (review L1), so a slow relay reads as "try again", not "no backup".
+- **The encryptor is not trusted (review L2).** Before signing, the content must be a NIP-44 v2 payload of exactly the plaintext's padded length (`isNip44Payload`) and contain neither secret. Where the signer allows, it is decrypted once and must give the plaintext back. Encryption and each decryption are bounded in time (60 s, review L4).
+- **Restore.** When the npub holds a seat and no game keys are saved:
+  - The game screen says "Restoring your game keys from your backup…" and watches meanwhile.
+  - It asks the root's relays and the player's own for the backup, and drops events that are not validly signed by the npub with that `d`.
+  - It decrypts the newest first, and keeps one only if its table is the root's, its root is null or the root's id, and `backupSeat` holds: `seatForGameKeys` finds a seat for both keys, and that seat is the npub's (D057's check).
+  - The keys are saved like keys made here (owner the npub, the table listed, the backup recorded), and the session is rebuilt with the seat.
+  - Otherwise the screen says why: no backup on the game's relays, relays that did not answer, a backup that does not decrypt, one that is not this seat's, an extension that refused or did not answer (its own states, review L4), or storage that refused the keys. It also says what to do: open the game on the device that joined, whose game screen checks the backup and publishes it again if it is missing or wrong, then **Try again**.
+- **Two devices.** A restored device is one more device of the seat: the check before signing and the deterministic shuffle and contribution builds apply (D063), and the other device's saved-but-unsent events go through the outbox rule (D056). The restored notice tells the player to play on one device at a time, because two devices acting within seconds can still sign rival moves (D063's residuals; review L5). Protocol v2's view-only restored device (PROTOCOL-v2 §9.5) is not v1 behaviour.
+- **Security (corrected after review L3).** Before this, the npub signed only Tables, Joins, roots and Result attestations, and a seat's moves needed its session key, which never left the joining device. With the backup, the npub's secret key, and anything allowed to decrypt with it (a NIP-07 extension's per-site `nip44.decrypt` permission, later a NIP-46 signer), can read the backup. That gives full control of the seat in every live game, and sight of its hidden cards. This is the price of playing from a second device.
+  - PROTOCOL §3 says so. The app tells extension users, in Settings and next to the backup button, to allow decryption only for sites they trust.
+  - A tampered backup fails the MAC; a forged one (another seat's or game's keys) fails `backupSeat`; another author's event is dropped.
+  - The `d` tag names the table publicly, which the Join already does.
+  - An old backup stays on the relays after the game, when its keys are worthless.
+  - A seat recovered with saved keys after its key was lost (D057) cannot back up: the backup is by and to the joining npub.
+- **Bug 2, cause.** Settings → Other keys listed only `sk-history`. The key race kept key A in memory only, so storage held seat 3's game keys (owner A) but never key A. Home said "Under another key: switch to it in Settings to play", and Settings had nothing to switch to.
+- **Bug 2, fix.** `otherKeys` (`apps/web/src/other-keys.ts`) lists the kept keys and every other owner of this profile's listed tables and saved game keys, kept or not, with its games in progress.
+  - Settings shows each one. A key that is not kept is marked "not kept in this browser", with a note that its games play with this browser's saved game keys (only signing the final result needs the key; import it to sign too). Each game has **Open game**, which plays the seat through `seatForGameKeys` (D057).
+  - Home's line comes from `otherKeyDetail`. The switch is offered only for a kept key. Otherwise it says "Playable with saved game keys", or that the game can be opened and played with this browser's saved game keys, or (before the start) that they will play the seat or that only the creating key can start it, or that the key is not kept here.
+- **Tests.**
+  - Protocol: `nip44.test.ts` (official vectors, `isNip44Payload`), `backup.test.ts`. Client: `recover.test.ts` (`backupSeat`).
+  - `apps/web/test/key-backup.test.ts`: round trip; refusals; restore and play on a second device; a game joined before backups; extensions; the owner's report replayed in a 3-seat Chain Reaction game through the shuffle and the deal; a missing or wrong backup republished and only a game relay's acceptance recorded; an extension's backup checked without a prompt.
+  - `key-backup-unit.test.ts`: complete answers, refused and timed-out extension decrypts, lying encryptors.
+  - `key-backup-render.test.ts`, `other-keys.test.ts`.
+  - e2e `keys.spec.ts`: two browser contexts with the same nsec; join on one, restore and play on the other.
+- **No new dependencies.**
+- **Verified:** after the review fixes, `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes).

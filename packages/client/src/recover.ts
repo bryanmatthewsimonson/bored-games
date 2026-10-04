@@ -31,3 +31,18 @@ export function seatForGameKeys(
   if (seat < 0) return null;
   return root.seats[seat]?.deckKey.equals(deckKey) ? seat : null;
 }
+
+/**
+ * The seat `npub` holds in the root when `sessionSk` and `deckSecret` are that very seat's keys, else null: the
+ * check a key backup restored from the relays must pass (D065). The backup is decrypted with the player key, so it
+ * can only be the player's own; this also refuses a backup of another game or another seat, and a damaged one.
+ */
+export function backupSeat(
+  root: Pick<ParsedRoot, 'seats'>,
+  npub: string,
+  sessionSk: Uint8Array,
+  deckSecret: bigint,
+): number | null {
+  const seat = seatForGameKeys(root, sessionSk, deckSecret);
+  return seat !== null && root.seats[seat]?.npub === npub ? seat : null;
+}
