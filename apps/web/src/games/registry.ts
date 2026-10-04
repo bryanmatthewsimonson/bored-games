@@ -14,6 +14,9 @@ import { ChessGame } from './chess/game.tsx';
 import { CHESS_META } from './chess/meta.ts';
 import { ChessRulesPage } from './chess/rules-page.tsx';
 import { GAME_IDS } from './ids.ts';
+import { LusterGame } from './luster/game.tsx';
+import { LUSTER_META } from './luster/meta.ts';
+import { LusterRulesPage } from './luster/rules-page.tsx';
 import type { WebGame } from './types.ts';
 
 export const GAMES: readonly WebGame[] = [
@@ -35,6 +38,15 @@ export const GAMES: readonly WebGame[] = [
     Component: BankGame,
     RulesPage: BankRulesPage,
     setupCopy: () => null,
+  },
+  {
+    ...LUSTER_META,
+    Component: LusterGame,
+    RulesPage: LusterRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Shuffling the workshops and patrons',
+      dealing: 'Opening the glass market…',
+    }),
   },
 ];
 

@@ -192,3 +192,13 @@ See the risks table in `docs/ARCHITECTURE.md`. The top three are:
 1. Correctness of the zero-knowledge shuffle proof implementation (D019). Mitigated in 2b: the equations were cross-checked against CHVote, and there are tamper tests and test vectors.
 2. Verification cost on phones. A shuffle step takes about 1 s to verify, measured in the dev container (x64, Node 22); a phone may be several times slower (D019, D024).
 3. Contract fit for the second game (Phase 6).
+
+## Luster — 2026-10-03
+
+Implemented in its own engine, web UI, original artwork, rules, test and policy folders. The base game supports 2–4 players, 90 workshops, ten patrons, 40 tokens, private blind reservations, explicit wild-token payment choices, compulsory patron visits, equal final-round turns and the workshop-count tiebreak. It is registered in the catalog, lobby, NOSTR module map and fuzz/sim tooling. See `games/luster/IMPLEMENTATION.md` for the narrow opt-in client additions and Bank integration boundary.
+
+Resign stays disabled pending a public-refill review. No publisher artwork or rules prose is shipped; this implementation does not constitute legal or trademark clearance. Verification results and reproducible commands are recorded in `games/luster/VERIFICATION.md`.
+
+Follow-up: Luster 0.2.0 chooses a starting player at random from the jointly shuffled public setup cards, as requested. Turn order wraps from that seat, and round boundaries preserve equal turns. The UI, rules, replay and tests include the selected starter; full browser games pass at all supported player counts with spectators and confirmed result signatures. The setup screen correctly counts completed players across several deck-group shuffles. Remaining work before production readiness: dedicated public-refill/Resign and adversarial engine/protocol review; and legal/name clearance. The current four-group packet adapter supports Luster without a native multi-deck session API.
+
+**Release exception authorized by the owner:** after the explicit D050 assessment, the owner instructed "For this game only, merge and deploy anyway." Release Luster as beta with the documented unresolved reviews and disabled Resign. Immediate card-share duties require explicit `DeckSpec.promptShares`, enabled only by Luster; other games, including Bank, keep their existing behavior and D050 remains in force for them. Bank's merged implementation is preserved in the combined base. Main automatically deploys after CI. Run the full check on the final revision before committing; the release authorization does not establish protocol safety or legal clearance.

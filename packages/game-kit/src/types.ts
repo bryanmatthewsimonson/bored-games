@@ -29,6 +29,10 @@ export type ApplyResult<S, E> =
 export interface DeckSpec {
   readonly id: string;
   readonly size: number;
+  /** Optional contiguous groups shuffled independently; their sizes sum to `size`. */
+  readonly partitions?: readonly { readonly id: string; readonly size: number }[];
+  /** Explicit release-policy opt-in; defaults off. Currently authorized for Luster only. */
+  readonly promptShares?: boolean;
 }
 
 /** A card identity at a deck position, known privately by one viewer. */

@@ -52,7 +52,6 @@ import {
   ProtocolError,
   parseAttest,
   parseJoin,
-  parseMove,
   parseResign,
   parseRoot,
   parseSecret,
@@ -67,6 +66,7 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
+import { type DeckPartition, deckPartitions, parsePartitionMove } from './partitioned-deck.ts';
 import { ShareStore } from './shares.ts';
 import type {
   Duty,
@@ -318,10 +318,12 @@ export class GameSession {
   private readonly deckId: string | null;
   /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
+  private readonly partitions: readonly DeckPartition[];
+  private readonly promptShares: boolean;
   private readonly seats: number;
   /**
-   * The shuffle steps at the start of the chain (PROTOCOL §6.1): one per seat when the game has a deck, none when
-   * it is deckless. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
+   * The shuffle steps at the start of the chain (PROTOCOL §6.1): one per group per seat when the game has a deck, none
+   * when it is deckless. Legacy decks have one group. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
    */
   private readonly shuffleSteps: number;
   /** Seat deck keys `X_k` and their sum, the joint key `X`. */
@@ -509,7 +511,9 @@ export class GameSession {
     this.deckId = deck?.id ?? null;
     this.deckSize = deck?.size ?? 0;
     this.seats = root.seats.length;
-    this.shuffleSteps = deck === null ? 0 : this.seats;
+    this.partitions = deckPartitions(deck);
+    this.promptShares = deck?.promptShares === true;
+    this.shuffleSteps = this.partitions.length * this.seats;
     // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
     this.X = jointKey(this.keys);
@@ -653,7 +657,8 @@ export class GameSession {
     let parsed: { kind: 'move'; m: ParsedMove } | { kind: 'shares'; s: ParsedShares };
     try {
       // A deckless game parses with a 1-card deck so that a shuffle step gets moveShape's clear rejection.
-      if (kind === KIND.move) parsed = { kind: 'move', m: parseMove(ev, Math.max(1, this.deckSize)) };
+      if (kind === KIND.move)
+        parsed = { kind: 'move', m: parsePartitionMove(ev, this.deckSize, this.partitions) };
       else if (kind === KIND.shares) parsed = { kind: 'shares', s: parseShares(ev) };
       else return { status: 'rejected', reason: `kind ${String(kind)} is not an in-game event` };
     } catch (e) {
@@ -808,7 +813,10 @@ export class GameSession {
     const c = m.content;
     if (m.seq <= this.shuffleSteps) {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
-      if (seat !== m.seq - 1) return `shuffle step ${m.seq} must be signed by seat ${m.seq - 1}`;
+      const expectedSeat = Math.floor((m.seq - 1) / this.partitions.length);
+      if (seat !== expectedSeat) return `shuffle step ${m.seq} must be signed by seat ${expectedSeat}`;
+      if (c.deck.length !== this.partitionAt(m.seq - 1).size)
+        return 'shuffle output has the wrong group size';
     } else if (c.type !== 'action') {
       return `move ${m.seq} must be a game action`;
     } else if (!this.hasDeck() && (c.shares.length > 0 || c.reveals.length > 0)) {
@@ -1357,10 +1365,18 @@ export class GameSession {
     const c = m.content;
     if (c.type === 'shuffle') {
       const step = m.seq - 1;
-      if (seat !== step) return reject(`shuffle step ${m.seq} must be signed by seat ${step}`);
+      const expectedSeat = Math.floor(step / this.partitions.length);
+      if (seat !== expectedSeat)
+        return reject(`shuffle step ${m.seq} must be signed by seat ${expectedSeat}`);
       if (!this.shuffleVerifies(m.id, step, c.deck, c.proof))
         return reject('the shuffle proof does not verify');
-      this.decks.push(c.deck);
+      const group = this.partitionAt(step);
+      const previous = this.decks[step] as Ciphertext[];
+      this.decks.push([
+        ...previous.slice(0, group.offset),
+        ...c.deck,
+        ...previous.slice(group.offset + group.size),
+      ]);
       this.link(m);
       if (m.seq === this.shuffleSteps) this.startDeal();
       return 'accepted';
@@ -1517,14 +1533,24 @@ export class GameSession {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
-    const ok = verifyShuffle(this.decks[step] as Ciphertext[], output, this.X, proof, this.shuffleCtx(step));
+    const group = this.partitionAt(step);
+    const input = (this.decks[step] as Ciphertext[]).slice(group.offset, group.offset + group.size);
+    const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step));
     this.shuffleChecked.set(id, ok);
     return ok;
   }
 
   /** Only called in a game with a deck. */
-  private shuffleCtx(seat: number): ShuffleCtx {
-    return { rootId: this.root.id, seat, deckId: this.deckId as string };
+  private partitionAt(step: number): DeckPartition {
+    return this.partitions[step % this.partitions.length] as DeckPartition;
+  }
+
+  private shuffleCtx(step: number): ShuffleCtx {
+    return {
+      rootId: this.root.id,
+      seat: Math.floor(step / this.partitions.length),
+      deckId: this.partitionAt(step).id,
+    };
   }
 
   private link(m: ParsedMove): void {
@@ -2369,7 +2395,7 @@ export class GameSession {
     if (this.ended() !== null) return this.resignEnd() ? all.filter((k) => !this.secrets.has(k)) : [];
     switch (this.phase) {
       case 'shuffle':
-        return [this.chain.length];
+        return [Math.floor(this.chain.length / this.partitions.length)];
       case 'deal': {
         // A shuffle fork held during the deal (D056, review F7): the shuffle equivocator is the stalled seat, never
         // a seat that dealt on a rival deck and, under "never deal twice", will not deal again on this one.
@@ -2617,7 +2643,12 @@ export class GameSession {
 
   /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
   private pending(): Pending {
-    if (this.phase === 'shuffle') return { type: 'player', seat: this.chain.length, decision: 'shuffle' };
+    if (this.phase === 'shuffle')
+      return {
+        type: 'player',
+        seat: Math.floor(this.chain.length / this.partitions.length),
+        decision: 'shuffle',
+      };
     const p = this.module.pending(this.state);
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
   }
@@ -2628,7 +2659,12 @@ export class GameSession {
     if (me === null) return [];
     // After a timeout or a resign only the attestation can be due, and the secret a resign left owed (D052).
     const live = this.timedOut === null && this.ended() === null;
-    if (live && this.phase === 'shuffle' && this.chain.length === me.seat) return [{ kind: 'shuffle' }];
+    if (
+      live &&
+      this.phase === 'shuffle' &&
+      Math.floor(this.chain.length / this.partitions.length) === me.seat
+    )
+      return [{ kind: 'shuffle' }];
     // Never deal twice (D056, review F7): a seat that dealt on a rival deck of a shuffle fork owes no deal here.
     if (
       live &&
@@ -2637,6 +2673,10 @@ export class GameSession {
       this.shares.missing(me.seat, this.module.dealt(this.state)).length > 0
     ) {
       return [{ kind: 'deal' }];
+    }
+    if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
+      const positions = this.sharesDue(me.seat);
+      if (positions.length > 0) return [{ kind: 'share', positions }];
     }
     if (this.decides(me)) return [{ kind: 'decide' }];
     if (live && this.phase === 'end' && this.hasDeck() && !this.secrets.has(me.seat))
@@ -2696,9 +2736,13 @@ export class GameSession {
    */
   buildShuffle(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('shuffle');
-    const input = this.decks[this.chain.length] as Ciphertext[];
+    const group = this.partitionAt(this.chain.length);
+    const input = (this.decks[this.chain.length] as Ciphertext[]).slice(
+      group.offset,
+      group.offset + group.size,
+    );
     const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
-    const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(me.seat), rnd);
+    const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(this.chain.length), rnd);
     const t = moveTemplate(
       {
         rootId: this.root.id,
@@ -2722,6 +2766,34 @@ export class GameSession {
     const me = this.requireDuty('deal');
     const deck = this.finalDeck() as Ciphertext[];
     const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map((pos) => ({
+      pos,
+      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
+    }));
+    return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
+  }
+
+  /** Only assigned positions authorized for this seat; an owner never shares its private card. */
+  private sharesDue(seat: number): number[] {
+    // Grouped decks deliver new private draws immediately: publish only other owners' layers.
+    if (this.partitions.length > 1) return this.shares.missing(seat, this.module.dealt(this.state));
+    const p = this.module.pending(this.state);
+    if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
+    const publicPositions = new Set(
+      this.module
+        .dealt(this.state)
+        .filter((d) => d.to === null && d.deck === this.deckId)
+        .map((d) => d.pos),
+    );
+    return p.positions
+      .filter((pos) => publicPositions.has(pos) && !this.shares.has(seat, pos))
+      .sort((a, b) => a - b);
+  }
+
+  /** Share newly assigned positions after setup, in the existing Shares wire format. */
+  buildShares(rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('share');
+    const deck = this.finalDeck() as Ciphertext[];
+    const shares = this.sharesDue(me.seat).map((pos) => ({
       pos,
       share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
     }));

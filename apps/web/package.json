@@ -17,6 +17,7 @@
     "@bored-games/chess": "workspace:*",
     "@bored-games/client": "workspace:*",
     "@bored-games/deck": "workspace:*",
+    "@bored-games/luster": "workspace:*",
     "@bored-games/game-kit": "workspace:*",
     "@bored-games/protocol": "workspace:*",
     "@bored-games/relay": "workspace:*",

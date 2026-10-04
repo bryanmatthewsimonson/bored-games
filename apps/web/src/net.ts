@@ -7,6 +7,7 @@ import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { GameModule } from '@bored-games/game-kit';
+import { luster } from '@bored-games/luster';
 import type { NostrEvent } from '@bored-games/protocol';
 import {
   type EoseInfo,
@@ -32,6 +33,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
   [bank.id, bank],
+  [luster.id, luster],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

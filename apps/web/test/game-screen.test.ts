@@ -179,6 +179,17 @@ describe('game chrome helpers (D045)', () => {
       'Shuffling the deck: 1 of 3 players done.',
     );
     expect(setupStep(viewOf({ phase: 'deal' }), copy)).toBe('Dealing the tiles…');
+    for (const [seq, complete] of [
+      [1, 0],
+      [4, 1],
+      [7, 1],
+      [8, 2],
+      [12, 3],
+    ] as const) {
+      expect(setupStep(viewOf({ phase: 'shuffle', shuffleSteps: 12, head: { id: 'h', seq } }), copy)).toBe(
+        `Shuffling the deck: ${complete} of 3 players done.`,
+      );
+    }
     expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
   });
 

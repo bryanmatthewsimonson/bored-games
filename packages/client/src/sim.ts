@@ -388,6 +388,8 @@ export function simulateGame(opts: SimOptions): SimReport {
       case 'shuffle':
       case 'decide':
         return `move:${v.head.seq + 1}:${v.head.id}`;
+      case 'share':
+        return `share:${duty.positions.join(',')}`;
       case 'attest':
         return `attest:${canonicalJson({ audit: v.audit, logHash: v.logHash, outcome: v.outcome })}`;
       default:
@@ -408,6 +410,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return s.buildShuffle(c.rnd, clock);
       case 'deal':
         return s.buildDeal(c.rnd, clock);
+      case 'share':
+        return s.buildShares(c.rnd, clock);
       case 'decide':
         return s.buildAction(choose(c), c.rnd, clock);
       case 'secret':

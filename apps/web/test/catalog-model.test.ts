@@ -44,14 +44,15 @@ const made = (change: Partial<CatalogEntry>, title = 'Made Up'): CatalogItem => 
 
 describe('catalog filters', () => {
   it('lists every hosted game with no filter, in catalog order', () => {
-    expect(ids({})).toEqual(['chain-reaction', 'chess', 'bank']);
+    expect(ids({})).toEqual(items.map((item) => item.entry.id));
+    expect(ids({})).toContain('luster');
     expect(activeFilters(NO_FILTERS)).toBe(0);
   });
 
   it('filters by player count, 6 meaning 6 or more', () => {
     expect(ids({ players: 1 })).toEqual([]);
-    expect(ids({ players: 2 })).toEqual(['chess', 'bank']);
-    expect(ids({ players: 3 })).toEqual(['chain-reaction', 'bank']);
+    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster']);
+    expect(ids({ players: 3 })).toEqual(['chain-reaction', 'bank', 'luster']);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 6)).toBe(true);
@@ -64,7 +65,8 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'abstract' })).toEqual(['chess']);
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
-    expect(ids({ mode: 'competitive' })).toEqual(['chain-reaction', 'chess', 'bank']);
+    expect(ids({ genre: 'family' })).toEqual(['luster']);
+    expect(ids({ mode: 'competitive' })).toEqual(['chain-reaction', 'chess', 'bank', 'luster']);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
     expect(ids({ length: 'under-30' })).toEqual(['chess', 'bank']);
@@ -72,7 +74,7 @@ describe('catalog filters', () => {
     expect(ids({ length: 'over-120' })).toEqual([]);
     expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction']);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
-    expect(ids({ complexity: 'light' })).toEqual(['bank']);
+    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster']);
     expect(ids({ players: 2, genre: 'economic' })).toEqual([]);
     expect(activeFilters({ ...NO_FILTERS, players: 2, mode: 'team' })).toBe(2);
   });
@@ -111,7 +113,9 @@ describe('catalog search', () => {
     expect(ids({ query: 'tile-placement' })).toEqual(['chain-reaction']);
     expect(ids({ query: 'capture' })).toEqual(['chess']);
     expect(ids({ query: 'classic' })).toEqual(['chain-reaction', 'chess']);
-    expect(ids({ query: '  ' })).toEqual(['chain-reaction', 'chess', 'bank']);
+    expect(ids({ query: 'luster' })).toEqual(['luster']);
+    expect(ids({ query: 'glass' })).toEqual(['luster']);
+    expect(ids({ query: '  ' })).toEqual(items.map((item) => item.entry.id));
     expect(ids({ query: 'chess mergers' })).toEqual([]);
     expect(ids({ query: 'zzz' })).toEqual([]);
   });
