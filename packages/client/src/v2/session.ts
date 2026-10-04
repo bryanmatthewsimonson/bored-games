@@ -85,7 +85,7 @@ import {
   stopAt,
   stopOutcome,
 } from './stop.ts';
-import { EventStoreV2, resultKey } from './store.ts';
+import { EventStoreV2, type Kept, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
 import { type Walk, walk } from './walk.ts';
 
@@ -176,7 +176,11 @@ interface Ending {
   readonly point: LinePoint;
   /** The module is over at the point: an `over` result, or a Resign whose S is over (v1 §8.3 step 4). */
   readonly over: boolean;
-  /** The End phase's key, for the claims accepted in it: the result's identity and the point. */
+  /**
+   * The End phase's key, for the claims accepted in it and when the result first stood: the result's identity
+   * (`resultKey`), not its point, so a later move of a Resign's S neither drops an accepted claim nor restarts the
+   * deadline (D069, review of T11 L1).
+   */
   readonly key: string;
 }
 
@@ -195,6 +199,12 @@ export class GameSessionV2 implements Session {
   private readonly store: EventStoreV2;
   /** When this client first saw each held event (its first `receive`), for the progress time P. */
   private readonly seenAt = new Map<Hex, number>();
+  /**
+   * The latest first-seen time of any event received (`see`): a result first standing here stands no earlier than
+   * it (`noteStanding`), so a refeed in another order with saved first-seen times never moves the End-phase deadline
+   * earlier (D069, review of T11 L2).
+   */
+  private lastSeen = Number.NEGATIVE_INFINITY;
   /** Events refused for good, by id, with the reason: they are not held. */
   private readonly rejected = new Map<Hex, string>();
   /** Judgements that never change, by move id and the log length at its prev (`walk`, deckless games only). */
@@ -382,6 +392,19 @@ export class GameSessionV2 implements Session {
 
   private see(id: Hex, now: number): void {
     if (!this.seenAt.has(id)) this.seenAt.set(id, now);
+    this.lastSeen = Math.max(this.lastSeen, now);
+  }
+
+  /**
+   * Apply what a claim or Resign cap did (`Kept`, D069): ids refused for good are recorded in `rejected`; waiting ids
+   * let go are forgotten (a later delivery is judged again). The answer for `id` when the cap refused it, else null.
+   */
+  private settle(id: Hex, kept: Kept, why: string): ReceiveResult | null {
+    for (const x of kept.final) this.rejected.set(x, why);
+    for (const x of kept.dropped) this.seenAt.delete(x);
+    if (kept.final.includes(id)) return { status: 'rejected', reason: why };
+    if (!kept.kept) return { status: 'rejected', reason: `${why}: too many waiting for their head` };
+    return null;
   }
 
   private reject(id: Hex, reason: string): ReceiveResult {
@@ -462,6 +485,8 @@ export class GameSessionV2 implements Session {
     if (typeof seat !== 'number') return seat;
     this.see(m.id, now);
     this.store.addMove({ m, seat, shape: moveShape(this.ctx, m, seat) });
+    // Claims and Resigns waiting for this move are kept now (D069); the refold drops the verdict too.
+    if (this.store.promote(m.id)) this.cutoffChanged();
     this.refold();
     return this.moveStatus(m.id);
   }
@@ -604,8 +629,8 @@ export class GameSessionV2 implements Session {
     if (t.seat >= this.ctx.seats) return this.reject(t.id, `there is no seat ${t.seat}`);
     if (t.seat === claimant) return this.reject(t.id, 'a seat cannot claim a timeout against itself');
     const kept = this.store.keepClaim(t, claimant);
-    if (!kept.kept) return this.reject(t.id, kept.why);
-    if (kept.evicted !== null) this.rejected.set(kept.evicted, 'claim limit');
+    const refused = this.settle(t.id, kept, 'claim limit');
+    if (refused !== null) return refused;
     this.cutoffChanged();
     this.decideEndClaim();
     for (const c of this.endClaims.values()) if (c.id === t.id) return { status: 'accepted' };
@@ -632,12 +657,12 @@ export class GameSessionV2 implements Session {
       return this.reject(r.id, `the Resign's deck secret does not match seat ${seat}'s deck key`);
     const before = this.stallMark();
     const known = this.secretOf(seat) !== null;
+    // The secret counts whether the Resign is kept, waits or is let go by the waiting cap (v1 §8.3 "The early secret").
+    if (!known && r.secret !== null) this.store.resignSecrets.set(seat, r.secret);
     const kept = this.store.keepResign(r, seat);
-    if (!kept.kept) return this.reject(r.id, kept.why);
-    if (kept.evicted !== null) this.rejected.set(kept.evicted, 'resign limit');
     this.cutoffChanged();
     if (!known && r.secret !== null) this.noteProgress(before, r.id);
-    return { status: 'stored' };
+    return this.settle(r.id, kept, 'resign limit') ?? { status: 'stored' };
   }
 
   /**
@@ -684,9 +709,7 @@ export class GameSessionV2 implements Session {
    */
   private secretOf(seat: number): bigint | null {
     for (const x of this.store.secrets.values()) if (x.seat === seat) return x.ev.deckSecret;
-    for (const x of this.store.resigns.values())
-      if (x.seat === seat && x.ev.secret !== null) return x.ev.secret;
-    return null;
+    return this.store.resignSecrets.get(seat) ?? null;
   }
 
   /** Whether every seat's deck secret is held. */
@@ -875,7 +898,7 @@ export class GameSessionV2 implements Session {
   private endingOf(r: ResultId, fold: LineFold, seq: number): Ending {
     const point = fold.points[seq] as LinePoint;
     const over = point.state !== null && this.module.pending(point.state).type === 'over';
-    return { r, fold, seq, point, over, key: `${resultKey(r)}@${point.id}` };
+    return { r, fold, seq, point, over, key: resultKey(r) };
   }
 
   /** A Resign's scoring position S (§8.3), memoised per (head, seat) for one set of held Moves and Shares events. */
@@ -1134,12 +1157,15 @@ export class GameSessionV2 implements Session {
 
   /**
    * After an event is folded at local time `now` (its first-seen time): if a result now stands against the held
-   * fork that had not stood here before, record `now` as the time it first stood (`stoodSince`).
+   * fork that had not stood here before, record the time it first stood (`stoodSince`): `now`, or the latest
+   * first-seen time of any event received if later (D069, review of T11 L2). In arrival order the two agree; on a
+   * refeed in another order with saved first-seen times, the later of them is never earlier than the moment it
+   * first stood in arrival order.
    */
   private noteStanding(now: number): void {
     if (this.current.fork === null) return;
     const e = this.ending();
-    if (e !== null && !this.stoodSince.has(e.key)) this.stoodSince.set(e.key, now);
+    if (e !== null && !this.stoodSince.has(e.key)) this.stoodSince.set(e.key, Math.max(now, this.lastSeen));
   }
 
   /**
@@ -1194,17 +1220,22 @@ export class GameSessionV2 implements Session {
   /**
    * Accept an End-phase claim when one is due (v1 §8.1 "Accepting", by this client's own clock): the game has a
    * result whose End phase owes secrets, some seat's secret is missing, and a kept Timeout claim names the result's
-   * scoring point (its head, or S: never the fork point P, review N1) signed by a seat whose secret is in, with
-   * `now ≥ P + deadline`. The lowest such claim id is recorded, and every seat stalled then forfeits. Final for that
-   * result (v1 §8.2 "Finality").
+   * scoring point (its head, or S: never the fork point P, review N1; for a Resign also its head H or any held move at
+   * or past H, every S it has had, D069) signed by a seat whose secret is in, with `now ≥ P + deadline`. The lowest
+   * such claim id is recorded, and every seat stalled then forfeits. Final for that result, by its identity whatever
+   * its S (v1 §8.2 "Finality", D069).
    */
   private decideEndClaim(): void {
     const e = this.ending();
     if (e === null || !this.needsSecrets(e) || this.endClaims.has(e.key)) return;
     const stalled = this.endStalled(e);
     if (stalled.length === 0 || this.clock < this.progress() + this.root.deadline) return;
+    // A Resign's S can move after it stands (a fork between H and S, or moves past S): a claim naming H or any move
+    // at or past it counts, so one built at an earlier S still does (D069, review of T11 L1).
+    const names = (h: Hex): boolean =>
+      h === e.point.id || (e.r.kind === 'resign' && this.store.atOrPast(h, e.r.head));
     const ids = [...this.store.claims.values()]
-      .filter((c) => c.ev.headId === e.point.id && !stalled.includes(c.seat))
+      .filter((c) => names(c.ev.headId) && !stalled.includes(c.seat))
       .map((c) => c.ev.id)
       .sort();
     const id = ids[0];
