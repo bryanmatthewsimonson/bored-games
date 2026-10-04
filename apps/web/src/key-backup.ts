@@ -51,6 +51,8 @@ export function backupUnavailable(signer: Pick<Signer, 'nip44'>): string | null 
 export interface BackupRecord {
   at: number;
   rootId: Hex | null;
+  /** The backup event's id, once known (a record made before review M1, or by a restore, has none). */
+  id?: Hex;
 }
 
 export const backupRecordKey = (profile: string, tableAddress: string): string =>
@@ -63,9 +65,10 @@ export function loadBackupRecord(
 ): BackupRecord | null {
   const v = readJson(store, backupRecordKey(profile, tableAddress));
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-  const { at, rootId } = v as Record<string, unknown>;
+  const { at, rootId, id } = v as Record<string, unknown>;
   if (typeof at !== 'number' || !Number.isFinite(at)) return null;
-  return { at, rootId: typeof rootId === 'string' && /^[0-9a-f]{64}$/.test(rootId) ? rootId : null };
+  const hex = (x: unknown): x is string => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);
+  return { at, rootId: hex(rootId) ? rootId : null, ...(hex(id) ? { id } : {}) };
 }
 
 function saveBackupRecord(profile: string, store: KeyValueStore, address: string, r: BackupRecord): boolean {
@@ -163,9 +166,14 @@ export async function publishKeyBackup(
     if (problem !== null) return { ok: false, error: problem };
     const event = await signer.sign(keyBackupTemplate(tableAddress, content, deps.now()));
     const results = await deps.pool.publish(event, unionRelays(opts.tableRelays, deps.relays()));
-    if (!results.some((r) => r.ok))
-      return { ok: false, error: 'No relay accepted the backup. Check your relays and try again.' };
-    saveBackupRecord(profile, storage, tableAddress, { at: event.created_at, rootId });
+    // Only the game's own relays count (review M1): every device of the seat asks them, while the player's own relays
+    // may differ from device to device.
+    if (!results.some((r) => r.ok && opts.tableRelays.includes(r.url)))
+      return {
+        ok: false,
+        error: "None of this game's relays accepted the backup. Check your connection and try again.",
+      };
+    saveBackupRecord(profile, storage, tableAddress, { at: event.created_at, rootId, id: event.id });
     return { ok: true, event };
   } catch (e) {
     return { ok: false, error: `The backup failed: ${e instanceof Error ? e.message : String(e)}` };
@@ -331,6 +339,45 @@ export async function restoreKeyBackup(
 }
 
 /**
+ * Whether the game's relays hold a usable backup of this seat's keys (review M1), from a query of them (`onRoot`):
+ * - with a local key, one decrypts, passes `backupSeat` for `seat`, and holds exactly the keys saved here;
+ * - with an extension, which would prompt to decrypt, the backup this profile published (the recorded id) is there;
+ *   with no recorded id (an older record), any backup of the table is taken as it.
+ */
+export async function backupHealthy(
+  signer: Pick<Signer, 'pubkey' | 'nip44' | 'kind'>,
+  root: Pick<ParsedRoot, 'id' | 'tableAddress' | 'seats'>,
+  seat: number,
+  saved: GameSecrets,
+  onRoot: readonly NostrEvent[],
+  record: BackupRecord | null,
+  timers: Timers,
+): Promise<boolean> {
+  if (onRoot.length === 0) return false;
+  if (signer.kind !== 'local') return record?.id === undefined || onRoot.some((ev) => ev.id === record.id);
+  const r = await restoreKeyBackup(signer, root, onRoot, timers);
+  return (
+    r.kind === 'restored' &&
+    r.seat === seat &&
+    bytesToHex(r.secrets.sessionSk) === bytesToHex(saved.sessionSk) &&
+    bytesToHex(r.secrets.deckSecret) === bytesToHex(saved.deckSecret).padStart(64, '0')
+  );
+}
+
+/** Record a backup found healthy on the game's relays (`backupHealthy`) when none was recorded. */
+export function noteBackup(
+  profile: string,
+  store: KeyValueStore,
+  tableAddress: string,
+  ev: NostrEvent,
+  rootId: Hex,
+): void {
+  const r = loadBackupRecord(profile, store, tableAddress);
+  if (r?.id !== ev.id)
+    saveBackupRecord(profile, store, tableAddress, { at: ev.created_at, rootId, id: ev.id });
+}
+
+/**
  * Keep restored game keys in this profile: the secrets (owned by the player key) and the table in the list, so Home
  * shows the game. A restored backup counts as published. False when storage refused the write; existing game keys
  * for the table are never overwritten.
@@ -356,13 +403,13 @@ export const RESTORE_TEXT = {
   restoring: 'Restoring your game keys from your backup…',
   restored:
     'Your game keys were restored from your backup, so you can play your seat here too. You can play on both devices: each checks the relays before it signs, and a turn saved on the other device but never sent is dropped once this one has played it.',
-  none: 'You\'re watching this game: this browser does not hold your game keys for it, and no backup of them was found on your relays. Open the game on the device you joined with: it backs the keys up when it opens the game (or tap "Back up this game\'s keys" there). Then try again here.',
+  none: "You're watching this game: this browser does not hold your game keys for it, and no backup of them was found on its relays. Open the game on the device you joined with: when it opens the game it looks for its backup there and publishes it again if it is missing (with a browser extension, tap its backup button there). Then try again here.",
   incomplete:
     "You're watching this game: this browser does not hold your game keys for it, and your relays did not answer in time to find a backup. Try again, or open the game on the device you joined with.",
   unreadable:
     "You're watching this game: a backup of your game keys was found, but it could not be decrypted with this key. Open the game on the device you joined with.",
   mismatch:
-    "You're watching this game: the backup found does not hold the keys of your seat in this game. Open the game on the device you joined with: it backs up the right keys when it opens the game.",
+    "You're watching this game: the backup found does not hold the keys of your seat in this game. Open the game on the device you joined with: when it opens the game it checks its backup and publishes the right keys again (with a browser extension, tap its backup button there). Then try again here.",
   failed:
     "You're watching this game: your game keys were found in your backup, but this browser would not save them.",
   refused:

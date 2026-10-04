@@ -9,6 +9,9 @@ import { BACKUP_NO_NIP44, RESTORE_TEXT } from '../key-backup.ts';
 /** "Back up this game's keys" (D065). */
 export const BACKUP_BUTTON = "Back up this game's keys";
 
+/** Publish the backup again, from the done state (review M1). */
+export const BACKUP_AGAIN = 'Back up again';
+
 /** The restore of this seat's game keys from the player's backup: in progress, done, or why not, with Try again. */
 export function RestoreNotice(props: { state: RestoreState; onRetry: () => void }) {
   const { state } = props;
@@ -43,12 +46,22 @@ export function RestoreNotice(props: { state: RestoreState; onRetry: () => void 
 }
 
 /**
- * The backup of this seat's game keys from this browser: a local key backs up by itself (nothing shown unless it
- * failed); an extension is offered the button, since each backup asks it to encrypt and sign.
+ * The backup of this seat's game keys from this browser: a local key backs up by itself (nothing shown while it
+ * checks or sends, unless it failed); an extension is offered the button, since each backup asks it to encrypt and
+ * sign. Once done, "Back up again" stays available (review M1).
  */
 export function BackupOffer(props: { state: BackupState; signer: SignerKind; onBackup: () => void }) {
   const { state } = props;
-  if (state === 'done' || (state === 'due' && props.signer === 'local')) return null;
+  if (state === 'checking' || (state === 'due' && props.signer === 'local')) return null;
+  if (state === 'done')
+    return (
+      <div class="row game-backup">
+        <span class="muted grow">This game's keys are backed up on its relays.</span>
+        <button type="button" class="btn btn-small" onClick={props.onBackup}>
+          {BACKUP_AGAIN}
+        </button>
+      </div>
+    );
   if (state === 'unavailable')
     return <p class="muted game-backup">This game's keys are not backed up. {BACKUP_NO_NIP44}</p>;
   if (state === 'sending')

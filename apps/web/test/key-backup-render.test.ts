@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BACKUP_BUTTON, BackupOffer, RestoreNotice } from '../src/components/key-backup.tsx';
+import { BACKUP_AGAIN, BACKUP_BUTTON, BackupOffer, RestoreNotice } from '../src/components/key-backup.tsx';
 import { BACKUP_NO_NIP44, RESTORE_TEXT } from '../src/key-backup.ts';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
@@ -44,7 +44,11 @@ describe('the game screen’s key backup notices (D065)', () => {
     const offer = (state: Parameters<typeof BackupOffer>[0]['state'], signer: 'local' | 'nip07') =>
       renderTree(BackupOffer({ state, signer, onBackup: () => {} }));
     expect(offer('due', 'local')).toEqual([]);
-    expect(offer('done', 'nip07')).toEqual([]);
+    expect(offer('checking', 'nip07')).toEqual([]);
+    for (const signer of ['local', 'nip07'] as const) {
+      expect(buttons(offer('done', signer))).toEqual([BACKUP_AGAIN]);
+      expect(spokenText(offer('done', signer))).toContain("This game's keys are backed up on its relays.");
+    }
     expect(buttons(offer('due', 'nip07'))).toEqual([BACKUP_BUTTON]);
     const failed = offer({ error: 'No relay accepted the backup.' }, 'local');
     expect(buttons(failed)).toEqual([BACKUP_BUTTON]);

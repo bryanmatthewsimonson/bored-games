@@ -6,6 +6,7 @@
  */
 import type { ChainReactionState } from '@bored-games/chain-reaction';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
+import { startDevRelay } from '@bored-games/dev-relay';
 import {
   encodeKeyBackup,
   finalizeEvent,
@@ -160,7 +161,7 @@ describe('The key backup (D065)', () => {
     expect(saved?.sessionSk).toEqual(loadSecrets(white.name, white.deps.storage, address)?.sessionSk);
     expect(saved?.owner).toBe(white.deps.signer.pubkey);
     expect(loadTableList(white.name, desktop.deps.storage)).toContain(address);
-    expect(d.backup.value).toBe('done');
+    await waitFor('the backup checked', () => d.backup.value === 'done');
     expect(await h.query([{ kinds: [KIND.backup], authors: [white.deps.signer.pubkey] }])).toHaveLength(1);
 
     // Two live devices of the seat (D063): the desktop moves; the phone's check before signing adopts it.
@@ -257,4 +258,99 @@ describe('The key backup (D065)', () => {
     expect(state.board).toEqual(other.board);
     expect(desktop.view.value?.head.id).toBe(games[0]?.view.value?.head.id);
   }, 240_000);
+
+  it("review M1: a backup recorded here but missing from the game's relays is published again; only a game relay counts", async () => {
+    const own = await startDevRelay({ port: 0 });
+    h.later(() => own.close());
+    const keys = keyPair();
+    // The Join's backup reached only the player's own relay: no game relay took it, so nothing is recorded.
+    const a = h.profile('a', { signer: keys.full, extra: [own.url] });
+    const real = a.deps.pool;
+    const lobbyDeps = {
+      ...a.deps,
+      pool: {
+        subscribe: real.subscribe.bind(real),
+        addRelays: real.addRelays?.bind(real),
+        publish: (ev: NostrEvent, urls?: readonly string[]) =>
+          ev.kind === KIND.backup ? real.publish(ev, [own.url]) : real.publish(ev, urls),
+      } as typeof real,
+    };
+    const { rootId, address } = await h.start2('chess', { ...a, deps: lobbyDeps }, h.profile('b'));
+    // The game screen of the same device, with its full network.
+    const player = a;
+    for (let i = 0; i < 200; i++) {
+      if ((await h.query([{ kinds: [KIND.backup], authors: [keys.full.pubkey] }], own.url)).length > 0) break;
+      await pause(25);
+    }
+    expect(await h.query([{ kinds: [KIND.backup], authors: [keys.full.pubkey] }])).toEqual([]);
+    expect(loadBackupRecord('a', player.deps.storage, address)).toBeNull();
+    // An older app recorded it anyway (any relay counted): the game screen does not trust the mark.
+    player.deps.storage.setItem(backupRecordKey('a', address), JSON.stringify({ at: 1, rootId: null }));
+    const phone = h.game(rootId, player.deps);
+    await waitFor('the backup checked and published again', () => phone.backup.value === 'done');
+    const onRoot = await backupsOf(keys.full.pubkey);
+    expect(onRoot).toHaveLength(1);
+    expect(loadBackupRecord('a', player.deps.storage, address)?.id).toBe(onRoot[0]?.id);
+    // A device with other Settings relays (only the game's) now restores.
+    const desk = h.game(rootId, h.profile('a', { store: memoryStorage(), signer: keys.full }).deps);
+    await waitFor('the restore', () => desk.restore.value === 'restored');
+  }, 60_000);
+
+  it("review M1: a backup of the wrong keys on the game's relays is replaced when the joining device opens the game", async () => {
+    const a = h.profile('a', { nip44: true });
+    const b = h.profile('b', { nip44: true });
+    const { rootId, address, bySeat } = await h.start2('chess', a, b);
+    const A = a.deps.signer.pubkey;
+    const [first] = await backupsOf(A);
+    const theirs = loadSecrets('b', b.deps.storage, address);
+    if (first === undefined || theirs === null) throw new Error('no backup');
+    // A newer backup by A of other keys (as a lost double-Join race would leave) replaces the good one.
+    const text = encodeKeyBackup({
+      table: address,
+      sessionSk: bytesToHex(theirs.sessionSk),
+      deckSecret: bytesToHex(theirs.deckSecret),
+      rootId,
+      seat: 0,
+    });
+    const content = await (a.deps.signer.nip44 as NonNullable<Signer['nip44']>).encrypt(A, text);
+    const bad = await a.deps.signer.sign(keyBackupTemplate(address, content, first.created_at + 1));
+    await a.deps.pool.publish(bad, [h.relay.url]);
+    const root = await rootOf(rootId);
+    expect(await restore(a.deps.signer, root, await backupsOf(A))).toEqual({ kind: 'mismatch' });
+    await pause(1100); // so the new backup is dated after the bad one
+    const player = bySeat.find((p) => p.deps.signer.pubkey === A) as Profile;
+    const phone = h.game(rootId, player.deps);
+    await waitFor('the backup replaced', () => phone.backup.value === 'done');
+    const now = await backupsOf(A);
+    expect(now.map((e) => e.id)).not.toContain(bad.id);
+    expect(await restore(a.deps.signer, root, now)).toMatchObject({ kind: 'restored' });
+  }, 60_000);
+
+  it("review M1: with an extension, the recorded backup found on the game's relays is done without a decrypt prompt", async () => {
+    const keys = keyPair();
+    let decrypts = 0;
+    const ext: Signer = {
+      ...keys.full,
+      kind: 'nip07',
+      nip44: {
+        encrypt: (keys.full.nip44 as NonNullable<Signer['nip44']>).encrypt,
+        decrypt: async (pk, payload) => {
+          decrypts++;
+          return (keys.full.nip44 as NonNullable<Signer['nip44']>).decrypt(pk, payload);
+        },
+      },
+    };
+    const { rootId, address, bySeat } = await h.start2(
+      'chess',
+      h.profile('a', { signer: ext }),
+      h.profile('b'),
+    );
+    const player = bySeat.find((p) => p.deps.signer.pubkey === ext.pubkey) as Profile;
+    const [ev] = await backupsOf(ext.pubkey);
+    await waitFor('the record', () => loadBackupRecord('a', player.deps.storage, address)?.id === ev?.id);
+    const before = decrypts; // the one decrypt that confirmed the ciphertext before publishing (review L2)
+    const phone = h.game(rootId, player.deps);
+    await waitFor('the backup checked', () => phone.backup.value === 'done');
+    expect(decrypts).toBe(before);
+  }, 60_000);
 });

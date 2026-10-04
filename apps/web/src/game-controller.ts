@@ -44,9 +44,11 @@ import { type Signal, signal } from '@preact/signals';
 import { deterministicRandom, seatStreamKey } from './det-random.ts';
 import { bytesToHex } from './hex.ts';
 import {
-  backupDue,
+  backupHealthy,
   backupUnavailable,
   fetchKeyBackups,
+  loadBackupRecord,
+  noteBackup,
   publishKeyBackup,
   restoreKeyBackup,
   saveRestored,
@@ -96,10 +98,11 @@ export type RestoreState =
   | 'retry';
 
 /**
- * The backup of this seat's game keys from this browser (D065): `due` (none recorded), `sending`, `done`, an error,
+ * The backup of this seat's game keys from this browser (D065): `checking` (looking for it on the game's relays),
+ * `due` (not there), `sending`, `done`, an error,
  * or `unavailable` (the signer cannot encrypt).
  */
-export type BackupState = 'due' | 'sending' | 'done' | 'unavailable' | { error: string };
+export type BackupState = 'checking' | 'due' | 'sending' | 'done' | 'unavailable' | { error: string };
 
 /** How often `tick` runs while the controller is started, in ms. */
 export const TICK_MS = 30_000;
@@ -1392,9 +1395,11 @@ export class GameController {
   }
 
   /**
-   * Once the session plays this seat with the player's own key (not a seat recovered for another key): back the game
-   * keys up if no backup was recorded. Automatic with a local key, which needs no prompt; with an extension the
-   * screen offers "Back up this game's keys", since each backup asks the extension to encrypt and sign.
+   * Once the session plays this seat with the player's own key (not a seat recovered for another key): check that the
+   * game's relays hold a usable backup of its keys (review M1: a local "backed up" mark alone is not trusted; the
+   * relay that took it may not be one the other device asks, or may have dropped it), and back them up if not.
+   * Automatic with a local key, which needs no prompt; with an extension the screen offers the button, since each
+   * backup asks the extension to encrypt and sign, and checking one would ask it to decrypt.
    */
   #offerBackup(root: ParsedRoot, seat: number): void {
     if (this.backup.value !== null) return;
@@ -1402,12 +1407,37 @@ export class GameController {
       this.backup.value = 'unavailable';
       return;
     }
-    if (!backupDue(this.#d.profile, this.#d.storage, root.tableAddress)) {
-      this.backup.value = 'done';
-      return;
-    }
-    this.backup.value = 'due';
-    if (this.#d.signer.kind === 'local') void this.#publishBackup(root, seat);
+    this.backup.value = 'checking';
+    void (async () => {
+      const { profile, storage, signer } = this.#d;
+      const saved = loadSecrets(profile, storage, root.tableAddress);
+      const q = await fetchKeyBackups(
+        this.#d.pool,
+        this.#d.timers,
+        signer.pubkey,
+        root.tableAddress,
+        root.relays,
+        CHECK_TIMEOUT_MS,
+      );
+      if (this.#disposed || saved === null) return;
+      const record = loadBackupRecord(profile, storage, root.tableAddress);
+      if (await backupHealthy(signer, root, seat, saved, q.onRoot, record, this.#d.timers)) {
+        if (this.#disposed) return;
+        const newest = [...q.onRoot].sort((a, b) => b.created_at - a.created_at)[0];
+        if (newest !== undefined && record === null)
+          noteBackup(profile, storage, root.tableAddress, newest, root.id);
+        if (this.backup.value === 'checking') this.backup.value = 'done';
+        return;
+      }
+      if (this.#disposed || this.backup.value !== 'checking') return;
+      // Not found on a partial answer, with a backup recorded: most likely slow relays, so do not publish again now.
+      if (!q.complete && record !== null) {
+        this.backup.value = 'done';
+        return;
+      }
+      this.backup.value = 'due';
+      if (signer.kind === 'local') void this.#publishBackup(root, seat);
+    })();
   }
 
   async #publishBackup(root: ParsedRoot, seat: number): Promise<void> {
