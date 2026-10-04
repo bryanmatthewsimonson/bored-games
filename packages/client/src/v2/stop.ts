@@ -20,7 +20,8 @@ import type { Walk } from './walk.ts';
  *   holds no game action (P before play), every other seat shares first place and every score is 0. The reason is
  *   `stop`. What is rated is the stats record's (`record.ts`): with 2 seats the whole result, a loss for E (a tie
  *   when both seats equivocated); with 3 or more only the equivocators' last places.
- * - **After a stop in a deck game** every seat owes its Secret reveal. The places are fixed at the stop: a missing
+ * - **After a stop in a deck game whose final deck exists at P** (every shuffle step on P's line linked; below that
+ *   there is no card to audit, so no secret is owed and none recorded as withheld) every seat owes its Secret reveal. The places are fixed at the stop: a missing
  *   secret only records the seat as "secret withheld". Once the held secrets and verified shares decrypt every
  *   position of the final deck at P, the partial audit replays the action log up to P in full mode, with no outcome
  *   comparison; until then the game is "audit incomplete". Only a proven failure moves a seat: a failed seat that is

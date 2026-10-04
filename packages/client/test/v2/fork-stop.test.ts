@@ -8,6 +8,7 @@ import {
   type NostrEvent,
   type ParsedMove,
   parseMove,
+  secretTemplate,
   timeoutTemplate,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -407,10 +408,46 @@ describe('forks in the shuffle and the deal, and late forks there (Chain Reactio
       expect(v.outcome).toEqual({ places: [1, 3, 1], reason: 'stop', scores: [0, 0, 0] });
       expect(v.equivocators).toEqual([1]);
       expect(v.phase).toBe('done');
+      // P precedes the final deck: nothing to audit, so no secret is owed or recorded withheld (§7.3).
+      expect(v.audit).toEqual({ fail: [1], reason: 'stop' });
+      expect(v).toMatchObject({ secretWithheld: [], auditIncomplete: false, forfeits: [1] });
     }
-    // A stop in a deck game owes every seat its secret, and nothing else.
-    for (const p of r.players) expect(p.duties()).toEqual([{ kind: 'secret' }]);
-    expect(gameRecord(r.spectator.view())).toMatchObject({ ending: 'stop', rated: [false, true, false] });
+    for (const p of r.players) expect(p.duties()).toEqual([]);
+    expect(gameRecord(r.spectator.view())).toMatchObject({
+      ending: 'stop',
+      rated: [false, true, false],
+      secretWithheld: [],
+      auditIncomplete: false,
+    });
+  });
+
+  it('V2-40 owes no secret and records none withheld after a stop whose P precedes the final deck; a secret that arrives is only stored', () => {
+    // A late fork at the first shuffle step's prev (the root): P has no final deck.
+    const m = parseMove(steps[0], 108, '2') as ParsedMove;
+    const c = m.content as Extract<ParsedMove['content'], { type: 'shuffle' }>;
+    const rival = signedMove(base, 0, m.prevId, m.seq, { ...c, deck: [...c.deck].reverse() }, NOW + 9);
+    const r = inOrders(base, [...base.log, rival], 'stop-cr-root', 2);
+    for (const s of r.all) {
+      const v = s.view();
+      expect(v.stop).toEqual({ at: base.game.rootId, seat: 0, cancelled: false });
+      expect(v).toMatchObject({ secretWithheld: [], auditIncomplete: false, audit: { fail: [0], reason: 'stop' } });
+    }
+    for (const p of r.players) expect(p.duties()).toEqual([]);
+    expect(() => (r.players[1] as GameSessionV2).buildSecret(r.game.rnd, NOW)).toThrow(/no secret duty/);
+    // A secret published anyway is held, not counted: nothing changes.
+    const before = r.spectator.view();
+    const secret = finalizeEvent(
+      secretTemplate({ rootId: r.game.rootId, deckSecret: (r.game.ids[2] as Identity).deckSecret }, NOW, '2'),
+      (r.game.ids[2] as Identity).sessionSk,
+      r.game.rnd,
+    );
+    expect(r.spectator.receive(secret, NOW).status).toBe('stored');
+    expect(r.spectator.view()).toMatchObject({
+      audit: before.audit,
+      outcome: before.outcome,
+      secretWithheld: [],
+      auditIncomplete: false,
+    });
   });
 
   it('V2-22 scores two first game actions on the last shuffle step as a stop before play, not a cancel', () => {

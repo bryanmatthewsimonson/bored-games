@@ -723,10 +723,15 @@ export class GameSessionV2 implements Session {
     return this.stopCache;
   }
 
-  /** Whether the game is stopped and scored in a game with a deck: the after-stop Secret phase (§7.3). */
+  /**
+   * Whether the after-stop Secret phase applies (§7.3): the game is stopped and scored, it has a deck, and the final
+   * deck exists at P (every shuffle step on P's line is linked: P's point has a final-deck key). Below that point
+   * there is no card to audit, so no seat owes a secret and none is recorded as withholding one (coordinator
+   * ruling, T10 question 1).
+   */
   private secretPhaseAfterStop(): boolean {
     const stop = this.stopNow();
-    return stop !== null && !stop.cancelled && this.ctx.deckId !== null;
+    return stop !== null && !stop.cancelled && this.ctx.deckId !== null && this.head().deckKey !== null;
   }
 
   /**
@@ -806,13 +811,15 @@ export class GameSessionV2 implements Session {
   /**
    * A stopped game's phase, outcome, audit and forfeits (PROTOCOL-v2 §5.6, §7.3): `cancelled` with no outcome; or
    * `done` with the stop's places at once. In a deck game the audit is the partial audit's verdict once it ran
-   * (`pending` meanwhile: "audit incomplete"), and only a proven failure demotes a seat. A deckless game has no audit
-   * after a stop: it records the equivocators with reason `stop`, as a timeout records its forfeits (v1 §8.2).
+   * (`pending` meanwhile: "audit incomplete"), and only a proven failure demotes a seat. A deckless game, and a deck
+   * game stopped before its final deck exists at P, has no audit after a stop: it records the equivocators with
+   * reason `stop`, as a timeout records its forfeits (v1 §8.2).
    */
   private stopStatus(stop: Stop): Status {
     if (stop.cancelled) return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits: [] };
     const eq = [...stop.equivocators];
-    if (this.ctx.deckId === null)
+    // No deck, or no final deck at P: nothing to audit after the stop (§7.3).
+    if (!this.secretPhaseAfterStop())
       return {
         phase: 'done',
         outcome: stopOutcome(this.ctx, stop, []),
