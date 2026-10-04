@@ -31,7 +31,8 @@ export function lineLogHash(store: EventStoreV2, head: Hex): Hex | null {
 /**
  * An end attestation judged against the held events (PROTOCOL-v2 §4.3 "Consistency"): `valid` once the line to its
  * head is held and its `logHash` is that line's; `unresolved` until then; `mismatch` when the hashes differ, which
- * makes it invalid for every purpose.
+ * makes it invalid: it counts for no result and satisfies no duty, but it stays held and still counts for rule (b)
+ * by its head and for the rebroadcast (§5.4 (b), V2-12, V2-56).
  */
 export function endVerdict(store: EventStoreV2, a: ParsedEndAttest): 'valid' | 'unresolved' | 'mismatch' {
   const hash = lineLogHash(store, a.headId);

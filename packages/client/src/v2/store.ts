@@ -19,7 +19,7 @@ import type { HeldMove } from './types.ts';
  * holds. Moves are kept whatever their validity (PROTOCOL-v2 §5.1: a held Move need not be valid), indexed by id and
  * by `prev`. Per-seat caps follow v1's for Timeout claims and Resigns.
  *
- * Shares events and end attestations form the **held set** (PROTOCOL-v2 §5.4 (b), D065): every one that parses at
+ * Shares events and end attestations form the **held set** (PROTOCOL-v2 §5.4 (b), D066): every one that parses at
  * proto 2, names the game's root and has a seated signer is kept here before any validity check, whatever its
  * validity, with no cap, because rule (b) and the rebroadcast (§9.1) count them all. What is valid (verified shares,
  * counted attestations) is recomputed from this set by the layers above; it never removes an event from it.
@@ -74,9 +74,9 @@ export class EventStoreV2 {
   readonly moves = new Map<Hex, HeldMove>();
   /** The ids of the held moves on each `prev`. */
   private readonly kids = new Map<Hex, Set<Hex>>();
-  /** Every held card Shares event (PROTOCOL-v2 §4.2), with its anchor, by id (D065). */
+  /** Every held card Shares event (PROTOCOL-v2 §4.2), with its anchor, by id (D066). */
   readonly cardShares = new Map<Hex, Seated<ParsedCardShares>>();
-  /** Every held roll Shares event (PROTOCOL-v2 §4.2), with its anchor, by id (D065). */
+  /** Every held roll Shares event (PROTOCOL-v2 §4.2), with its anchor, by id (D066). */
   readonly rollShares = new Map<Hex, Seated<ParsedRollShares>>();
   /** Timeout claims by id, within the caps. */
   readonly claims = new Map<Hex, Seated<ParsedTimeout>>();
@@ -84,7 +84,7 @@ export class EventStoreV2 {
   readonly resigns = new Map<Hex, Seated<ParsedResign>>();
   /** Secret reveals by id, each matching its seat's deck key. */
   readonly secrets = new Map<Hex, Seated<ParsedSecret>>();
-  /** Every held end attestation by id, duplicates and invalid ones included (D065). */
+  /** Every held end attestation by id, duplicates and invalid ones included (D066). */
   readonly ends = new Map<Hex, HeldEnd>();
   /** The first id held per `endKey`, for the `duplicate` receive status only. */
   private readonly endKeys = new Map<string, Hex>();
@@ -197,7 +197,7 @@ export class EventStoreV2 {
   }
 
   /**
-   * Hold end attestation `a` for `seat`, whatever its validity (D065). Returns false when another one with the same
+   * Hold end attestation `a` for `seat`, whatever its validity (D066). Returns false when another one with the same
    * `endKey` (by either of the seat's keys) was held already: it is held too, and counts once (PROTOCOL-v2 §11
    * item 10).
    */
@@ -209,7 +209,7 @@ export class EventStoreV2 {
     return true;
   }
 
-  /** Hold Shares event `s` by `seat`, of either variant, whatever its validity (D065). */
+  /** Hold Shares event `s` by `seat`, of either variant, whatever its validity (D066). */
   addShares(s: ParsedCardShares | ParsedRollShares, seat: number): void {
     if (s.type === 'shares') this.cardShares.set(s.id, { ev: s, seat });
     else this.rollShares.set(s.id, { ev: s, seat });

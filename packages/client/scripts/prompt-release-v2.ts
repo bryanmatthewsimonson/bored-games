@@ -11,9 +11,16 @@
  * - `fork`: the next seat then signs two moves on that head, so every client holds a fork: no duty at all, the
  *   owed release included.
  *
- * Secrets are included on purpose: these are test vectors. Shuffle proofs are made and trusted, not verified (they
- * are covered by the deck vectors). `test/v2/prompt-release.test.ts` checks that regenerating gives the file byte
- * for byte.
+ * The file holds every signed event, so it is reproducible outside this repository (review of T8, L4): the table,
+ * the Joins and the root, then `events`, every event delivered to the seats in order (shuffle steps, deals, moves,
+ * the fork's two moves). Each checkpoint names how many of `events` were delivered when it was taken
+ * (`delivered`), and each seat's built Shares event is included in full (`signed`; the `draw` releases are built but
+ * not delivered). An implementation folds `events[0 … delivered)` from the root and must owe exactly the duties
+ * listed, and build events with the same positions and anchors.
+ *
+ * Secrets are included on purpose: these are test vectors. Shuffle proofs are made and trusted while generating
+ * (the deck vectors cover them); `test/v2/prompt-release.test.ts` verifies them when it folds the file's events,
+ * and checks that regenerating gives the file byte for byte.
  */
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -31,10 +38,14 @@ interface Released {
   duty: Duty[];
   /** The positions and anchor of the event the duty builds. */
   event: { positions: number[]; anchor: Hex } | null;
+  /** That event, signed. */
+  signed: NostrEvent | null;
 }
 
 export interface Checkpoint {
   label: 'deal' | 'draw' | 'fork';
+  /** How many of the file's `events` had been delivered to every seat when the checkpoint was taken. */
+  delivered: number;
   head: { id: Hex; seq: number };
   /** The dealt entries the head's move added (`draw`), or every dealt entry (`deal`). */
   dealt: { pos: number; to: number | null }[];
@@ -43,12 +54,17 @@ export interface Checkpoint {
 }
 
 export interface PromptReleaseVectors {
-  version: 1;
+  version: 2;
   seed: string;
   game: string;
   engine: string;
   seats: number;
   identities: { seat: number; sessionSk: Hex; deckSecret: string }[];
+  table: NostrEvent;
+  joins: NostrEvent[];
+  root: NostrEvent;
+  /** Every event delivered to the seats, in order. */
+  events: NostrEvent[];
   checkpoints: Checkpoint[];
 }
 
@@ -72,7 +88,9 @@ export function generatePromptReleaseVectors(): PromptReleaseVectors {
       rootSeenAt: ROOT_SEEN,
     }),
   );
+  const events: NostrEvent[] = [];
   const send = (ev: NostrEvent): void => {
+    events.push(ev);
     for (const s of players) s.receive(ev, NOW);
   };
   const trust = (ev: NostrEvent): void => {
@@ -96,10 +114,11 @@ export function generatePromptReleaseVectors(): PromptReleaseVectors {
       const auto = duty.find((d) => d.kind === 'deal' || d.kind === 'release');
       const ev = auto === undefined ? null : build(seat, auto);
       if (ev !== null) built.push(ev);
-      return { seat, duty, event: ev === null ? null : contentOf(ev) };
+      return { seat, duty, event: ev === null ? null : contentOf(ev), signed: ev };
     });
     checkpoints.push({
       label,
+      delivered: events.length,
       head: { ...v.head },
       dealt,
       fork: v.fork === null ? null : { at: v.fork.at, seat: v.fork.seat },
@@ -143,7 +162,7 @@ export function generatePromptReleaseVectors(): PromptReleaseVectors {
   send(b);
   snapshot('fork', [], () => null);
   return {
-    version: 1,
+    version: 2,
     seed: PROMPT_RELEASE_SEED,
     game: chainReaction.id,
     engine: chainReaction.version,
@@ -153,6 +172,10 @@ export function generatePromptReleaseVectors(): PromptReleaseVectors {
       sessionSk: hex(id.sessionSk),
       deckSecret: id.deckSecret.toString(16),
     })),
+    table: game.table,
+    joins: [...game.joins],
+    root: game.root,
+    events,
     checkpoints,
   };
 }

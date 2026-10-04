@@ -18,7 +18,7 @@ import type { GameCtx } from './types.ts';
  * is verified against a line's final deck, once per (event, final-deck key), and the events whose every share
  * verifies feed that final deck's **pool**: at most one share per (seat, position), the first valid one (v1 §5.4;
  * every valid share of a (seat, position) has the same `D`, so which one is kept never changes a decryption). The
- * pool is validity only: the held set (D065) is the event store, and an event that fails here stays held there.
+ * pool is validity only: the held set (D066) is the event store, and an event that fails here stays held there.
  *
  * A line's shares at a point are its final deck's pool plus the shares and reveals of the game actions linked on the
  * line up to that point (`LineShares`). Every query records the positions it read (`touched`), for callers that need

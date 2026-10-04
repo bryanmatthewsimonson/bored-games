@@ -9,12 +9,17 @@ import {
   type NostrEvent,
   type ParsedMove,
   parseMove,
+  parseSharesV2,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { type Checkpoint, promptReleaseFile } from '../../scripts/prompt-release-v2.ts';
+import {
+  type Checkpoint,
+  type PromptReleaseVectors,
+  promptReleaseFile,
+} from '../../scripts/prompt-release-v2.ts';
 import type { Duty, Identity } from '../../src/types.ts';
-import type { GameSessionV2 } from '../../src/v2/session.ts';
-import { MODULES, NOW } from '../helpers.ts';
+import { GameSessionV2 } from '../../src/v2/session.ts';
+import { MODULES, NOW, ROOT_SEEN } from '../helpers.ts';
 import {
   type AnyModule,
   act,
@@ -23,6 +28,7 @@ import {
   runAuto,
   send,
   shuffleAll,
+  trustSteps,
   type V2Table,
   v2Table,
 } from './helpers-v2.ts';
@@ -52,6 +58,48 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
 
   it('regenerates test/vectors/prompt-release-v2.json byte for byte', () => {
     expect(promptReleaseFile()).toBe(file);
+  }, 120_000);
+
+  it("folds the file's own signed events from the root, every shuffle proof verified, and owes exactly what each checkpoint lists (review of T8, L4)", () => {
+    const v = JSON.parse(file) as PromptReleaseVectors;
+    const ids: Identity[] = v.identities.map((x) => ({
+      seat: x.seat,
+      sessionSk: Uint8Array.from(Buffer.from(x.sessionSk, 'hex')),
+      deckSecret: BigInt(`0x${x.deckSecret}`),
+    }));
+    const make = (me: Identity | null): GameSessionV2 =>
+      GameSessionV2.create({
+        modules: MODULES,
+        table: v.table,
+        joins: v.joins,
+        root: v.root,
+        me,
+        rootSeenAt: ROOT_SEEN,
+      });
+    // The verifier checks every proof; the seats trust the steps it accepted (shuffle proofs are slow to check).
+    const verifier = make(null);
+    const seats = ids.map(make);
+    let i = 0;
+    for (const c of v.checkpoints) {
+      for (; i < c.delivered; i++) {
+        const ev = v.events[i] as NostrEvent;
+        expect(verifier.receive(ev, NOW), `event ${i}`).toEqual({ status: 'accepted' });
+        if ((JSON.parse(ev.content) as { type?: string }).type === 'shuffle') trustSteps(seats, [ev]);
+        for (const s of seats) expect(s.receive(ev, NOW).status).toBe('accepted');
+      }
+      expect(verifier.view().head).toEqual(c.head);
+      expect(seats.map((s) => s.duties())).toEqual(c.seats.map((x) => x.duty));
+      for (const x of c.seats) {
+        if (x.signed === null) continue;
+        const parsed = parseSharesV2(x.signed);
+        expect({ anchor: parsed.anchorId, positions: parsed.shares.map((y) => y.pos) }).toEqual(x.event);
+      }
+    }
+    expect(i).toBe(v.events.length);
+    // Every built Shares event verifies against the final deck: the deals were delivered, the draw's releases are not
+    // in `events`, and the verifier accepts them now.
+    for (const x of at('draw').seats)
+      if (x.signed !== null) expect(verifier.receive(x.signed, NOW)).toEqual({ status: 'accepted' });
   }, 120_000);
 
   it('V2-26 never releases a position dealt to its own seat, nor an undealt one: the deal and a draw', () => {

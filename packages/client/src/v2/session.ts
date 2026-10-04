@@ -385,7 +385,7 @@ export class GameSessionV2 implements Session {
 
   /**
    * A v2 Shares event (PROTOCOL-v2 §4.2). Once it parses with a seated signer it is held, whatever its validity
-   * (D065, V2-56): rule (b) of the cutoff and the rebroadcast count it. A card variant is invalid in a game without
+   * (D066, V2-56): rule (b) of the cutoff and the rebroadcast count it. A card variant is invalid in a game without
    * a deck, and a roll variant in a game whose module does not roll (V2-08): both are held and reported `rejected`.
    * A card variant in a game with a deck is verified against the walk's final deck (§4.2): `rejected` when a share
    * fails or a position is outside the deck (it is still held, and kept out of the share pool), `stored` before the
@@ -561,7 +561,7 @@ export class GameSessionV2 implements Session {
     if (seat === undefined)
       return { status: 'rejected', reason: 'not signed by a seated session key or npub' };
     this.see(a.id, now);
-    // Held whatever its validity (D065, V2-56): rule (b) counts it by its head.
+    // Held whatever its validity (D066, V2-56): rule (b) counts it by its head.
     const first = this.store.addEnd(a, seat, bySession === undefined);
     const bad = this.endProblem(a);
     if (bad !== null) return { status: 'rejected', reason: bad };
@@ -1167,8 +1167,8 @@ export class GameSessionV2 implements Session {
    * Where `id` sits, as v1 reports it (only moves that may still link count, as v1 pools only those):
    * - `chain`: the root or a move on the walk;
    * - `ahead`: a held move whose ancestry through held moves reaches the head, every move on the way able to link
-   *   still (none of a bad shape, none judged invalid at its prev, each `seq` one more than its prev's), with no fork
-   *   held: it extends the chain once what it waits for arrives;
+   *   still (none of a bad shape, none judged invalid at its prev, no shuffle step whose proof failed, each `seq` one
+   *   more than its prev's), with no fork held: it extends the chain once what it waits for arrives;
    * - `side`: the same, but its ancestry reaches the walk below the head;
    * - `unknown`: anything else, including every move past a fork held at the head, and a move above junk.
    */
@@ -1185,9 +1185,14 @@ export class GameSessionV2 implements Session {
     return 'unknown';
   }
 
-  /** Whether held move `h` may still link at its prev: a good shape, not judged invalid, and the next `seq`. */
+  /**
+   * Whether held move `h` may still link at its prev: a good shape, not judged invalid, not a shuffle step whose
+   * proof failed (valid-looking for good, never linked: review of T8, L1), and the next `seq`.
+   */
   private mayLink(h: HeldMove): boolean {
-    if (h.shape !== null || this.current.judged.get(h.m.id)?.kind === 'invalid') return false;
+    if (h.shape !== null) return false;
+    const j = this.current.judged.get(h.m.id);
+    if (j?.kind === 'invalid' || (j?.kind === 'looking' && j.final)) return false;
     const prev = h.m.prevId === this.root.id ? 0 : this.store.moves.get(h.m.prevId)?.m.seq;
     return prev === undefined || h.m.seq === prev + 1;
   }
@@ -1222,7 +1227,7 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * The held set (PROTOCOL-v2 §5.4 (b), D065, V2-56): every held Shares event and end attestation, valid or not, with
+   * The held set (PROTOCOL-v2 §5.4 (b), D066, V2-56): every held Shares event and end attestation, valid or not, with
    * its signer's seat and what rule (b) reads it by (a Shares event's anchor, an end attestation's head), ascending
    * by id. A function of the held events alone; rule (b) (T11) and the rebroadcast (T13) read it.
    */

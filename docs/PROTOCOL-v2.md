@@ -105,7 +105,7 @@ Decryption shares and dice contributions outside the move chain: the deal, promp
 
 **Session rules:**
 - A card variant in a game without a deck, or a roll variant in a game whose module does not roll (§10), is invalid: it is never verified or used. It is still **held** (§5.4 (b)), like every Shares event that parses with a seated signer.
-- Every card share MUST verify against the signer's deck key and the final deck (v1 §5.4), or the whole event is rejected (as v1 `foldShares`): none of its shares is kept for decryption. The event itself stays held (§5.4 (b)). A card variant that arrives before the final deck is complete waits.
+- Every card share MUST verify against the signer's deck key and the final deck (v1 §5.4), or the whole event is invalid (v1 `foldShares` rejects it): none of its shares is kept for decryption. The event itself stays held (§5.4 (b)). A card variant that arrives before the final deck is complete waits.
 - Every roll contribution MUST verify as §6.2 says, against the requesting move. A roll variant whose requesting move is not held waits. One whose requesting move is held but requested fewer than n+1 rolls, or whose move is not a game action, is invalid as a whole.
 - A client keeps at most one card share per (seat, position) and one contribution per (seat, requesting move, n), the first valid one (v1 §5.4).
 - The anchor does not affect validity. A client records each held Shares event's signer and anchor for the cutoff (§5.4). An anchor that names an event the client does not hold is kept as **unresolved**.
@@ -162,7 +162,7 @@ Everything in this section is a function of the events the client holds: no cloc
 - **Lines.** The **line** of a held move h is h and its ancestors through `prev`, down to the root. A line is **valid** when every move on it is valid at its prev (v1 §6.5 rules 2–4, judged on the state folded along that line, owed shares included; for a shuffle step, its proof verifies). Lines other than the walk are folded only when the cutoff needs them (§5.4).
 - **Descendants.** A held event id `a` is **at or past** a move or root `h` when `a = h`, or the `prev` links of held moves lead from `a` down to `h`. An id the client does not hold, or whose `prev` links reach a move it does not hold before reaching `h`, is not at or past `h`.
 - **The walk.** Start with the head at the root. At head h, let **C(h)** be the set of held Moves with `prev` h and `seq` one more than h's that are **valid-looking** at h:
-  - a shuffle step (`seq ≤ N`): **well-formed**: it parses, `seq ≤ N`, and it is signed by the seat that step belongs to (v1 §5.5: seat `floor((seq−1)/G)`; seat `seq−1` for an unpartitioned deck). Its proof need not verify;
+  - a shuffle step (`seq ≤ N`): **well-formed**: it parses, `seq ≤ N`, it is signed by the seat that step belongs to (v1 §5.5: seat `floor((seq−1)/G)`; seat `seq−1` for an unpartitioned deck), and its `deck` holds exactly its group's size (v1 §5.5: group `(seq−1) mod G`; the whole deck when unpartitioned). Its proof need not verify. A step of another group's size can parse with a partitioned deck; it is not well-formed;
   - a game action: valid at h on every check of v1 §6.5 except the owed-shares rule (v1 §6.6's definition): the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `apply` accepts the action.
 
   Then:
@@ -208,7 +208,7 @@ When the walk ends at a fork at P, signed by E, a result X **stands** against it
   - a **Shares event** whose anchor is neither on X's path nor at or past X's head. An unresolved anchor (not held) is off the line;
   - an **end attestation** whose head is neither on X's path nor at or past X's head (attestations are anchored on their head; round 3, after the battery).
 
-  **The held set** (coordinator ruling on review L3 and I1, D065). Every Shares event, of either variant, and every end attestation that parses at proto 2 (§4.2, §4.3), names this game's root and is signed by a seated key (a Shares event: the seat's session key; an end attestation: its session key or its npub) is **held**. A held event counts for rule (b), a Shares event by its anchor and an end attestation by its head, and it is rebroadcast (§9.1). It is held whatever its validity, in particular when:
+  **The held set** (coordinator ruling on review L3 and I1, D066). Every Shares event, of either variant, and every end attestation that parses at proto 2 (§4.2, §4.3), names this game's root and is signed by a seated key (a Shares event: the seat's session key; an end attestation: its session key or its npub) is **held**. A held event counts for rule (b), a Shares event by its anchor and an end attestation by its head, and it is rebroadcast (§9.1). It is held whatever its validity, in particular when:
   - its variant is inapplicable to the game (a card variant in a deckless game, a roll variant in a game that does not roll);
   - its shares fail verification, or a position is out of range;
   - it duplicates shares already kept, or an end attestation this seat already signed;
@@ -482,7 +482,7 @@ v1 §11 holds for everything that does not concern fork choice. In addition (pro
 ## 12. Conformance
 
 ### 12.1 Requirements
-Each item is a testable requirement on a v2 client (session, protocol package or controller). "Reject" means the event is refused and changes nothing.
+Each item is a testable requirement on a v2 client (session, protocol package or controller). "Reject" means the event is refused and changes nothing. "Treat as invalid" means the event is never verified further, used or linked, but it is still **held**: it counts for §5.4 (b) and is rebroadcast (§5.1, §9.1, V2-56).
 
 **Versioning**
 - **V2-01** MUST put exactly one `["proto", "2"]` tag on every Table, Join, root and in-game event of a v2 game (§2).
@@ -495,7 +495,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 **Parsers**
 - **V2-06** MUST reject a v2 Shares event without exactly one `root` and one `anchor` `e` tag (§4.2).
 - **V2-07** MUST reject a Shares event with an empty `shares`, non-ascending `pos`, a `type` other than `"shares"` or `"roll"`, or a key set that does not match its `type` (§4.2).
-- **V2-08** MUST reject a card variant in a deckless game and a roll variant in a game that does not roll (§4.2).
+- **V2-08** MUST treat as invalid a card variant in a deckless game and a roll variant in a game that does not roll (§4.2).
 - **V2-09** MUST reject an end attestation without a `head` tag, with keys other than `end`, with `forfeit` not strictly ascending, or with `forfeit` not matching `kind` (`over` empty, `resign` one seat, `claim` one or more) (§4.3).
 - **V2-10** MUST reject a stats attestation with a `head` tag, and one whose `endedBy.type` is `"fork"` (§4.3).
 - **V2-11** MUST accept an end attestation from a seat's session key or its npub, and count both for that seat (§4.3).
@@ -504,7 +504,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-51** MUST reject an end attestation without exactly two `e` tags (`root`, `head`), and a stats attestation or a Device note without exactly one (`root`) (§4.3, §4.4).
 
 **The walk, forks and the cutoff**
-- **V2-14** MUST end the walk at a fork when a head has two or more valid-looking successors, and treat any two well-formed shuffle steps of one seat on one chain prev as a fork without verifying their proofs (§5.1, §5.2).
+- **V2-14** MUST end the walk at a fork when a head has two or more valid-looking successors, and treat any two well-formed shuffle steps of one seat on one chain prev as a fork without verifying their proofs; a shuffle step whose `deck` is not its group's size is not well-formed (§5.1, §5.2).
 - **V2-15** MUST NOT pick a branch at a fork: no move past the fork is ever scored, whatever its length, id or end (§5.2, §5.5).
 - **V2-16** MUST judge only the topmost fork on the walk (§5.2).
 - **V2-17** MUST compute result identities as §5.3 says, and judge validity without a clock (§5.3).
@@ -531,7 +531,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-30** MUST compute roll points as `H2C("roll:" + rootId + ":" + M + ":" + n)` with M the requesting move (§6.2).
 - **V2-31** MUST map the roll entries a game action appends to (M, 0) … (M, r−1) in list order (§6.2).
 - **V2-32** MUST verify each contribution with the context deck id `roll`, position n, against its requesting move's point, and keep one per (seat, M, n) (§6.2).
-- **V2-33** MUST reject a Move that carries a contribution, a player-sent `rolled` action, and any game action while a beacon is pending (§6.2).
+- **V2-33** MUST treat as invalid a Move that carries a contribution, a player-sent `rolled` action, and any game action while a beacon is pending (§5.1, §6.2).
 - **V2-34** MUST publish its own contribution only once the requesting move is on its chain, while it holds no fork and has no result; the requester's contribution comes after its own move (§6.2).
 - **V2-35** MUST derive faces from the seat-ordered seed with the module's `count` and `sides`, by `faces` (§6.2).
 - **V2-36** MUST treat every seat without a contribution to a pending roll as stalled (§6.2, §8.1).

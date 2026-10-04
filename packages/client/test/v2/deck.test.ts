@@ -1,6 +1,7 @@
 import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
 import { type Ciphertext, makeMoveRollShare, makeShare } from '@bored-games/deck';
 import { canonicalJson, createRng } from '@bored-games/game-kit';
+import { luster } from '@bored-games/luster';
 import {
   cardSharesTemplate,
   finalizeEvent,
@@ -13,6 +14,7 @@ import {
   secretTemplate,
 } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { deckPartitions, parsePartitionMove } from '../../src/partitioned-deck.ts';
 import type { Identity } from '../../src/types.ts';
 import type { GameSessionV2 } from '../../src/v2/session.ts';
 import { MODULES, NOW } from '../helpers.ts';
@@ -33,7 +35,7 @@ import {
 /*
  * The protocol 2 session with a deck (build plan T8): the shuffle (PROTOCOL-v2 §5.1: a well-formed step is
  * valid-looking without its proof), the deal (a card Shares event anchored on the last shuffle step), card Shares
- * events verified against the line's final deck and held whatever their validity (D065), derived reveals, learns,
+ * events verified against the line's final deck and held whatever their validity (D066), derived reveals, learns,
  * the slow path, the Secret phase and the full audit at `over`. Chain Reaction, 3 seats. Prompt release has its own
  * file (`prompt-release.test.ts`).
  */
@@ -187,6 +189,128 @@ describe('GameSessionV2 with a deck: shuffle and deal (Chain Reaction)', () => {
       reason: 'shuffle step 1 must be signed by seat 0',
     });
     expect(other.spectator.view().fork).toBeNull();
+  });
+  it('a shuffle step whose proof fails never links, so no move on it is ever ahead of the head (review of T8, L1)', () => {
+    // The last shuffler signs a failing-proof step 3 (the deck reordered) and a game action on it.
+    const c = (parseMove(shuffled[2], 108, '2') as ParsedMove).content as Extract<
+      ParsedMove['content'],
+      { type: 'shuffle' }
+    >;
+    const id2 = base.game.ids[2] as Identity;
+    const bad = finalizeEvent(
+      moveTemplate(
+        {
+          rootId: base.game.rootId,
+          prevId: (shuffled[1] as NostrEvent).id,
+          seq: 3,
+          content: { ...c, deck: [...c.deck].reverse() },
+        },
+        NOW + 5,
+        '2',
+      ),
+      id2.sessionSk,
+      base.game.rnd,
+    );
+    const child = finalizeEvent(
+      moveTemplate(
+        {
+          rootId: base.game.rootId,
+          prevId: bad.id,
+          seq: 4,
+          content: { type: 'action', action: { type: 'x' }, reveals: [], shares: [] },
+        },
+        NOW + 6,
+        '2',
+      ),
+      id2.sessionSk,
+      base.game.rnd,
+    );
+    for (const order of [
+      [bad, child],
+      [child, bad],
+    ]) {
+      const t = replay(base, shuffled.slice(0, 2));
+      for (const s of [t.spectator, t.players[0] as GameSessionV2]) {
+        for (const ev of order) s.receive(ev, NOW);
+        expect(s.view()).toMatchObject({ head: { seq: 2 }, fork: null, phase: 'shuffle' });
+        expect(s.aheadOfHead()).toBe(false);
+        expect(s.branchOf(child.id)).toBe('unknown');
+        expect(s.branchOf(bad.id)).toBe('unknown');
+        expect(s.missingParents()).toEqual([]);
+      }
+    }
+  });
+});
+
+describe('GameSessionV2 with a partitioned deck: shuffle steps (Luster, 2 seats)', () => {
+  const registry = new Map([...MODULES, [luster.id, luster as AnyModule]]);
+  let t: V2Table;
+  /** Seat 0's real steps 1 and 2 (groups tier-1, 40 cards, and tier-2, 30 cards). */
+  let step1: NostrEvent;
+  let step2: NostrEvent;
+  beforeAll(() => {
+    t = v2Table(luster as AnyModule, 2, 'v2-deck-luster', luster.defaultRules(), registry);
+    const s0 = t.players[0] as GameSessionV2;
+    step1 = s0.buildShuffle(t.game.rnd, NOW);
+    trustSteps(t.all, [step1]);
+    send(t, step1);
+    step2 = s0.buildShuffle(t.game.rnd, NOW);
+  }, 120_000);
+
+  const shuffleOf = (ev: NostrEvent): Extract<ParsedMove['content'], { type: 'shuffle' }> =>
+    parsePartitionMove(ev, 100, deckPartitions(luster.decks(luster.defaultRules())[0] ?? null), '2')
+      .content as Extract<ParsedMove['content'], { type: 'shuffle' }>;
+  /** Seat 0 signs a shuffle step with `content` at `seq` on `prev`. */
+  const step = (
+    content: Extract<ParsedMove['content'], { type: 'shuffle' }>,
+    seq: number,
+    prev: Hex,
+    at: number,
+  ): NostrEvent =>
+    finalizeEvent(
+      moveTemplate({ rootId: t.game.rootId, prevId: prev, seq, content }, at, '2'),
+      (t.game.ids[0] as Identity).sessionSk,
+      t.game.rnd,
+    );
+
+  it("a failing-proof step and the same seat's next step on it: neither ever links, nothing is ahead (review of T8, L1)", () => {
+    const c1 = shuffleOf(step1);
+    const bad1 = step({ ...c1, deck: [...c1.deck].reverse() }, 1, t.game.rootId, NOW + 6);
+    // Seat 0 shuffles four groups in a row, so it alone signs a step on its own failing step.
+    const next = step(shuffleOf(step2), 2, bad1.id, NOW + 7);
+    for (const order of [
+      [bad1, next],
+      [next, bad1],
+    ]) {
+      const s = v2Session(t.game, null, registry);
+      for (const ev of order) s.receive(ev, NOW);
+      expect(s.view()).toMatchObject({ head: { seq: 0 }, fork: null, phase: 'shuffle' });
+      expect(s.aheadOfHead()).toBe(false);
+      expect(s.branchOf(next.id)).toBe('unknown');
+      expect(s.branchOf(bad1.id)).toBe('unknown');
+    }
+  });
+
+  it("V2-14 a shuffle step whose deck is not its group's size is not well-formed: rejected (held), never a fork (§5.1, v1 §5.5)", () => {
+    // Seat 0's 30-card tier-2 output signed as step 1, whose group (tier-1) has 40 cards: it parses (30 is a group
+    // size of the packet), but it is not step 1's.
+    const wrong = step(shuffleOf(step2), 1, t.game.rootId, NOW + 8);
+    for (const order of [
+      [wrong, step1],
+      [step1, wrong],
+    ]) {
+      const s = v2Session(t.game, null, registry);
+      trustSteps([s], [step1]);
+      const statuses = order.map((ev) => s.receive(ev, NOW));
+      expect(statuses[order.indexOf(wrong)]).toEqual({
+        status: 'rejected',
+        reason: 'shuffle output has the wrong group size',
+      });
+      expect(statuses[order.indexOf(step1)]).toEqual({ status: 'accepted' });
+      expect(s.view()).toMatchObject({ head: { id: step1.id, seq: 1 }, fork: null });
+      // Held all the same (every held move counts for the cutoff): received again, it stays rejected.
+      expect(s.receive(wrong, NOW).status).toBe('rejected');
+    }
   });
 });
 
