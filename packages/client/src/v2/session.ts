@@ -96,7 +96,7 @@ import { type Walk, walk } from './walk.ts';
  * root: there is no fork choice. The game's result, its end attestations and the duties are functions of the held
  * events and the walk, so every client that holds the same events reaches the same state (V2-20).
  *
- * Built so far (tasks T7 to T10): intake of every kind, seats by session key (and by npub for attestations), the walk
+ * Built so far (tasks T7 to T11): intake of every kind, seats by session key (and by npub for attestations), the walk
  * with C(h) and the topmost fork, play to `over` with the
  * module's audit, end attestations (built with the session key, counted with either key, checked against the line
  * to their head) and the npub's stats attestation. With a deck (T8): the shuffle (partitioned decks included), the
@@ -108,9 +108,12 @@ import { type Walk, walk } from './walk.ts';
  * §5.6, `stop.ts`): a held fork with no result standing stops the game at P, cancelled only when no game action is
  * held at or past P on a valid line (H1), otherwise scored with every M1 equivocator last (`equivocators.ts`, over
  * side lines folded by `sides.ts`); while stopped nothing is owed but, in a deck game, the Secret reveal, and the
- * partial audit runs once the held secrets and shares decrypt every position (§7.3). Not yet: the cutoff (T11),
- * Timeout claims and Resigns as results (T12; both are stored, never counted), the outbox rule and the rebroadcast
- * set (T13).
+ * partial audit runs once the held secrets and shares decrypt every position (§7.3). The cutoff (T11, §5.4,
+ * `cutoff.ts`): a valid result (§5.3, `results.ts`) attested by every seat but E, with nothing off its line by
+ * another seat, and alone, stands against the fork, which then only records E; it is played out as if no fork were
+ * held (N1): scored at its head (S for a Resign), with the End phase's stalls, claims (a withheld secret, by this
+ * client's own clock), Secret reveals and audit. Not yet: Timeout claims and Resigns counted with no fork held
+ * (T12; both are held, and read by the cutoff), the outbox rule and the rebroadcast set (T13).
  */
 
 /** The module events `view().events` keeps (as v1). */

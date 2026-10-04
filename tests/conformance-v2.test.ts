@@ -54,19 +54,27 @@ const ALLOWLIST: Record<string, Allowed> = {
       'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
   },
   'V2-56': {
-    until: 'T11 (rule (b) reads the held set), T13 (the rebroadcast reads it)',
+    until: 'T13 (the rebroadcast reads the held set)',
     partial:
       'the session holds every Shares event and end attestation with a seated signer whatever its validity, in ' +
       'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts); card Shares ' +
-      'events that fail against the final deck or lie outside it stay held (packages/client/test/v2/deck.test.ts)',
+      'events that fail against the final deck or lie outside it stay held (packages/client/test/v2/deck.test.ts); ' +
+      'rule (b) of the cutoff reads every held event, an inapplicable Shares variant and an end attestation naming ' +
+      'a non-seat included (packages/client/test/v2/cutoff.test.ts)',
   },
-  'V2-17': { until: 'T11, T12' },
-  'V2-18': { until: 'T11' },
-  'V2-19': { until: 'T11' },
-  'V2-20': { until: 'T11, T13' },
-  'V2-21': { until: 'T11' },
+  'V2-17': {
+    until: 'T12 (the identities of the claims and Resigns this client counts itself, with no fork held)',
+    partial:
+      'the identity and clock-free validity of the attested results the cutoff reads: over, claim (no clock, no ' +
+      'stall check) and resign (named head, S, the cancel rule) (packages/client/test/v2/cutoff.test.ts)',
+  },
+  'V2-20': {
+    until: 'T13 (the order harness: incremental against from-scratch on random arrival orders)',
+    partial:
+      'every cutoff and standing-result scenario replayed in several arrival orders with duplicates, into every ' +
+      'seat and a spectator (packages/client/test/v2/cutoff.test.ts, packages/client/test/v2/standing.test.ts)',
+  },
   'V2-23': { until: 'T12' },
-  'V2-54': { until: 'T11' },
   'V2-52': { until: 'T12, T17' },
   'V2-25': {
     until: 'T15 (the controller publishes only what the session owes)',
@@ -99,12 +107,13 @@ const ALLOWLIST: Record<string, Allowed> = {
       '(packages/client/test/v2/fork-stop.test.ts, packages/client/test/v2/after-stop.test.ts)',
   },
   'V2-39': {
-    until: 'T11 (a standing result), T12 (claims and resigns)',
+    until: 'T12 (the claims and Resigns this client counts itself)',
     partial:
       'over in a deckless game: the audit runs on the result at once and a failed seat forfeits in places and ' +
       'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts); over with a deck: the ' +
       'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts); over ' +
-      'in a dice game: the audit replays the logged rolls (packages/client/test/v2/dice.test.ts)',
+      'in a dice game: the audit replays the logged rolls (packages/client/test/v2/dice.test.ts); a result ' +
+      'standing against a fork: the full audit on it fails a cheat (packages/client/test/v2/standing.test.ts)',
   },
   'V2-55': {
     until: 'T17 (the game screen and the list of games show "audit incomplete" and "secret withheld")',

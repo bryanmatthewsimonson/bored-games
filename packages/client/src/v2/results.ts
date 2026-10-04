@@ -27,8 +27,13 @@ export function ownResult(ctx: GameCtx, w: Walk): ResultId | null {
 
 /** The log hash of the line to `head` (PROTOCOL-v2 §4.3): its move ids from move 1, or null while not all held. */
 export function lineLogHash(store: EventStoreV2, head: Hex): Hex | null {
+  const known = store.lineHashes.get(head);
+  if (known !== undefined) return known;
   const ids = store.lineIds(head);
-  return ids === null ? null : logHash(ids);
+  if (ids === null) return null;
+  const hash = logHash(ids);
+  store.lineHashes.set(head, hash);
+  return hash;
 }
 
 /**

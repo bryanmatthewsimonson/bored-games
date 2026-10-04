@@ -96,6 +96,11 @@ export class EventStoreV2 {
   readonly statsIds = new Set<Hex>();
   /** Device notes (PROTOCOL-v2 §4.4), stored only (§9.5 is built with the first audit-`'none'` module). */
   readonly devices = new Map<Hex, Seated<ParsedDeviceNote>>();
+  /**
+   * The log hash of each id's line, once that line is held (`results.ts` `lineLogHash`): a held line never changes
+   * (each move names its prev), so the cutoff hashes each attested head once, however many attestations name it.
+   */
+  readonly lineHashes = new Map<Hex, Hex>();
 
   constructor(rootId: Hex) {
     this.rootId = rootId;
