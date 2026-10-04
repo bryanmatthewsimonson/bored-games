@@ -16,7 +16,7 @@ Shuffle each development tier separately and reveal four cards per tier. Shuffle
 
 Choose exactly one main action:
 
-- **Take gems:** take one token in each of up to three different regular colors, or two of one regular color if at least four of that color are in the supply before taking them. Gold tokens cannot be gathered. Taking fewer than three different colors is allowed (**OPEN**, see [Open questions and platform rules](#open-questions-and-platform-rules)).
+- **Take gems:** take one token in each of three different regular colors, or two of one regular color if at least four of that color are in the supply before taking them. When fewer than three regular colors are left in the supply, take one of each color that is left. Gold tokens cannot be gathered. (Tables created before this rule became an option let a player take fewer different colors at any time; see [Rule options](#rule-options).)
 - **Reserve:** take one exposed development or the unseen top development of one tier. Keep at most three reservations. Take one Gold token if any remain, even if this takes you past ten tokens; you may reserve when no Gold tokens remain. Keep reserved cards face down in your hand. A card taken from the market was already public and may be remembered from the move history; an unseen draw is private to you. Reservations cannot be discarded or exchanged and grant no discount or prestige until purchased.
 - **Purchase:** buy one exposed development or one of your reservations. For each color, subtract the number of your purchased developments with that color bonus from its cost, stopping at zero. Pay the remaining price using colored tokens and/or Gold tokens; Gold tokens may replace colored tokens even if you have the colored tokens. Choose exactly how to pay. Put paid tokens into the supply and add the development to your collection. The new development's discount is usable on future turns. Free purchases still use your main action.
 
@@ -24,14 +24,18 @@ Immediately replace an exposed card that was bought or reserved with the next ca
 
 After your main action, return tokens of your choice until you hold at most ten, counting Gold tokens. You may return tokens just taken. Then check nobles: if your purchased development bonuses meet a visible noble's requirements, take it at no cost. You must take an eligible noble; if several qualify, choose exactly one. A noble is worth three prestige and grants no development discount. A noble visit is additional to your main action and is checked after every turn, including gathering or reserving.
 
-The game has no discretionary pass. If no main action can be performed, pass (a **platform rule**, see [Open questions and platform rules](#open-questions-and-platform-rules)). There is no invented round limit, stalemate scoring, or automatic end before 15 prestige.
+The game has no discretionary pass. If no main action can be performed, pass (a **platform rule**, see [Platform rules](#platform-rules)). There is no invented round limit, stalemate scoring, or automatic end before 15 prestige.
 
-## Open questions and platform rules
+## Rule options
 
-Checked on 2026-10-04 against the published base-game rulebook's turn actions (the English rules as reproduced by rulespal.com, "Splendor rulebook", and Dized's licensed rules, "Taking tokens") and the Dized Splendor FAQ. BoardGameGeek and the publisher's PDF host were not reachable, so these are secondary sources.
+- **`gems`** (C11): `published` (the default for new tables) or `any`.
+  - `published` follows the published rule. The rulebook's action is "Take 3 gem tokens of different colors", with no "up to" (the English rules as reproduced by rulespal.com, "Splendor rulebook", and Dized's licensed rules, "Taking tokens"). The Dized Splendor FAQ answers the case where three cannot be taken: "The action 'take three different tokens' allows you to pick only two different tokens, or even one, if all the other piles are depleted. So take as many as you can and are allowed." So a player takes three different colors, or one of each color left when fewer than three are left; never fewer by choice. The owner ruled "Use whatever the rules dictate" for Luster (DECISIONS, "Luster interface follow-up").
+  - `any` lets a player take one, two or three different colors at any time: Luster 0.2.0's original behaviour.
+  - A rules object without `gems` (every table created before the option) means `any`, so games already in progress fold exactly as before. Checked on 2026-10-04 against secondary sources; BoardGameGeek and the publisher's PDF host were not reachable.
 
-- **Taking fewer than three colors: OPEN.** The rulebook's action is "Take 3 gem tokens of different colors", with no "up to". The Dized FAQ answers the case where three cannot be taken: "The action 'take three different tokens' allows you to pick only two different tokens, or even one, if all the other piles are depleted. So take as many as you can and are allowed." So the published rule, as the FAQ reads it, allows fewer only when fewer colors are available. Luster's engine (and this page, above) allow fewer than three different colors at any time, which is the looser, common house reading. Until the owner rules, the current behaviour stands; the strict reading would be a rules option (for example `takeFewer: 'always' | 'onlyWhenShort'`) and a DECISIONS entry. A rule-change in the engine must also change `legalActions` and catalog C02.
-- **Pass when no main action is possible: platform rule.** The published rules have no pass and do not say what happens when a player can neither take gems, reserve nor buy (possible when the supply is drained, the player holds three reservations and can afford nothing). Luster adds a forced pass in exactly that case so that a turn always has a legal move; a discretionary pass is not allowed. This is a platform necessity, so that a turn always has a legal move (games end only by declaration, never by stalling: D015, D016), not a published rule.
+## Platform rules
+
+- **Pass when no main action is possible.** The published rules have no pass and do not say what happens when a player can neither take gems, reserve nor buy (possible when the supply is drained, the player holds three reservations and can afford nothing). Luster adds a forced pass in exactly that case; a discretionary pass is not allowed. This is a platform necessity, so that a turn always has a legal move (games end only by declaration, never by stalling: D015, D016), not a published rule.
 
 ## Online play
 
@@ -49,7 +53,7 @@ Click a development to open its buy/reserve panel; the card's whole face also wo
 90 developments split 40/30/20; eight/six/four cards per bonus color per tier; exact numerical-table fingerprint; ten nobles; 4/5/7 regular tokens and five Gold tokens; four exposed cards per tier and seats+1 nobles.
 
 #### C02 Take and return gems
-Up to three distinct regular colors; pairs require at least four in supply; no Gold gathering; token returns include newly gathered tokens and must leave exactly ten.
+Three distinct regular colors (or, by rule option, fewer: C11); pairs require at least four in supply; no Gold gathering; token returns include newly gathered tokens and must leave exactly ten.
 
 #### C03 Reservations
 Three-card maximum; exposed or blind; a Gold token when available, optional supply exhaustion, no discarding; immediate tier replacement; blind deal consumes its tier cursor.
@@ -74,3 +78,6 @@ No replenishment past a tier's size; blind reservation of an empty tier is unava
 
 #### C10 Random starting player and rotated rounds
 Every seat has equal probability. Choose from fixed-position, jointly shuffled public setup cards; reveal delivery order cannot affect the choice. Full replay, players and spectators agree. Round numbers advance on return to the starting player; the final round ends at their predecessor, after all required returns and noble decisions.
+
+#### C11 Gem rule option
+New tables default to `gems: 'published'`: a gem take is three different colors while three or more are in the supply, otherwise exactly the colors left (two, one, or no gem take at all); pairs are unchanged. `gems: 'any'` and a rules object without the field (legacy tables, whose rules and canonical JSON are unchanged) allow one, two or three different colors at any time, with identical legal moves.

@@ -2,7 +2,7 @@
 import { range } from '@bored-games/game-kit';
 import { DECK_SIZES, type DeckId, TIER_DECKS } from '../src/data.ts';
 import { luster } from '../src/module.ts';
-import type { LusterPlayer, LusterState } from '../src/types.ts';
+import type { LusterPlayer, LusterRules, LusterState } from '../src/types.ts';
 export const ORDERS = Object.fromEntries(
   (Object.keys(DECK_SIZES) as DeckId[]).map((id) => [id, range(DECK_SIZES[id])]),
 );
@@ -24,8 +24,10 @@ export function revealAll(s: LusterState): LusterState {
     });
   }
 }
-export function ready(seats = 2): LusterState {
-  const r = luster.setup({ rules: luster.defaultRules(), seats, mode: 'full', deckOrders: ORDERS });
+/** The `any` gem rule (fewer colors at any time), for tests whose filler moves take a single gem. */
+export const ANY: LusterRules = { target: 15, gems: 'any' };
+export function ready(seats = 2, rules: LusterRules = luster.defaultRules()): LusterState {
+  const r = luster.setup({ rules, seats, mode: 'full', deckOrders: ORDERS });
   if (!r.ok) throw new Error(r.error.message);
   return revealAll(r.value);
 }

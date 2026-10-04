@@ -1,8 +1,24 @@
 import type { ApplyResult, Learn, Pending, Result, SetupInput } from '@bored-games/game-kit';
 import { DECK_SIZES, type DeckId, PATRONS, TIER_DECKS, type TierDeck, workshop } from './data.ts';
-import type { CardSlot, LusterAction, LusterEvent, LusterPlayer, LusterRules, LusterState } from './types.ts';
+import type {
+  CardSlot,
+  LusterAction,
+  LusterEvent,
+  LusterGemRule,
+  LusterPlayer,
+  LusterRules,
+  LusterState,
+} from './types.ts';
 
-export const DEFAULT_RULES: LusterRules = { target: 15 };
+/** The gem rule choices, the default first (C11). */
+export const GEM_RULES: readonly LusterGemRule[] = ['published', 'any'];
+
+/** New tables: the published gem rule (C11). */
+export const DEFAULT_RULES: LusterRules = { target: 15, gems: 'published' };
+/** The rules of a table created before the gem option: no `gems` field, read as `any` (C11). */
+export const LEGACY_RULES: LusterRules = { target: 15 };
+/** The gem rule in effect: an absent field (a legacy table) means `any`. */
+export const gemRule = (rules: LusterRules): LusterGemRule => rules.gems ?? 'any';
 const failure = (message: string) => ({ ok: false as const, error: { code: 'invalid', message } });
 const zero = () => [0, 0, 0, 0, 0, 0];
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
@@ -19,9 +35,12 @@ const deckId = (x: unknown): x is DeckId => tier(x) || x === 'patrons';
 
 export function validateRules(raw: unknown): Result<LusterRules> {
   try {
-    return obj(raw) && keys(raw, ['target']) && raw.target === 15
-      ? { ok: true, value: DEFAULT_RULES }
-      : failure('The base game uses a target of 15.');
+    if (!obj(raw) || raw.target !== 15) return failure('The base game uses a target of 15.');
+    // A legacy table's rules have no `gems` field and keep it absent, so they fold and hash as before (C11).
+    if (keys(raw, ['target'])) return { ok: true, value: LEGACY_RULES };
+    if (keys(raw, ['target', 'gems']) && GEM_RULES.includes(raw.gems as LusterGemRule))
+      return { ok: true, value: { target: 15, gems: raw.gems as LusterGemRule } };
+    return failure("Rules must be a target of 15 and, optionally, gems 'published' or 'any'.");
   } catch {
     return failure('Invalid rules.');
   }
@@ -204,9 +223,12 @@ export function legalActions(s: LusterState, actor: number, publicValidation = f
     .slice(0, 5)
     .map((n) => (n > 0 ? 1 : 0))
     .concat(0);
-  // Taking fewer different colors is legal; never take a prism this way.
-  for (let n = 1; n <= 3; n++)
-    for (const tokens of selections(available, n)) out.push({ type: 'take', actor, tokens });
+  // Never take a prism this way. The published rule takes three different colors, or as many as are left when
+  // fewer than three are; `any` (legacy tables) also allows fewer at any time (C02, C11).
+  const colors = sum(available);
+  const sizes = gemRule(s.rules) === 'published' ? [Math.min(3, colors)] : [1, 2, 3];
+  for (const n of sizes)
+    if (n > 0) for (const tokens of selections(available, n)) out.push({ type: 'take', actor, tokens });
   for (let i = 0; i < 5; i++)
     if ((s.supply[i] ?? 0) >= 4) {
       const tokens = zero();
