@@ -33,13 +33,16 @@ describe('openSession', () => {
       expect(s.proto).toBe(1);
       expect(v1Session(s)).toBe(s);
     }
-    // The proto-2 root goes to the v2 class, whatever the seat.
     for (const seat of [0, 1, null]) {
-      expect(() => openSession(input(v2, seat))).toThrow(/protocol 2 session is not built yet/);
+      const s = openSession(input(v2, seat));
+      expect(s).toBeInstanceOf(GameSessionV2);
+      expect(s.proto).toBe(2);
+      expect(s.view()).toMatchObject({ proto: 2, fork: null, result: null });
+      expect(() => v1Session(s)).toThrow(/a protocol 2 game has no v1 builders/);
     }
     // Neither class folds a root of the other version.
     expect(() => GameSession.create(input(v2, 0))).toThrow(/the root is proto 2, not a v1 game/);
-    expect(() => GameSessionV2.create(input(v1, 0))).toThrow(ClientError);
+    expect(() => GameSessionV2.create(input(v1, 0))).toThrow(/the root is proto 1, not a v2 game/);
   });
 
   it('refuses a root that does not parse with a ClientError', () => {

@@ -36,16 +36,13 @@ interface Allowed {
 /** Every id not yet covered. Each task removes the ids it covers; nothing is ever added back. */
 const ALLOWLIST: Record<string, Allowed> = {
   'V2-01': {
-    until: 'T7 (session builders), T14 (the controller creates tables and joins at proto 2)',
+    until:
+      'T8, T9, T12 (the session builders for the shuffle, deal, Secret, release, roll, Resign and Timeout claim), ' +
+      'T14 (the controller creates tables and joins at proto 2)',
     partial:
-      'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts) and the lobby helpers carrying ' +
-      "the table's proto (packages/client/test/lobby.test.ts)",
-  },
-  'V2-02': {
-    until: 'T7 (the v2 session rejects events of another proto)',
-    partial:
-      'in-game parsers against the game proto, "3" and two proto tags (packages/protocol/test/game-v2.test.ts, ' +
-      'vectors-v2.test.ts); validateRoot and foldLobby reject a root or Join of another proto (lobby tests)',
+      'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts), the lobby helpers carrying ' +
+      "the table's proto (packages/client/test/lobby.test.ts), and the v2 session's move, end attestation and " +
+      'stats attestation (packages/client/test/v2/core-deckless.test.ts)',
   },
   'V2-04': { until: 'T14' },
   'V2-05': {
@@ -55,14 +52,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'session refuses such a root (packages/protocol/test/lobby.test.ts, packages/client/test/bank-versions.test.ts); ' +
       'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
   },
-  'V2-08': { until: 'T7, T8' },
-  'V2-11': {
-    until: 'T7 (both keys count for the seat)',
+  'V2-14': {
+    until: 'T8, T10 (two well-formed shuffle steps of one seat on one prev are a fork, proofs unverified)',
     partial:
-      'parseAttestV2 accepts an end attestation signed by any key (packages/protocol/test/game-v2.test.ts)',
+      'the walk ends at a fork when a head has two valid-looking game actions, at the root or below the head ' +
+      '(packages/client/test/v2/core-deckless.test.ts)',
   },
-  'V2-12': { until: 'T7' },
-  'V2-14': { until: 'T7, T10' },
   'V2-15': { until: 'T10' },
   'V2-16': { until: 'T10' },
   'V2-17': { until: 'T11, T12' },
@@ -93,9 +88,19 @@ const ALLOWLIST: Record<string, Allowed> = {
   'V2-34': { until: 'T9, T15' },
   'V2-35': { until: 'T9' },
   'V2-36': { until: 'T9' },
-  'V2-37': { until: 'T7, T15' },
+  'V2-37': {
+    until: 'T15 (the controller publishes the end attestation at once, with no prompt)',
+    partial:
+      'the session owes and builds an end attestation of its own result only, signed by the session key, and ' +
+      'none while it holds a fork (packages/client/test/v2/core-deckless.test.ts)',
+  },
   'V2-38': { until: 'T10, T15' },
-  'V2-39': { until: 'T7, T8, T11, T12' },
+  'V2-39': {
+    until: 'T8 (over with a deck), T11 (a standing result), T12 (claims and resigns)',
+    partial:
+      'over in a deckless game: the audit runs on the result at once and a failed seat forfeits in places and ' +
+      'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts)',
+  },
   'V2-40': { until: 'T10' },
   'V2-41': { until: 'T10' },
   'V2-55': { until: 'T10, T17' },

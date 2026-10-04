@@ -154,7 +154,7 @@ describe('templates and the proto tag', () => {
     for (const t of v1) expect(protoTags(t)).toEqual([['proto', '1']]);
   });
 
-  it('V2-02 (partial) in-game parsers reject a proto other than the game\'s, "3", and two proto tags', () => {
+  it('V2-02 in-game parsers reject a proto other than the game\'s, "3", and two proto tags', () => {
     const shared: [string, EventTemplate, (ev: unknown, p: '1' | '2') => unknown][] = [
       [
         'move',
@@ -367,7 +367,7 @@ describe('Result attestations, protocol 2 (PROTOCOL-v2 §4.3)', () => {
     }
   });
 
-  it('V2-11 (partial) parses an end attestation signed by the session key or by the npub: the parser is signer-agnostic', () => {
+  it('V2-11 parses an end attestation signed by the session key or by the npub: the parser is signer-agnostic', () => {
     expect(parseAttestV2(sign(over, SESSION_SK)).pubkey).toBe(getPublicKey(SESSION_SK));
     expect(parseAttestV2(sign(over, NPUB_SK))).toMatchObject({
       variant: 'end',

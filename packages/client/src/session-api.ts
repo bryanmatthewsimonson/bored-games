@@ -73,6 +73,7 @@ export function v1Session(session: Session): GameSession {
  * or in protocol 2 the stats attestation (PROTOCOL-v2 §7.4). Throws `ClientError` unless the duty is due.
  */
 export function statsAttestTemplate(session: Session, createdAt: number): EventTemplate {
-  if (session instanceof GameSession) return session.attestTemplate(createdAt);
-  throw new ClientError(`a protocol ${session.proto} session has no stats attestation yet`);
+  if (session instanceof GameSession || session instanceof GameSessionV2)
+    return session.attestTemplate(createdAt);
+  throw new ClientError('not a game session');
 }

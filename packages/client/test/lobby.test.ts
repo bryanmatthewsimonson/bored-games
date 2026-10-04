@@ -574,7 +574,7 @@ describe('protocol versions in the lobby (PROTOCOL-v2 §2)', () => {
   const v2Joins = [join2(creator, T0 + 1), join2(invited, T0 + 2), join2(open1, T0 + 3)];
   const v1Joins = [joinEv(creator, T0 + 1), joinEv(invited, T0 + 2), joinEv(open1, T0 + 3)];
 
-  it("V2-01, V2-02 (partial) Joins and roots carry the table's proto, and a Join of another proto is ignored", () => {
+  it("V2-01 (partial) Joins and roots carry the table's proto, and a Join of another proto is ignored (V2-02)", () => {
     // One table address, two protos: each fold seats only the Joins of its own table's proto.
     expect(parsed2.address).toBe(parsed.address);
     expect(v2Joins.map((j) => j.tags.filter((t) => t[0] === 'proto'))).toEqual(

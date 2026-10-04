@@ -1057,7 +1057,7 @@ describe('protocol versions in the lobby (PROTOCOL-v2 §2, §10)', () => {
     expect(root.proto).toBe('1');
   });
 
-  it("V2-02 (partial) validateRoot rejects a root or a Join whose proto differs from its table's", () => {
+  it("V2-02 validateRoot rejects a root or a Join whose proto differs from its table's", () => {
     expect(validateRoot(rootAt(table2, [kA, kB, kC]), table2, byId(kA, kB, kC), modules)).toEqual([]);
     expect(validateRoot(rootAt(table2, [kA, kB, kC], '1'), table2, byId(kA, kB, kC), modules)).toContainEqual(
       "proto 1 differs from the table's 2",
