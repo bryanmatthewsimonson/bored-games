@@ -107,14 +107,15 @@ export function BankRulesContent() {
 
       <Section id="banking">
         <p>
-          Between rolls, the default is that everyone still in the round may bank. This site asks in seat
-          order, starting with the player after the roller and ending with the roller. The pot does not change
-          while people answer. A table can instead be set so only the roller may bank.
+          A round opens on the roller. The pot is empty, so the only action is <strong>Roll</strong>. After
+          that roll, the default is that everyone still in the round may bank. This site asks in seat order,
+          starting with the player after the roller and ending with the roller. The pot does not change while
+          people answer. A table can instead be set so only the roller may bank.
         </p>
         <ul>
           <li>
-            <strong>Bank</strong> adds the current pot, even 0, to your score. You sit out the rest of the
-            round. The pot stays for everyone else.
+            <strong>Bank</strong> adds the current pot to your score. You sit out the rest of the round. The
+            pot stays for everyone else. An empty pot cannot be banked.
           </li>
           <li>
             <strong>Stay</strong> leaves the pot, your score, and who is in as they are. You are not asked

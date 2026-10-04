@@ -49,12 +49,13 @@ Bank, the folk push-your-luck dice game. This file is the **source of truth** fo
 
 Between resolutions, while the round is open:
 
-- **Table** (the default). Walk the seats after the roller, wrapping around. Skip anyone already out, and anyone who has stayed on this pot, but never skip the roller. The roller is therefore last.
+- **An unrolled round.** The pot is 0 and nobody has rolled yet. The roller is asked to roll, and that is the only action. Bank and Stay are rejected. This is the start of every round, including the first.
+- **Table** (the default), once this round has a roll. Walk the seats after the roller, wrapping around. Skip anyone already out, and anyone who has stayed on this pot, but never skip the roller. The roller is therefore last.
   - A non-roller chooses **Bank** or **Stay**.
   - The roller chooses **Bank** or **Roll**. Stay is rejected.
   - A seat who stayed earlier, and later became the roller because the previous roller banked, chooses **Roll** only.
 - **Turn.** Only the roller is asked, and only for **Bank** or **Roll**. There is no Stay. A bust can happen before the other seats are offered the pot. This is a different game; the table names it.
-- **Bank** adds the current pot (including 0) to that seat's score and removes them from the round. The pot is unchanged. If the banker was the roller and someone is still in, the next seat still in becomes the roller.
+- **Bank** adds the current pot to that seat's score and removes them from the round. The pot is unchanged. An empty pot cannot be banked. If the banker was the roller and someone is still in, the next seat still in becomes the roller.
 - **Stay** records the seat. The pot, the scores and who is in are unchanged.
 - The pot does not change during the poll. After a resolution that continues the round, the stays are forgotten and the poll starts again with the same roller.
 
@@ -115,9 +116,9 @@ One encoding each. Unknown keys, a missing actor, a non-integer actor, and a fla
 
 ## Edge-case catalog
 
-#### C01 Setup of three seats asks seat 1 first, with an empty pot
+#### C01 Setup of three seats asks the roller to roll, with an empty pot
 
-Seat 0 is the roller and is not asked yet. Seat 1 may bank or stay. Pot and scores are 0.
+Seat 0 is the roller and the only seat asked. The action is roll. Pot and scores are 0. Bank and Stay are rejected.
 
 #### C02 The default is ten rounds at the table, for two to six seats
 
@@ -137,11 +138,11 @@ The score increases by the pot. The seat is out. The pot is the same number.
 
 #### C06 Two seats can bank the same pot
 
-The second bank of an equal pot is the shared bank the fuzzer counts, including a pot of 0.
+The second bank of an equal pot is the shared bank the fuzzer counts.
 
-#### C07 Banking nothing is legal
+#### C07 An empty pot cannot be banked
 
-A pot of 0 may be banked. The seat is out and the score stays 0.
+Before the first roll of a round, banking is rejected. The seat stays in and the score stays 0. The same is true at the start of the next round.
 
 #### C08 A seat who banked is not asked again
 
@@ -157,11 +158,11 @@ Bank and Stay are rejected. They already passed on this pot.
 
 #### C11 The turn variant asks only the roller to bank or roll
 
-Stay is rejected from every seat. When the roller banks, the next seat still in becomes the roller and is asked.
+At the start the roller may only roll. Stay is rejected from every seat. After a roll, the roller may bank or roll. When the roller banks, the next seat still in becomes the roller and is asked.
 
 #### C12 A safe roll adds the face sum
 
-The first roll of 1 and 2 makes the pot 3. Stays from before the roll are cleared.
+The first roll of 1 and 2 makes the pot 3. No stay was asked before it, and the passed list is empty.
 
 #### C13 A safe seven adds 70
 
@@ -205,7 +206,7 @@ A bust by seat 0 makes seat 1 the next roller. A 7 in the new round adds 70.
 
 #### C23 The game is over after the chosen number of rounds
 
-Five rounds, each ended by banking, and the game is over. Pending is `over`. Scores that never left 0 stay 0.
+Five rounds, each ended by a bust, and the game is over. Pending is `over`. Scores that never left 0 stay 0.
 
 #### C24 The 30th roll banks everyone still in, unless it busts
 
@@ -223,9 +224,9 @@ Scores 10, 10 and 0 place 1, 1 and 3.
 
 `stay: false`, a string actor, a missing actor, an unknown type and a throwing getter are malformed. The state is unchanged.
 
-#### C28 Seat 0 rolls first in round 1, after the others have been asked
+#### C28 A new round asks the roller to roll before anyone banks
 
-Both other seats stay. Seat 0 may then bank or roll, and the roll id is 0.
+Round 1 asks seat 0 to roll. After a bust, the next roller is asked to roll, and the other seats have no action yet.
 
 #### C29 A bust pays nobody who is still in the round
 

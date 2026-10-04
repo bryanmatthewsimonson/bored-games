@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction } from '../../src/index.ts';
-import { rejects, setup } from '../helpers.ts';
+import { playRoll, rejects, setup } from '../helpers.ts';
 
 describe('encoding', () => {
   it('C27 extra keys and a false flag are rejected', () => {
-    const state = setup(3);
+    const state = playRoll(setup(3), [1, 2]).state;
     const stay = { type: 'stay', actor: 1 };
     expect(applyAction(state, stay).ok).toBe(true);
     for (const bad of [

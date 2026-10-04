@@ -4,9 +4,9 @@ import { act, bankTheRound, playRoll, rejects, rules, setup, toRoller } from '..
 
 describe('banking window', () => {
   it('C04 staying changes nothing but who has passed', () => {
-    const state = setup(3);
+    const state = playRoll(setup(3), [1, 2]).state;
     const next = act(state, { type: 'stay', actor: 1 }).state;
-    expect(next.pot).toBe(0);
+    expect(next.pot).toBe(3);
     expect(next.scores).toEqual([0, 0, 0]);
     expect(next.inRound).toEqual([true, true, true]);
     expect(next.passed).toEqual([1]);
@@ -34,12 +34,20 @@ describe('banking window', () => {
     expect(bank.coverage?.(second.state, second.events)).toContain('bank:shared');
   });
 
-  it('C07 banking nothing is legal', () => {
-    const paid = act(setup(3), { type: 'bank', actor: 1 });
-    expect(paid.state.scores).toEqual([0, 0, 0]);
-    expect(paid.state.inRound[1]).toBe(false);
-    expect(paid.state.pot).toBe(0);
-    expect(paid.events[0]).toMatchObject({ type: 'banked', amount: 0 });
+  it('C07 an empty pot cannot be banked', () => {
+    const state = setup(3);
+    rejects(state, { type: 'bank', actor: 0 }, 'illegal');
+    rejects(state, { type: 'bank', actor: 1 }, 'turn');
+    expect(state.scores).toEqual([0, 0, 0]);
+    expect(state.inRound).toEqual([true, true, true]);
+    expect(state.pot).toBe(0);
+    let next = state;
+    for (let i = 0; i < 3; i++) next = playRoll(next, [1, 2]).state;
+    next = playRoll(next, [1, 6]).state;
+    expect(next.rolls).toBe(0);
+    expect(next.pot).toBe(0);
+    rejects(next, { type: 'bank', actor: next.roller }, 'illegal');
+    expect(pendingOf(next)).toEqual({ type: 'player', seat: next.roller, decision: 'roll' });
   });
 
   it('C08 a seat who banked is not asked again', () => {
@@ -78,15 +86,15 @@ describe('banking window', () => {
 
   it('C11 the turn variant asks only the roller to bank or roll', () => {
     const state = setup(3, rules({ banking: 'turn' }));
-    expect(pendingOf(state)).toEqual({ type: 'player', seat: 0, decision: 'bank-or-roll' });
-    expect(legalActionsOf(state, 0)).toEqual([
-      { type: 'bank', actor: 0 },
-      { type: 'roll', actor: 0, rollId: 0 },
-    ]);
+    expect(pendingOf(state)).toEqual({ type: 'player', seat: 0, decision: 'roll' });
+    expect(legalActionsOf(state, 0)).toEqual([{ type: 'roll', actor: 0, rollId: 0 }]);
     expect(legalActionsOf(state, 1)).toEqual([]);
+    rejects(state, { type: 'bank', actor: 0 }, 'illegal');
     rejects(state, { type: 'stay', actor: 0 }, 'illegal');
     rejects(state, { type: 'stay', actor: 1 }, 'illegal');
-    const banked = act(state, { type: 'bank', actor: 0 }).state;
+    const rolled = playRoll(state, [1, 2]).state;
+    expect(pendingOf(rolled)).toEqual({ type: 'player', seat: 0, decision: 'bank-or-roll' });
+    const banked = act(rolled, { type: 'bank', actor: 0 }).state;
     expect(banked.roller).toBe(1);
     expect(pendingOf(banked)).toMatchObject({ seat: 1, decision: 'bank-or-roll' });
   });

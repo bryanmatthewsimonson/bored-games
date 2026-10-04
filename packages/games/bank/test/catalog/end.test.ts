@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bank, outcomeOf, pendingOf } from '../../src/index.ts';
-import { act, bankTheRound, playRoll, rules, setup } from '../helpers.ts';
+import { act, bustRound, playRoll, rules, setup } from '../helpers.ts';
 
 describe('rounds and the result', () => {
   it('C22 the next roller is the seat after the last actor, and the safe rolls start over', () => {
@@ -24,7 +24,7 @@ describe('rounds and the result', () => {
     let state = setup(3, rules({ rounds: 5 }));
     for (let round = 0; round < 5; round++) {
       expect(state.phase).toBe('call');
-      state = bankTheRound(state);
+      state = bustRound(state);
     }
     expect(state.phase).toBe('over');
     expect(state.round).toBe(5);
@@ -76,7 +76,7 @@ describe('rounds and the result', () => {
     state = playRoll(state, [1, 2]).state;
     state = playRoll(state, [1, 6]).state;
     expect(state.scores).toEqual([10, 10, 0]);
-    while (state.phase !== 'over') state = bankTheRound(state);
+    while (state.phase !== 'over') state = bustRound(state);
     const outcome = outcomeOf(state);
     expect(outcome).toEqual({ places: [1, 1, 3], scores: [10, 10, 0], reason: 'score' });
   });
@@ -94,9 +94,8 @@ describe('rounds and the result', () => {
     const learned = bank.learn(state, { deck: 'roll', pos: 0, card: 1 });
     expect(learned.ok).toBe(false);
     if (!learned.ok) expect(learned.error.code).toBe('no-hidden');
-    const over = bankTheRound(setup(2, rules({ rounds: 5 })));
-    let done = over;
-    while (done.phase !== 'over') done = bankTheRound(done);
+    let done = setup(2, rules({ rounds: 5 }));
+    while (done.phase !== 'over') done = bustRound(done);
     const outcome = outcomeOf(done);
     expect(outcome?.scores).toEqual([0, 0]);
     expect(bank.standings(done)).toEqual(outcome?.scores);
