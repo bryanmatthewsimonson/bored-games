@@ -54,7 +54,7 @@ Everything in `PROTOCOL.md` holds for v2 games except what §4–§10 change. In
 - Fork choice and its ranks, settled branches, the freeze, frozen ends and `"endedBy":{"type":"fork"}` (v1 §4.8, §6.6, §11): replaced by the fork stop and the cutoff (§5).
 - Shuffle candidates and acknowledgement (at most 3 unacknowledged steps per prev, v1 §6.6): any two well-formed steps by one seat on one prev are a fork (§5.2), so no step needs to be verified to stop.
 - Flagged equivocators who play on and forfeit at the end (v1 §6.6, §8.2): a fork either stops the game or only records E (§5.5).
-- The deal-phase stall exception for a held shuffle fork (v1 §8.1): a held fork stops the game, before the first game action, so it is cancelled.
+- The deal-phase stall exception for a held shuffle fork (v1 §8.1): a held fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - The Secret reveal's wait for a full view (v1 §9, D056 fix round 2), which existed for the freeze: a v2 client MAY publish its Secret reveal as soon as its result needs it (§7).
 - The Luster share duty and `DeckSpec.promptShares` (v1 §6.2a): replaced by prompt release for every deck game (§6.1).
 - Roll shares inside Moves and the counter-bound roll point (v1 §6.3a): replaced by §6.2.
@@ -219,9 +219,10 @@ Only valid results are candidates (§5.3), and a valid result's head lies on the
 
 ### 5.6 The stop and its scoring (proposal §5.1 rules 4 and 5; D059 items 3 and 4)
 The stop ends the game at P. It is never resumed. Its outcome:
-- **Before the first game action** (the walk up to P holds no game action, so the fork is at or below a shuffle step or the deal): the game is **cancelled**: no result, no attestation, no rating change. E is recorded.
+- **Cancelled only if nothing was played** (review H1). The game is **cancelled** (no result, no attestation, no rating change; E is recorded) only when the client holds **no game action at or past P on any line**: no held Move that is a game action, whose line is valid and passes through P (it is at or past P, §5.1). The test is on what was played, not on where P is: a fork at the root or at an old shuffle step, signed after play began, is a stop scored as below, never a cancel. Otherwise E could escape a lost game at any time by signing a second move 1, or a second well-formed step on its old shuffle prev (whose proof need not verify).
 - **2 seats:** E is last and the other seat first. Scores are the module's `standings` at P; the reason is `stop`. The result is **rated**: a loss for E.
 - **3 or more seats:** E is **strictly last** and its last place is **rated**. The other seats are ranked by `standings` at P, ties sharing places; scores are the standings; the reason is `stop`. The result is **unrated for every seat other than E**, and E is recorded as the seat that ended it.
+- **P before play.** When the walk up to P holds no game action (P is the root, a shuffle step, or the head during the deal or before the first action) but the stop is not a cancel, `standings` at P are not used: every seat other than E shares first place, E is last, and every score is 0. The 2-seat and 3-or-more-seat rules above still decide what is rated.
 - **A game with a deck:** the Secret phase and a partial audit up to P follow (§7.3).
 - **No time limit** (D059 item 3): a seat can cause a stop at any time while the game is live, as it can resign; after the end, only until the result stands (F1, accepted, D059 item 6).
 - **Never attested** (F5): a client publishes neither an end attestation nor a stats attestation for a stop. A stop and its equivocator are recorded by the fork certificate (§7.5).
@@ -346,7 +347,7 @@ The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigni
   - E is recorded as the seat that ended the game, for the anti-griefing count of v1 §7 step 4;
   - the stop counts as no completion and no win for the other seats.
 - **A result that stood against a fork** counts like any result. E is recorded for the fork, with no change to its place.
-- **A cancelled game** counts for nothing; a seat that forked before the first game action is recorded.
+- **A cancelled game** (a fork with no game action held at or past it, §5.6) counts for nothing; the seat that forked is recorded.
 
 ## 8. Timeouts and Resign (amends v1 §8)
 
@@ -354,7 +355,7 @@ The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigni
 - **Stalled seats:** v1 §8.1, with these changes:
   - while the client holds a fork, no seat is stalled in play; after a stop in a game with a deck, the seats whose secret is not in are (§7.3);
   - a pending beacon stalls every seat without a contribution (§6.2);
-  - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled.
+  - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - **Progress:** v1 §8.1, roll Shares events included.
 - **Accepting a claim:** v1 §8.1, and the client holds no fork, except for a withheld secret after a stop (§7.3).
 - **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
@@ -472,7 +473,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-19** MUST NOT let events at or past a result's head block it, and MUST count an unresolved anchor as off the line (§5.4).
 - **V2-20** MUST give the same result as a function of the held events, whatever their arrival order, whenever a fork is held (§5.5).
 - **V2-21** MUST let a held fork override a counted claim or Resign that does not stand (§5.5).
-- **V2-22** MUST score a stop as §5.6 says: cancelled before the first game action; 2 seats, E's rated loss; 3 or more seats, E strictly last and rated, the others by `standings` at P and unrated.
+- **V2-22** MUST score a stop as §5.6 says: cancelled only when no game action is held at or past P on any line; 2 seats, E's rated loss; 3 or more seats, E strictly last and rated, the others by `standings` at P (all tied, scores 0, when P comes before play) and unrated.
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
 - **V2-24** MUST NOT accept a Timeout claim in play while it holds a fork (§5.7, §8.1).
 
