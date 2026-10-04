@@ -126,6 +126,20 @@ describe('game status cache', () => {
     // Profiles do not share entries.
     expect(loadGameStatus('bob', store, ROOT)).toBeNull();
   });
+  it('keeps the card reveal a game waited on (D060), and drops a malformed one', () => {
+    const store = memoryStorage();
+    const reveal = { npubs: ['c'.repeat(64)], mine: true, until: 99 };
+    expect(saveGameStatus('alice', store, ROOT, { status: 'waiting', seq: 3, updatedAt: 5, reveal })).toBe(
+      true,
+    );
+    expect(loadGameStatus('alice', store, ROOT)).toEqual({ status: 'waiting', seq: 3, updatedAt: 5, reveal });
+    const key = gameStatusKey('alice', ROOT);
+    store.setItem(
+      key,
+      JSON.stringify({ status: 'waiting', seq: 3, updatedAt: 5, reveal: { npubs: ['x'], mine: 1 } }),
+    );
+    expect(loadGameStatus('alice', store, ROOT)).toEqual({ status: 'waiting', seq: 3, updatedAt: 5 });
+  });
   it('reads malformed entries as absent', () => {
     const store = memoryStorage();
     const key = gameStatusKey('alice', ROOT);

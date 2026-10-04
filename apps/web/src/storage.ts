@@ -267,6 +267,16 @@ export function claimUnowned(
 export const CACHED_STATUSES = ['working', 'stuck', 'waiting', 'your-turn', 'done', 'cancelled'] as const;
 export type GameStatusName = (typeof CACHED_STATUSES)[number];
 
+/**
+ * A card reveal the game was waiting on when the status was saved (D060): the npubs of the seats that owe it,
+ * whether this player's seat is one of them, and when their deadline passes (Unix seconds).
+ */
+export interface RevealCache {
+  npubs: string[];
+  mine: boolean;
+  until: number;
+}
+
 /** What the Home screen may know of a game without running it: the last status a game screen saw. */
 export interface GameStatusCache {
   status: GameStatusName;
@@ -274,6 +284,17 @@ export interface GameStatusCache {
   seq: number;
   /** Unix seconds. */
   updatedAt: number;
+  /** The card reveal the game waited on, if any (D060). */
+  reveal?: RevealCache;
+}
+
+function revealOf(v: unknown): RevealCache | undefined {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  const { npubs, mine, until } = v as Record<string, unknown>;
+  if (!Array.isArray(npubs) || !npubs.every((n) => typeof n === 'string' && /^[0-9a-f]{64}$/.test(n)))
+    return undefined;
+  if (typeof mine !== 'boolean' || typeof until !== 'number' || !Number.isFinite(until)) return undefined;
+  return { npubs: [...npubs] as string[], mine, until };
 }
 
 export const gameStatusKey = (profile: string, rootId: string): string =>
@@ -290,6 +311,7 @@ export function saveGameStatus(
     status: entry.status,
     seq: entry.seq,
     updatedAt: entry.updatedAt,
+    ...(entry.reveal === undefined ? {} : { reveal: entry.reveal }),
   });
 }
 
@@ -301,11 +323,12 @@ export function loadGameStatus(
 ): GameStatusCache | null {
   const v = readJson(store, gameStatusKey(profile, rootId));
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-  const { status, seq, updatedAt } = v as Record<string, unknown>;
+  const { status, seq, updatedAt, reveal } = v as Record<string, unknown>;
   if (!(CACHED_STATUSES as readonly unknown[]).includes(status)) return null;
   if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0) return null;
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
-  return { status: status as GameStatusName, seq, updatedAt };
+  const r = revealOf(reveal);
+  return { status: status as GameStatusName, seq, updatedAt, ...(r === undefined ? {} : { reveal: r }) };
 }
 
 /* Persistent storage (D041): ask the browser not to evict this site's data under storage pressure. */
