@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import { bank } from '@bored-games/bank';
+import { bank, bankV1 } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
-import { canonicalJson, createRng, type GameModule } from '@bored-games/game-kit';
+import { canonicalJson, createRng, type GameModule, moduleFor } from '@bored-games/game-kit';
 import { luster } from '@bored-games/luster';
 import type { Hex, NostrEvent } from '@bored-games/protocol';
 import { GameSession } from '../../src/session.ts';
@@ -23,14 +23,28 @@ import type { Identity, SessionView } from '../../src/types.ts';
 type AnyModule = GameModule<any, any, any>;
 
 /**
- * The modules the corpus folds with, by id: the engines v1 games were played with (Chain Reaction 0.3.0, Chess
- * 0.1.0, Bank 0.1.0, Luster 0.2.0). A fixture names its engine version, and `golden-v1.test.ts` checks it is the one
- * here; once Bank 0.2.0 ships (T5), Bank 0.1.0 must still be the engine its fixtures fold with.
+ * The registry the corpus folds with, shaped like the app's (build plan D-B): each current module under its id,
+ * and Bank 0.1.0 under `bank@0.1.0` beside Bank 0.2.0. A fixture names its engine version and `GameSession.create`
+ * resolves it with `moduleFor`, so the corpus also proves that v1 Bank games fold with Bank 0.1.0 through the `@`
+ * key (T5). `golden-v1.test.ts` checks that each fixture resolves to the engine v1 games were played with (Chain
+ * Reaction 0.3.0, Chess 0.1.0, Bank 0.1.0, Luster 0.2.0).
  */
 export const GOLDEN_MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
   [bank.id, bank],
+  [`${bankV1.id}@${bankV1.version}`, bankV1],
+  [luster.id, luster],
+]);
+
+/**
+ * The engines new v1 event sets are recorded with (`scripts/golden-v1.ts --only <new>`), by id: v1 games, so Bank
+ * is 0.1.0. A sim creates its table from `modules.get(game)`.
+ */
+export const GOLDEN_RECORD_MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
+  [chainReaction.id, chainReaction],
+  [chess.id, chess],
+  [bankV1.id, bankV1],
   [luster.id, luster],
 ]);
 
@@ -262,14 +276,14 @@ function finalDigest(s: GameSession, module: AnyModule, late: number): FinalDige
 export function foldClient(
   fx: Pick<
     GoldenFixture,
-    'table' | 'joins' | 'root' | 'identities' | 'trusted' | 'events' | 'game' | 'ticks'
+    'table' | 'joins' | 'root' | 'identities' | 'trusted' | 'events' | 'game' | 'version' | 'ticks'
   >,
   deliveries: readonly number[],
   seat: number | null,
   modules: ReadonlyMap<string, AnyModule> = GOLDEN_MODULES,
 ): ClientDigest {
-  const module = modules.get(fx.game);
-  if (module === undefined) throw new Error(`no module ${fx.game}`);
+  const module = moduleFor(modules, fx.game, fx.version);
+  if (module === undefined) throw new Error(`no module ${fx.game} ${fx.version}`);
   const s = goldenSession(fx, seat, modules);
   const trace = createHash('sha256');
   let receipts = '';

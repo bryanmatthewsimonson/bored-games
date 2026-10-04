@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { bank, outcomeOf, pendingOf } from '../../src/index.ts';
-import { act, bustRound, playRoll, rules, setup } from '../helpers.ts';
+import type { BankState } from '../../src/index.ts';
+import { ENGINES, engine, rules } from '../helpers.ts';
 
-describe('rounds and the result', () => {
+describe.each(ENGINES)('rounds and the result: engine $version', (m) => {
+  const { act, bustRound, playRoll, setup } = engine(m);
+
+  /** Three safe resolutions, then the caller rolls the bust this helper's caller supplies. */
+  function toSafeBust(s: BankState): BankState {
+    let state = s;
+    while (state.rolls < 3 && state.phase !== 'over') state = playRoll(state, [1, 1]).state;
+    return state;
+  }
+
   it('C22 the next roller is the seat after the last actor, and the safe rolls start over', () => {
     let state = setup(3);
     state = playRoll(state, [1, 2]).state;
@@ -28,9 +37,9 @@ describe('rounds and the result', () => {
     }
     expect(state.phase).toBe('over');
     expect(state.round).toBe(5);
-    expect(pendingOf(state)).toEqual({ type: 'over' });
+    expect(m.pending(state)).toEqual({ type: 'over' });
     expect(state.scores).toEqual([0, 0, 0]);
-    expect(outcomeOf(state)?.reason).toBe('score');
+    expect(m.outcome(state)?.reason).toBe('score');
   });
 
   it('C24 the 30th roll banks everyone still in, unless it busts', () => {
@@ -51,9 +60,7 @@ describe('rounds and the result', () => {
     expect(capped.round).toBe(1);
     expect(capped.pot).toBe(0);
     expect(capped.rolls).toBe(0);
-    expect(bank.coverage?.(capped, played.events)).toEqual(
-      expect.arrayContaining(['round:cap', 'bank:shared']),
-    );
+    expect(m.coverage?.(capped, played.events)).toEqual(expect.arrayContaining(['round:cap', 'bank:shared']));
 
     let bust = setup(2, rules({ rounds: 5 }));
     for (let i = 0; i < 29; i++) bust = playRoll(bust, [1, 2]).state;
@@ -77,31 +84,31 @@ describe('rounds and the result', () => {
     state = playRoll(state, [1, 6]).state;
     expect(state.scores).toEqual([10, 10, 0]);
     while (state.phase !== 'over') state = bustRound(state);
-    const outcome = outcomeOf(state);
+    const outcome = m.outcome(state);
     expect(outcome).toEqual({ places: [1, 1, 3], scores: [10, 10, 0], reason: 'score' });
   });
 
   it('C26 standings match the scores, the view is the whole state, and nothing is hidden', () => {
     const state = playRoll(setup(3), [4, 6]).state;
     expect(state.pot).toBe(10);
-    expect(bank.standings(state)).toEqual([0, 0, 0]);
-    expect(bank.view(state, 1)).toBe(state);
-    expect(bank.view(state, null)).toBe(state);
-    expect(bank.dealt(state)).toEqual([]);
-    expect(bank.knownTo(state, 0)).toEqual([]);
-    expect(bank.revealsOf(state, { type: 'bank', actor: 1 })).toEqual([]);
-    expect(bank.decks(state.rules)).toEqual([]);
-    const learned = bank.learn(state, { deck: 'roll', pos: 0, card: 1 });
+    expect(m.standings(state)).toEqual([0, 0, 0]);
+    expect(m.view(state, 1)).toBe(state);
+    expect(m.view(state, null)).toBe(state);
+    expect(m.dealt(state)).toEqual([]);
+    expect(m.knownTo(state, 0)).toEqual([]);
+    expect(m.revealsOf(state, { type: 'bank', actor: 1 })).toEqual([]);
+    expect(m.decks(state.rules)).toEqual([]);
+    const learned = m.learn(state, { deck: 'roll', pos: 0, card: 1 });
     expect(learned.ok).toBe(false);
     if (!learned.ok) expect(learned.error.code).toBe('no-hidden');
     let done = setup(2, rules({ rounds: 5 }));
     while (done.phase !== 'over') done = bustRound(done);
-    const outcome = outcomeOf(done);
+    const outcome = m.outcome(done);
     expect(outcome?.scores).toEqual([0, 0]);
-    expect(bank.standings(done)).toEqual(outcome?.scores);
-    const viewed = bank.setup({ rules: done.rules, seats: 2, mode: 'view', viewer: null });
+    expect(m.standings(done)).toEqual(outcome?.scores);
+    const viewed = m.setup({ rules: done.rules, seats: 2, mode: 'view', viewer: null });
     expect(viewed.ok).toBe(true);
-    if (viewed.ok) expect(bank.view(viewed.value, 0)).toEqual(viewed.value);
+    if (viewed.ok) expect(m.view(viewed.value, 0)).toEqual(viewed.value);
   });
 
   it('C29 a bust pays nobody who is still in the round', () => {
@@ -116,10 +123,3 @@ describe('rounds and the result', () => {
     ]);
   });
 });
-
-/** Three safe resolutions, then the caller rolls the bust this helper's caller supplies. */
-function toSafeBust(s: ReturnType<typeof setup>): ReturnType<typeof setup> {
-  let state = s;
-  while (state.rolls < 3 && state.phase !== 'over') state = playRoll(state, [1, 1]).state;
-  return state;
-}

@@ -1,5 +1,5 @@
 import type { BankState } from '@bored-games/bank';
-import { bank } from '@bored-games/bank';
+import { bankV1 } from '@bored-games/bank';
 import { G, makeRollShare } from '@bored-games/deck';
 import { finalizeEvent, moveTemplate, type NostrEvent } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
@@ -25,7 +25,7 @@ interface Table {
 }
 
 function table(seed: string, seats = 2): Table {
-  const game = makeModuleGame(bank, seats, seed);
+  const game = makeModuleGame(bankV1, seats, seed);
   const players = Array.from({ length: seats }, (_, seat) => newSession(game, seat));
   const spectator = newSession(game, null);
   return { game, players, spectator, all: [...players, spectator] };
@@ -52,7 +52,7 @@ function diceOf(s: GameSession): Extract<BankState['log'][number], { kind: 'dice
   return entry;
 }
 
-describe('a dice beacon session (Bank)', () => {
+describe('a v1 dice beacon session (Bank 0.1.0, PROTOCOL §6.3a)', () => {
   it('starts in play with the roller to roll, and an empty pot', () => {
     const t = table('beacon-start');
     for (const s of t.all) {

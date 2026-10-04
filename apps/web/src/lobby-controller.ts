@@ -13,6 +13,7 @@ import {
   seatForGameKeys,
 } from '@bored-games/client';
 import { G } from '@bored-games/deck';
+import { currentModules } from '@bored-games/game-kit';
 import {
   type EventTemplate,
   getPublicKey,
@@ -235,8 +236,10 @@ export class LobbyController {
    * and the player's relays. Returns the table address.
    */
   async createTable(spec: NewTable): Promise<string> {
-    const game = spec.game ?? [...this.#d.modules.keys()][0];
-    const module = game === undefined ? undefined : this.#d.modules.get(game);
+    // New tables use the current engines only, never a version kept under `id@version` to fold older games.
+    const current = currentModules(this.#d.modules);
+    const game = spec.game ?? [...current.keys()][0];
+    const module = game === undefined ? undefined : current.get(game);
     if (game === undefined || module === undefined) throw new Error('This game is not available.');
     const relays = [...(spec.relays ?? this.#d.relays())];
     const tableId = bytesToHex(this.#d.rnd(8));

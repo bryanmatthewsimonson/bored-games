@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction } from '../../src/index.ts';
-import { playRoll, rejects, setup } from '../helpers.ts';
+import { ENGINES, engine } from '../helpers.ts';
 
-describe('encoding', () => {
+describe.each(ENGINES)('encoding: engine $version', (m) => {
+  const { playRoll, rejects, setup } = engine(m);
+
   it('C27 extra keys and a false flag are rejected', () => {
     const state = playRoll(setup(3), [1, 2]).state;
     const stay = { type: 'stay', actor: 1 };
-    expect(applyAction(state, stay).ok).toBe(true);
+    expect(m.apply(state, stay).ok).toBe(true);
     for (const bad of [
       { ...stay, stay: false },
       { ...stay, extra: 1 },
@@ -42,7 +43,7 @@ describe('encoding', () => {
       phase: 'beacon' as const,
       openRoll: 0,
       nextRollId: 1,
-      schedule: [{ id: 0, last: 1 }],
+      schedule: [{ id: 0, last: m.version === '0.1.0' ? 1 : null }],
     };
     rejects(huge, { type: 'rolled', actor: 'beacon', id: 0, dice: [1, 2] }, 'illegal');
     rejects(huge, { type: 'rolled', actor: 'beacon', id: 0, dice: [6, 6] }, 'illegal');

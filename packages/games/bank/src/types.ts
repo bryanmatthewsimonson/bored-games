@@ -1,5 +1,12 @@
 import type { BankRules } from './rules.ts';
 
+/**
+ * Which engine: `'v1'` is Bank 0.1.0, protocol 1 only (contributions are `contribute` turns, PROTOCOL §6.3a);
+ * `'v2'` is Bank 0.2.0, protocol 2 only (a roll pends the beacon at once, PROTOCOL-v2 §6.2).
+ */
+export type BankVariant = 'v1' | 'v2';
+
+/** `collect` is engine 0.1.0's only: engine 0.2.0 goes from a roll straight to `beacon`. */
 export type BankPhase = 'call' | 'collect' | 'beacon' | 'over';
 
 /** What a resolution did to the pot. */
@@ -8,10 +15,13 @@ export type DiceEffect = 'add' | 'seventy' | 'double' | 'bust';
 /** How a round ended. */
 export type RoundEnd = 'bust' | 'banks' | 'cap';
 
-/** One committed roll. `last` contributes last and can learn the faces first. */
+/**
+ * One committed roll. Engine 0.1.0: `last` contributes last and can learn the faces first. Engine 0.2.0: `last` is
+ * null, since contributions are unordered and any seat may be last (PROTOCOL-v2 §6.2).
+ */
 export interface RollScheduleEntry {
   readonly id: number;
-  readonly last: number;
+  readonly last: number | null;
 }
 
 export type BankLog =
@@ -51,7 +61,7 @@ export interface BankState {
   /** The next roll id. Equals `schedule.length`. */
   readonly nextRollId: number;
   readonly phase: BankPhase;
-  /** Seats who still owe a contribution, in order. Empty outside `collect`. */
+  /** Seats who still owe a contribution, in order. Empty outside `collect` (so always empty in engine 0.2.0). */
   readonly owe: readonly number[];
   /** The roll being collected or derived, or null in a call window and between rounds. */
   readonly openRoll: number | null;

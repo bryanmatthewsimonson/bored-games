@@ -1,5 +1,6 @@
 import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
+import { currentModules } from '@bored-games/game-kit';
 import {
   GEM_RULES,
   DEFAULT_RULES as LUSTER_DEFAULT_RULES,
@@ -26,7 +27,7 @@ export function NewTableForm(props: { game: string }) {
   const { deps, signer, profile, store, persistent } = useApp();
   const lobby = useLobby();
   const game = props.game;
-  const module = deps.modules.get(game);
+  const module = currentModules(deps.modules).get(game);
   const range = useMemo(
     () => (module === undefined ? { min: 2, max: 6 } : module.seatRange(module.defaultRules())),
     [module],

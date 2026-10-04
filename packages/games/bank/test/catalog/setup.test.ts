@@ -1,31 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { bank, DEFAULT_RULES, pendingOf, validateRules } from '../../src/index.ts';
-import { playRoll, rejects, rules, setup } from '../helpers.ts';
+import { DEFAULT_RULES, validateRules } from '../../src/index.ts';
+import { ENGINES, engine, rules } from '../helpers.ts';
 
-describe('setup and options', () => {
+describe.each(ENGINES)('setup and options: engine $version', (m) => {
+  const { playRoll, rejects, setup } = engine(m);
+
   it('C01 setup of three seats asks the roller to roll, with an empty pot', () => {
     const state = setup(3);
     expect(state.pot).toBe(0);
     expect(state.scores).toEqual([0, 0, 0]);
     expect(state.roller).toBe(0);
     expect(state.round).toBe(0);
-    expect(pendingOf(state)).toEqual({ type: 'player', seat: 0, decision: 'roll' });
-    expect(bank.legalActions(state, 0)).toEqual([{ type: 'roll', actor: 0, rollId: 0 }]);
-    expect(bank.legalActions(state, 1)).toEqual([]);
+    expect(m.pending(state)).toEqual({ type: 'player', seat: 0, decision: 'roll' });
+    expect(m.legalActions(state, 0)).toEqual([{ type: 'roll', actor: 0, rollId: 0 }]);
+    expect(m.legalActions(state, 1)).toEqual([]);
     rejects(state, { type: 'bank', actor: 0 }, 'illegal');
     rejects(state, { type: 'stay', actor: 1 }, 'turn');
   });
 
   it('C02 the default is ten rounds at the table, for two to six seats', () => {
-    expect(bank.defaultRules()).toEqual(DEFAULT_RULES);
+    expect(m.defaultRules()).toEqual(DEFAULT_RULES);
     expect(DEFAULT_RULES.rounds).toBe(10);
     expect(DEFAULT_RULES.banking).toBe('table');
     expect(DEFAULT_RULES.maxRollsPerRound).toBe(30);
-    expect(bank.seatRange(DEFAULT_RULES)).toEqual({ min: 2, max: 6 });
+    expect(m.seatRange(DEFAULT_RULES)).toEqual({ min: 2, max: 6 });
     expect(setup(2).seats).toBe(2);
     expect(setup(6).seats).toBe(6);
     for (const seats of [1, 7]) {
-      const result = bank.setup({ rules: DEFAULT_RULES, seats, mode: 'full', deckOrders: {} });
+      const result = m.setup({ rules: DEFAULT_RULES, seats, mode: 'full', deckOrders: {} });
       expect(result.ok ? null : result.error.code).toBe('seats');
     }
   });
@@ -51,8 +53,8 @@ describe('setup and options', () => {
 
   it('C28 a new round asks the roller to roll before anyone banks', () => {
     let state = setup(3);
-    expect(pendingOf(state)).toEqual({ type: 'player', seat: 0, decision: 'roll' });
-    expect(bank.legalActions(state, 0)).toEqual([{ type: 'roll', actor: 0, rollId: 0 }]);
+    expect(m.pending(state)).toEqual({ type: 'player', seat: 0, decision: 'roll' });
+    expect(m.legalActions(state, 0)).toEqual([{ type: 'roll', actor: 0, rollId: 0 }]);
     state = playRoll(state, [1, 2]).state;
     state = playRoll(state, [1, 2]).state;
     state = playRoll(state, [1, 2]).state;
@@ -60,9 +62,9 @@ describe('setup and options', () => {
     expect(state.roller).toBe(1);
     expect(state.pot).toBe(0);
     expect(state.rolls).toBe(0);
-    expect(pendingOf(state)).toEqual({ type: 'player', seat: 1, decision: 'roll' });
-    expect(bank.legalActions(state, 1)).toEqual([{ type: 'roll', actor: 1, rollId: state.nextRollId }]);
-    expect(bank.legalActions(state, 0)).toEqual([]);
-    expect(bank.legalActions(state, 2)).toEqual([]);
+    expect(m.pending(state)).toEqual({ type: 'player', seat: 1, decision: 'roll' });
+    expect(m.legalActions(state, 1)).toEqual([{ type: 'roll', actor: 1, rollId: state.nextRollId }]);
+    expect(m.legalActions(state, 0)).toEqual([]);
+    expect(m.legalActions(state, 2)).toEqual([]);
   });
 });

@@ -7,7 +7,8 @@
  * regenerated during the v2 build: `golden-v1.test.ts` holds Bank 0.1.0 to them.
  */
 import { writeFileSync } from 'node:fs';
-import { bank } from '../src/index.ts';
+// Bank 0.1.0 (`bankV1`): the engine these fixtures pin. Never re-record them during the v2 build.
+import { bankV1 as bank } from '../src/index.ts';
 import { type BankGolden, gameList, hashGame, playGame } from '../test/golden-v1/play.ts';
 
 /** Seeds per seat count. */

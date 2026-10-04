@@ -1,7 +1,7 @@
 /*
  * The Bank screen's words and classes, without a browser. Faces and money come from the engine.
  */
-import { type BankState, bank } from '@bored-games/bank';
+import { type BankModule, type BankState, bank, bankV1 } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
 import { describe, expect, it } from 'vitest';
 import {
@@ -23,55 +23,77 @@ import {
   winnerLine,
 } from '../src/games/bank/model.ts';
 
-function start(seats = 3): BankState {
-  const result = bank.setup({ rules: bank.defaultRules(), seats, mode: 'full', deckOrders: {} });
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
+/**
+ * Drivers bound to one engine. The screen shows games of both Bank engines: 0.2.0 (protocol 2, the beacon pends at
+ * once after a roll) and 0.1.0 (protocol 1 games in progress, contributions as turns).
+ */
+const ENGINES: readonly BankModule[] = [bank, bankV1];
 
-function act(state: BankState, action: unknown): BankState {
-  const result = bank.apply(state, action);
-  if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
-  return result.state;
-}
-
-/** Stay until the roller, commit the roll, contribute, and resolve `dice`. */
-function resolve(state: BankState, dice: readonly [number, number]): BankState {
-  let s = state;
-  while (s.phase === 'call') {
-    const pending = bank.pending(s);
-    if (pending.type !== 'player' || pending.seat === s.roller) break;
-    s = act(s, { type: 'stay', actor: pending.seat });
+function drive(m: BankModule) {
+  function start(seats = 3): BankState {
+    const result = m.setup({ rules: m.defaultRules(), seats, mode: 'full', deckOrders: {} });
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
   }
-  const id = s.nextRollId;
-  s = act(s, { type: 'roll', actor: s.roller, rollId: id });
-  while (s.phase === 'collect') {
-    const seat = s.owe[0];
-    if (seat === undefined) break;
-    s = act(s, { type: 'contribute', actor: seat, rollId: id });
+
+  function act(state: BankState, action: unknown): BankState {
+    const result = m.apply(state, action);
+    if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
+    return result.state;
   }
-  return act(s, { type: 'rolled', actor: 'beacon', id, dice: [dice[0], dice[1]] });
+
+  /** Stay until the roller, commit the roll, contribute, and resolve `dice`. */
+  function resolve(state: BankState, dice: readonly [number, number]): BankState {
+    let s = state;
+    while (s.phase === 'call') {
+      const pending = m.pending(s);
+      if (pending.type !== 'player' || pending.seat === s.roller) break;
+      s = act(s, { type: 'stay', actor: pending.seat });
+    }
+    const id = s.nextRollId;
+    s = act(s, { type: 'roll', actor: s.roller, rollId: id });
+    while (s.phase === 'collect') {
+      const seat = s.owe[0];
+      if (seat === undefined) break;
+      s = act(s, { type: 'contribute', actor: seat, rollId: id });
+    }
+    return act(s, { type: 'rolled', actor: 'beacon', id, dice: [dice[0], dice[1]] });
+  }
+
+  /** The pot recorded for this resolution, including a bust that then opens the next round at 0. */
+  function resolvedPot(before: BankState, dice: readonly [number, number]): number {
+    const after = resolve(before, dice);
+    for (let i = after.log.length - 1; i >= 0; i--) {
+      const entry = after.log[i];
+      if (entry?.kind === 'dice') return entry.pot;
+    }
+    throw new Error('no dice log');
+  }
+
+  return { start, act, resolve, resolvedPot };
 }
 
-describe('Bank screen model', () => {
+describe.each(ENGINES)('Bank screen model, engine $version', (m) => {
+  const { start, act, resolve } = drive(m);
+
   it('labels Bank, Stay and Roll, and offers no button for a public roll', () => {
     const state = start();
-    const pending = bank.pending(state);
+    const pending = m.pending(state);
     expect(pendingLabels(pending)).toEqual([BANK_THEME.decisions.roll]);
-    expect(decisionButtons(bank.legalActions(state, 0)).map((b) => b.label)).toEqual(['Roll']);
+    expect(decisionButtons(m.legalActions(state, 0)).map((b) => b.label)).toEqual(['Roll']);
     const atRoller = resolve(start(2), [1, 2]);
     // After one safe roll the poll starts. Seat 1 may bank or stay; the roller is not asked yet.
-    expect(decisionButtons(bank.legalActions(atRoller, atRoller.roller)).map((b) => b.label)).toEqual([]);
-    expect(decisionButtons(bank.legalActions(atRoller, 1)).map((b) => b.label)).toEqual(['Bank', 'Stay']);
+    expect(decisionButtons(m.legalActions(atRoller, atRoller.roller)).map((b) => b.label)).toEqual([]);
+    expect(decisionButtons(m.legalActions(atRoller, 1)).map((b) => b.label)).toEqual(['Bank', 'Stay']);
     const calling = act(atRoller, { type: 'stay', actor: 1 });
-    expect(decisionButtons(bank.legalActions(calling, calling.roller)).map((b) => b.label)).toEqual([
+    expect(decisionButtons(m.legalActions(calling, calling.roller)).map((b) => b.label)).toEqual([
       'Bank',
       'Roll',
     ]);
     const rolled = act(calling, { type: 'roll', actor: calling.roller, rollId: calling.nextRollId });
     const contributor = rolled.owe[0] ?? 0;
-    const collecting = bank.pending(rolled);
-    expect(decisionButtons(bank.legalActions(rolled, contributor))).toEqual([]);
+    const collecting = m.pending(rolled);
+    expect(decisionButtons(m.legalActions(rolled, contributor))).toEqual([]);
     expect(pendingLabels(collecting)).toEqual([]);
     expect(statusLine(rolled, ['Ada', 'Bea'], contributor, collecting, false)).toBe('Rolling the dice.');
     expect(statusLine(rolled, ['Ada', 'Bea'], calling.roller, collecting, false)).toBe('Rolling the dice.');
@@ -102,11 +124,11 @@ describe('Bank screen model', () => {
 
   it('names who is to play, in, or banked', () => {
     const state = start();
-    const pending = bank.pending(state);
+    const pending = m.pending(state);
     expect(seatStatus(state, 0, pending)).toBe('To play');
     expect(seatStatus(state, 1, pending)).toBe('In');
     const banked = act(resolve(state, [3, 5]), { type: 'bank', actor: 1 });
-    expect(seatStatus(banked, 1, bank.pending(banked))).toBe('Banked 8');
+    expect(seatStatus(banked, 1, m.pending(banked))).toBe('Banked 8');
   });
 
   it('skips the tumble when motion is reduced', () => {
@@ -148,17 +170,9 @@ function chanceFor(guide: RollGuide, dice: readonly [number, number]) {
   return guide.chances.find((c) => c.label === String(sum));
 }
 
-/** The pot recorded for this resolution, including a bust that then opens the next round at 0. */
-function resolvedPot(before: BankState, dice: readonly [number, number]): number {
-  const after = resolve(before, dice);
-  for (let i = after.log.length - 1; i >= 0; i--) {
-    const entry = after.log[i];
-    if (entry?.kind === 'dice') return entry.pot;
-  }
-  throw new Error('no dice log');
-}
+describe.each(ENGINES)('Bank roll guide, engine $version', (m) => {
+  const { start, act, resolve, resolvedPot } = drive(m);
 
-describe('Bank roll guide', () => {
   it('counts the rolls and says the next one is safe while the pot is empty', () => {
     const state = start();
     expect(rollCountLabel(state)).toBe('No rolls yet');
@@ -198,7 +212,8 @@ describe('Bank roll guide', () => {
   it('keeps the same odds while that safe roll is still being published', () => {
     let state = start(2);
     state = act(state, { type: 'roll', actor: state.roller, rollId: state.nextRollId });
-    expect(state.phase).toBe('collect');
+    // Engine 0.1.0 is collecting turns; engine 0.2.0 pends the beacon at once. Either way the roll is in flight.
+    expect(state.phase).toBe(m === bankV1 ? 'collect' : 'beacon');
     const guide = rollGuide(state);
     expect(guide).toMatchObject({
       nextRoll: 1,
@@ -290,7 +305,7 @@ describe('Bank roll guide', () => {
 
     let rolling = state;
     while (rolling.phase === 'call') {
-      const pending = bank.pending(rolling);
+      const pending = m.pending(rolling);
       if (pending.type !== 'player' || pending.seat === rolling.roller) break;
       rolling = act(rolling, { type: 'stay', actor: pending.seat });
     }

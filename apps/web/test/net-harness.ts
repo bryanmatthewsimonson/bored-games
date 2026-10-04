@@ -3,6 +3,7 @@
  * with their own key, store and pool, lobby and game controllers disposed after each test, and pool wrappers that
  * simulate a device's network.
  */
+import { bankV1 } from '@bored-games/bank';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/protocol';
 import { type EoseInfo, type Filter, RelayPool } from '@bored-games/relay';
@@ -10,8 +11,15 @@ import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox } from '../src/game-controller.ts';
 import type { Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
-import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
+import { type ControllerDeps, MODULES, type ModuleRegistry, type PoolLike } from '../src/net.ts';
 import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
+
+/**
+ * The registry of a client from before Bank 0.2.0: its new Bank tables are Bank 0.1.0 at proto 1, so the tests of
+ * v1 Bank behaviour (contributions as turns) play the v1 games such a client started, which this build still folds
+ * with Bank 0.1.0 (PROTOCOL-v2 §2 item 5).
+ */
+export const OLDER_BANK_CLIENT: ModuleRegistry = new Map([...MODULES, [bankV1.id, bankV1]]);
 
 export const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
 export const now = (): number => Math.floor(Date.now() / 1000);
@@ -47,10 +55,18 @@ export class Harness {
     return p;
   }
 
-  /** A browser profile: its own key (unless given), store and pool. Its own relays: the dev relay and `extra`. */
+  /**
+   * A browser profile: its own key (unless given), store and pool. Its own relays: the dev relay and `extra`. Its
+   * module registry is the app's unless given (`OLDER_BANK_CLIENT` plays v1 Bank games).
+   */
   profile(
     name: string,
-    opts: { store?: KeyValueStore; signer?: Signer; extra?: readonly string[] } = {},
+    opts: {
+      store?: KeyValueStore;
+      signer?: Signer;
+      extra?: readonly string[];
+      modules?: ModuleRegistry;
+    } = {},
   ): Profile {
     const sk = rnd(32);
     const signer: Signer = opts.signer ?? {
@@ -69,7 +85,7 @@ export class Harness {
         relays: () => [this.relay.url, ...extra],
         rnd,
         now,
-        modules: MODULES,
+        modules: opts.modules ?? MODULES,
         timers: platformTimers,
       },
     };
@@ -80,7 +96,7 @@ export class Harness {
     const store = memoryStorage();
     const key = `bg:${p.name}:secrets:${address}`;
     store.setItem(key, p.deps.storage.getItem(key) as string);
-    return this.profile(p.name, { store, signer: p.deps.signer, extra });
+    return this.profile(p.name, { store, signer: p.deps.signer, extra, modules: p.deps.modules });
   }
 
   lobby(p: Profile): LobbyController {

@@ -26,6 +26,7 @@ import {
   deepFreeze,
   type GameModule,
   type Outcome as ModuleOutcome,
+  moduleFor,
   type Pending,
   type RevealAction,
 } from '@bored-games/game-kit';
@@ -569,7 +570,9 @@ export class GameSession {
     }
     const problems = validateRoot(root, table, joins, input.modules);
     if (problems.length > 0) throw new ClientError(`invalid game root: ${problems.join('; ')}`);
-    const module = input.modules.get(root.game) as AnyModule;
+    // The root's own (id, version), through the registry's `@` keys (build plan D-B): a v1 Bank 0.1.0 game folds
+    // with Bank 0.1.0 even though `bank` is 0.2.0. validateRoot has already required that it resolves.
+    const module = moduleFor(input.modules, root.game, root.version) as AnyModule;
     const rules = module.validateRules(root.rules);
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
 

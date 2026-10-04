@@ -20,9 +20,10 @@ it('chain-reaction: a few hundred fuzzed games keep every invariant', () => {
   expect(report.coverage['merger:3way']).toBeGreaterThan(0);
 });
 
-it('bank: a few hundred fuzzed games keep every invariant', () => {
+it('bank (0.2.0): a few hundred fuzzed games keep every invariant', () => {
   const target = TARGETS.bank;
   if (!target) throw new Error('bank target missing');
+  expect(target.module.version).toBe('0.2.0');
   const report = fuzzBatch(target.module, {
     seed: 'vitest-smoke',
     games: 200,
@@ -35,6 +36,23 @@ it('bank: a few hundred fuzzed games keep every invariant', () => {
   expect(report.coverage['end:score']).toBeGreaterThan(0);
   expect(report.coverage['roll:bust']).toBeGreaterThan(0);
   expect(report.coverage['bank:shared']).toBeGreaterThan(0);
+});
+
+it('bank@0.1.0: Bank 0.1.0, still shipped for v1 games, keeps every invariant too', () => {
+  const target = TARGETS['bank@0.1.0'];
+  if (!target) throw new Error('bank@0.1.0 target missing');
+  expect(target.module.version).toBe('0.1.0');
+  const report = fuzzBatch(target.module, {
+    seed: 'vitest-smoke',
+    games: 100,
+    seatCounts: target.defaultSeatCounts,
+    rules: target.module.defaultRules(),
+    policies: target.policies,
+  });
+  expect(report.failures).toEqual([]);
+  expect(report.games).toBe(100);
+  expect(report.coverage['end:score']).toBeGreaterThan(0);
+  expect(report.coverage['roll:bust']).toBeGreaterThan(0);
 });
 
 it('chess: fuzzed games keep every invariant and all end', () => {

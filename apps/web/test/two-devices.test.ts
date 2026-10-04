@@ -13,9 +13,21 @@ import { ALREADY_MOVED, CHECK_TIMEOUT_MS, type GameController, HOLD_CAP_S } from
 import { bytesToHex } from '../src/hex.ts';
 import { MODULES, type PoolLike } from '../src/net.ts';
 import { loadSecrets } from '../src/storage.ts';
-import { Harness, laggingOwn, now, outboxSlots, type Profile, pause, rnd, waitFor } from './net-harness.ts';
+import {
+  Harness,
+  laggingOwn,
+  now,
+  OLDER_BANK_CLIENT,
+  outboxSlots,
+  type Profile,
+  pause,
+  rnd,
+  waitFor,
+} from './net-harness.ts';
 
 const h = new Harness();
+/** Bank games here are v1 games (Bank 0.1.0, contributions as turns), started by a client from before 0.2.0. */
+const V1_BANK = { modules: OLDER_BANK_CLIENT };
 beforeEach(() => h.setup());
 afterEach(() => h.teardown());
 
@@ -166,7 +178,11 @@ describe('A deterministic build is dated from shared events, never from a device
    * one per clock offset in `skews` (seconds). Returns the Roll, the root and the contributions at the relay.
    */
   async function rollDated(at: number, skews: number[], timers: Timers = platformTimers) {
-    const { rootId, address, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
+    const { rootId, address, bySeat } = await h.start2(
+      'bank',
+      h.profile('a', V1_BANK),
+      h.profile('b', V1_BANK),
+    );
     const rootEv = (await h.query([{ ids: [rootId] }]))[0] as NostrEvent;
     const root = parseRoot(rootEv);
     const [, creator, tableId] = root.tableAddress.split(':') as [string, string, string];
@@ -260,7 +276,11 @@ describe('A deterministic build is dated from shared events, never from a device
 describe('Bank: two devices of one seat contribute to a roll once (audit-bank F3)', () => {
   /** A 2-seat Bank game; returns the roller's and the contributor's profiles and their controllers. */
   async function bank() {
-    const { rootId, address, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
+    const { rootId, address, bySeat } = await h.start2(
+      'bank',
+      h.profile('a', V1_BANK),
+      h.profile('b', V1_BANK),
+    );
     const games = bySeat.map((p) => h.game(rootId, p.deps));
     const roller = await waitFor('the first roll', () =>
       games.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),

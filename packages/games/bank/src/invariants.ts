@@ -1,5 +1,5 @@
 import { contributeOrder } from './engine.ts';
-import type { BankLog, BankState } from './types.ts';
+import type { BankLog, BankState, BankVariant } from './types.ts';
 
 function safeMoney(n: number): boolean {
   return typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && !Object.is(n, -0);
@@ -14,8 +14,11 @@ function replayScores(log: readonly BankLog[], seats: number): number[] {
   return scores;
 }
 
-/** Human-readable violations; empty when the state is sound. */
-export function checkInvariants(s: BankState): string[] {
+/**
+ * Human-readable violations; empty when the state is sound for engine `variant` (`'v1'` Bank 0.1.0, `'v2'` 0.2.0).
+ * Engine 0.2.0 never enters `collect`, owes no ordered contribution and records `last: null` for each roll.
+ */
+export function checkInvariants(s: BankState, variant: BankVariant): string[] {
   const out: string[] = [];
   const n = s.seats;
   if (s.game !== 'bank') out.push('game id');
@@ -44,8 +47,13 @@ export function checkInvariants(s: BankState): string[] {
   if (s.schedule.length !== s.nextRollId) out.push('nextRollId is the schedule length');
   s.schedule.forEach((entry, index) => {
     if (entry.id !== index) out.push('schedule ids are 0..n-1');
-    if (!Number.isInteger(entry.last) || entry.last < 0 || entry.last >= n) out.push('schedule last seat');
+    if (variant === 'v1') {
+      const last = entry.last;
+      if (last === null || !Number.isInteger(last) || last < 0 || last >= n) out.push('schedule last seat');
+    } else if (entry.last !== null) out.push('engine 0.2.0 has no fixed last contributor');
   });
+  if (variant !== 'v1' && (s.phase === 'collect' || s.owe.length !== 0))
+    out.push('engine 0.2.0 asks for no contribution');
 
   const over = s.phase === 'over';
   if (over !== (s.round === s.rules.rounds)) out.push('the game is over exactly after the last round');

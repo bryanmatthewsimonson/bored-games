@@ -13,7 +13,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { bank } from '@bored-games/bank';
+import { bankV1 as bank } from '@bored-games/bank';
 import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { canonicalJson, createRng, type Rng } from '@bored-games/game-kit';
@@ -44,8 +44,8 @@ import {
   clientsFor,
   foldClient,
   GOLDEN_FORMAT,
-  GOLDEN_MODULES,
   GOLDEN_NAMES,
+  GOLDEN_RECORD_MODULES,
   type GoldenFixture,
   goldenIdentity,
   goldenSession,
@@ -141,7 +141,7 @@ function simSet(base: string, spec: SimSpec): { set: EventSet; seed: string; rep
     const report = simulateGame({
       seats: spec.seats,
       seed,
-      modules: GOLDEN_MODULES,
+      modules: GOLDEN_RECORD_MODULES,
       game: spec.game,
       policy: spec.policy,
       ...(spec.rules === undefined ? {} : { rules: spec.rules }),
@@ -436,6 +436,7 @@ function record(
     ...lobbyOf(set),
     events: set.events,
     game: root.game,
+    version: root.version,
     trusted: verifiedSteps(set),
     ...(ticks === undefined ? {} : { ticks }),
   };

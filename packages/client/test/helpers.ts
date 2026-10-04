@@ -1,4 +1,4 @@
-import { bank } from '@bored-games/bank';
+import { bank, bankV1 } from '@bored-games/bank';
 import { type ChainReactionRules, chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
@@ -10,6 +10,7 @@ import {
   joinTemplate,
   makeJoinPok,
   type NostrEvent,
+  type Proto,
   parseJoin,
   parseTable,
   rootTemplate,
@@ -47,11 +48,16 @@ export const ROOT_SEEN = T0 + 10;
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 type AnyModule = GameModule<any, any, any>;
 
-/** Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045) and Bank (dice beacon, D058). */
+/**
+ * Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045) and Bank (dice beacon, D058), shaped
+ * like the app's registry (build plan D-B): Bank 0.2.0 (protocol 2) under `bank`, and Bank 0.1.0 (protocol 1), which
+ * the v1 session tests play, under `bank@0.1.0`.
+ */
 export const MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
   [bank.id, bank],
+  [`${bankV1.id}@${bankV1.version}`, bankV1],
 ]);
 
 export interface TestGame {
@@ -81,12 +87,16 @@ export function makeGame(
   return makeModuleGame(chainReaction, seats, seed, rules);
 }
 
-/** A game of `module` (Chess, for a deckless game) built like `makeGame`; the module's default rules. */
+/**
+ * A game of `module` (Chess, for a deckless game) built like `makeGame`; the module's default rules. `proto` is the
+ * table's protocol version, carried by the Joins and the root (a proto-2 root is not a v1 game).
+ */
 export function makeModuleGame(
   module: AnyModule,
   seats: number,
   seed: string,
   rules: unknown = module.defaultRules(),
+  proto: Proto = '1',
 ): TestGame {
   const rnd = seededRandom(seed);
   const npubSks = Array.from({ length: seats }, () => secretKey(rnd));
@@ -109,6 +119,7 @@ export function makeModuleGame(
         relays: RELAYS,
         status: 'open',
         rules,
+        proto,
       },
       T0,
     ),
@@ -130,6 +141,7 @@ export function makeModuleGame(
         sessionSig: signSession(id.sessionSk, parsedTable.address, npub, rnd),
         rulesHash: rulesHash(rules),
         version: module.version,
+        proto,
       },
       T0 + 1 + seat,
     );

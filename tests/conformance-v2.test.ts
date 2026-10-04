@@ -53,12 +53,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'v1 games fold by the frozen v1 rules: the golden corpus (packages/client/test/golden-v1.test.ts)',
   },
   'V2-04': { until: 'T14' },
-  'V2-05': {
-    until: 'T5 (Bank 0.2.0 declares [2], Bank 0.1.0 is kept as bank@0.1.0 with [1])',
-    partial:
-      'validateRoot and validateTable reject a (module, version) that does not support the proto, through ' +
-      'moduleFor and moduleProtocols (packages/protocol/test/lobby.test.ts)',
-  },
   'V2-08': { until: 'T7, T8' },
   'V2-11': {
     until: 'T7 (both keys count for the seat)',
@@ -118,10 +112,11 @@ const ALLOWLIST: Record<string, Allowed> = {
   },
   'V2-49': { until: 'T17' },
   'V2-53': {
-    until: 'T5 (Bank 0.1.0 shipped beside 0.2.0), T14 (no new proto-1 Luster or Bank table)',
+    until: 'T14 (the lobby never creates or joins a proto-1 Luster or Bank table)',
     partial:
       'proto-1 games in progress keep folding, Bank 0.1.0 and Luster included: the golden corpus and the Bank ' +
-      '0.1.0 fixtures (packages/games/bank/test/golden-v1.test.ts)',
+      '0.1.0 fixtures (packages/games/bank/test/golden-v1.test.ts); the app ships Bank 0.1.0 under bank@0.1.0 ' +
+      'beside Bank 0.2.0 and a v1 Bank root resolves to it (apps/web/test/module-contract.test.ts, T5)',
   },
 };
 

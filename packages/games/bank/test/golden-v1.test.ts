@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { bank } from '../src/index.ts';
+import { bankV1 } from '../src/index.ts';
 import { type BankGolden, gameList, hashGame } from './golden-v1/play.ts';
 
 /*
@@ -19,8 +19,8 @@ const fixture = JSON.parse(
   readFileSync(new URL('./golden-v1/bank-0.1.0.json', import.meta.url), 'utf8'),
 ) as Fixture;
 
-/** The engine the fixtures pin: Bank 0.1.0 (after T5, the 0.1.0 variant, not the current `bank`). */
-const ENGINE = bank;
+/** The engine the fixtures pin: Bank 0.1.0, the `v1` variant (`bankV1`), not the current `bank` (0.2.0). */
+const ENGINE = bankV1;
 
 describe('Bank 0.1.0 golden fixtures', () => {
   it('cover every seat count from 2 to 6, with the recorded seeds and rules', () => {

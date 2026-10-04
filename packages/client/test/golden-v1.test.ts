@@ -1,4 +1,6 @@
 import { readdirSync } from 'node:fs';
+import { bankV1 } from '@bored-games/bank';
+import { moduleFor } from '@bored-games/game-kit';
 import type { Hex } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { goldenCases, loadFixture } from './golden-v1/cases.ts';
@@ -42,8 +44,11 @@ describe('the v1 golden corpus', () => {
       const fx = loadFixture(name);
       expect(fx.format).toBe(GOLDEN_FORMAT);
       expect(fx.name).toBe(name);
-      // Bank's fixtures are Bank 0.1.0 games: once 0.2.0 ships (T5), they must still fold with 0.1.0.
-      expect(GOLDEN_MODULES.get(fx.game)?.version).toBe(fx.version);
+      // Bank's fixtures are Bank 0.1.0 games: with 0.2.0 shipped (T5) they still fold with 0.1.0, which the
+      // registry holds under `bank@0.1.0` and `moduleFor` (used by GameSession.create) resolves.
+      const engine = moduleFor(GOLDEN_MODULES, fx.game, fx.version);
+      expect(engine?.version).toBe(fx.version);
+      if (fx.game === 'bank') expect(engine).toBe(bankV1);
       expect(fx.orders.map((o) => o.name)).toEqual(['published', 'reversed', 'shuffled']);
       for (const [k, o] of fx.orders.entries()) {
         expect(Object.keys(o.clients)).toEqual(clientsFor(fx.seats, k, fx.clients).map(labelOf));

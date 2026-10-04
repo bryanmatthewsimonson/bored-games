@@ -28,6 +28,7 @@ import {
   type SessionView,
   seatForGameKeys,
 } from '@bored-games/client';
+import { moduleFor } from '@bored-games/game-kit';
 import {
   type EventTemplate,
   type Hex,
@@ -825,7 +826,9 @@ export class GameController {
   /** Every deck position the module has dealt on the session's head (`GameModule.dealt`); empty before setup. */
   #dealt(session: GameSession): readonly { pos: number; to: number | null }[] {
     const v = session.view();
-    const module = this.#root === null ? undefined : this.#d.modules.get(this.#root.game);
+    // The root's own engine version (`moduleFor`): a v1 Bank game is Bank 0.1.0 even though `bank` is 0.2.0.
+    const root = this.#root;
+    const module = root === null ? undefined : moduleFor(this.#d.modules, root.game, root.version);
     if (module === undefined || v.state === null) return [];
     try {
       return module.dealt(v.state);

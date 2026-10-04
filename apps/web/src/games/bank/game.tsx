@@ -60,7 +60,10 @@ export function BankGame(props: GameViewProps) {
 
   const buttons = decisionButtons(props.legal);
   const myTurn = props.canAct && buttons.length > 0 && props.mySeat !== null && !props.busy && sentAt !== seq;
-  const rolling = pending.type === 'player' && pending.decision === 'contribute';
+  // A roll in flight: engine 0.1.0 collects contributions as turns; engine 0.2.0 pends the beacon at once while
+  // every seat's contribution arrives as a roll Shares event (PROTOCOL-v2 §6.2).
+  const rolling =
+    pending.type === 'beacon' || (pending.type === 'player' && pending.decision === 'contribute');
   const labels = myTurn ? buttons.map((b) => b.label) : pendingLabels(pending);
   const faces = latestDice(state.log);
   const words = potWords(state.log);

@@ -30,8 +30,22 @@ Bank, the folk push-your-luck dice game. This file is the **source of truth** fo
 | Seats | 2 to 6. Best at 3 to 5. More than 6 is **OPEN** and unbuilt. | The sources; a larger table is a different poll |
 | Rounds | 5, 10 or 20. The default is 10. | A short game is 5; 20 is a long one |
 | Ties | Places share the gap: two firsts, the next score is third. | The platform's outcome (1, 1, 3) |
-| Fair dice | Every seat contributes to a key-committed beacon. The faces are derived, not sent. The other shares go out on their own, because the roll is the same for every seat. | GAME-SYSTEMS §4.3, D058. This is not a hidden-information prompt (D050) |
+| Fair dice | Every seat contributes to a key-committed beacon. The faces are derived, not sent. Contributions go out on their own, because the roll is the same for every seat. | GAME-SYSTEMS §4.3, D058; for engine 0.2.0, PROTOCOL-v2 §6.2 and D060. This is not a hidden-information prompt (D050) |
 | Resignation | Not a module action. Two seats: rated. Three or more: unrated, the resigner last. | D052. Bank has no deck secret to attach |
+
+## Engine versions
+
+Two versions of the engine ship (PROTOCOL-v2 §2 items 5 and 6; D060). Every rule in this file holds for both, except where a rule names one version.
+
+| Version | Protocol | After a Roll | Contributions |
+|---|---|---|---|
+| 0.2.0, the current engine | 2 only | The beacon pends at once. No seat has a decision until the faces are applied. | Every seat, the roller included, sends a roll Shares event bound to the Roll move, in any order (PROTOCOL-v2 §6.2). There is no `contribute` action. |
+| 0.1.0, for v1 games in progress | 1 only | Each other seat is asked for a `contribute` turn. | Turns in a fixed order that ends on the seat after the roller (PROTOCOL §6.3a, D058). |
+
+- New tables use 0.2.0.
+- A client never creates or joins a protocol 1 Bank table. It keeps folding protocol 1 Bank games already in progress, with 0.1.0, which the app registers as `bank@0.1.0`.
+- Both versions take the same rule options, the same setup and the same banking, pot and round rules. Their states have the same shape. Under 0.2.0 the `collect` phase never occurs, `owe` is always empty, and each roll's schedule entry has `last: null`, because any seat may contribute last.
+- The roll list differs. Under 0.2.0 it holds `{id, count: 2, sides: 6}` (a protocol 2 roll entry). Under 0.1.0 it holds `{id, last}`. Only 0.1.0 has `beaconOf`.
 
 ## The pot
 
@@ -61,9 +75,23 @@ Between resolutions, while the round is open:
 
 ## How a roll is committed
 
-The roller names the next roll id and does not send faces. The pot is unchanged. Every other seat then publishes its share, in an order that **ends on the seat after the roller** (D058). An open window sends that share on its own. There is no button: the roll is one public result, and every seat is deciding on it. The last publisher learns the faces first and can only withhold, not choose them. A closed window withholds by doing nothing, and that is the platform's timeout (PROTOCOL §8.2).
+The roller names the next roll id and does not send faces. The pot is unchanged.
 
-When every contribution is in, the session derives the two faces and applies them. A second resolution of the same id is rejected. Faces outside 1..6 are rejected. A player does not send the faces.
+**Engine 0.2.0.**
+- The beacon pends at once.
+- Every seat, the roller included, publishes its contribution in a roll Shares event bound to the Roll move (PROTOCOL-v2 §6.2). They can arrive in any order.
+- An open window sends its contribution on its own. There is no button: the roll is one public result, and every seat is deciding on it.
+- The roller can contribute only once its Roll is signed, since the roll point needs the Roll's id. So it learns nothing before it rolls.
+- Whoever contributes last learns the faces first. That seat can only withhold, not choose them.
+- While the beacon pends, every seat without a contribution is stalled. A closed window withholds by doing nothing, and that is the platform's timeout (PROTOCOL-v2 §6.4).
+
+**Engine 0.1.0.**
+- Every other seat publishes its share as a `contribute` turn, in an order that **ends on the seat after the roller** (D058).
+- An open window sends that share on its own. There is no button.
+- The last publisher learns the faces first and can only withhold, not choose them.
+- A closed window withholds by doing nothing, and that is the platform's timeout (PROTOCOL §8.2).
+
+**Both versions.** When every contribution is in, the session derives the two faces and applies them. A second resolution of the same id is rejected. Faces outside 1..6 are rejected. A player does not send the faces.
 
 ## How a round ends
 
@@ -86,7 +114,7 @@ Resignation is a platform event. It is not in this module.
 
 ## Playing on this site
 
-- **The dice.** After the roller commits a roll, each other open window sends its share. The faces appear when those shares are in. There is no tap, because there is nothing to hide. A window that stays closed can still hold its share back, and the others can claim that seat's timeout.
+- **The dice.** After the roller commits a roll, each open window sends its share: every window with engine 0.2.0, the roller's included, and every other window with 0.1.0. The faces appear when those shares are in. There is no tap, because there is nothing to hide. A window that stays closed can still hold its share back, and the others can claim that seat's timeout.
 - **The 30-roll cap**, above. A round of non-sevens would otherwise never end (D015).
 - **Resign** and **timeouts** are the platform's (PROTOCOL §8). Bank has no hidden cards, so a resign attaches no deck secret.
 - There is no one-minute timer and no secret banking.
@@ -102,8 +130,8 @@ One encoding each. Unknown keys, a missing actor, a non-integer actor, and a fla
 - `{type: 'bank', actor}` — the pending seat banks the current pot.
 - `{type: 'stay', actor}` — a non-roller, in a table game, stays.
 - `{type: 'roll', actor, rollId}` — the roller commits roll `rollId`, which must be the next id. No faces.
-- `{type: 'contribute', actor, rollId}` — the pending seat contributes to the open roll.
-- `{type: 'rolled', actor: 'beacon', id, dice: [a, b]}` — derived, not sent by a player. `a` and `b` are integers from 1 to 6, and `id` is the open roll.
+- `{type: 'contribute', actor, rollId}` — engine 0.1.0 only: the pending seat contributes to the open roll. Engine 0.2.0 rejects the type as unknown (`malformed`): its contributions are roll Shares events, not moves.
+- `{type: 'rolled', actor: 'beacon', id, dice: [a, b]}` — derived, not sent by a player. `a` and `b` are integers from 1 to 6, and `id` is the open roll. A `rolled` action with any other actor, such as a seat, is `malformed` in both versions. The session also refuses any player-sent `rolled` before it reaches the engine.
 
 ## Rule options (`BankRules`)
 
@@ -186,15 +214,15 @@ A seat who banked 9 keeps it. The pot becomes 0. The next round starts.
 
 #### C18 Rolling commits the next id and does not change the pot
 
-The roll action carries the next id and no faces. The pot and the resolution count stay put until the faces are applied. A bank action owes no beacon share.
+The roll action carries the next id and no faces. The pot and the resolution count stay put until the faces are applied. Engine 0.1.0: the roll opens the collection, the roll owes the roller's beacon share (`beaconOf`), and a bank action owes none.
 
-#### C19 Contributions are every other seat, ending on the seat after the roller
+#### C19 Engine 0.1.0: contributions are every other seat, ending on the seat after the roller
 
 Four seats, roller 0: seats 2, then 3, then 1. Six seats, roller 3: 5, 0, 1, 2, 4. Two seats: the other seat.
 
 #### C20 The wrong seat, the wrong id and a second resolution are rejected
 
-A roll id must be the next one. A contribution must be the pending seat and the open id. The same id does not resolve twice.
+A roll id must be the next one. The same id does not resolve twice. Engine 0.1.0: a contribution must be the pending seat and the open id.
 
 #### C21 Faces outside 1 to 6 are rejected
 
@@ -239,3 +267,23 @@ Stay from the roller is rejected. The roller banks or rolls.
 #### C31 A pot that would leave the safe integers is rejected
 
 Adding to, or doubling, a pot already at the limit is rejected. The state is unchanged.
+
+#### C32 Engine 0.2.0: a roll pends the beacon at once
+
+After the roll, the beacon pends for that roll id. There is no `collect` phase, nobody owes a turn, and no seat has a legal action until the faces are applied. The faces then resolve as usual.
+
+#### C33 Engine 0.2.0: each roll is a roll entry of two six-sided dice
+
+Each roll appends `{id, count: 2, sides: 6}` to the roll list. Ids are never reused, across rounds too, and the list only grows. Engine 0.1.0's list holds `{id, last}` instead.
+
+#### C34 Engine 0.2.0: there is no contribute action and no beaconOf
+
+`contribute` is rejected as `malformed` in every phase, for every seat and every roll id. The module has no `beaconOf`.
+
+#### C35 A player-sent rolled is rejected
+
+A `rolled` action whose actor is a seat, or anything but `beacon`, is `malformed`, in both versions and in every phase. The state is unchanged.
+
+#### C36 Engine 0.2.0 runs under protocol 2 only, engine 0.1.0 under protocol 1 only
+
+The current module, Bank 0.2.0, declares protocol 2 only. Bank 0.1.0 declares protocol 1 only. Both have the id `bank`.

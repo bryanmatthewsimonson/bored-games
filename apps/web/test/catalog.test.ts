@@ -3,7 +3,7 @@
  * deck and hidden information) and a trademark-safe brand pack.
  */
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
-import { catalogProblems } from '@bored-games/game-kit';
+import { catalogProblems, currentModules } from '@bored-games/game-kit';
 import {
   COMPARE_PHRASE as LUSTER_COMPARE_PHRASE,
   COMPARE_TITLE as LUSTER_COMPARE_TITLE,
@@ -19,10 +19,11 @@ import { renderTree, spokenText } from './render-tree.ts';
 describe('game catalog', () => {
   it('has one entry per hosted game, in picker order', () => {
     expect([...CATALOG.keys()]).toEqual([...GAME_IDS]);
-    expect([...MODULES.keys()].sort()).toEqual([...CATALOG.keys()].sort());
+    expect([...currentModules(MODULES).keys()].sort()).toEqual([...CATALOG.keys()].sort());
   });
 
-  for (const [id, module] of MODULES) {
+  // One catalog entry per game: the current modules (a version kept under `id@version` is the same game).
+  for (const [id, module] of currentModules(MODULES)) {
     it(`${id}: the entry agrees with the rules module`, () => {
       const g = CATALOG.get(id);
       expect(g, `no catalog entry for ${id}`).toBeDefined();

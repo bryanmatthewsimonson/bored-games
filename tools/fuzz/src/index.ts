@@ -1,4 +1,4 @@
-import { bank } from '@bored-games/bank';
+import { bank, bankV1 } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
@@ -46,8 +46,16 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: CHESS_EXPECTED_COVERAGE,
     defaultSeatCounts: [2],
   },
+  // Bank 0.2.0 (protocol 2): a roll pends the beacon at once.
   bank: {
     module: bank,
+    policies: BANK_POLICIES,
+    expectedCoverage: BANK_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4, 5, 6],
+  },
+  // Bank 0.1.0 (protocol 1), still shipped to fold v1 games in progress: contributions are turns.
+  'bank@0.1.0': {
+    module: bankV1,
     policies: BANK_POLICIES,
     expectedCoverage: BANK_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],

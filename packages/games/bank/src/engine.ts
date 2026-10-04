@@ -4,11 +4,12 @@ import type {
   Outcome,
   Pending,
   Result,
+  RollEntry,
   Seat,
   SetupInput,
 } from '@bored-games/game-kit';
 import { type BankRules, validateRules } from './rules.ts';
-import type { BankEvent, BankLog, BankState, DiceEffect, RoundEnd } from './types.ts';
+import type { BankEvent, BankLog, BankState, BankVariant, DiceEffect, RoundEnd } from './types.ts';
 
 const MIN_SEATS = 2;
 const MAX_SEATS = 6;
@@ -89,6 +90,10 @@ export function pendingOf(s: BankState): Pending {
   return { type: 'player', seat, decision: 'bank-or-stay' };
 }
 
+/**
+ * The legal actions of `seat`. The same for both engines: only engine 0.1.0 ever enters `collect` (its
+ * `contribute` decision); engine 0.2.0 goes from a roll straight to `beacon`, where no seat has an action.
+ */
 export function legalActionsOf(s: BankState, seat: Seat): readonly unknown[] {
   const pending = pendingOf(s);
   if (pending.type !== 'player' || pending.seat !== seat) return [];
@@ -183,7 +188,11 @@ function parseDice(
   return { ok: true, dice: [a, b] };
 }
 
-function parseAction(raw: unknown, seats: number): Parsed {
+/**
+ * The action parser. `contribute` is an action only in engine 0.1.0 (protocol 1): in engine 0.2.0 every seat's
+ * contribution is a roll Shares event the session folds (PROTOCOL-v2 §6.2), so the type is unknown there.
+ */
+function parseAction(raw: unknown, seats: number, variant: BankVariant): Parsed {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return bad('action must be an object');
   const a = raw as Record<string, unknown>;
   if (a.type === 'rolled') {
@@ -198,6 +207,7 @@ function parseAction(raw: unknown, seats: number): Parsed {
   if (a.type !== 'bank' && a.type !== 'stay' && a.type !== 'roll' && a.type !== 'contribute') {
     return bad('unknown action type');
   }
+  if (a.type === 'contribute' && variant !== 'v1') return bad('unknown action type');
   const withId = a.type === 'roll' || a.type === 'contribute';
   const keys = withId ? ['type', 'actor', 'rollId'] : ['type', 'actor'];
   if (!hasExactKeys(a, keys)) return bad(`${a.type} has one accepted encoding`);
@@ -315,19 +325,30 @@ function applyStay(s: BankState, actor: number): ApplyResult<BankState, BankEven
   return { ok: true, state, events: [{ type: 'stayed', seat: actor }] };
 }
 
-function applyRoll(s: BankState, actor: number, rollId: number): ApplyResult<BankState, BankEvent> {
+/**
+ * The roller commits roll `rollId`. Engine 0.1.0 (protocol 1) then asks every other seat for a contribution
+ * (`collect`), ending on the seat after the roller (D058). Engine 0.2.0 (protocol 2) pends the beacon at once: every
+ * seat's contribution, the roller's included, is a roll Shares event the session folds in any order, and there is
+ * no fixed last seat (PROTOCOL-v2 §6.2), so its schedule entry has `last: null`.
+ */
+function applyRoll(
+  s: BankState,
+  actor: number,
+  rollId: number,
+  variant: BankVariant,
+): ApplyResult<BankState, BankEvent> {
   if (s.phase !== 'call') return fail('illegal', 'the dice are not waiting to be rolled');
   if (actor !== caller(s)) return fail('turn', `it is seat ${caller(s)}'s decision`);
   if (actor !== s.roller) return fail('illegal', 'only the roller rolls');
   if (rollId !== s.nextRollId) return fail('illegal', `the next roll is ${s.nextRollId}`);
-  const owe = contributeOrder(s.roller, s.seats);
+  const v1 = variant === 'v1';
   const state: BankState = {
     ...s,
     nextRollId: s.nextRollId + 1,
-    phase: 'collect',
-    owe,
+    phase: v1 ? 'collect' : 'beacon',
+    owe: v1 ? contributeOrder(s.roller, s.seats) : [],
     openRoll: rollId,
-    schedule: [...s.schedule, { id: rollId, last: (s.roller + 1) % s.seats }],
+    schedule: [...s.schedule, { id: rollId, last: v1 ? (s.roller + 1) % s.seats : null }],
     log: [...s.log, { kind: 'roll', seat: actor, rollId }],
   };
   return { ok: true, state, events: [{ type: 'committed', seat: actor, rollId }] };
@@ -418,10 +439,15 @@ function applyRolled(
   return { ok: true, state, events: [diceEvent] };
 }
 
-export function applyAction(s: BankState, raw: unknown): ApplyResult<BankState, BankEvent> {
+/** Apply one action with engine `variant`: `'v1'` is Bank 0.1.0 (protocol 1), `'v2'` Bank 0.2.0 (protocol 2). */
+export function applyAction(
+  s: BankState,
+  raw: unknown,
+  variant: BankVariant,
+): ApplyResult<BankState, BankEvent> {
   try {
     if (s.phase === 'over') return fail('over', 'the game is over');
-    const parsed = parseAction(raw, s.seats);
+    const parsed = parseAction(raw, s.seats, variant);
     if (!parsed.ok) return parsed;
     const action = parsed.action;
     switch (action.type) {
@@ -430,7 +456,7 @@ export function applyAction(s: BankState, raw: unknown): ApplyResult<BankState, 
       case 'stay':
         return applyStay(s, action.actor);
       case 'roll':
-        return applyRoll(s, action.actor, action.rollId);
+        return applyRoll(s, action.actor, action.rollId, variant);
       case 'contribute':
         return applyContribute(s, action.actor, action.rollId);
       case 'rolled':
@@ -456,12 +482,21 @@ export function standingsOf(s: BankState): readonly number[] {
   return s.scores.slice();
 }
 
-/** The append-only roll list the session reads. `last` is the seat after the roller of that roll. */
-export function rollsOf(s: BankState): readonly DiceRoll[] {
-  return s.schedule.map((entry) => ({ id: entry.id, last: entry.last }));
+/**
+ * The append-only roll list the session reads. Each entry is in the form of the engine that committed it: engine
+ * 0.1.0's `DiceRoll` (`last` is the seat after the roller of that roll, PROTOCOL §6.3a), or engine 0.2.0's
+ * `RollEntry` with two six-sided dice (PROTOCOL-v2 §6.2, §10), marked in the state by `last: null`.
+ */
+export function rollsOf(s: BankState): readonly (DiceRoll | RollEntry)[] {
+  return s.schedule.map((entry) =>
+    entry.last === null ? { id: entry.id, count: 2, sides: 6 } : { id: entry.id, last: entry.last },
+  );
 }
 
-/** The roll id a `roll` or `contribute` action must attach one share to. Anything else carries none. */
+/**
+ * Engine 0.1.0 only: the roll id a `roll` or `contribute` action must attach one share to. Anything else carries
+ * none. Engine 0.2.0 has no `beaconOf` (PROTOCOL-v2 §10): a Move never carries a contribution in protocol 2.
+ */
 export function beaconOf(_s: BankState, action: unknown): number | null {
   if (action === null || typeof action !== 'object' || Array.isArray(action)) return null;
   const a = action as Record<string, unknown>;

@@ -3,7 +3,7 @@
  * and the dependencies the lobby and game controllers share. Controllers take these as constructor arguments,
  * so tests run them in Node against the dev relay with local signers and a memory store.
  */
-import { bank } from '@bored-games/bank';
+import { bank, bankV1 } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { GameModule } from '@bored-games/game-kit';
@@ -28,11 +28,17 @@ type AnyModule = GameModule<any, any, any>;
 
 export type ModuleRegistry = ReadonlyMap<string, AnyModule>;
 
-/** The games this client can play, by module id; each also has a web registry entry (games/registry.ts). */
+/**
+ * The games this client can play, by module id; each also has a web registry entry (games/registry.ts). Engine
+ * versions kept only to fold older games sit under `id@version` (build plan D-B): Bank 0.1.0, for protocol 1 Bank
+ * games in progress (PROTOCOL-v2 §2 item 5). Look a game's module up with `moduleFor` (its root's id and version)
+ * and list games with `currentModules`, which skips the `@` keys.
+ */
 export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
   [bank.id, bank],
+  [`${bankV1.id}@${bankV1.version}`, bankV1],
   [luster.id, luster],
 ]);
 

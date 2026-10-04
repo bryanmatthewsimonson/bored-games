@@ -4,6 +4,7 @@
 import { BANK_THEME } from '@bored-games/bank/theme';
 import { CHAIN_REACTION_THEME } from '@bored-games/chain-reaction/theme';
 import { CHESS_THEME } from '@bored-games/chess/theme';
+import { currentModules } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { GAME_METAS, gameTitle } from '../src/game-names.ts';
 import { DEFAULT_GAME, GAME_IDS } from '../src/games/ids.ts';
@@ -15,7 +16,8 @@ import { activeGame, route } from '../src/router.ts';
 describe('game registry', () => {
   it('has one entry per id, each with a rules module, a component, a rules page and names', () => {
     expect(GAMES.map((g) => g.id)).toEqual([...GAME_IDS]);
-    expect([...MODULES.keys()].sort()).toEqual([...GAME_IDS].sort());
+    // The current modules, one per id; versions kept to fold older games (`id@version`) have no entry of their own.
+    expect([...currentModules(MODULES).keys()].sort()).toEqual([...GAME_IDS].sort());
     expect([...GAME_METAS.keys()].sort()).toEqual([...GAME_IDS].sort());
     expect(GAME_IDS).toContain(DEFAULT_GAME);
     for (const g of GAMES) {

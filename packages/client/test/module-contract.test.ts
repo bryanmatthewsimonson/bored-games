@@ -41,25 +41,32 @@ describe('modules with a deck pend public reveals only before the first player a
 });
 
 describe('protocol versions and the protocol 2 module contract (PROTOCOL-v2 §2 item 6, §10)', () => {
-  it('every module declares the protocols it runs under: Bank 0.1.0 v1 only, the others both', () => {
+  it('every module declares the protocols it runs under: Bank 0.2.0 v2 only, Bank 0.1.0 v1 only, the others both', () => {
     const declared = Object.fromEntries(ALL.map((m) => [`${m.id}@${m.version}`, moduleProtocols(m)]));
     expect(declared).toEqual({
       [`chain-reaction@${MODULES.get('chain-reaction')?.version}`]: [1, 2],
       [`chess@${MODULES.get('chess')?.version}`]: [1, 2],
+      'bank@0.2.0': [2],
       'bank@0.1.0': [1],
       [`luster@${luster.version}`]: [1, 2],
     });
   });
 
-  it('no module declares audit "none": PROTOCOL-v2 §9.5 (V2-48) is not built yet', () => {
-    for (const m of ALL) expect(m.audit?.(m.defaultRules()) ?? 'reveal', m.id).toBe('reveal');
+  it('no module defines audit at all: PROTOCOL-v2 §9.5 (V2-48) is not built yet', () => {
+    // `audit(rules)` depends on the rules, so probing the defaults could miss a rules option that yields 'none'
+    // (T2/T3 review L1). While §9.5 is unbuilt no module may define it; the first one that does builds §9.5.
+    for (const m of ALL) expect(m.audit, `${m.id} ${m.version}`).toBeUndefined();
   });
 
-  // Every protocol 2 module that rolls; none until Bank 0.2.0 (T5), so the toy proves the check runs.
+  // Every protocol 2 module that rolls (Bank 0.2.0); the toy below proves the check has teeth.
   const rollers = ALL.filter((m) => moduleProtocols(m).includes(2) && typeof m.rolls === 'function');
   for (const module of rollers)
     it(`${module.id} ${module.version}: protocol 2 roll entries`, () =>
       checkRollContract(module, seatCounts(module)));
+
+  it('the protocol 2 rollers are exactly Bank 0.2.0', () => {
+    expect(rollers.map((m) => `${m.id}@${m.version}`)).toEqual(['bank@0.2.0']);
+  });
 
   it('the roll contract passes a protocol 2 dice toy, and fails one that lists protocol 1 rolls', () => {
     const toy = diceToy();

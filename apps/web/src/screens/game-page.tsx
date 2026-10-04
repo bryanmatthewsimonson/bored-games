@@ -4,7 +4,7 @@
  * page keeps this game's (relays cannot filter by game, see table-lists.tsx).
  */
 import { BRAND } from '@bored-games/brand';
-import type { CatalogEntry } from '@bored-games/game-kit';
+import { type CatalogEntry, currentModules } from '@bored-games/game-kit';
 import { useEffect } from 'preact/hooks';
 import { gameNames } from '../brands.ts';
 import {
@@ -58,7 +58,7 @@ export function GamePage(props: { game: string }) {
   const me = signer.pubkey;
   const mine = lobby.myTables.value.filter((t) => t.table.game === id);
   const open = joinableTables(lobby.openTables.value, lobby.myTables.value, me, id);
-  const playable = deps.modules.has(id);
+  const playable = currentModules(deps.modules).has(id);
   const title = names.gameTitle;
 
   return (
