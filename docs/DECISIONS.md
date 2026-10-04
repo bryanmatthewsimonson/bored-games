@@ -887,6 +887,17 @@ The owner answered the eight questions of `docs/proposals/prompt-reveal.md` §10
 8. **Candidate (e), as amended (round 3 with F1–F5), is approved** as the prompt-reveal design for protocol version 2.
    - It is to be specified in PROTOCOL and then built.
    - The unproven model scopes (§6.7) must be finished, or re-run on a bigger machine, before the build.
-   - Until it is built, D050 stands: no game ships a prompt duty, apart from the owner's Luster exception below.
+   - Until it is built, D050 stands: no game ships a prompt duty, apart from the owner's Luster exception below. A public dice roll (Bank) is not a prompt duty (D050, D060).
 
 **Luster exception (owner, 2026-10-04).** The owner told the author of Luster to override D050 for Luster only, so its "isolated prompt shares" are an owner-approved exception. No other game may ship a prompt duty before protocol v2. The owner's next step is to implement protocol version 2, and Luster moves onto v2's prompt-reveal design when it lands.
+
+## D060: Owner rulings on the Bank and Luster audits (owner, 2026-10-04)
+Read-only audits of Bank and Luster (built by other assistants) went to the owner. The owner ruled:
+- **Bank's dice are public, so there is nothing to reveal.** *"Everybody makes their own decision based on the exact same publicly known dice roll. Before you assume something is a problem, you need to evaluate it against the game mechanics."*
+  - The automatic contribution stays, as D050's public-dice ruling already says.
+  - The one mechanics-relevant residual is foreknowledge of the next roll before a bank decision. Rolls are bound to the round's roll counter, so a rival Roll on another branch computes the same faces early. It is closed by D059 item 5 (bind each roll to its requesting move) in protocol v2.
+  - A false equivocation flag from two devices contributing to one roll is fixed client-side by the check before signing (D059 item 2).
+- **No interim fork-stop before v2.** Luster and Bank keep v1 fork choice until protocol v2 ships.
+- **Luster: an owed reveal keeps its timeout.** A seat whose share blocks a refill can still be timed out, but the game screen and Home must say clearly who owes a reveal and when the deadline passes.
+- **Luster gets "Compare to Splendor"** (amends D053: a second allowed phrase, stored once in the Luster package; "Splendor" and its publisher go on the restricted list). Its BoardGameGeek id is 148228.
+- **Bank stays a folk game,** with public name "Bank" and no Compare-to phrase. Its BoardGameGeek link is 412804.
