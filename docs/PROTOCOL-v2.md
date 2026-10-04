@@ -320,7 +320,7 @@ A module that rolls (§10) requests rolls with game actions; every seat contribu
 
 ### 7.1 End attestations (proposal §5.1 rule 6; D059 item 7)
 - **When.** A client MUST publish an end attestation (§4.3) of its result as soon as it has one (§5.5, no fork held): the module over on its chain, an accepted Timeout claim or a counted Resign. It MUST NOT publish one while it holds a fork, and MUST NOT attest a result it does not compute. It attests before the Secret phase and before any audit.
-- **Who.** Every seat, the forfeiting seats included: a timed-out seat's client attests its own timeout when it comes back (§8.1, accepting its own forfeit at once), and a resigner's client its Resign. Every device that computes the result may attest it, except view-only devices in audit-`'none'` games (§9.5).
+- **Who.** Every seat, the forfeiting seats included: a timed-out seat's client attests its own timeout once it accepts it, by its own clock or on its player's confirmation (§8.1), and a resigner's client its Resign. Every device that computes the result may attest it, except view-only devices in audit-`'none'` games (§9.5).
 - **How.** Signed by the session key, automatically, with no signer prompt. A client builds at most one end attestation per result identity, persists it before publishing, and rebroadcasts that same event (v1 §6.5, build once).
 - **Not attested:** a cancelled game, and a stop (§5.6).
 - **Counting.** For the cutoff every valid end attestation counts (§5.4 (a)). Unlike the stats attestation, there is no "latest per seat".
@@ -374,7 +374,12 @@ A v2 client MAY publish its Secret reveal as soon as its result needs it, or onc
   - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - **Progress:** v1 §8.1, roll Shares events included.
 - **Accepting a claim:** v1 §8.1, and the game is not stopped: no claim counts while a fork is held and no result stands (§7.3). A client whose result stands against a fork accepts claims for that result's End phase (a withheld secret) as v1 says (§5.4, review N1).
-- **Accepting one's own forfeit at once** (review L2). A client SHOULD accept, without waiting for its own deadline, a valid Timeout claim that names its current head and whose stalled seats at that head are its own seat alone. It forfeits only itself, so nothing is lost by trusting the claimant's clock. Without this, a client that comes back after a timeout sees every event as fresh (new first-seen times) and offers its player a move, so it never accepts the claim, never attests it, and the timeout can never stand (F1).
+- **Accepting one's own forfeit early, only when the player confirms** (review L2, amended by N2).
+  - The case: a client holds a valid Timeout claim that names its current head and whose stalled seats at that head are its own seat alone, and its own deadline (v1 §8.1) has not passed.
+  - It MUST NOT accept that claim automatically. It SHOULD ask its player ("You were timed out: accept?"), offering to play instead.
+  - It accepts the claim before its deadline only on that explicit human confirmation. Otherwise v1's own-clock rule applies unchanged.
+  - Why ask at all: a client that comes back after a timeout sees every event as fresh (new first-seen times), so without the question it never accepts the claim, never attests it, and the timeout can never stand (F1).
+  - Why not accept automatically: claim validity has no clock (§5.3). An opponent could publish a claim the moment it is an online player's turn, and that player's client would forfeit and end-attest at once: an honest forfeit.
 - **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
 
 ### 8.2 Forfeits
@@ -499,7 +504,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-23** MUST keep folding moves past a counted claim or Resign, without scoring them, so as to find forks (§5.1, §8.1).
 - **V2-24** MUST NOT accept a Timeout claim while it holds a fork and no result stands (§5.7, §8.1).
 - **V2-54** When a result stands against a fork, MUST apply v1's stall attribution, End-phase claims (a withheld secret, judged at the result's head) and audit to that result, as without a fork (§5.4, review N1).
-- **V2-52** SHOULD accept at once a valid Timeout claim that names its current head and forfeits only its own seat (§8.1).
+- **V2-52** MUST NOT accept, before its own deadline, a Timeout claim that forfeits only its own seat unless its player explicitly confirms ("You were timed out: accept?"). It SHOULD ask the player when it holds such a claim, and otherwise applies v1's own-clock rule (§8.1).
 
 **Prompt release**
 - **V2-25** MUST NOT publish a card Shares event while it holds a fork, after its result, or before the final deck is complete (§6.1).
@@ -562,7 +567,8 @@ Each as a JSON file under the package that owns it, with every intermediate valu
    - a fork at the root, or at an old shuffle step, signed after play began: a stop scored as E's loss, not a cancel (review H1); and a shuffle fork with no game action held past it: a cancel;
    - a colluder's fork above another seat's fork: both seats are equivocators sharing the last places, and P is the higher fork (review M1);
    - a stop in a deck game where an honest seat's secret never arrives: places unchanged, "secret withheld" recorded, no claim accepted (review H2); and a stop where the partial audit proves a failure;
-   - a returning client accepting at once a claim that forfeits only its own seat (review L2);
+   - a returning client that holds a claim forfeiting only its own seat: it asks its player, accepts the claim and end-attests it only after the confirmation, and with no confirmation it accepts only once its own deadline passes (review L2, N2);
+   - **N2:** in a 2-seat Chess game E moves and at once publishes a Timeout claim naming the new head, where H, online, is to move. Expected: H's client does not accept the claim (its deadline has not passed and its player did not confirm), H can move, and H's move makes the claim fail on every client that has not accepted it;
    - **N1:** in a 2-seat Chain Reaction game C wins with a hidden-card cheat (a forged `skipPlace`). Both seats end-attest `over`. C then signs a rival move at one of its own old prevs, so the result stands against the fork, and withholds its Secret reveal. Expected: C is stalled at the result's head, H's claim is accepted after H's deadline, C forfeits for the withheld secret (H first), and no step is blocked by the held fork. With C's secret published instead, the full audit fails C.
 6. **Prompt release scenarios:** the positions a seat releases after a Chain Reaction draw, a Luster refill and a Luster blind reservation; none while a fork is held; none of its own positions.
 7. **Dice scenarios:** a Bank roll with contributions arriving in every order, the requester's last; a rival Roll (a stop); two devices contributing the same `D` (not a fork).
