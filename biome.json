@@ -10,6 +10,8 @@
       "!**/test-results",
       "!**/playwright-report",
       "!packages/deck/test/vectors",
+      "!packages/client/test/golden-v1/*.json",
+      "!packages/games/bank/test/golden-v1/*.json",
       "!.claude"
     ]
   },
