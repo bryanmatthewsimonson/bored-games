@@ -919,4 +919,4 @@ Client-side fixes for D059 item 2, D060 and the audits (audit-luster F2–F4, au
   - A controller disposed right after folding its own deal can leave it unpublished until the next load (`#publish` awaits the deck echo, then sees `disposed`; pre-existing).
   - Luster's own exposure across forks (audit-luster F1, F2) and Bank's foreknowledge across rival Rolls (audit-bank F2) wait for protocol v2's stop and roll binding.
 - **No new dependencies** (HMAC is built on the protocol package's SHA-256).
-- **Verified:** VERIFY_PLACEHOLDER
+- **Verified:** `pnpm check` passes (1802 tests in 119 files, 34 skipped); `pnpm e2e` passes all 10 tests (13.2 minutes).
