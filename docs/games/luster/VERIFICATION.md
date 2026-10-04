@@ -44,4 +44,13 @@ The duty publishes newly assigned non-owner layers immediately, including privat
 
 The full final `pnpm check` required by CLAUDE.md passed before committing and merging; its results are recorded above separately from the earlier baseline and follow-up runs.
 
-Resign is disabled until the refill/reveal path receives a dedicated review. The new engine and shared deck integration still need dedicated adversarial review before production readiness. Per the follow-up request, a random starting player deliberately replaces the tabletop youngest-player convention. The UI and rules are original, and original glass motifs are offered under CC0; jurisdiction-specific legal and name clearance remain outside the implementation's verification. Native independent multi-deck sessions are not implemented: the documented packet adapter provides the required behavior for Luster.
+Resign is disabled until the refill/reveal path receives a dedicated review. The new engine and shared deck integration still need dedicated adversarial review before production readiness. Per the follow-up request, a random starting player deliberately replaces the tabletop youngest-player convention. The UI and rules are original, and original gemstone, landscape and noble illustrations are offered under CC0; jurisdiction-specific legal and name clearance remain outside the implementation's verification. Native independent multi-deck sessions are not implemented: the documented packet adapter provides the required behavior for Luster.
+
+
+## Interface revision verification — 2026-10-04
+
+The redesigned interface passed the full `pnpm check` before its commit: all workspace type checks, lint across 389 files, 116 test files, 1,769 tests passed and 34 skipped. Final presentation refinements also passed web type checking, scoped lint and 24 focused web/catalog/registry tests.
+
+Complete NOSTR browser games passed at 2, 3 and 4 seats. They exercise direct gem selection, pairs and distinct colors, draft removal/reset, card/deck/noble selection, optional Gold substitutions, private reservations, spectators, reloads, audits and every player's result signature. A further two-player run verified the final original-art gradients, keyboard focus restoration, resources beside the bank, affordable-card highlighting and responsive layouts. Public reveal placeholders and mobile tap-target refinements are included in the subsequent combined integration checks.
+
+The standard player-count supply remains 4/5/7 regular gems per color for 2/3/4 players and five Gold. No engine, protocol, deck or dice implementation changes are part of this interface revision. Bank PR #27 landed while validation ran; integration retains its automatic public-dice path separately from Luster's opt-in card shares. The final combined revision receives the repository CI check and Bank plus all three Luster browser flows before merge.
