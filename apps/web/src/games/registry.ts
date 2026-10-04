@@ -44,8 +44,8 @@ export const GAMES: readonly WebGame[] = [
     Component: LusterGame,
     RulesPage: LusterRulesPage,
     setupCopy: () => ({
-      shuffling: 'Shuffling the workshops and patrons',
-      dealing: 'Opening the glass market…',
+      shuffling: 'Shuffling the developments and nobles',
+      dealing: 'Opening the gem market…',
     }),
   },
 ];

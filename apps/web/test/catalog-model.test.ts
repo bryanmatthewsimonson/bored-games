@@ -114,7 +114,7 @@ describe('catalog search', () => {
     expect(ids({ query: 'capture' })).toEqual(['chess']);
     expect(ids({ query: 'classic' })).toEqual(['chain-reaction', 'chess']);
     expect(ids({ query: 'luster' })).toEqual(['luster']);
-    expect(ids({ query: 'glass' })).toEqual(['luster']);
+    expect(ids({ query: 'emeralds' })).toEqual(['luster']);
     expect(ids({ query: '  ' })).toEqual(items.map((item) => item.entry.id));
     expect(ids({ query: 'chess mergers' })).toEqual([]);
     expect(ids({ query: 'zzz' })).toEqual([]);

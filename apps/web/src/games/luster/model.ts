@@ -14,6 +14,18 @@ export function exactTokens(
 ): LusterAction | undefined {
   return legal.find((a) => a.type === type && a.tokens.every((n, i) => n === tokens[i]));
 }
+/** Only offer selections that can still complete a legal move; clicking again cycles a color. */
+export function nextTokens(
+  legal: readonly LusterAction[],
+  type: 'take' | 'return',
+  current: readonly number[],
+  color: number,
+): number[] {
+  const candidate = current.map((n, i) => (i === color ? n + 1 : n));
+  const possible = legal.some((a) => a.type === type && candidate.every((n, i) => n <= (a.tokens[i] ?? 0)));
+  if (possible) return candidate;
+  return current.map((n, i) => (i === color ? 0 : n));
+}
 export function statusText(
   s: LusterState,
   mySeat: number | null,
@@ -31,13 +43,13 @@ export function statusText(
   const who = s.turn === mySeat ? 'Your turn' : `${names[s.turn] ?? `Player ${s.turn + 1}`}'s turn`;
   const decision =
     s.phase === 'return'
-      ? 'return light to keep ten tokens'
+      ? 'return gems to keep ten tokens'
       : s.phase === 'patron'
-        ? 'choose a patron'
-        : 'gather, reserve, or purchase';
+        ? 'choose a noble'
+        : 'take gems, reserve, or buy';
   return `${who}: ${decision}.${s.finalRound ? ' Final round.' : ''}`;
 }
 export function playerSummary(s: LusterState, seat: number): string {
   const p = s.players[seat];
-  return p ? `${score(p)} radiance · ${p.bought.length} workshops · ${p.reserved.length}/3 reserved` : '';
+  return p ? `${score(p)} prestige · ${p.bought.length} developments · ${p.reserved.length}/3 reserved` : '';
 }

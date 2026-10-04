@@ -17,7 +17,7 @@ export const LUSTER_CATALOG: CatalogEntry = {
   turn: 'sequential',
   hiddenInfo: true,
   randomness: true,
-  tags: ['light', 'glass', 'workshops', 'tokens', 'engine building'],
+  tags: ['gems', 'trading', 'developments', 'tokens', 'engine building'],
   minAge: 10,
-  art: { credit: 'Original procedural glass motifs by Bored Games', license: 'CC0-1.0' },
+  art: { credit: 'Original gemstone and landscape illustrations by Bored Games', license: 'CC0-1.0' },
 };
