@@ -223,14 +223,14 @@ The stop ends the game at P. It is never resumed. Its outcome:
 - **2 seats:** E is last and the other seat first. Scores are the module's `standings` at P; the reason is `stop`. The result is **rated**: a loss for E.
 - **3 or more seats:** E is **strictly last** and its last place is **rated**. The other seats are ranked by `standings` at P, ties sharing places; scores are the standings; the reason is `stop`. The result is **unrated for every seat other than E**, and E is recorded as the seat that ended it.
 - **P before play.** When the walk up to P holds no game action (P is the root, a shuffle step, or the head during the deal or before the first action) but the stop is not a cancel, `standings` at P are not used: every seat other than E shares first place, E is last, and every score is 0. The 2-seat and 3-or-more-seat rules above still decide what is rated.
-- **A game with a deck:** the Secret phase and a partial audit up to P follow (§7.3).
+- **A game with a deck:** secrets and a partial audit up to P may follow; they never change the places except for a proven audit failure (§7.3).
 - **No time limit** (D059 item 3): a seat can cause a stop at any time while the game is live, as it can resign; after the end, only until the result stands (F1, accepted, D059 item 6).
 - **Never attested** (F5): a client publishes neither an end attestation nor a stats attestation for a stop. A stop and its equivocator are recorded by the fork certificate (§7.5).
 
 **Why E is rated last with 3 or more seats.** Scored as an unrated abort alone, a timed-out seat could fork at its own head and turn its rated last place into an unrated abort, now that a stop overrides a counted claim (the model's `void-forfeit`). Scored as E's timeout at P, E would choose the position the others are rated at.
 
 ### 5.7 While a fork is held
-- No seat is stalled in play, so no Timeout claim counts, except a claim for a withheld secret after a stop (§7.3).
+- No seat is stalled, so no Timeout claim counts, including after a stop (§7.3).
 - The client owes no decision and releases nothing: no Move, no Shares event, no roll contribution, no end attestation (§6, §7.1).
 - It keeps folding every event it receives, so that the cutoff and the topmost fork stay current (§5.5).
 
@@ -321,16 +321,20 @@ The audit verdict is a function of the held events (the secrets, the claims and 
 - **`claim` during play:** no audit, as in v1: the audit field records the forfeits with reason `timeout`.
 - **A stop:** §7.3.
 
-A v2 client MAY publish its Secret reveal as soon as its result (or a stop, §7.3) needs it: v1 §9's wait for a full view protected the freeze, which v2 does not have. Without fork choice no game goes on after a fork, so a published secret helps nobody play.
+A v2 client MAY publish its Secret reveal as soon as its result needs it, or once it holds a stop (§7.3): v1 §9's wait for a full view protected the freeze, which v2 does not have. Without fork choice no game goes on after a fork, so a published secret helps nobody play.
 
-### 7.3 After a stop in a game with a deck
-The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigning seat's place:
-- every seat owes its Secret reveal, E included;
-- the event that made the client hold the fork is progress (v1 §8.1), and the deadline for the secrets runs from it. A claim against a missing secret names P as its head and is judged as at the end: the stalled seats are those whose secret is not in. Honest clients never end-attest such a claim (§7.1), so it is never a standing `claim` result;
-- once every secret is in, the partial audit replays the interleaved action log up to P (v1 §8.3), without comparing an outcome. The seats it fails forfeit and are placed just above E, who stays strictly last;
-- a deckless game has no Secret phase and no audit after a stop.
-
-**OPEN** (proposal §9, "press on": the stop's Secret phase and partial audit). This section is the default this specification takes; the owner or the next review may change it. Its rationale: it checks the hidden claims made before the fork with machinery that is already built and reviewed, and publishing every secret after a stop exposes only values of a game that has ended.
+### 7.3 After a stop in a game with a deck (review H2)
+**A stop's places are fixed at the stop** (§5.6). Nothing that happens after it, a missing secret included, demotes a seat, except a proven audit failure.
+- **Secrets.** Every seat SHOULD publish its Secret reveal once its client holds the stop, E included. The secrets let anyone audit the hidden claims made before the fork. They expose only values of a game that has ended.
+- **No Timeout claim counts after a stop.** No seat is stalled after a stop, and a client accepts no claim, whoever it names. **Why none, rather than claims against E only:**
+  - E is already strictly last and rated (§5.6), so a claim against E would change no place.
+  - Any accepted claim needs a deadline on each client's own clock. A client whose player was away sees every event fresh when it comes back, so clients would disagree, and E could pick the moment of its fork so that the deadline runs while an honest player is away (an async game promises no seat must be online out of turn, §6.4).
+  - With no claims, the outcome of a stop stays a function of the events alone.
+- **A missing secret.** A seat whose Secret reveal never arrives is **recorded** as "secret withheld" (shown and kept for stats). It **never forfeits** for it. E's place cannot get worse. For any other seat, the stop already fixed its place.
+- **The partial audit runs on the secrets that arrive.** Whenever the client's held secrets, together with the held shares, decrypt every final-deck position (a position needs, for each seat, that seat's secret or its verified share of that position), it runs the partial audit: full mode with that order, replaying the interleaved action log up to P, with no outcome comparison (v1 §8.3). Otherwise the audit does not run, and the stop's places stand.
+- **Only a proven audit failure demotes a seat.** The first game action the replay rejects fails its actor. A failed seat moves to just above E, and failed seats share that place. A verdict that fails every seat (a rejected derived reveal or roll, an undecryptable position, a refused setup; v1 §7 step 3) demotes nobody after a stop: no single seat is proven to blame.
+- **Override of v1.** After a stop, v1 §8.2's "At the end" rule (seats with a withheld secret move to shared last places) and v1 §8.3's "a claim against a missing secret" do **not** apply.
+- A deckless game has no Secret phase and no audit after a stop.
 
 ### 7.4 The stats attestation (v1 §7 step 4, kept for stats only)
 - The v1 attestation `{audit, logHash, outcome}`, signed by the npub. A client SHOULD publish it once its result and audit verdict are final, as in v1. `logHash` covers the chain up to the result's scoring head: S for a Resign, the result's head otherwise.
@@ -353,11 +357,11 @@ The Resign machinery of v1 §8.3 applies to the stop at P, with E in the resigni
 
 ### 8.1 Timeout
 - **Stalled seats:** v1 §8.1, with these changes:
-  - while the client holds a fork, no seat is stalled in play; after a stop in a game with a deck, the seats whose secret is not in are (§7.3);
+  - while the client holds a fork, no seat is stalled, also after a stop (§7.3);
   - a pending beacon stalls every seat without a contribution (§6.2);
   - the v1 deal-phase exception for a held shuffle fork is removed: such a fork stops the game, which is cancelled while no game action has been played past it (§5.6).
 - **Progress:** v1 §8.1, roll Shares events included.
-- **Accepting a claim:** v1 §8.1, and the client holds no fork, except for a withheld secret after a stop (§7.3).
+- **Accepting a claim:** v1 §8.1, and the client holds no fork (§7.3: no claim counts after a stop).
 - **Finality (amends v1 §8.2 "Finality").** An accepted claim is final for the client while it holds no fork. The client keeps folding moves and Shares events past the claim's head (unscored) to find forks. A held fork replaces the claim unless the claim stands (§5.5).
 
 ### 8.2 Forfeits
@@ -497,7 +501,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-37** MUST publish an end attestation of its result once it has one and holds no fork, signed by the session key, and MUST NOT publish one while it holds a fork or for a result it does not compute (§7.1).
 - **V2-38** MUST NOT publish an end attestation or a stats attestation for a stop or a cancelled game (§5.6, §7.4).
 - **V2-39** MUST compute the audit verdict from the events on the game's result and apply it to places and scores, never to which result stands (§7.2).
-- **V2-40** After a stop in a game with a deck, MUST run the Secret phase and the partial audit up to P (§7.3, OPEN default).
+- **V2-40** After a stop, MUST keep the places fixed at the stop, MUST accept no Timeout claim, MUST NOT demote a seat for a missing secret (only record "secret withheld"), and MUST demote a seat (to just above E) only for a proven audit failure of the partial audit, run once the held secrets and shares decrypt every position (§7.3).
 - **V2-41** MUST count a stop in stats from its fork certificate (§7.5).
 
 **Timeouts and Resign**
