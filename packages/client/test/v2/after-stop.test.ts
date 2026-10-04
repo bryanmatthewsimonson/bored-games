@@ -139,7 +139,12 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
 
   it('V2-40 gives the same withheld-secret verdict in every arrival order: places fixed, the seat recorded, audit incomplete', () => {
     const missing = [0, 1, 2].find((k) => k !== E) as number;
-    const t = inOrders(base, [...stopped, ...secrets.filter((_, k) => k !== missing)], 'after-stop-withheld', 3);
+    const t = inOrders(
+      base,
+      [...stopped, ...secrets.filter((_, k) => k !== missing)],
+      'after-stop-withheld',
+      3,
+    );
     for (const s of t.all) {
       const v = s.view();
       expect(v).toMatchObject({ phase: 'done', audit: 'pending', auditIncomplete: true, forfeits: [E] });
@@ -277,7 +282,11 @@ describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 
       const k = decider(t) as number;
       const legal = t.players[k]?.legalActions() ?? [];
       const state = t.spectator.view().state as ChainReactionState;
-      if (i >= 3 && state.phase.kind === 'place' && !legal.some((a) => (a as { type: string }).type === 'skipPlace'))
+      if (
+        i >= 3 &&
+        state.phase.kind === 'place' &&
+        !legal.some((a) => (a as { type: string }).type === 'skipPlace')
+      )
         break;
       act(t, k, quick(legal, k, rng));
       runAuto(t, ['release']);
@@ -333,7 +342,10 @@ describe('a proven audit failure after a stop: a forged skip (Chain Reaction, 3 
       expect(v).toMatchObject({ auditIncomplete: false, secretWithheld: [] });
     }
     // Without C's secret the cheat goes unproven: the stop's places stand, "audit incomplete", C recorded.
-    const withheld = replay(t, log.filter((ev) => ev.id !== (log[log.length - 3 + C] as NostrEvent).id));
+    const withheld = replay(
+      t,
+      log.filter((ev) => ev.id !== (log[log.length - 3 + C] as NostrEvent).id),
+    );
     const v = withheld.spectator.view();
     expect(v).toMatchObject({ audit: 'pending', auditIncomplete: true, secretWithheld: [C], forfeits: [F] });
     expect(v.outcome?.places[F]).toBe(3);

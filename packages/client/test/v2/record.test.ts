@@ -56,7 +56,11 @@ describe('gameRecord (PROTOCOL-v2 §7.5)', () => {
   });
 
   it('records nothing for an over result still waiting for its audit (no outcome yet)', () => {
-    const v: SessionViewV2 = { ...liveView(), result: { kind: 'over', head: HEAD, forfeit: [] }, outcome: null };
+    const v: SessionViewV2 = {
+      ...liveView(),
+      result: { kind: 'over', head: HEAD, forfeit: [] },
+      outcome: null,
+    };
     expect(gameRecord(v)).toBeNull();
   });
 
@@ -67,7 +71,12 @@ describe('gameRecord (PROTOCOL-v2 §7.5)', () => {
       result: { kind: 'claim', head: HEAD, forfeit: [1] },
       outcome: { places: [1, 2], reason: 'timeout', scores: [0, 0] },
     };
-    expect(gameRecord(v)).toMatchObject({ ending: 'claim', places: [1, 2], rated: [true, true], endedBy: null });
+    expect(gameRecord(v)).toMatchObject({
+      ending: 'claim',
+      places: [1, 2],
+      rated: [true, true],
+      endedBy: null,
+    });
   });
 
   it('records an unrated Resign of 3 or more seats: nothing rated, the resigner recorded as ending it', () => {
