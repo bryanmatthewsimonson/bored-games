@@ -6,7 +6,7 @@
 
 import { GameSession } from '@bored-games/client';
 import { startDevRelay } from '@bored-games/dev-relay';
-import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
+import { finalizeEvent, KIND, moveTemplate, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ALREADY_MOVED, type GameController, HOLD_CAP_S } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
@@ -96,6 +96,40 @@ describe('The check before signing (D059 item 2)', () => {
     await expect(t.act({ type: 'move', actor: 0, uci: 'd2d4' })).rejects.toThrow(ALREADY_MOVED);
     expect(t.view.value?.head.id).toBe(onOwn[0]?.id);
     expect(net.published).toEqual([]);
+  }, 60_000);
+});
+
+describe('The check before signing ignores an own move nobody can link', () => {
+  it('an invalid move signed by this seat on the head does not lock it out of its turn', async () => {
+    const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
+    const [white] = bySeat;
+    const secrets = loadSecrets(white.name, white.deps.storage, address);
+    if (secrets === null) throw new Error('no secrets');
+    const g = h.game(rootId, white.deps);
+    await waitFor('White to move', () => g.status.value === 'your-turn');
+    // An outdated client of the same seat signed an illegal move on the root.
+    const junk = finalizeEvent(
+      moveTemplate(
+        {
+          rootId,
+          prevId: rootId,
+          seq: 1,
+          content: {
+            type: 'action',
+            action: { type: 'move', actor: 0, uci: 'e2e5' },
+            shares: [],
+            reveals: [],
+          },
+        },
+        now(),
+      ),
+      secrets.sessionSk,
+      rnd,
+    );
+    await h.pool().publish(junk);
+    await pause(300);
+    await g.act({ type: 'move', actor: 0, uci: 'e2e4' });
+    expect(g.view.value?.head.seq).toBe(1);
   }, 60_000);
 });
 

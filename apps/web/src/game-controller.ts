@@ -300,10 +300,11 @@ export class GameController {
   /** This player's seat and game secrets once the session holds a seat, for deterministic builds (`#buildRnd`). */
   #me: Identity | null = null;
   /**
-   * When the check before signing (D059 item 2) first got an answer that not every live counted relay gave, or
-   * null after a full one: past `HOLD_CAP_S` the check stops waiting, so it never blocks for ever.
+   * When the check before signing (D059 item 2) first got an answer that not every live counted relay gave, by slot
+   * (`kind@headId`); removed after a full one. Past `HOLD_CAP_S` that slot's check stops waiting, so it never blocks
+   * for ever, and each slot gets its own bound.
    */
-  #checkSince: number | null = null;
+  readonly #checkSince = new Map<string, number>();
   /** Automatic duties (`kind@headId`) held back by the check before signing until the next tick. */
   readonly #heldDuties = new Set<string>();
   /**
@@ -311,6 +312,8 @@ export class GameController {
    * on a parent, `shares` for its Shares events, `resign` for its Resigns.
    */
   readonly #mine = new Map<string, Set<string>>();
+  /** This seat's own events the session refused outright (`#receive`): never counted as rivals (`#otherMine`). */
+  readonly #refused = new Set<string>();
   /**
    * Outbox slots loaded from storage with an unconfirmed move, deal or Resign: held back, neither folded in nor
    * published, until the relays have shown what this seat already published (`#vetSaved`).
@@ -423,7 +426,7 @@ export class GameController {
       if (ev === null) {
         // The check before signing (D059 item 2): another device of this seat may have played this turn already.
         if (this.#otherMine(`move:${head.id}`, null)) throw new Error(ALREADY_MOVED);
-        const check = await this.#checkBeforeSign(session);
+        const check = await this.#checkBeforeSign(session, `move@${head.id}`);
         if (this.#disposed) throw new Error('The game screen was closed.');
         if (session.view().head.id !== head.id || this.#otherMine(`move:${head.id}`, null))
           throw new Error(ALREADY_MOVED);
@@ -487,7 +490,7 @@ export class GameController {
       if (saved === null) {
         // The check before signing (D059 item 2): a Resign this seat sent from another device is adopted instead.
         if (this.#otherMine('resign', null)) throw new Error('you already resigned on another device');
-        const check = await this.#checkBeforeSign(session);
+        const check = await this.#checkBeforeSign(session, `resign@${session.view().head.id}`);
         if (this.#disposed) throw new Error('The game screen was closed.');
         if (this.#otherMine('resign', null)) throw new Error('you already resigned on another device');
         if (!session.canResign()) throw new Error('the game is no longer live');
@@ -558,6 +561,12 @@ export class GameController {
     // Own events from the outbox too: the head may be this seat's own move, not yet back from a relay.
     this.#dates.set(ev.id, ev.created_at);
     const r = session.receive(ev, first ?? now);
+    // An own event the session refuses (built by a bug or an outdated client) can never link: it must not lock the
+    // seat out of the slot (`#otherMine`). One it accepts later (after a rebuild) counts again.
+    if (ev.pubkey === this.#mySession) {
+      if (r.status === 'rejected') this.#refused.add(ev.id);
+      else this.#refused.delete(ev.id);
+    }
     if (first === undefined && r.status !== 'rejected') this.#noteSeen(ev.id, now);
     return r;
   }
@@ -585,9 +594,12 @@ export class GameController {
     }
   }
 
-  /** Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`). */
+  /**
+   * Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`), leaving out those the
+   * session refused (`#refused`): an invalid own event is not a rival anyone can link.
+   */
   #otherMine(key: string, ev: NostrEvent | null): boolean {
-    for (const id of this.#mine.get(key) ?? []) if (id !== ev?.id) return true;
+    for (const id of this.#mine.get(key) ?? []) if (id !== ev?.id && !this.#refused.has(id)) return true;
     return false;
   }
 
@@ -1579,7 +1591,7 @@ export class GameController {
   async #clearToSign(session: GameSession, kind: Duty['kind'], parent: string | null): Promise<boolean> {
     const rival = (): boolean => parent !== null && this.#otherMine(`move:${parent}`, null);
     if (rival()) throw new ClientError('another device of yours already sent it');
-    const check = await this.#checkBeforeSign(session);
+    const check = await this.#checkBeforeSign(session, `${kind}@${session.view().head.id}`);
     if (this.#disposed) throw new Error('the game screen was closed');
     if (session.view().head.id === parent && rival())
       throw new ClientError(`another device of yours already sent the ${kind}`);
@@ -1591,9 +1603,10 @@ export class GameController {
    * own, for this seat's moves on the current head and its Shares events and Resigns, and fold in what comes (an
    * event this seat sent from another device is adopted). `clear` once every live counted relay answered (dead ones
    * left out; with none alive there is nothing to ask, and the D056 outbox rule still vets the event before any
-   * republish); otherwise `hold`, until `HOLD_CAP_S` has passed since the first such answer, or Send anyway.
+   * republish); otherwise `hold`, until `HOLD_CAP_S` has passed since the first such answer for this `slot`
+   * (`kind@headId`), or Send anyway.
    */
-  async #checkBeforeSign(session: GameSession): Promise<'clear' | 'hold'> {
+  async #checkBeforeSign(session: GameSession, slot: string): Promise<'clear' | 'hold'> {
     const me = this.#mySession;
     if (me === null || this.#root === null || this.#disposed) return 'clear';
     const head = session.view().head.id;
@@ -1623,13 +1636,14 @@ export class GameController {
       else cancel = c;
     });
     if (info !== null && this.#liveAnswer(info)) {
-      this.#checkSince = null;
+      this.#checkSince.delete(slot);
       return 'clear';
     }
     if (this.#forced) return 'clear';
     const now = this.#d.now();
-    this.#checkSince ??= now;
-    return now - this.#checkSince >= HOLD_CAP_S ? 'clear' : 'hold';
+    const since = this.#checkSince.get(slot) ?? now;
+    this.#checkSince.set(slot, since);
+    return now - since >= HOLD_CAP_S ? 'clear' : 'hold';
   }
 
   /**
