@@ -21,8 +21,9 @@ import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.t
  * `GameSession`, a spectator follows along, and nobody coordinates. Each round one random client syncs at the
  * simulated clock: it queries the relay for every event of the game and receives, in its own shuffled order, the
  * ones it has not received yet (some of them twice) plus a few it has, at random places (`fullSync`: all of them
- * again). Then it does what an honest client does: its duties (shuffle, deal, decide through a policy, secret,
- * attest) and a timeout claim when `timeoutTarget` names a seat. Every event it builds goes to a per-client outbox
+ * again). Then it does what an honest client does: its duties (shuffle, deal, share, a public dice share,
+ * decide through a policy, secret, attest) and a timeout claim when `timeoutTarget` names a seat. Every event
+ * it builds goes to a per-client outbox
  * first, keyed by the decision it answers, so it never builds twice for one decision (as the web controller
  * does). The clock then advances by 1 to 3600 s.
  *
@@ -387,6 +388,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     switch (duty.kind) {
       case 'shuffle':
       case 'decide':
+      case 'beacon':
         return `move:${v.head.seq + 1}:${v.head.id}`;
       case 'share':
         return `share:${duty.positions.join(',')}`;
@@ -412,6 +414,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return s.buildDeal(c.rnd, clock);
       case 'share':
         return s.buildShares(c.rnd, clock);
+      case 'beacon':
+        return s.buildBeacon(c.rnd, clock);
       case 'decide':
         return s.buildAction(choose(c), c.rnd, clock);
       case 'secret':

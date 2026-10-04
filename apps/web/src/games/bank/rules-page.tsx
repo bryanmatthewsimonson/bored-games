@@ -10,7 +10,6 @@ import { DEADLINE_CHOICES } from '../../lobby-model.ts';
 import { rulesHref } from '../../router.ts';
 import { DicePair } from './dice.tsx';
 import { BANK_META } from './meta.ts';
-import { SHOW_DICE } from './model.ts';
 import '../chain-reaction/rules.css';
 import './bank.css';
 
@@ -155,8 +154,10 @@ export function BankRulesContent() {
       <Section id="online">
         <ul>
           <li>
-            <strong>Show the dice.</strong> After the roller rolls, each other player takes a turn.{' '}
-            {SHOW_DICE} The screen does not show the faces first.
+            <strong>The dice.</strong> After a player rolls, each other open window sends its part of that
+            roll. Everyone is deciding on the same dice, so there is nothing to hide and no extra tap. The
+            faces appear when those parts are in. A window that stays closed can still hold its part back, and
+            the others can claim that player's timeout.
           </li>
           <li>
             The <strong>{cap}-roll cap</strong>, above, is this site's rule so a round of non-sevens cannot

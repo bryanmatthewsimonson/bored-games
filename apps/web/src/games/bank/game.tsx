@@ -1,6 +1,6 @@
 /*
- * The Bank table (D058). Faces appear only after the session has derived them. Show the dice publishes this
- * seat's part; it does not choose the faces.
+ * The Bank table (D058). Faces appear once every open window has published its share of the public roll.
+ * Nobody chooses the faces, and there is no tap to reveal them.
  */
 import type { BankState } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
@@ -18,7 +18,6 @@ import {
   potWords,
   roundLabel,
   roundLog,
-  SHOW_DICE,
   seatName,
   seatStatus,
   statusLine,
@@ -55,8 +54,8 @@ export function BankGame(props: GameViewProps) {
 
   const buttons = decisionButtons(props.legal);
   const myTurn = props.canAct && buttons.length > 0 && props.mySeat !== null && !props.busy && sentAt !== seq;
+  const rolling = pending.type === 'player' && pending.decision === 'contribute';
   const labels = myTurn ? buttons.map((b) => b.label) : pendingLabels(pending);
-  const showing = labels.includes(BANK_THEME.decisions.contribute);
   const faces = latestDice(state.log);
   const words = potWords(state.log);
   const status = statusLine(state, props.names, props.mySeat, pending, props.ended);
@@ -106,8 +105,7 @@ export function BankGame(props: GameViewProps) {
             </p>
           )}
           {props.deadline !== undefined && winner === null && <p class="muted">{props.deadline}</p>}
-          {props.notice !== undefined && <p class="muted">{props.notice}</p>}
-          {showing && <p class="hint">{SHOW_DICE}</p>}
+          {!rolling && props.notice !== undefined && <p class="muted">{props.notice}</p>}
           {labels.length > 0 && winner === null && (
             <div class="bank-actions">
               {myTurn
@@ -115,7 +113,7 @@ export function BankGame(props: GameViewProps) {
                     <button
                       key={button.label}
                       type="button"
-                      class={`btn${button.label === BANK_THEME.decisions.roll || button.label === BANK_THEME.decisions.contribute ? ' btn-primary' : ''}`}
+                      class={`btn${button.label === BANK_THEME.decisions.roll ? ' btn-primary' : ''}`}
                       disabled={props.busy}
                       onClick={() => send(button.action)}
                     >
@@ -129,7 +127,9 @@ export function BankGame(props: GameViewProps) {
                   ))}
             </div>
           )}
-          {!myTurn && !props.ended && props.lockedReason !== '' && <p class="muted">{props.lockedReason}</p>}
+          {!rolling && !myTurn && !props.ended && props.lockedReason !== '' && (
+            <p class="muted">{props.lockedReason}</p>
+          )}
           {props.onClaimTimeout !== undefined && props.timeoutExplanation !== undefined && (
             <button type="button" class="btn" disabled={props.busy} onClick={props.onClaimTimeout}>
               {props.timeoutExplanation}
@@ -140,7 +140,8 @@ export function BankGame(props: GameViewProps) {
           <h2 id="bank-seats-h">Players</h2>
           <ol class="bank-seats">
             {state.scores.map((score, seat) => {
-              const playing = pending.type === 'player' && pending.seat === seat && state.phase !== 'over';
+              const playing =
+                pending.type === 'player' && pending.seat === seat && state.phase !== 'over' && !rolling;
               return (
                 <li key={seat} class={playing ? 'bank-seat to-play' : 'bank-seat'}>
                   <span class="bank-seat-avatar">{props.avatars[seat]}</span>

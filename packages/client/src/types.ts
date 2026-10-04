@@ -42,6 +42,8 @@ export type ReceiveResult =
  * What this seat must publish next:
  * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
  * - `share`: `buildShares` supplies public reveals during play and new non-owner layers in grouped decks; it never shares an owner's private layer.
+ * - `beacon`: `buildBeacon` publishes this seat's share of a public dice roll. Every seat decides on the same
+ *   faces, so an open app sends the share with no decision. It is not a card share and not a sealed choice.
  * - `secret`: the game is over and my deck secret is not in yet; `buildSecret`.
  * - `attest`: the game is done with an audit and my attestation is not accepted yet. Attesting is a SHOULD
  *   (PROTOCOL §7), so the duty is advisory. Attestations are signed by the seat's npub, which the session does not
@@ -53,6 +55,7 @@ export type Duty =
   | { kind: 'shuffle' }
   | { kind: 'deal' }
   | { kind: 'share'; readonly positions: readonly number[] }
+  | { kind: 'beacon' }
   | { kind: 'decide' }
   | { kind: 'secret' }
   | { kind: 'attest' };

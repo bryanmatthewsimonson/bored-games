@@ -67,10 +67,6 @@ export function dieClass(tumbling: boolean, reducedMotion: boolean): string {
   return tumbling && !reducedMotion ? 'bank-die tumble' : 'bank-die';
 }
 
-/** Why the Show the dice button exists. The rules page uses the same sentence. */
-export const SHOW_DICE =
-  'The roll was fixed when the roller chose to roll. This tap publishes your part and reveals it.';
-
 export interface DecisionButton {
   readonly action: unknown;
   readonly label: string;
@@ -80,7 +76,6 @@ const ACTION_LABEL: Record<string, string> = {
   bank: BANK_THEME.decisions.bank,
   stay: BANK_THEME.decisions.stay,
   roll: BANK_THEME.decisions.roll,
-  contribute: BANK_THEME.decisions.contribute,
 };
 
 /** One button per legal action, in the engine's order, labelled from the theme. */
@@ -104,8 +99,6 @@ export function pendingLabels(pending: Pending): readonly string[] {
       return [BANK_THEME.decisions.bank, BANK_THEME.decisions.roll];
     case 'roll':
       return [BANK_THEME.decisions.roll];
-    case 'contribute':
-      return [BANK_THEME.decisions.contribute];
     default:
       return [];
   }
@@ -167,7 +160,9 @@ export function seatName(names: readonly string[], seat: number): string {
 export function seatStatus(state: BankState, seat: number, pending: Pending): string {
   const banked = state.banked[seat];
   if (typeof banked === 'number') return `Banked ${banked}`;
-  if (pending.type === 'player' && pending.seat === seat) return 'To play';
+  // A contribution is not a decision. The open app sends the share, and the seat stays "In".
+  if (pending.type === 'player' && pending.seat === seat && pending.decision !== 'contribute')
+    return 'To play';
   return 'In';
 }
 
@@ -184,8 +179,6 @@ function decisionPhrase(decision: string): string {
       return 'bank or roll';
     case 'roll':
       return 'roll';
-    case 'contribute':
-      return 'show the dice';
     default:
       return 'decide';
   }
@@ -200,6 +193,10 @@ export function statusLine(
   ended: boolean,
 ): string {
   if (ended || state.phase === 'over' || pending.type === 'over') return 'The game is over.';
+  // One public roll. Nobody is choosing, and there is nothing to show ahead of the others.
+  if (pending.type === 'beacon' || (pending.type === 'player' && pending.decision === 'contribute')) {
+    return 'Rolling the dice.';
+  }
   if (pending.type !== 'player') return 'Showing the dice.';
   const who = seatName(names, pending.seat);
   const what = decisionPhrase(pending.decision);
@@ -241,7 +238,7 @@ function logLine(entry: BankLog, names: readonly string[]): string | null {
     case 'roll':
       return `${seatName(names, entry.seat)} rolled`;
     case 'contribute':
-      return `${seatName(names, entry.seat)} showed the dice`;
+      return null;
     case 'dice':
       return `${entry.dice[0]} and ${entry.dice[1]}, ${diceWords(entry.effect, entry.dice, entry.pot)}`;
   }

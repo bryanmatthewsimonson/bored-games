@@ -30,7 +30,7 @@ Bank, the folk push-your-luck dice game. This file is the **source of truth** fo
 | Seats | 2 to 6. Best at 3 to 5. More than 6 is **OPEN** and unbuilt. | The sources; a larger table is a different poll |
 | Rounds | 5, 10 or 20. The default is 10. | A short game is 5; 20 is a long one |
 | Ties | Places share the gap: two firsts, the next score is third. | The platform's outcome (1, 1, 3) |
-| Fair dice | Every seat contributes to a key-committed beacon. The faces are derived, not sent. | GAME-SYSTEMS §4.3. The last contribution is an ordinary turn, not a prompt duty (D050, D058) |
+| Fair dice | Every seat contributes to a key-committed beacon. The faces are derived, not sent. The other shares go out on their own, because the roll is the same for every seat. | GAME-SYSTEMS §4.3, D058. This is not a hidden-information prompt (D050) |
 | Resignation | Not a module action. Two seats: rated. Three or more: unrated, the resigner last. | D052. Bank has no deck secret to attach |
 
 ## The pot
@@ -61,7 +61,7 @@ Between resolutions, while the round is open:
 
 ## How a roll is committed
 
-The roller names the next roll id and does not send faces. The pot is unchanged. Every other seat then contributes, in an order that **ends on the seat after the roller** (D058): that seat publishes last, learns the faces first, and can only withhold, not choose them. Withholding is the platform's timeout (PROTOCOL §8.2).
+The roller names the next roll id and does not send faces. The pot is unchanged. Every other seat then publishes its share, in an order that **ends on the seat after the roller** (D058). An open window sends that share on its own. There is no button: the roll is one public result, and every seat is deciding on it. The last publisher learns the faces first and can only withhold, not choose them. A closed window withholds by doing nothing, and that is the platform's timeout (PROTOCOL §8.2).
 
 When every contribution is in, the session derives the two faces and applies them. A second resolution of the same id is rejected. Faces outside 1..6 are rejected. A player does not send the faces.
 
@@ -86,7 +86,7 @@ Resignation is a platform event. It is not in this module.
 
 ## Playing on this site
 
-- **Show the dice.** After the roller commits a roll, each other seat takes a turn whose button reads "Show the dice". The roll was fixed when the roller chose to roll. The tap publishes your part and reveals the faces. The screen does not show them first.
+- **The dice.** After the roller commits a roll, each other open window sends its share. The faces appear when those shares are in. There is no tap, because there is nothing to hide. A window that stays closed can still hold its share back, and the others can claim that seat's timeout.
 - **The 30-roll cap**, above. A round of non-sevens would otherwise never end (D015).
 - **Resign** and **timeouts** are the platform's (PROTOCOL §8). Bank has no hidden cards, so a resign attaches no deck secret.
 - There is no one-minute timer and no secret banking.
