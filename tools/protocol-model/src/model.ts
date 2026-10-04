@@ -43,6 +43,11 @@
  *   than the same or a rated last place (3 or more seats: a timeout becoming an unrated abort, a standing moved to
  *   another head, the record moved to another seat) is `void-forfeit` (reported apart: needs a coalition once a
  *   stop scores as the equivocator's timeout, `stopScore`).
+ * - Protocol v2 (`stop3`, PROTOCOL-v2 §5–§8; task T0 of the v2 build): a stop that cancels while a game action was
+ *   played on a valid line (`cancel-escape`, review H1); every equivocator of the global scan placed last and rated
+ *   in a stop (`rating`, review M1); a place after a stop that changes for anything but a proven audit failure
+ *   (`stop-demotion`, review H2); and a cheat on the line of an `over` result that can neither be audited nor
+ *   claimed (`cheat-escape`, review N1).
  *
  * Round-2 options: honest seats on two devices that share one key with independent delivery (`devices`), moves
  * that draw two positions (`multiDraw`), and honest humans who leave when their client shows a stop and come back
@@ -52,25 +57,36 @@
  * attests within `advAttests`), Shares events anchored on their releaser's head (the `head` field), and stale
  * outboxes (`stale`, `outboxRule`): an honest device signs its move offline, its human plays that turn again on
  * another device, and the saved move is published later, or dropped under the controller rule.
+ *
+ * Protocol v2 options (`stop3` only): setup steps before play (`setup`), the cancel rule (`cancelRule`), M1
+ * equivocators (`topmostOnly` is the regression), a resign's identity at its named head with S cut at the first
+ * fork past it (`resignAt`), adversary Shares events with free anchors, unresolved ones included (`advShares`,
+ * `unresolved`), the Secret phase with audits and cheats (`secrets`, `advCheats`, and the regressions `stopClaims`
+ * and `noStandingEnd`), public reveals and dice that block the next decision (modes `reveal-block` and `roll`),
+ * and the own-forfeit question (`autoOwnForfeit` is the regression).
  */
 
 export type Seat = number;
 /**
  * Grant modes: `private` (U1, the drawer), `viewers` (U2, every seat but the drawer), `public` (U3, a card played
- * from the drawer's hand and shown to all), `roll` (U4, a public value whose point is bound to the move's id).
+ * from the drawer's hand and shown to all), `roll` (U4, a public value whose point is bound to the move's id; under
+ * `stop3` the roll blocks the next decision until every seat contributed, PROTOCOL-v2 §6.2), `reveal-block`
+ * (`stop3` only: a public reveal that blocks the next decision until every seat's share is held, a Luster refill,
+ * PROTOCOL-v2 §6.3; the stalled seats are every seat without a share, so a claim can forfeit several seats).
  */
-export type Mode = 'private' | 'viewers' | 'public' | 'roll';
+export type Mode = 'private' | 'viewers' | 'public' | 'roll' | 'reveal-block';
 /**
  * - `stop`: candidate (e), "plain stop" (prompt-reveal.md §5): one shared pile; shares released as soon as the
  *   drawing move is held (as `d039`); any held fork stops the game at the fork, never picking a branch and never
  *   resuming (with `overStands`, a side that already reached the end stands instead); the stop is the
  *   equivocator's forfeit; a stop never overrides a counted claim or resign (`rule9: none`; `strict`, the owner's
  *   first rule, still lets a colluder void a counted timeout).
- * - `stop3`: candidate (e), round 3: `stop`, plus the attestation-and-anchor cutoff. A result (a natural end, or a
- *   counted claim or resign) STANDS against a fork by E when every seat other than E attested it and no seat other
- *   than E signed a move, or a Shares event anchored on a head, off the result's path (root to its head); then the
- *   fork only records E. Otherwise the fork stops the game on every client, overriding any counted claim or resign
- *   (round 3, A2: the cutoff decides from the event set alone, so clients converge).
+ * - `stop3`: candidate (e), round 3, as specified in PROTOCOL-v2 §5: `stop`, plus the attestation-and-anchor
+ *   cutoff. A result (a natural end, or a counted claim or resign) STANDS against a fork by E when every seat other
+ *   than E attested it and no seat other than E signed a move, or a Shares event anchored on a head, off the
+ *   result's path (root to its head); then the fork only records E. Otherwise the fork stops the game on every
+ *   client, overriding any counted claim or resign (round 3, A2: the cutoff decides from the event set alone, so
+ *   clients converge).
  * - `fgr2`: round 2 of the recommended design (prompt-reveal.md §5): `fgr`, but a fork stops unless exactly one
  *   side is vouched for by every seat but the equivocator (never the lowest id), every move is acked, a seat that
  *   vouches for two sides is flagged (and a fork where one did stops), a stop is the equivocator's forfeit, a stop
@@ -104,7 +120,7 @@ export interface Scope {
   readonly design: Design;
   readonly mode: Mode;
   readonly seats: number;
-  /** Moves after which the game is over. */
+  /** Game actions after which the game is over (after the `setup` steps). */
   readonly length: number;
   /** The adversary's seats; empty for an honest-only run. */
   readonly coalition: readonly Seat[];
@@ -143,7 +159,7 @@ export interface Scope {
    * `stop3`, 3 or more seats: how a stop scores. `abort` (default, the owner's abort policy): unrated, the
    * equivocator recorded. `timeout`: as the equivocator's timeout at the fork (rated last, the others by standings
    * there), so a stalled seat that forks at its own head scores exactly as its timeout. `last`: the equivocator
-   * rated last and recorded, the game unrated for every other seat.
+   * rated last and recorded, the game unrated for every other seat (the approved rule, PROTOCOL-v2 §5.6).
    */
   readonly stopScore?: 'abort' | 'timeout' | 'last';
   /**
@@ -169,6 +185,55 @@ export interface Scope {
    * round-2 default, since `strict` still lets a colluder void a counted timeout). Default by design.
    */
   readonly rule9?: 'at-or-past' | 'strict' | 'none';
+  /**
+   * `stop3`: setup steps before play (shuffle-like: one per seat, seats 0 … k−1, granting nothing). The adversary
+   * may sign well-formed rival steps, valid (`s`) or with a proof that fails (`j`, never linked, but a fork with any
+   * other well-formed step, PROTOCOL-v2 §5.1). Timeouts during setup are v1 behaviour and are not modelled: no
+   * deadline passes at a head before the first game action.
+   */
+  readonly setup?: number;
+  /**
+   * `stop3`: when a stop cancels the game (PROTOCOL-v2 §5.6). `played` (the approved rule, review H1): only when no
+   * game action on a valid line is held at or past P. `position` (the regression): when the walk up to P holds no
+   * game action, whatever was played past P since.
+   */
+  readonly cancelRule?: 'played' | 'position';
+  /** `stop3` regression: only the topmost fork's E is an equivocator (before review M1). */
+  readonly topmostOnly?: boolean;
+  /**
+   * `stop3`: a resign result's identity. `named` (the approved rule, review M3): (resign, the head it names, k),
+   * scored along that head's line up to S, which stops at the first held fork past the head (PROTOCOL-v2 §8.3).
+   * `counted` (the round-3 model, kept for comparison): attested at the head where the client counted it.
+   */
+  readonly resignAt?: 'named' | 'counted';
+  /**
+   * `stop3`: adversary Shares events with an anchor of its choice (any held move or the root, and with
+   * `unresolved` an id no honest client ever holds). In the blocking modes the coalition also releases its share of
+   * a pending reveal or roll at any time, anchored on the move that requested it, outside this budget.
+   */
+  readonly advShares?: number;
+  /** `stop3`: the adversary may anchor Shares events and end attestations on an id it never delivers. */
+  readonly unresolved?: boolean;
+  /**
+   * `stop3`: the Secret phase. Honest clients publish their Secret reveal once their game has ended (a result, a
+   * cancel or a stop); the adversary publishes its own whenever it likes, or never. Once every secret is held the
+   * audit runs on the scored line, and a cheat move fails its signer. At an `over` result (also a standing one,
+   * review N1) a seat whose secret is missing is stalled and can be claimed (v1 End rules). After a stop no seat
+   * is stalled (review H2). Secrets do not feed the S1 check: a client publishes one only once its own game has
+   * ended, and no game goes on after a fork.
+   */
+  readonly secrets?: boolean;
+  /** `stop3` with `secrets`: adversary game actions that pass every check in play but fail the audit. */
+  readonly advCheats?: number;
+  /** `stop3` regression (review H2): after a stop, seats with a missing secret are stalled and claims count. */
+  readonly stopClaims?: boolean;
+  /** `stop3` regression (review N1): a standing result plays out no End rules (no stall for a missing secret). */
+  readonly noStandingEnd?: boolean;
+  /**
+   * `stop3` regression (review N2): a client accepts at once, without its deadline or its player's confirmation, a
+   * claim at its head whose stalled seats are its own seat alone.
+   */
+  readonly autoOwnForfeit?: boolean;
   /** Stop exploring at the first violation of these kinds (regression checks). */
   readonly stopAt?: readonly ViolationKind[];
   /**
@@ -192,7 +257,10 @@ export type ViolationKind =
   | 'ended-void'
   | 'honest-flagged'
   | 'attested-void'
-  | 'void-forfeit';
+  | 'void-forfeit'
+  | 'cancel-escape'
+  | 'stop-demotion'
+  | 'cheat-escape';
 
 export interface Violation {
   readonly kind: ViolationKind;
@@ -226,6 +294,8 @@ interface MoveEv {
   readonly honest: boolean;
   /** Signed offline by an honest device and published late (`stale`). */
   readonly stale?: boolean;
+  /** A game action that passes every check in play and fails the audit (`secrets`). */
+  readonly cheat?: boolean;
 }
 interface AckEv {
   readonly t: 'ack';
@@ -237,10 +307,13 @@ interface ShareEv {
   readonly t: 'share';
   readonly id: string;
   readonly seat: Seat;
+  /** The position, or -1 for a Shares event that matters only by its anchor (an adversary's, `advShares`). */
   readonly pos: number;
   readonly to: Seat | null;
-  /** The releaser's head when it released. */
+  /** The releaser's head when it released (its anchor); `UNRESOLVED` for an id no honest client holds. */
   readonly head: string;
+  /** An adversary Shares event within `advShares`. */
+  readonly extra?: boolean;
 }
 interface ClaimEv {
   readonly t: 'claim';
@@ -254,28 +327,41 @@ interface ResignEv {
   readonly seat: Seat;
   readonly head: string;
 }
-/** A result attestation (round 3): `kind` at `head`, with the seat that loses by forfeit (-1 for a natural end). */
+/** A result attestation (round 3): `kind` at `head`, with the seats that forfeit (ascending; [] for a natural end). */
 interface AttestEv {
   readonly t: 'attest';
   readonly id: string;
   readonly seat: Seat;
   readonly kind: 'over' | 'claim' | 'resign';
   readonly head: string;
-  readonly loser: Seat;
+  readonly forfeit: readonly Seat[];
 }
-type Ev = MoveEv | AckEv | ShareEv | ClaimEv | ResignEv | AttestEv;
+/** A Secret reveal (`secrets`). */
+interface SecretEv {
+  readonly t: 'secret';
+  readonly id: string;
+  readonly seat: Seat;
+}
+type Ev = MoveEv | AckEv | ShareEv | ClaimEv | ResignEv | AttestEv | SecretEv;
 
 const ROOT = 'R';
+/** An anchor id that no honest client ever holds (`unresolved`). */
+const UNRESOLVED = 'U';
 
-type Kind = 'draw' | 'draw2' | 'pass';
-const DRAWS: Record<Kind, number> = { draw: 1, draw2: 2, pass: 0 };
+/** `shuf`: a setup step; `junk`: a well-formed setup step whose proof fails (never valid). */
+export type Kind = 'draw' | 'draw2' | 'pass' | 'shuf' | 'junk';
+const DRAWS: Record<Kind, number> = { draw: 1, draw2: 2, pass: 0, shuf: 0, junk: 0 };
 
 /* ------------------------------------------------------------------------------------------------ state */
 
 interface Frozen {
+  /** The path to `head`. */
   readonly path: readonly string[];
   readonly reason: 'claim' | 'resign';
-  readonly seat: Seat; // the forfeiting seat (stalled or resigning)
+  /** A claim's head; a resign's named head (`named`) or the client's head when it counted it. */
+  readonly head: string;
+  /** The forfeiting seats, ascending (stalled or resigning). */
+  readonly forfeit: readonly Seat[];
 }
 
 interface Client {
@@ -291,6 +377,8 @@ interface Client {
   readonly sawStop: boolean;
   /** The seat's human left on seeing a stop and has not been notified back yet (`absence`). */
   readonly absent: boolean;
+  /** An accepted claim for missing secrets (`secrets`): the result it belongs to (`over:X`, `stop:P`) and the seats. */
+  readonly endForfeit: { readonly at: string; readonly seats: readonly Seat[] } | null;
 }
 
 interface State {
@@ -324,7 +412,7 @@ function rollPos(key: string): number {
 }
 
 function viewersOf(mode: Mode, drawer: Seat, seats: number): Viewers {
-  if (mode === 'public' || mode === 'roll') return { public: true };
+  if (mode === 'public' || mode === 'roll' || mode === 'reveal-block') return { public: true };
   if (mode === 'private') return { public: false, seats: [drawer] };
   return {
     public: false,
@@ -340,9 +428,28 @@ function owed(g: Grant, s: Seat): string[] {
   return g.v.seats.filter((t) => t !== s).map((t) => `${g.pos}:${t}`);
 }
 
+/** Setup steps before the first game action (`stop3`). */
+const setupOf = (s: Scope): number => (s.design === 'stop3' ? (s.setup ?? 0) : 0);
+/** The depth at which the game is over. */
+const totalOf = (s: Scope): number => setupOf(s) + s.length;
+/** The seat pending at a head of depth `d`: the setup step's seat, then round-robin from seat 0. */
+function pendingAt(s: Scope, d: number): Seat {
+  const k = setupOf(s);
+  return d < k ? d : (d - k) % s.seats;
+}
+/** Grants whose reveal blocks the next decision until every seat's share is held (PROTOCOL-v2 §6.2, §6.3). */
+const blocking = (s: Scope): boolean =>
+  s.design === 'stop3' && (s.mode === 'roll' || s.mode === 'reveal-block');
+const ascending = (xs: Iterable<Seat>): Seat[] => [...new Set(xs)].sort((a, b) => a - b);
+const sameSeats = (a: readonly Seat[], b: readonly Seat[]): boolean =>
+  a.length === b.length && a.every((x, i) => b[i] === x);
+
 /* ------------------------------------------------------------------------------------------ the model */
 
 export function explore(scope: Scope): Result {
+  if (scope.mode === 'reveal-block' && scope.design !== 'stop3')
+    throw new Error('protocol-model: reveal-block mode needs design stop3');
+  if (setupOf(scope) > scope.seats) throw new Error('protocol-model: at most one setup step per seat');
   return new Explorer(scope).run();
 }
 
@@ -378,6 +485,7 @@ class Explorer {
           expiredCount: 0,
           sawStop: false,
           absent: false,
+          endForfeit: null,
         })),
       ),
       expiries: 0,
@@ -422,7 +530,7 @@ class Explorer {
     }
     const cl = st.clients.map(
       (c) =>
-        `${setKey(c.has)}|${c.frozen === null ? '' : `${c.frozen.reason}${c.frozen.path.at(-1) ?? ROOT}`}|${c.expired ?? ''}:${c.expiredCount}|${c.sawStop ? 's' : ''}${c.absent ? 'a' : ''}`,
+        `${setKey(c.has)}|${c.frozen === null ? '' : `${c.frozen.reason}${c.frozen.head}:${c.frozen.forfeit.join('.')}`}|${c.expired ?? ''}:${c.expiredCount}|${c.sawStop ? 's' : ''}${c.absent ? 'a' : ''}|${c.endForfeit === null ? '' : `${c.endForfeit.at}:${c.endForfeit.seats.join('.')}`}`,
     );
     const saved = [...st.saved.entries()]
       .map(([id, x]) => `${id}@${x.client}`)
@@ -474,9 +582,28 @@ class Explorer {
     return v;
   }
 
+  /**
+   * The result whose End phase is open on a client (`secrets`): its `over` result, also one that stands against a
+   * fork (review N1, unless `noStandingEnd`), or a stop with the `stopClaims` regression. Null otherwise.
+   */
+  private endPhase(v: View): string | null {
+    if (this.s.secrets !== true) return null;
+    if (v.status === 'over' && !v.forked) return `over:${v.head}`;
+    if (v.status === 'stood' && v.standing?.kind === 'over' && this.s.noStandingEnd !== true)
+      return `over:${v.head}`;
+    if (v.status === 'stop' && !v.cancelled && this.s.stopClaims === true) return `stop:${v.head}`;
+    return null;
+  }
+
+  /** The seats stalled in an open End phase: those whose secret the client does not hold. */
+  private endStalled(v: View): Seat[] {
+    return Array.from({ length: this.s.seats }, (_, k) => k).filter((k) => !v.secrets.has(k));
+  }
+
   /* ---------------------------------------------------------------------------------- transitions */
 
   private successors(st: State): [string, State][] {
+    const s = this.s;
     const out: [string, State][] = [];
     const evs = [...st.events.values()];
     // Deliveries of created events to honest clients that lack them.
@@ -502,12 +629,16 @@ class Explorer {
     if (this.coalition.size > 0) this.adversary(st, evs, out);
     // A deadline passes on one honest client: only while honest gossip is complete and no honest seat still has a
     // move to make (honest humans act within the deadline).
-    if (st.expiries < this.s.expiries && moved.length === 0 && this.honestQuiet(st)) {
+    if (st.expiries < s.expiries && moved.length === 0 && this.honestQuiet(st)) {
       for (let i = 0; i < st.clients.length; i++) {
         const c = st.clients[i] as Client;
         if (c.frozen !== null) continue;
         const v = this.view(st, c);
-        if (v.status !== 'live') continue;
+        // In play (stop3: past the setup steps; setup timeouts are not modelled), or an open End phase.
+        const playing = v.status === 'live' && (s.design !== 'stop3' || v.path.length > setupOf(s));
+        const ek = this.endPhase(v);
+        const endOpen = ek !== null && c.endForfeit?.at !== ek && this.endStalled(v).length > 0;
+        if (!playing && !endOpen) continue;
         // Another deadline at the same head only matters where a claim needs two (rule 10b).
         if (c.expired === v.head && c.expiredCount >= this.claimNeed(c, st)) continue;
         // A passing deadline also brings back every absent human: it was notified of the resume (A5, `absence`).
@@ -549,7 +680,7 @@ class Explorer {
         if (c.frozen !== null || c.absent) continue;
         const v = this.view(st, c);
         const me = c.seat;
-        if (v.status !== 'live' || v.pending !== me) continue;
+        if (v.status !== 'live' || v.pending !== me || v.waiting) continue;
         const depth = v.path.length + 1;
         // The human takes each turn once per device; it has not played this one anywhere it can see yet.
         if ([...st.events.values()].some((e) => e.t === 'move' && e.seat === me && e.depth === depth))
@@ -608,8 +739,8 @@ class Explorer {
       if (e.t === 'attest' && e.kind !== 'over')
         for (const x of st.events.values()) {
           const rests =
-            (e.kind === 'resign' && x.t === 'resign' && x.seat === e.loser) ||
-            (e.kind === 'claim' && x.t === 'claim' && x.head === e.head && x.seat !== e.loser);
+            (e.kind === 'resign' && x.t === 'resign' && e.forfeit.includes(x.seat)) ||
+            (e.kind === 'claim' && x.t === 'claim' && x.head === e.head && !e.forfeit.includes(x.seat));
           if (rests && !c.has.has(x.id)) out.add(x.id);
         }
     }
@@ -625,17 +756,23 @@ class Explorer {
   /** The move honest client `c` signs on its head: a draw carrying every share it owes as of the head (slow path). */
   private honestEvent(st: State, c: Client, v: View, variant: number): MoveEv {
     const me = c.seat;
+    const s = this.s;
+    const depth = v.path.length + 1;
+    const setup = depth <= setupOf(s);
     const released = this.releasedBy(c, st);
     const rel: string[] = [];
-    for (const g of v.grants)
-      for (const o of owed(g, me)) if (!released.has(o) && !rel.includes(o)) rel.push(o);
+    // PROTOCOL-v2 §6.2: a Move never carries a roll contribution; setup steps carry no shares.
+    if (!setup && !(s.design === 'stop3' && s.mode === 'roll'))
+      for (const g of v.grants)
+        for (const o of owed(g, me)) if (!released.has(o) && !rel.includes(o)) rel.push(o);
+    const kind: Kind = setup ? 'shuf' : 'draw';
     return {
       t: 'move',
-      id: moveId(v.head, me, 'draw', variant),
+      id: moveId(v.head, me, kind, variant),
       seat: me,
       prev: v.head,
-      depth: v.path.length + 1,
-      kind: 'draw',
+      depth,
+      kind,
       v: variant,
       rel,
       kc: this.coalitionKnows(st),
@@ -645,8 +782,17 @@ class Explorer {
 
   private adversary(st: State, evs: Ev[], out: [string, State][]): void {
     const s = this.s;
-    const counts = { move: 0, ack: 0, claim: 0, resign: 0, attest: 0 };
-    for (const e of evs) if (e.t !== 'share' && this.coalition.has(e.seat)) counts[e.t]++;
+    const e3 = s.design === 'stop3';
+    const T = totalOf(s);
+    const setup = setupOf(s);
+    const counts = { move: 0, ack: 0, claim: 0, resign: 0, attest: 0, cheat: 0, extra: 0 };
+    for (const e of evs) {
+      if (!this.coalition.has(e.seat)) continue;
+      if (e.t === 'share') {
+        if (e.extra === true) counts.extra++;
+      } else if (e.t !== 'secret') counts[e.t]++;
+      if (e.t === 'move' && e.cheat === true) counts.cheat++;
+    }
     const moves = evs.filter((e): e is MoveEv => e.t === 'move');
     const kc = this.coalitionKnows(st);
     const targets = (label: string, ev: Ev): void => {
@@ -662,28 +808,41 @@ class Explorer {
       const prevs: { id: string; depth: number }[] = [{ id: ROOT, depth: 0 }];
       for (const m of moves) prevs.push({ id: m.id, depth: m.depth });
       for (const p of prevs) {
-        if (p.depth >= s.length) continue;
-        const seat = p.depth % s.seats;
+        if (p.depth >= T) continue;
+        const seat = pendingAt(s, p.depth);
         if (!this.coalition.has(seat)) continue;
         const rivals = moves.filter((m) => m.prev === p.id);
         if (rivals.length >= s.rivalsPerPrev) continue;
-        for (const kind of (s.multiDraw === true ? ['draw', 'draw2', 'pass'] : ['draw', 'pass']) as Kind[]) {
+        const kinds: Kind[] =
+          p.depth < setup
+            ? ['shuf', 'junk']
+            : s.multiDraw === true
+              ? ['draw', 'draw2', 'pass']
+              : ['draw', 'pass'];
+        const cheats =
+          s.secrets === true && p.depth >= setup && counts.cheat < (s.advCheats ?? 0)
+            ? [false, true]
+            : [false];
+        for (const kind of kinds) {
           for (let v = 0; v < s.rivalsPerPrev; v++) {
-            const id = moveId(p.id, seat, kind, v);
-            if (st.events.has(id) || rivals.some((r) => r.v === v)) continue;
-            const ev: MoveEv = {
-              t: 'move',
-              id,
-              seat,
-              prev: p.id,
-              depth: p.depth + 1,
-              kind,
-              v,
-              rel: [],
-              kc,
-              honest: false,
-            };
-            targets(`seat ${seat} signs ${id}`, ev);
+            for (const cheat of cheats) {
+              const id = moveId(p.id, seat, kind, v) + (cheat ? 'x' : '');
+              if (st.events.has(id) || rivals.some((r) => r.v === v)) continue;
+              const ev: MoveEv = {
+                t: 'move',
+                id,
+                seat,
+                prev: p.id,
+                depth: p.depth + 1,
+                kind,
+                v,
+                rel: [],
+                kc,
+                honest: false,
+                ...(cheat ? { cheat: true } : {}),
+              };
+              targets(`seat ${seat} signs ${id}${cheat ? ' (a cheat)' : ''}`, ev);
+            }
           }
         }
       }
@@ -701,13 +860,15 @@ class Explorer {
         }
       }
     }
-    // Claims and resigns, naming any head.
+    // Claims and resigns, naming any head (stop3: claims only past the setup steps, where a claim can count).
     const heads = [ROOT, ...moves.map((m) => m.id)];
+    const depthOf = (h: string): number => (h === ROOT ? 0 : (st.events.get(h) as MoveEv).depth);
     if (counts.claim < s.advClaims) {
       for (const h of heads) {
-        const depth = h === ROOT ? 0 : (st.events.get(h) as MoveEv).depth;
+        const depth = depthOf(h);
+        if (e3 && depth <= setup) continue;
         for (const a of this.coalition) {
-          if (depth % s.seats === a || depth >= s.length) continue;
+          if (pendingAt(s, depth) === a || depth >= T) continue;
           const id = `C${a}@${h}`;
           if (st.events.has(id)) continue;
           targets(`seat ${a} claims a timeout at ${h}`, { t: 'claim', id, seat: a, head: h });
@@ -716,22 +877,27 @@ class Explorer {
     }
     // Attestations (`stop3`): a coalition seat attests any valid result. Only results that every seat but the
     // equivocator attested can stand, so the useful ones are those some honest client attested, natural ends, and
-    // the results of claims and resigns that exist (the view checks validity in any case).
-    if (s.design === 'stop3' && counts.attest < (s.advAttests ?? 0)) {
+    // the results of claims and resigns that exist (the view checks validity in any case); with `unresolved`, also
+    // one anchored on an id no honest client holds.
+    if (e3 && counts.attest < (s.advAttests ?? 0)) {
       const results = new Map<string, Standing>();
       const add = (r: Standing): void => {
-        results.set(`${r.kind}@${r.head}:${r.loser}`, r);
+        results.set(standingKey(r), r);
       };
+      const missing = blocking(s) ? this.missingShares(st) : new Map<string, Seat[]>();
       for (const e of evs) {
         if (e.t === 'attest' && !this.coalition.has(e.seat))
-          add({ kind: e.kind, head: e.head, loser: e.loser });
-        if (e.t === 'move' && e.depth >= s.length) add({ kind: 'over', head: e.id, loser: -1 });
-        if (e.t === 'claim') {
-          const depth = e.head === ROOT ? 0 : (st.events.get(e.head) as MoveEv | undefined)?.depth;
-          if (depth !== undefined) add({ kind: 'claim', head: e.head, loser: depth % s.seats });
+          add({ kind: e.kind, head: e.head, forfeit: e.forfeit });
+        if (e.t === 'move' && e.depth >= T) add({ kind: 'over', head: e.id, forfeit: [] });
+        if (e.t === 'claim' && (e.head === ROOT || st.events.has(e.head))) {
+          const depth = depthOf(e.head);
+          add({ kind: 'claim', head: e.head, forfeit: [pendingAt(s, depth)] });
+          const m = missing.get(e.head);
+          if (m !== undefined && m.length > 0) add({ kind: 'claim', head: e.head, forfeit: m });
         }
-        if (e.t === 'resign') add({ kind: 'resign', head: e.head, loser: e.seat });
+        if (e.t === 'resign') add({ kind: 'resign', head: e.head, forfeit: [e.seat] });
       }
+      if (s.unresolved === true) add({ kind: 'over', head: UNRESOLVED, forfeit: [] });
       for (const a of this.coalition) {
         for (const [key, r] of results) {
           const id = `T${a}:${key}`;
@@ -753,6 +919,82 @@ class Explorer {
         }
       }
     }
+    if (!e3) return;
+    // Shares events (`stop3`). In the blocking modes a coalition seat releases its share of a pending reveal or
+    // roll whenever it likes, anchored on the requesting move; within `advShares`, it anchors a Shares event
+    // anywhere (with `unresolved`, on an id no honest client holds), with a position of a blocking grant or none.
+    const pub = blocking(s) ? this.publicGrants(st) : [];
+    for (const a of this.coalition) {
+      const released = new Set<number>();
+      for (const e of evs) if (e.t === 'share' && e.seat === a && e.to === null) released.add(e.pos);
+      for (const g of pub) {
+        if (released.has(g.pos)) continue;
+        const id = `S${a}:${g.pos}:*@${g.move}`;
+        if (st.events.has(id)) continue;
+        targets(`seat ${a} releases ${g.pos}`, {
+          t: 'share',
+          id,
+          seat: a,
+          pos: g.pos,
+          to: null,
+          head: g.move,
+        });
+      }
+      if (counts.extra >= (s.advShares ?? 0)) continue;
+      const anchors = [...heads, ...(s.unresolved === true ? [UNRESOLVED] : [])];
+      const positions = [-1, ...pub.map((g) => g.pos).filter((p) => !released.has(p))];
+      for (const anchor of anchors)
+        for (const pos of positions) {
+          const id = `Z${a}:${pos}@${anchor}`;
+          if (st.events.has(id)) continue;
+          targets(`seat ${a} anchors a Shares event (position ${pos}) on ${anchor}`, {
+            t: 'share',
+            id,
+            seat: a,
+            pos,
+            to: null,
+            head: anchor,
+            extra: true,
+          });
+        }
+    }
+    // Secret reveals (`secrets`): a coalition seat publishes its own whenever it likes, or never. They reach every
+    // honest client at once: a secret only matters to a claim (judged once gossip is complete) or to the audit.
+    if (s.secrets === true)
+      for (const a of this.coalition) {
+        const id = `K${a}`;
+        if (st.events.has(id)) continue;
+        const next: State = { ...st, events: new Map(st.events).set(id, { t: 'secret', id, seat: a }) };
+        out.push([`seat ${a} publishes its secret`, this.settle(everyone(next, id))]);
+      }
+  }
+
+  /** Every public blocking grant on the line of some created move, one per position. */
+  private publicGrants(st: State): Grant[] {
+    const get = (id: string) => st.events.get(id) as MoveEv;
+    const out = new Map<number, Grant>();
+    for (const e of st.events.values()) {
+      if (e.t !== 'move' || DRAWS[e.kind] === 0) continue;
+      for (const g of grantsOn(this.s, pathTo(e.id, get), get))
+        if (g.move === e.id && !out.has(g.pos)) out.set(g.pos, g);
+    }
+    return [...out.values()];
+  }
+
+  /** For each created blocking move, the seats with no public share of its positions in the whole event set. */
+  private missingShares(st: State): Map<string, Seat[]> {
+    const has = new Map<number, Set<Seat>>();
+    for (const e of st.events.values()) {
+      if (e.t === 'share' && e.to === null) addTo(has, e.pos, e.seat);
+      if (e.t === 'move')
+        for (const r of e.rel) if (r.endsWith(':*')) addTo(has, Number(r.split(':')[0]), e.seat);
+    }
+    const out = new Map<string, Seat[]>();
+    for (const g of this.publicGrants(st)) {
+      const miss = Array.from({ length: this.s.seats }, (_, k) => k).filter((k) => !has.get(g.pos)?.has(k));
+      out.set(g.move, ascending([...(out.get(g.move) ?? []), ...miss]));
+    }
+    return out;
   }
 
   /** Every event any honest client holds is held by every honest client. */
@@ -783,6 +1025,25 @@ class Explorer {
     throw new Error('protocol-model: honest reactions did not settle');
   }
 
+  /**
+   * This client's own result, as it attests it (PROTOCOL-v2 §5.3, §7.1): an accepted claim, a counted resign
+   * (`named`: at the head it names, unless it cancels), or the module over on its chain. Null otherwise.
+   */
+  private ownResult(c: Client, v: View): Standing | null {
+    if (c.frozen !== null) {
+      const f = c.frozen;
+      if (f.reason === 'resign' && this.named() && v.resignCancels(f.head, f.forfeit[0] as Seat)) return null;
+      return { kind: f.reason, head: f.head, forfeit: f.forfeit };
+    }
+    if (v.status === 'over') return { kind: 'over', head: v.head, forfeit: [] };
+    return null;
+  }
+
+  /** A resign's identity is its named head (`stop3`, unless `resignAt: 'counted'`). */
+  private named(): boolean {
+    return this.s.design === 'stop3' && this.s.resignAt !== 'counted';
+  }
+
   /** One honest client's reactions to what it holds: at most one batch of new events. */
   private react(st: State, i: number): State {
     const s = this.s;
@@ -791,18 +1052,19 @@ class Explorer {
     // carries the log hash, so it names the chain).
     if (s.design === 'stop3') {
       const v0 = this.view(st, c);
-      const r =
-        c.frozen !== null
-          ? { kind: c.frozen.reason, head: c.frozen.path.at(-1) ?? ROOT, loser: c.frozen.seat }
-          : v0.status === 'over'
-            ? { kind: 'over' as const, head: v0.head, loser: -1 }
-            : null;
+      const r = this.ownResult(c, v0);
       if (r !== null && !v0.forked) {
-        const id = `T${c.seat}:${r.kind}@${r.head}:${r.loser}`;
+        const id = `T${c.seat}:${standingKey(r)}`;
         if (!c.has.has(id)) {
           const ev: AttestEv = { t: 'attest', id, seat: c.seat, ...r };
           return everyone({ ...st, events: new Map(st.events).set(id, ev) }, id);
         }
+      }
+      // The Secret phase: once the game has ended on this client (a result, a cancel or a stop), it publishes its
+      // Secret reveal (it reaches every honest client at once, as the adversary's do).
+      if (s.secrets === true && !c.has.has(`K${c.seat}`) && (c.frozen !== null || v0.status !== 'live')) {
+        const id = `K${c.seat}`;
+        return everyone({ ...st, events: new Map(st.events).set(id, { t: 'secret', id, seat: c.seat }) }, id);
       }
     }
     // Counted resigns and accepted claims freeze the client's result (PROTOCOL §8.2 "Finality", §8.3).
@@ -823,8 +1085,29 @@ class Explorer {
       c = { ...c, sawStop: false };
       st = { ...st, clients: st.clients.map((x, j) => (j === i ? c : x)) };
     }
-    if (v.status !== 'live') return st;
     const me = c.seat;
+    // The End phase (`secrets`): once this client's deadline passed at the result's head, it claims against the
+    // seats whose secret is missing, and accepts a claim there by a seat that is not stalled (v1 §8.1 "End").
+    const ek = this.endPhase(v);
+    if (ek !== null && c.endForfeit?.at !== ek && c.expired === v.head) {
+      const stalled = this.endStalled(v);
+      if (stalled.length > 0 && !stalled.includes(me)) {
+        const accepted = [...c.has].some((id) => {
+          const e = st.events.get(id) as Ev;
+          return e.t === 'claim' && e.head === v.head && !stalled.includes(e.seat);
+        });
+        if (accepted) {
+          const endForfeit = { at: ek, seats: stalled };
+          return { ...st, clients: st.clients.map((x, j) => (j === i ? { ...c, endForfeit } : x)) };
+        }
+        const id = `C${me}@${v.head}`;
+        if (!c.has.has(id)) {
+          const ev: ClaimEv = { t: 'claim', id, seat: me, head: v.head };
+          return deliver({ ...st, events: new Map(st.events).set(id, ev) }, i, [id]);
+        }
+      }
+    }
+    if (v.status !== 'live') return st;
     const lazy = s.lazy === me;
     const made: Ev[] = [];
     const released = this.releasedBy(c, st);
@@ -858,11 +1141,13 @@ class Explorer {
         }
       }
     }
-    // Honest claims, when this client's deadline passed at the head (twice after a resume, in round 2).
+    // Honest claims, when this client's deadline passed at the head (twice after a resume, in round 2), against
+    // the stalled seats (the pending seat, or with a blocking reveal every seat missing a share).
     if (
       c.expired === v.head &&
       c.expiredCount >= this.claimNeed(c, st) &&
-      v.pending !== me &&
+      v.stalled.length > 0 &&
+      !v.stalled.includes(me) &&
       !c.has.has(`C${me}@${v.head}`)
     ) {
       made.push({ t: 'claim', id: `C${me}@${v.head}`, seat: me, head: v.head });
@@ -872,9 +1157,10 @@ class Explorer {
     // Another device of the same seat may already have published the same Ack or share: the same event here.
     for (const e of made) events.set(e.id, e);
     // Standalone shares reach every honest client at once: they change no honest decision (only what a client
-    // can read), and the adversary sees them at once anyway, so their delivery order is not explored.
-    // In honest-only runs (liveness) the network is synchronous: everything reaches everyone at once, and only the
-    // humans' move order is explored.
+    // can read; in the blocking modes, also when a reveal completes, which the adversary could only delay on some
+    // clients until A3 delivers it), and the adversary sees them at once anyway, so their delivery order is not
+    // explored. In honest-only runs (liveness) the network is synchronous: everything reaches everyone at once, and
+    // only the humans' move order is explored.
     const sync = this.coalition.size === 0;
     const shares = made.filter((e) => sync || e.t === 'share').map((e) => e.id);
     return {
@@ -906,7 +1192,8 @@ class Explorer {
     if (c.frozen !== null) return null;
     const v = this.view(st, c);
     const me = c.seat;
-    if (v.status !== 'live' || v.pending !== me) return null;
+    // A blocking reveal or roll leaves no decision pending until every share is held.
+    if (v.status !== 'live' || v.pending !== me || v.waiting) return null;
     // The human plays each of its turns once, on whichever device: it remembers it took turn number d.
     const depth = v.path.length + 1;
     for (const e of st.events.values()) if (e.t === 'move' && e.seat === me && e.depth === depth) return null;
@@ -946,48 +1233,69 @@ class Explorer {
 
   private freezeFor(st: State, c: Client, v: View): Frozen | null {
     if (v.status !== 'live') return null;
-    // A resign counts once its head is on the chain (PROTOCOL §8.3); it ends the game at this client's head.
+    const s = this.s;
+    const e3 = s.design === 'stop3';
+    const get = (id: string) => v.byId.get(id) as MoveEv;
+    const pathOf = (h: string): string[] => (h === ROOT ? [] : pathTo(h, get));
+    // A resign counts once its head is on the chain (PROTOCOL §8.3); it ends the game at this client's head, or
+    // (`named`, PROTOCOL-v2 §8.3) its identity is the head it names.
     const onChain = new Set([ROOT, ...v.path]);
     let best: ResignEv | null = null;
     for (const id of c.has) {
       const e = st.events.get(id) as Ev;
       if (e.t === 'resign' && onChain.has(e.head) && (best === null || e.id < best.id)) best = e;
     }
-    if (best !== null) return { path: v.path, reason: 'resign', seat: best.seat };
+    if (best !== null) {
+      if (this.named())
+        return { path: pathOf(best.head), reason: 'resign', head: best.head, forfeit: [best.seat] };
+      return { path: v.path, reason: 'resign', head: v.head, forfeit: [best.seat] };
+    }
     // Round 3, device policy (ii) (`ownCheck`): a device adopts a claim or resign result that its own seat attested
     // from another device, at a head on its chain: its seat already counted it.
-    if (this.s.design === 'stop3' && this.s.ownCheck === true) {
+    if (e3 && s.ownCheck === true) {
       let own: AttestEv | null = null;
       for (const id of c.has) {
         const e = st.events.get(id) as Ev;
         if (e.t !== 'attest' || e.seat !== c.seat || e.kind === 'over' || !onChain.has(e.head)) continue;
         if (own === null || e.id < own.id) own = e;
       }
-      if (own !== null) {
-        const get = (id: string) => v.byId.get(id) as MoveEv;
-        const path = own.head === ROOT ? [] : pathTo(own.head, get);
-        return { path, reason: own.kind as 'claim' | 'resign', seat: own.loser };
-      }
+      if (own !== null)
+        return {
+          path: pathOf(own.head),
+          reason: own.kind as 'claim' | 'resign',
+          head: own.head,
+          forfeit: own.forfeit,
+        };
     }
     // Round 3 (\`stop3\`): a claim by this client's own seat, from another device, at a head on its chain counts
     // there: that device's deadline passed (device policy (ii), with \`ownCheck\`).
-    if (this.s.design === 'stop3') {
-      const get = (id: string) => v.byId.get(id) as MoveEv;
+    if (e3) {
       for (const id of c.has) {
         const e = st.events.get(id) as Ev;
         if (e.t !== 'claim' || e.seat !== c.seat || !onChain.has(e.head)) continue;
-        const path = e.head === ROOT ? [] : pathTo(e.head, get);
-        if (path.length % this.s.seats !== c.seat)
-          return { path, reason: 'claim', seat: path.length % this.s.seats };
+        const path = pathOf(e.head);
+        if (path.length <= setupOf(s)) continue;
+        const stalled = v.stalledAt(e.head);
+        if (stalled.length > 0 && !stalled.includes(c.seat))
+          return { path, reason: 'claim', head: e.head, forfeit: stalled };
+      }
+    }
+    // The N2 regression (`autoOwnForfeit`): a claim at the head whose stalled seats are this seat alone is accepted
+    // at once, without a deadline (claim validity has no clock, PROTOCOL-v2 §5.3).
+    if (e3 && s.autoOwnForfeit === true && v.stalled.length === 1 && v.stalled[0] === c.seat) {
+      for (const id of c.has) {
+        const e = st.events.get(id) as Ev;
+        if (e.t === 'claim' && e.head === v.head && e.seat !== c.seat)
+          return { path: v.path, reason: 'claim', head: v.head, forfeit: v.stalled };
       }
     }
     // A claim counts when its head is the head, this client's deadline passed there, and its claimant is not
-    // the stalled (pending) seat.
+    // stalled there; every stalled seat forfeits.
     if (c.expired === v.head && c.expiredCount >= this.claimNeed(c, st)) {
       for (const id of c.has) {
         const e = st.events.get(id) as Ev;
-        if (e.t === 'claim' && e.head === v.head && e.seat !== v.pending)
-          return { path: v.path, reason: 'claim', seat: v.pending };
+        if (e.t === 'claim' && e.head === v.head && !v.stalled.includes(e.seat))
+          return { path: v.path, reason: 'claim', head: v.head, forfeit: v.stalled };
       }
     }
     return null;
@@ -1039,32 +1347,112 @@ class Explorer {
 
   /* ---------------------------------------------------------------------------------------- checks */
 
+  /** A client's final result: what it shows once every created event has reached it. */
+  private finalOf(c: Client, v: View): Final {
+    const s = this.s;
+    const get = (id: string) => v.byId.get(id) as MoveEv;
+    const pathOf = (h: string): string[] => (h === ROOT ? [] : pathTo(h, get));
+    /** The scored path of a resign result (`named`: up to S, PROTOCOL-v2 §8.3). */
+    const resignPath = (head: string, k: Seat, fallback: readonly string[]): readonly string[] =>
+      this.named() ? pathOf(v.sOf(head, k)) : fallback;
+    let f: Omit<Final, 'base' | 'score' | 'auditFailed'>;
+    if (v.status === 'stood' && v.standing !== null) {
+      // Round 3: the result that stood at the fork, on every client; a different counted one is voided.
+      const R = v.standing;
+      const same =
+        c.frozen !== null &&
+        c.frozen.reason === R.kind &&
+        c.frozen.head === R.head &&
+        sameSeats(c.frozen.forfeit, R.forfeit);
+      f = {
+        end: R.kind,
+        head: R.head,
+        path: R.kind === 'resign' ? resignPath(R.head, R.forfeit[0] as Seat, v.path) : v.path,
+        forfeit: R.forfeit,
+        frozen: c.frozen,
+        view: v,
+        voided: c.frozen !== null && !same ? c.frozen : null,
+      };
+    } else if (c.frozen !== null && v.status === 'stop' && this.stopVoids(v.path, c.frozen.path)) {
+      // Fork stop takes precedence (prompt-reveal.md §5, rule 4): a stop at a prev on the path of a counted claim
+      // or resign voids it, so the result is a function of the held events.
+      f = {
+        end: v.cancelled ? 'cancel' : 'stop',
+        head: v.head,
+        path: v.path,
+        forfeit: v.equivocators,
+        frozen: null,
+        view: v,
+        voided: c.frozen,
+      };
+    } else if (v.status === 'stop') {
+      if (c.frozen !== null) f = this.frozenFinal(c.frozen, v, resignPath);
+      else
+        f = {
+          end: v.cancelled ? 'cancel' : 'stop',
+          head: v.head,
+          path: v.path,
+          forfeit: v.equivocators,
+          frozen: null,
+          view: v,
+          voided: null,
+        };
+    } else if (c.frozen !== null) f = this.frozenFinal(c.frozen, v, resignPath);
+    else
+      f = {
+        end: v.status === 'over' ? 'over' : 'live',
+        head: v.head,
+        path: v.path,
+        forfeit: [],
+        frozen: null,
+        view: v,
+        voided: null,
+      };
+    const base = scores(s, f.end, f.head, f.forfeit, v.stopSeat, v.beforePlay);
+    // The audit (`secrets`): once every secret is held it replays the scored line, and fails each cheat's signer.
+    const auditFailed =
+      s.secrets === true && (f.end === 'over' || f.end === 'stop') && v.secrets.size === s.seats
+        ? ascending(f.path.filter((id) => get(id).cheat === true).map((id) => get(id).seat))
+        : [];
+    const ended = c.endForfeit !== null && c.endForfeit.at === `${f.end}:${f.head}` ? c.endForfeit.seats : [];
+    const score = base.map((x, k) => {
+      if (f.end === 'over' && (ended.includes(k) || auditFailed.includes(k))) return 'last';
+      if (f.end === 'stop') {
+        if (ended.includes(k)) return 'last';
+        // A proven failure after a stop moves a seat that is not an equivocator to just above the equivocators.
+        if (auditFailed.includes(k) && !f.forfeit.includes(k)) return 'failed';
+      }
+      return x;
+    });
+    return { ...f, base, score, auditFailed };
+  }
+
+  private frozenFinal(
+    fr: Frozen,
+    v: View,
+    resignPath: (head: string, k: Seat, fallback: readonly string[]) => readonly string[],
+  ): Omit<Final, 'base' | 'score' | 'auditFailed'> {
+    if (fr.reason === 'resign' && this.named() && v.resignCancels(fr.head, fr.forfeit[0] as Seat))
+      return { end: 'cancel', head: fr.head, path: fr.path, forfeit: [], frozen: fr, view: v, voided: null };
+    return {
+      end: fr.reason,
+      head: fr.head,
+      path: fr.reason === 'resign' ? resignPath(fr.head, fr.forfeit[0] as Seat, fr.path) : fr.path,
+      forfeit: fr.forfeit,
+      frozen: fr,
+      view: v,
+      voided: null,
+    };
+  }
+
   private check(st: State, trace: () => string[]): void {
     this.checked++;
     const s = this.s;
+    const e3 = s.design === 'stop3';
     const views = st.clients.map((c) => this.view(st, c));
-    const finals = st.clients.map((c, i) => {
-      const v = views[i] as View;
-      if (v.status === 'stood' && v.standing !== null) {
-        // Round 3: the result that stood at the fork, on every client; a different counted one is voided.
-        const R = v.standing;
-        const frozen: Frozen | null =
-          R.kind === 'over' ? null : { path: v.path, reason: R.kind, seat: R.loser };
-        const same =
-          c.frozen !== null && c.frozen.reason === R.kind && (c.frozen.path.at(-1) ?? ROOT) === R.head;
-        const voided = c.frozen !== null && !same ? c.frozen : null;
-        return { path: v.path, end: R.kind as string, frozen, view: v, voided };
-      }
-      // Fork stop takes precedence (prompt-reveal.md §5, rule 4): a stop at a prev on the path of a counted claim
-      // or resign voids it, so the result is a function of the held events.
-      if (c.frozen !== null && v.status === 'stop' && this.stopVoids(v.path, c.frozen.path))
-        return { path: v.path, end: v.status, frozen: null, view: v, voided: c.frozen };
-      const path = c.frozen?.path ?? v.path;
-      const end = c.frozen !== null ? c.frozen.reason : v.status;
-      return { path, end, frozen: c.frozen, view: v, voided: null as Frozen | null };
-    });
+    const finals = st.clients.map((c, i) => this.finalOf(c, views[i] as View));
     // S3.
-    const sig = finals.map((f) => `${f.end}:${f.path.at(-1) ?? ROOT}`);
+    const sig = finals.map((f) => `${f.end}:${f.head}${f.end === 'claim' ? `:${f.forfeit.join('.')}` : ''}`);
     if (new Set(sig).size > 1) {
       // The pre-existing claim race: some client ended on a claim or resign, and no client holds a fork. A
       // difference with a fork held is a genuine divergence (round 3, A2).
@@ -1077,22 +1465,27 @@ class Explorer {
     }
     // S2.
     for (const f of finals) {
-      // Round 3: a fork whose result stood records its equivocator; never an honest seat.
-      if (f.view.recorded !== null && !this.coalition.has(f.view.recorded))
-        this.report('honest-flagged', `honest seat ${f.view.recorded} is recorded as an equivocator`, trace);
-      if (f.frozen?.reason === 'claim' && !this.coalition.has(f.frozen.seat)) {
-        // The claim race (PROTOCOL §11): an honest seat whose own clients already ended the game on an accepted
-        // claim stops moving, and is timed out on a client that never accepted it. Known v1 residual. (Ended on a
-        // counted resign instead, it needs a fork: F8, reported as an honest forfeit.)
-        const seat = f.frozen.seat;
-        const ended = st.clients
-          .filter((c) => c.seat === seat)
-          .every((c) => c.frozen !== null && c.frozen.reason === 'claim');
-        this.report(
-          ended ? 'claim-race' : 'honest-forfeit',
-          `honest seat ${seat} timed out at ${f.path.at(-1) ?? ROOT}${ended ? ' after its own client ended the game' : ''}`,
-          trace,
-        );
+      // Round 3: a fork records its equivocators (M1: every seat with a fork on a valid line); never an honest seat.
+      for (const x of f.view.allEquivocators)
+        if (!this.coalition.has(x))
+          this.report('honest-flagged', `honest seat ${x} is recorded as an equivocator`, trace);
+      if (f.end === 'claim') {
+        for (const seat of f.forfeit) {
+          if (this.coalition.has(seat)) continue;
+          // The claim race (PROTOCOL §11): an honest seat whose own clients already ended the game on an accepted
+          // claim against another seat stops moving, and is timed out on a client that never accepted it. Known v1
+          // residual. (Ended on a counted resign instead, it needs a fork: F8, reported as an honest forfeit.)
+          const ended = st.clients
+            .filter((c) => c.seat === seat)
+            .every(
+              (c) => c.frozen !== null && c.frozen.reason === 'claim' && !c.frozen.forfeit.includes(seat),
+            );
+          this.report(
+            ended ? 'claim-race' : 'honest-forfeit',
+            `honest seat ${seat} timed out at ${f.head}${ended ? ' after its own client ended the game' : ''}`,
+            trace,
+          );
+        }
       }
       if (f.end === 'stop' && !this.coalition.has(f.view.stopSeat as Seat))
         this.report(
@@ -1100,6 +1493,9 @@ class Explorer {
           `the game stopped on an honest seat's fork (${f.view.stopSeat})`,
           trace,
         );
+      for (const [k, x] of f.score.entries())
+        if (x !== f.base[k] && !this.coalition.has(k) && !f.auditFailed.includes(k))
+          this.report('honest-forfeit', `honest seat ${k} forfeits for a missing secret at ${f.head}`, trace);
     }
     // Flags: a seat that vouched for two sides of a fork is flagged (round 2); never an honest one.
     for (const f of finals)
@@ -1120,34 +1516,85 @@ class Explorer {
           `the stop by seat ${f.view.stopSeat} voids a game that had already ended`,
           trace,
         );
+      // M1 (PROTOCOL-v2 §5.6): every equivocator of the global scan shares the last places, rated.
+      if (e3 && f.end === 'stop' && (s.stopScore ?? 'abort') !== 'abort')
+        for (const x of f.view.allEquivocators)
+          if (f.score[x] !== 'last' && f.score[x] !== 'tie')
+            this.report(
+              'rating',
+              `equivocator ${x} is not rated last by the stop of seat ${f.view.stopSeat} (${f.score[x]})`,
+              trace,
+            );
       const lost = f.voided;
-      if (lost !== null && this.coalition.has(lost.seat)) {
+      if (lost?.forfeit.some((x) => this.coalition.has(x))) {
         const by = f.end === 'stop' ? `the stop of seat ${f.view.stopSeat}` : `${f.end} (stood)`;
-        const same = f.end === 'stop' && f.view.stopSeat === lost.seat;
-        const sameEffect = same && (lost.reason === 'resign' || s.seats === 2) && forfeitStop(s.design);
-        const detail = `a fork at ${f.path.at(-1) ?? ROOT} voids seat ${lost.seat}'s counted ${lost.reason} (now ${by})`;
+        const detail = `a fork at ${f.path.at(-1) ?? ROOT} voids seat ${lost.forfeit.join(',')}'s counted ${lost.reason} (now ${by})`;
         // Round 3: a counted claim or resign that did not stand is overridden by design (A2: the stop wins on
         // every client). With 2 seats the stop is the same rated loss; with 3 or more, a rated timeout becoming an
         // unrated abort, or the record moving to another coalition seat, is reported apart (an owner question).
-        if (s.design === 'stop3') {
+        if (e3) {
           // A coalition seat gains when its score changes to anything but a rated last place (a timeout becoming
           // an unrated abort, a standing moved to another head, the record moved to another seat).
-          const was = scores(s, lost.reason, lost.path.at(-1) ?? ROOT, lost.seat);
-          const now = scores(s, f.end, f.path.at(-1) ?? ROOT, loserOf(f));
-          const gain = [...this.coalition].some((x) => was[x] !== now[x] && now[x] !== 'last');
+          // A counted resign that cancels (`named`: S cut before the resigner's first game action) was no loss.
+          const lostEnd = this.frozenFinal(lost, f.view, (h) => [h]).end;
+          const was = scores(s, lostEnd, lost.head, lost.forfeit, null, false);
+          const now = f.base;
+          const gain =
+            lostEnd !== 'cancel' && [...this.coalition].some((x) => was[x] !== now[x] && now[x] !== 'last');
           if (gain) this.report(s.seats === 2 ? 'rating' : 'void-forfeit', detail, trace);
-        } else if (!sameEffect) this.report('rating', detail, trace);
+        } else {
+          const same = f.end === 'stop' && lost.forfeit.length === 1 && f.view.stopSeat === lost.forfeit[0];
+          const sameEffect = same && (lost.reason === 'resign' || s.seats === 2) && forfeitStop(s.design);
+          if (!sameEffect) this.report('rating', detail, trace);
+        }
       }
+    }
+    if (e3) {
+      for (const f of finals) {
+        // H1 (PROTOCOL-v2 §5.6): a stop cancels only when nothing was played; a cancel with a game action held on
+        // a valid line lets E escape a game in play.
+        if (f.end === 'cancel' && f.view.status === 'stop' && f.view.anyPlay)
+          this.report(
+            'cancel-escape',
+            `the fork of seat ${f.view.stopSeat} at ${f.head} cancels a game in play`,
+            trace,
+          );
+        // H2 (PROTOCOL-v2 §7.3): a stop's places are fixed at the stop, except for a proven audit failure.
+        if (f.end === 'stop')
+          for (const [k, x] of f.score.entries())
+            if (x !== f.base[k] && !f.auditFailed.includes(k))
+              this.report(
+                'stop-demotion',
+                `seat ${k} moves from ${f.base[k]} to ${x} after the stop at ${f.head}`,
+                trace,
+              );
+      }
+      // N1 (PROTOCOL-v2 §5.4): a cheat on the line of an `over` result is audited (every secret held) or its End
+      // phase is open (a seat whose secret is missing is stalled, and forfeits once a deadline passes).
+      if (s.secrets === true)
+        for (const [i, f] of finals.entries()) {
+          if (f.end !== 'over' || f.view.secrets.size === s.seats) continue;
+          if (this.endPhase(f.view) !== null) continue;
+          const get = (id: string) => f.view.byId.get(id) as MoveEv;
+          for (const id of f.path)
+            if (get(id).cheat === true && f.score[get(id).seat] !== 'last')
+              this.report(
+                'cheat-escape',
+                `seat ${get(id).seat}'s cheat ${id} stands unaudited on ${this.who(st.clients[i] as Client)}'s ` +
+                  `${f.view.status === 'stood' ? 'standing ' : ''}result over:${f.head}, and no seat is stalled`,
+                trace,
+              );
+        }
     }
     // Finality (round 3): the scores of a result every honest seat attested are the scores on every honest client
     // (a label change with the same scores, such as a 2-seat timeout of E becoming E's stop, is fine, and so is a
-    // 2-seat result becoming the equivocator's loss).
-    if (s.design === 'stop3') {
+    // 2-seat result becoming the equivocator's loss). The audit's forfeits change places, never which result it is.
+    if (e3) {
       const bySeat = new Map<Seat, Map<string, string>>();
       for (const e of st.events.values())
         if (e.t === 'attest' && !this.coalition.has(e.seat)) {
           const m = bySeat.get(e.seat) ?? new Map<string, string>();
-          m.set(`${e.kind}:${e.head}`, scores(s, e.kind, e.head, e.loser).join(','));
+          m.set(standingKey(e), scores(s, e.kind, e.head, e.forfeit, null, false).join(','));
           bySeat.set(e.seat, m);
         }
       const first = bySeat.get(this.honest[0] as Seat);
@@ -1157,15 +1604,16 @@ class Explorer {
         // neither stands, by design.
         if (this.honest.some((h) => [...(bySeat.get(h)?.keys() ?? [])].some((x) => x !== r))) continue;
         for (const [i, f] of finals.entries()) {
-          const head = f.path.at(-1) ?? ROOT;
-          const now = scores(s, f.end, head, loserOf(f));
+          const now = f.base;
           const got = now.join(',');
-          // A 2-seat stop that turns an attested result into the equivocator's loss harms no honest seat.
-          if (got !== score && !this.honest.every((h) => now[h] === 'first'))
+          // A stop that only makes the equivocator's score worse (a 2-seat result becoming its loss, or a 3-seat
+          // resign becoming its rated last place) harms no honest seat.
+          const was = score.split(',');
+          if (got !== score && !this.honest.every((h) => now[h] === 'first' || now[h] === was[h]))
             this.report(
               'attested-void',
               `every honest seat attested ${r} (${score}), but ${this.who(st.clients[i] as Client)} ends on ` +
-                `${f.end}:${head} (${got})`,
+                `${f.end}:${f.head} (${got})`,
               trace,
             );
         }
@@ -1209,7 +1657,7 @@ class Explorer {
     // Liveness, honest-only runs: while the game is live (once it is over, the end reveal takes over).
     if (this.coalition.size === 0) {
       for (const [i, c] of st.clients.entries()) {
-        const f = finals[i] as (typeof finals)[number];
+        const f = finals[i] as Final;
         if (f.end !== 'live') continue;
         const grants = grantsOn(s, f.path, (id) => st.events.get(id) as MoveEv);
         for (const g of grants) {
@@ -1267,6 +1715,25 @@ class Explorer {
     else known.count++;
     if (this.s.stopAt?.includes(kind)) this.halt = true;
   }
+}
+
+/** A client's final result in the checks. */
+interface Final {
+  readonly end: 'live' | 'over' | 'claim' | 'resign' | 'stop' | 'cancel';
+  /** The result's head (a resign's identity head), or the fork point of a stop. */
+  readonly head: string;
+  /** The scored path (S1): to the result's head, to S for a resign (`named`), to P for a stop. */
+  readonly path: readonly string[];
+  /** The forfeiting seats of a claim or resign; the equivocators of a stop. */
+  readonly forfeit: readonly Seat[];
+  readonly frozen: Frozen | null;
+  readonly view: View;
+  readonly voided: Frozen | null;
+  /** Per-seat scores of the result itself. */
+  readonly base: readonly string[];
+  /** Per-seat scores after the End phase: claims for missing secrets and the audit (`secrets`). */
+  readonly score: readonly string[];
+  readonly auditFailed: readonly Seat[];
 }
 
 /**
@@ -1335,36 +1802,56 @@ function evKey(e: Ev): string {
 }
 
 function moveId(prev: string, seat: Seat, kind: Kind, v: number): string {
-  const k = kind === 'draw' ? 'd' : kind === 'draw2' ? 'D' : 'p';
+  const k = { draw: 'd', draw2: 'D', pass: 'p', shuf: 's', junk: 'j' }[kind];
   return `${prev === ROOT ? '' : `${prev}/`}${seat}${k}${v}`;
+}
+
+function addTo(m: Map<number, Set<Seat>>, pos: number, seat: Seat): void {
+  const set = m.get(pos) ?? new Set<Seat>();
+  set.add(seat);
+  m.set(pos, set);
 }
 
 function hasAcks(d: Design): boolean {
   return d === 'ack' || d === 'ack-lock' || isFgr(d);
 }
 
+const standingKey = (r: { kind: string; head: string; forfeit: readonly Seat[] }): string =>
+  `${r.kind}@${r.head}:${r.forfeit.join('.')}`;
+
 /**
- * A result's score, per seat. 2 seats: a timeout, resign or stop of L is L's rated loss (`last`) and the other's
- * win. 3 or more: a timeout is L's rated last place at that head, the others by standings there; a resign is an
- * unrated abort recording L (the owner's abort policy, D052); a stop scores by `stopScore` (`abort` as a resign,
- * `timeout` as L's timeout at the fork, `last` as L's rated last place with the game unrated for the others). A
- * natural end is scored by standings at its head.
+ * A result's score, per seat. 2 seats: a timeout, resign or stop is a rated loss for the forfeiting seats (a stop's
+ * forfeiting seats are its equivocators; both equivocators is a tie) and a win for the other. 3 or more: a timeout
+ * is a rated last place for the stalled seats at that head, the others by standings there; a resign is an unrated
+ * abort recording the resigner (D052); a stop scores by `stopScore` (`abort`: an unrated abort recording E;
+ * `timeout`: the equivocators last, the others by standings at P, or 0 when P is before play; `last`: the
+ * equivocators rated last, the game unrated for the others). A natural end is scored by standings at its head; a
+ * cancel counts for nothing.
  */
-function scores(s: Scope, end: string, head: string, loser: Seat): string[] {
+function scores(
+  s: Scope,
+  end: string,
+  head: string,
+  forfeit: readonly Seat[],
+  E: Seat | null,
+  beforePlay: boolean,
+): string[] {
   return Array.from({ length: s.seats }, (_, x) => {
     if (end === 'over') return `standing@${head}`;
     if (end === 'live') return `live@${head}`;
-    if (s.seats === 2) return x === loser ? 'last' : 'first';
-    const stop = end === 'stop' ? (s.stopScore ?? 'abort') : null;
-    if (end === 'claim' || stop === 'timeout') return x === loser ? 'last' : `standing@${head}`;
-    if (stop === 'last') return x === loser ? 'last' : 'unrated';
-    return x === loser ? 'unrated-recorded' : 'unrated';
+    if (end === 'cancel') return 'cancel';
+    const lost = forfeit.includes(x);
+    if (s.seats === 2) {
+      if (end === 'stop' && forfeit.length === s.seats) return 'tie';
+      return lost ? 'last' : 'first';
+    }
+    if (end === 'claim') return lost ? 'last' : `standing@${head}`;
+    if (end === 'resign') return lost ? 'unrated-recorded' : 'unrated';
+    const mode = s.stopScore ?? 'abort';
+    if (mode === 'timeout') return lost ? 'last' : beforePlay ? 'zero' : `standing@${head}`;
+    if (mode === 'last') return lost ? 'last' : 'unrated';
+    return x === E ? 'unrated-recorded' : 'unrated';
   });
-}
-
-/** The forfeiting seat of a client's final result (-1 for a natural end or a live game). */
-function loserOf(f: { readonly end: string; readonly frozen: Frozen | null; readonly view: View }): Seat {
-  return f.end === 'stop' ? (f.view.stopSeat as Seat) : (f.frozen?.seat ?? -1);
 }
 
 /** Designs in which a stop is scored as the equivocator's forfeit (round 2 and candidate (d)). */
@@ -1437,9 +1924,17 @@ interface View {
   readonly status: 'live' | 'over' | 'stop' | 'stood';
   /** `stop3`: the attested result that stood at a fork (the game's result on every client). */
   readonly standing: Standing | null;
-  /** `stop3`: the equivocator a fork recorded when a result stood against it. */
-  readonly recorded: Seat | null;
   readonly stopSeat: Seat | null;
+  /** `stop3`: the stop cancels the game (PROTOCOL-v2 §5.6). */
+  readonly cancelled: boolean;
+  /** `stop3`: the walk up to the fork holds no game action (P before play). */
+  readonly beforePlay: boolean;
+  /** `stop3`: some held game action lies on a valid line. */
+  readonly anyPlay: boolean;
+  /** `stop3`: the equivocators the design records (every one of the global scan, or E alone with `topmostOnly`). */
+  readonly equivocators: readonly Seat[];
+  /** `stop3`: every seat with two valid-looking moves on one prev whose line is valid (review M1), whatever the design. */
+  readonly allEquivocators: readonly Seat[];
   /** Seats that vouched for two sides of a fork on the walk (fork-stop designs). */
   readonly flagged: ReadonlySet<Seat>;
   /** A fork (a held rival) exists at some prev on the walk. */
@@ -1447,6 +1942,17 @@ interface View {
   /** The stop is at a fork with a side that had already reached the end (`stop`): a finished game voided. */
   readonly endedVoided: boolean;
   readonly pending: Seat;
+  /** A blocking reveal or roll at the head lacks some seat's share (no decision is pending). */
+  readonly waiting: boolean;
+  /** The stalled seats at the head: the pending seat, or every seat missing a share of a blocking reveal. */
+  readonly stalled: readonly Seat[];
+  readonly stalledAt: (head: string) => Seat[];
+  /** Seats whose Secret reveal is held (a Resign carries its seat's secret). */
+  readonly secrets: ReadonlySet<Seat>;
+  /** The scoring position S of a resign by k naming `head` (PROTOCOL-v2 §8.3). */
+  readonly sOf: (head: string, k: Seat) => string;
+  /** Whether a resign by k naming `head` cancels (v1 §8.3 with S of PROTOCOL-v2 §8.3). */
+  readonly resignCancels: (head: string, k: Seat) => boolean;
   readonly grants: readonly Grant[];
   readonly pathMoves: readonly MoveEv[];
   readonly linkedMoves: readonly MoveEv[];
@@ -1465,7 +1971,7 @@ interface View {
 interface Standing {
   readonly kind: 'over' | 'claim' | 'resign';
   readonly head: string;
-  readonly loser: Seat;
+  readonly forfeit: readonly Seat[];
 }
 
 /** Whether moves `a` and `b` conflict: neither is an ancestor of the other. */
@@ -1474,9 +1980,12 @@ function conflicts(v: View, a: string, b: string): boolean {
 }
 
 function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
+  const e3 = s.design === 'stop3';
+  const T = totalOf(s);
+  const setup = setupOf(s);
   const byId = new Map<string, MoveEv>();
   for (const e of evs) if (e.t === 'move') byId.set(e.id, e);
-  // Linked moves: the prev chain reaches the root through held moves (every move here is valid by construction).
+  // Linked moves: the prev chain reaches the root through held moves.
   const linked = new Map<string, MoveEv>();
   const kids = new Map<string, MoveEv[]>();
   const sorted = [...byId.values()].sort((a, b) => a.depth - b.depth);
@@ -1488,6 +1997,9 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     kids.set(m.prev, list);
   }
   for (const list of kids.values()) list.sort((a, b) => a.v - b.v || a.kind.localeCompare(b.kind));
+  const depthOf = (id: string): number => (id === ROOT ? 0 : (byId.get(id)?.depth ?? 0));
+  const get = (id: string) => byId.get(id) as MoveEv;
+  const pathOf = (id: string): string[] => (id === ROOT ? [] : pathTo(id, get));
   const ancestor = (a: string, b: string): boolean => {
     // a is an ancestor of (or equal to) b
     let at = b;
@@ -1499,6 +2011,72 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       at = m.prev;
     }
   };
+  // Public shares held (the blocking modes), by position.
+  const pub = new Map<number, Set<Seat>>();
+  const secrets = new Set<Seat>();
+  for (const e of evs) {
+    if (e.t === 'share' && e.to === null) addTo(pub, e.pos, e.seat);
+    if (e.t === 'move')
+      for (const r of e.rel) if (r.endsWith(':*')) addTo(pub, Number(r.split(':')[0]), e.seat);
+    if (e.t === 'secret' || e.t === 'resign') secrets.add(e.seat);
+  }
+  /** The seats missing a share of the blocking reveal or roll that move `h` requested; [] when none. */
+  const missingMemo = new Map<string, Seat[]>();
+  const missingAt = (h: string): Seat[] => {
+    if (!blocking(s) || h === ROOT) return [];
+    const known = missingMemo.get(h);
+    if (known !== undefined) return known;
+    const m = byId.get(h);
+    let out: Seat[] = [];
+    if (m !== undefined && DRAWS[m.kind] > 0) {
+      const mine = grantsOn(s, pathOf(h), get).filter((g) => g.move === h);
+      const miss: Seat[] = [];
+      for (const g of mine) for (let k = 0; k < s.seats; k++) if (!pub.get(g.pos)?.has(k)) miss.push(k);
+      out = ascending(miss);
+    }
+    missingMemo.set(h, out);
+    return out;
+  };
+  /** C(h) (PROTOCOL-v2 §5.1): the valid-looking successors; none while a blocking reveal at h waits for shares. */
+  const cands = (h: string): MoveEv[] => (missingAt(h).length > 0 ? [] : (kids.get(h) ?? []));
+  /** A line is valid when every move on it is valid at its prev: no junk step, no move before its reveal. */
+  const validMemo = new Map<string, boolean>();
+  const validLine = (id: string): boolean => {
+    if (id === ROOT) return true;
+    const known = validMemo.get(id);
+    if (known !== undefined) return known;
+    const m = linked.get(id);
+    const ok = m !== undefined && m.kind !== 'junk' && missingAt(m.prev).length === 0 && validLine(m.prev);
+    validMemo.set(id, ok);
+    return ok;
+  };
+  const stalledAt = (h: string): Seat[] => {
+    const miss = missingAt(h);
+    return miss.length > 0 ? miss : [pendingAt(s, depthOf(h))];
+  };
+  /** S (PROTOCOL-v2 §8.3, v1 §8.3 steps 2–3): along `head`'s line to the first fork past it. */
+  const sOf = (head: string, k: Seat): string => {
+    const line: MoveEv[] = [];
+    let at = head;
+    for (;;) {
+      if (depthOf(at) >= T) break;
+      const ks = cands(at);
+      if (ks.length !== 1 || (ks[0] as MoveEv).kind === 'junk') break;
+      line.push(ks[0] as MoveEv);
+      at = (ks[0] as MoveEv).id;
+    }
+    let i = -1;
+    line.forEach((m, j) => {
+      if (m.seat === k && m.depth > setup) i = j;
+    });
+    const s0 = i < 0 ? head : (line[i] as MoveEv).id;
+    const next = pendingAt(s, depthOf(s0));
+    if (next !== k) while (i + 1 < line.length && (line[i + 1] as MoveEv).seat === next) i++;
+    return i < 0 ? head : (line[i] as MoveEv).id;
+  };
+  const resignCancels = (head: string, k: Seat): boolean =>
+    depthOf(head) <= setup && !pathOf(sOf(head, k)).some((id) => get(id).seat === k && get(id).depth > setup);
+
   const acks = new Map<string, Set<Seat>>();
   const ackedByMe = new Set<string>();
   const myAcks: string[] = [];
@@ -1582,14 +2160,15 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   let forked = false;
   let endedVoided = false;
   let standing: Standing | null = null;
-  let recorded: Seat | null = null;
+  let cancelled = false;
+  let beforePlay = false;
   // Round 3's cutoff (`stop3`): the attested results, and the Shares events with their anchors (the releaser's head).
   const attests = new Map<string, { r: Standing; seats: Set<Seat> }>();
   for (const e of evs) {
     if (e.t !== 'attest') continue;
-    const key = `${e.kind}@${e.head}:${e.loser}`;
+    const key = standingKey(e);
     const g = attests.get(key) ?? {
-      r: { kind: e.kind, head: e.head, loser: e.loser },
+      r: { kind: e.kind, head: e.head, forfeit: e.forfeit },
       seats: new Set<Seat>(),
     };
     g.seats.add(e.seat);
@@ -1597,24 +2176,34 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
   }
   const anchors = evs.filter((e): e is ShareEv => e.t === 'share');
   const attestEvs = evs.filter((e): e is AttestEv => e.t === 'attest');
-  /** Whether result `r` is valid from the held events: an end at full length, or a held claim or resign. */
+  /** Whether result `r` is valid from the held events (PROTOCOL-v2 §5.3). */
   const valid = (r: Standing): boolean => {
-    if (r.head !== ROOT && !linked.has(r.head)) return false;
-    const depth = r.head === ROOT ? 0 : (linked.get(r.head) as MoveEv).depth;
-    if (r.kind === 'over') return depth >= s.length && r.loser === -1;
-    if (depth >= s.length) return false;
+    if (r.head !== ROOT && (!linked.has(r.head) || !validLine(r.head))) return false;
+    const depth = depthOf(r.head);
+    if (r.kind === 'over') return depth >= T && r.forfeit.length === 0;
+    if (depth >= T) return false;
     if (r.kind === 'claim')
+      // No clock and no stall check: rule (a) asks every forfeiting seat to attest it.
       return (
-        r.loser === depth % s.seats &&
-        evs.some((e) => e.t === 'claim' && e.head === r.head && e.seat !== r.loser)
+        r.forfeit.length > 0 &&
+        depth > setup &&
+        evs.some((e) => e.t === 'claim' && e.head === r.head && !r.forfeit.includes(e.seat))
       );
-    // A resign counts at a head of the resigner's choosing on or past the head it names (PROTOCOL §8.3).
-    return evs.some((e) => e.t === 'resign' && e.seat === r.loser && ancestor(e.head, r.head));
+    if (r.forfeit.length !== 1) return false;
+    const k = r.forfeit[0] as Seat;
+    // `counted` (the round-3 model): a resign counts at a head of the client's choosing on or past the head it names.
+    if (s.resignAt === 'counted')
+      return evs.some((e) => e.t === 'resign' && e.seat === k && ancestor(e.head, r.head));
+    // `named`: the identity is the head the resign names, and it must not cancel.
+    return (
+      evs.some((e) => e.t === 'resign' && e.seat === k && e.head === r.head) && !resignCancels(r.head, k)
+    );
   };
   /**
    * The one result that stands at the fork after `at` (successors `ks`, signed by E): a valid result on the walk's
-   * path or on one of the sides, attested by every seat but E, with no move and no anchored Shares event by a seat
-   * but E off its path (root to its head). Several, or none: null (the fork stops the game).
+   * path or on one of the sides, attested by every seat but E, with no move, anchored Shares event or attestation by
+   * a seat but E off its line (PROTOCOL-v2 §5.4; an unresolved anchor is off every line). Several, or none: null
+   * (the fork stops the game).
    */
   const standingAt = (at: string, ks: readonly MoveEv[], E: Seat): Standing | null => {
     const found = new Set<string>();
@@ -1625,7 +2214,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       if (!ancestor(R.head, at) && !ks.some((k) => ancestor(k.id, R.head))) continue;
       let all = true;
       for (let x = 0; x < s.seats; x++)
-        if (x !== E && !g.seats.has(x) && !(s.exemptLoser === true && x === R.loser)) all = false;
+        if (x !== E && !g.seats.has(x) && !(s.exemptLoser === true && R.forfeit.includes(x))) all = false;
       if (!all) continue;
       // Off the result's line: neither on its path nor past its head (another side of a fork). Events past the head
       // only concern values granted after the result's end (post-end); `cutoff: 'path'` (a regression) counts them.
@@ -1643,33 +2232,43 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     return found.size === 1 ? one : null;
   };
   for (;;) {
-    if (path.length >= s.length) {
+    if (path.length >= T) {
       status = 'over';
       break;
     }
-    const ks = kids.get(at) ?? [];
+    const ks = e3 ? cands(at) : (kids.get(at) ?? []);
     if (ks.length === 0) break;
     if (ks.length >= 2) forked = true;
     let next: MoveEv;
-    if (s.design === 'stop3') {
-      if (ks.length === 1) next = ks[0] as MoveEv;
-      else {
-        // Round 3: a result that stands (attested by every seat but E, nothing signed off its path by a seat but E)
-        // is the result; any other fork stops the game here, as E's forfeit.
+    if (e3) {
+      if (ks.length === 1) {
+        // A lone successor that is not valid (a setup step whose proof fails) ends the walk at h.
+        if ((ks[0] as MoveEv).kind === 'junk') break;
+        next = ks[0] as MoveEv;
+      } else {
+        // Round 3: a result that stands (attested by every seat but E, nothing signed off its line by a seat but E)
+        // is the result; any other fork stops the game here, as E's forfeit, or cancels it (PROTOCOL-v2 §5.6).
         forked = true;
-        const E = path.length % s.seats;
+        const E = pendingAt(s, path.length);
+        stopSeat = E;
         const R = standingAt(at, ks, E);
         if (R !== null) {
           path.length = 0;
-          path.push(...pathTo(R.head, (id) => byId.get(id) as MoveEv));
+          path.push(...pathOf(R.head));
           status = 'stood';
           standing = R;
-          recorded = E;
           break;
         }
         status = 'stop';
-        stopSeat = E;
-        endedVoided = ks.some((k) => path.length + 1 + longest(k.id) >= s.length);
+        endedVoided = ks.some((k) => path.length + 1 + longest(k.id) >= T);
+        beforePlay = path.length <= setup;
+        // H1: cancelled only when no game action on a valid line is held at or past P; the `position` regression
+        // cancels by where P is.
+        const fork = at;
+        const played = [...linked.values()].some(
+          (m) => m.depth > setup && ancestor(fork, m.id) && validLine(m.id),
+        );
+        cancelled = s.cancelRule === 'position' ? beforePlay : !played;
         break;
       }
     } else if (s.design === 'stop') {
@@ -1677,11 +2276,11 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       else {
         // Candidate (e): any held fork stops the game here, the equivocator's forfeit. With `overStands`, a side
         // that already reached the end stands instead (over first, then length, then lowest id, as v1).
-        const done = ks.filter((k) => path.length + 1 + longest(k.id) >= s.length);
+        const done = ks.filter((k) => path.length + 1 + longest(k.id) >= T);
         if (s.overStands === true && done.length > 0) next = bestOf(done);
         else {
           status = 'stop';
-          stopSeat = path.length % s.seats;
+          stopSeat = pendingAt(s, path.length);
           endedVoided = done.length > 0;
           break;
         }
@@ -1690,7 +2289,7 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       if (ks.length === 1) next = ks[0] as MoveEv;
       else {
         forked = true;
-        const pend = path.length % s.seats;
+        const pend = pendingAt(s, path.length);
         const sides = ks.filter((k) => {
           for (let x = 0; x < s.seats; x++) if (x !== pend && !vouches(k.id, x)) return false;
           return true;
@@ -1711,39 +2310,64 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
       }
     } else if (s.design === 'ack' || s.design === 'ack-lock') {
       const finals = [...final];
-      let cands = ks.filter((k) => containsAll(k.id, finals, at));
+      let cands2 = ks.filter((k) => containsAll(k.id, finals, at));
       if (s.design === 'ack-lock') {
         // Lock: keep every move I acked, unless a move conflicting with it is final.
         const locks = myAcks.filter((a) => !finals.some((f) => !(ancestor(a, f) || ancestor(f, a))));
-        const locked = cands.filter((k) => containsAll(k.id, locks, at));
-        if (locked.length > 0) cands = locked;
+        const locked = cands2.filter((k) => containsAll(k.id, locks, at));
+        if (locked.length > 0) cands2 = locked;
       }
-      next = bestOf(cands.length > 0 ? cands : ks);
+      next = bestOf(cands2.length > 0 ? cands2 : ks);
     } else {
       next = bestOf(ks);
     }
     path.push(next.id);
     at = next.id;
   }
+  // M1 (PROTOCOL-v2 §5.2): every seat with two valid-looking moves on one prev whose line is valid, anywhere.
+  const allEquivocators: Seat[] = [];
+  if (e3 && forked) {
+    const eq = new Set<Seat>();
+    for (const q of [ROOT, ...linked.keys()]) {
+      if (!validLine(q)) continue;
+      const bySigner = new Map<Seat, number>();
+      for (const m of cands(q)) bySigner.set(m.seat, (bySigner.get(m.seat) ?? 0) + 1);
+      for (const [seat, n] of bySigner) if (n >= 2) eq.add(seat);
+    }
+    allEquivocators.push(...ascending(eq));
+  }
+  const equivocators: Seat[] =
+    stopSeat === null
+      ? []
+      : e3 && s.topmostOnly !== true
+        ? ascending([...allEquivocators, stopSeat])
+        : [stopSeat];
+  const head = path.at(-1) ?? ROOT;
   const pathMoves = path.map((id) => byId.get(id) as MoveEv);
-  const grantsTo = (head: string): Grant[] =>
-    grantsOn(
-      s,
-      pathTo(head, (id) => byId.get(id) as MoveEv),
-      (id) => byId.get(id) as MoveEv,
-    );
+  const grantsTo = (h: string): Grant[] => grantsOn(s, pathOf(h), get);
+  const stalled = status === 'live' ? stalledAt(head) : [];
   return {
     path,
-    head: path.at(-1) ?? ROOT,
+    head,
     status,
     stopSeat,
+    cancelled,
+    beforePlay,
+    anyPlay: [...linked.values()].some((m) => m.depth > setup && validLine(m.id)),
+    equivocators,
+    allEquivocators,
     flagged: s.design === 'fgr2' ? flagged : new Set<Seat>(),
     forked,
     endedVoided,
     standing,
-    recorded,
-    pending: path.length % s.seats,
-    grants: grantsOn(s, path, (id) => byId.get(id) as MoveEv),
+    pending: pendingAt(s, path.length),
+    waiting: status === 'live' && missingAt(head).length > 0,
+    stalled,
+    stalledAt,
+    secrets,
+    sOf,
+    resignCancels,
+    grants: grantsOn(s, path, get),
     pathMoves,
     linkedMoves: [...linked.values()],
     byId,
@@ -1755,5 +2379,64 @@ function computeView(s: Scope, evs: readonly Ev[], me: Seat): View {
     myVouches,
     ancestor,
     grantsTo,
+  };
+}
+
+/* ------------------------------------------------------------------------------- direct folds (tests) */
+
+/** An event built by hand for `foldView` (tests and traces). */
+export type ModelEvent = Ev;
+
+/** A move by `seat` on `prev` (null for the root); its id names its path, as in the explorer's traces. */
+export function modelMove(prev: ModelEvent | null, seat: Seat, kind: Kind, v = 0, cheat = false): ModelEvent {
+  const p = prev === null ? null : (prev as MoveEv);
+  return {
+    t: 'move',
+    id: moveId(p?.id ?? ROOT, seat, kind, v) + (cheat ? 'x' : ''),
+    seat,
+    prev: p?.id ?? ROOT,
+    depth: (p?.depth ?? 0) + 1,
+    kind,
+    v,
+    rel: [],
+    kc: [],
+    honest: false,
+    ...(cheat ? { cheat: true } : {}),
+  };
+}
+
+/** What one client holding exactly `events` computes: its walk, the fork, the cutoff and a stop's scores. */
+export function foldView(
+  scope: Scope,
+  events: readonly ModelEvent[],
+  seat: Seat,
+): {
+  status: View['status'];
+  head: string;
+  stopSeat: Seat | null;
+  cancelled: boolean;
+  equivocators: readonly Seat[];
+  standing: Standing | null;
+  scores: string[];
+} {
+  const v = computeView(scope, events, seat);
+  const end =
+    v.status === 'stop'
+      ? v.cancelled
+        ? 'cancel'
+        : 'stop'
+      : v.status === 'stood'
+        ? (v.standing?.kind ?? 'over')
+        : v.status;
+  const head = v.status === 'stood' ? (v.standing?.head ?? v.head) : v.head;
+  const forfeit = v.status === 'stop' ? v.equivocators : (v.standing?.forfeit ?? []);
+  return {
+    status: v.status,
+    head,
+    stopSeat: v.stopSeat,
+    cancelled: v.cancelled,
+    equivocators: v.equivocators,
+    standing: v.standing,
+    scores: scores(scope, end, head, forfeit, v.stopSeat, v.beforePlay),
   };
 }

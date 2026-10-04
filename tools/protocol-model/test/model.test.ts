@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { type Design, explore, MODES, type Mode, type Result, type Scope, type Seat } from '../src/index.ts';
+import {
+  type Design,
+  explore,
+  foldView,
+  MODES,
+  type Mode,
+  type ModelEvent,
+  modelMove,
+  type Result,
+  type Scope,
+  type Seat,
+} from '../src/index.ts';
 
 /*
  * docs/proposals/prompt-reveal.md §6. The CI scope keeps the run short; PROTOCOL_MODEL_BIG=1 adds the larger
@@ -33,6 +44,9 @@ function sweep(scope: Omit<Scope, 'coalition'>): {
 }
 
 const SAFETY = ['exposure', 'honest-forfeit', 'divergence', 'rating'] as const;
+
+/** Protocol v2 (`stop3`): the round-3 kinds plus H1's cancel escape, H2's demotion after a stop and N1's audit escape. */
+const SAFETY3 = [...SAFETY, 'cancel-escape', 'stop-demotion', 'cheat-escape'] as const;
 
 const counts = (r: Result): Record<string, number> =>
   Object.fromEntries(Object.entries(r.violations).map(([k, v]) => [k, v?.count ?? 0]));
@@ -244,8 +258,8 @@ describe.runIf(BIG)(
 );
 
 describe('final, or stop, round 2 (fgr2): no exposure, forfeit, divergence or rating gain within the scope', () => {
-  it('every mode, every coalition, 3 moves, 2 adversary moves, an Ack', () => {
-    for (const mode of MODES) {
+  it('every coalition, 3 moves, 2 adversary moves, an Ack (private in CI; every mode in the big scope)', () => {
+    for (const mode of BIG ? MODES : (['private'] as Mode[])) {
       const s = sweep({ ...base, design: 'fgr2', mode, length: 3 });
       expect(s.complete, mode).toBe(true);
       expectSafe(s.counts);
@@ -292,7 +306,8 @@ describe('final, or stop, round 2 (fgr2): no exposure, forfeit, divergence or ra
   });
 
   it('two devices per honest seat: no exposure under any device policy; `checked` also avoids flags', () => {
-    for (const ackDevice of ['all', 'first', 'checked'] as const) {
+    // CI runs `checked`, the policy that also avoids flags; the big scope runs all three.
+    for (const ackDevice of BIG ? (['all', 'first', 'checked'] as const) : (['checked'] as const)) {
       const r = explore({
         ...base,
         design: 'fgr2',
@@ -438,7 +453,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     for (const mode of [...MODES, 'roll'] as Mode[]) {
       const s = sweep({ ...e3, mode, length: 3 });
       expect(s.complete, mode).toBe(true);
-      expectSafe(s.counts);
+      expectSafe(s.counts, SAFETY3);
       expect(s.counts['honest-flagged'] ?? 0, mode).toBe(0);
       for (const coalition of SINGLE)
         expectSafe(counts(explore({ ...e3, mode, length: 3, coalition })), FINAL);
@@ -454,7 +469,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     }
     const r3 = explore({ ...e3, ...scope });
     expect(r3.complete).toBe(true);
-    expectSafe(counts(r3));
+    expectSafe(counts(r3), SAFETY3);
     expectSafe(counts(r3), FINAL);
     expectSafe(counts(explore({ ...e3, ...scope, stopScore: 'timeout' })), FINAL);
     // The price of convergence: scored as the owner's abort, the stop turns seat 1's rated timeout into an unrated
@@ -476,14 +491,14 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
         coalition,
       });
       expect(r.complete).toBe(true);
-      expectSafe(counts(r));
+      expectSafe(counts(r), SAFETY3);
       if (coalition.length === 1) expectSafe(counts(r), FINAL);
     }
     for (const coalition of SINGLE)
       for (const extra of [{ advClaims: 1 }, { advResigns: 1 }]) {
         const r = explore({ ...e3, mode: 'private', length: 3, expiries: 1, coalition, ...extra });
         expect(r.complete).toBe(true);
-        expectSafe(counts(r));
+        expectSafe(counts(r), SAFETY3);
         expectSafe(counts(r), FINAL);
       }
   });
@@ -491,7 +506,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
   it('residual: a colluder who never attests keeps its partner’s fork able to void a counted timeout', () => {
     const r = explore({ ...e3, mode: 'private', length: 3, advClaims: 1, expiries: 1, coalition: [0, 1] });
     expect(r.complete).toBe(true);
-    expectSafe(counts(r));
+    expectSafe(counts(r), SAFETY3);
     expect(counts(r)['void-forfeit'] ?? 0).toBeGreaterThan(0);
   });
 
@@ -555,7 +570,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
       outboxRule: true,
     });
     expect(r.complete).toBe(true);
-    expectSafe(counts(r));
+    expectSafe(counts(r), SAFETY3);
     expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
   });
 
@@ -579,11 +594,11 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     // fork stops the game as the opponent's loss. Without the check the two devices can still end apart (no fork).
     const loose = explore({ ...scope, ownCheck: false });
     expect(loose.complete).toBe(true);
-    expectSafe(counts(loose));
+    expectSafe(counts(loose), SAFETY3);
     expect(counts(loose)['claim-race'] ?? 0).toBeGreaterThan(0);
     const r = explore(scope);
     expect(r.complete).toBe(true);
-    expectSafe(counts(r));
+    expectSafe(counts(r), SAFETY3);
     expect(counts(r)['claim-race'] ?? 0).toBe(0);
   });
 
@@ -605,7 +620,7 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
     expect(path.violations.rating).toBeDefined();
     const r = explore(scope);
     expect(r.complete).toBe(true);
-    expectSafe(counts(r));
+    expectSafe(counts(r), SAFETY3);
   });
 
   it('A1: two devices and a resign leak a card past the end under rule (1); under the cutoff it is post-end', () => {
@@ -630,6 +645,337 @@ describe('candidate (e), round 3 (stop3): the cutoff converges, and no single ad
         const r = explore({ ...e3, mode, length: 5, advMoves: 0, coalition: [], lazy });
         expect(r.violations['no-fallback'], `${mode} lazy ${lazy}`).toBeUndefined();
       }
+    }
+  });
+});
+
+/*
+ * Protocol v2 (PROTOCOL-v2.md §5–§8, the v2 build plan's tasks T0a and T0b): the model aligned with the approved
+ * spec. Each behaviour has a regression variant that reproduces the attack it closes; the CI scopes of the fixed
+ * design show no safety kind. Larger scopes run with PROTOCOL_MODEL_BIG=1.
+ */
+describe('protocol v2 (stop3 as specified): T0a, the cancel case, M1 and the resign identity', () => {
+  const v2 = {
+    ...base,
+    design: 'stop3',
+    advAcks: 0,
+    advAttests: 1,
+    stopScore: 'last',
+    ownCheck: true,
+  } as const;
+  const FINAL = ['attested-void', 'void-forfeit'] as const;
+  /** A held line of moves, each on the one before, by the seats given (kinds `d` draw, `p` pass, `s` setup). */
+  const line = (
+    from: ModelEvent | null,
+    steps: readonly [Seat, 'draw' | 'pass' | 'shuf' | 'junk', number?][],
+  ) => {
+    const out: ModelEvent[] = [];
+    let at = from;
+    for (const [seat, kind, v] of steps) {
+      at = modelMove(at, seat, kind, v ?? 0);
+      out.push(at);
+    }
+    return out;
+  };
+
+  it('H1 traces: a fork at the root after play is E’s loss; a setup fork with nothing played past it cancels', () => {
+    // 2 seats, no setup: seat 0 signs a rival move 1 after play reached move 3.
+    const two = { ...v2, seats: 2, mode: 'private', length: 4, coalition: [0] } as const;
+    const played = line(null, [
+      [0, 'draw'],
+      [1, 'draw'],
+      [0, 'draw'],
+    ]);
+    const rival = modelMove(null, 0, 'pass', 1);
+    const late = foldView(two, [...played, rival], 1);
+    expect(late.status).toBe('stop');
+    expect(late.cancelled).toBe(false);
+    expect(late.scores).toEqual(['last', 'first']);
+    // One setup step per seat (3 seats): seat 0 signs a second, well-formed step on the root whose proof fails,
+    // after play began: a stop scored as E's loss, P before play (everyone but E first, scores 0).
+    const three = {
+      ...v2,
+      mode: 'private',
+      length: 3,
+      setup: 3,
+      coalition: [0],
+      stopScore: 'timeout',
+    } as const;
+    const setup = line(null, [
+      [0, 'shuf'],
+      [1, 'shuf'],
+      [2, 'shuf'],
+      [0, 'draw'],
+    ]);
+    const junk = modelMove(null, 0, 'junk', 1);
+    const root = foldView(three, [...setup, junk], 1);
+    expect(root.status).toBe('stop');
+    expect(root.cancelled).toBe(false);
+    expect(root.scores).toEqual(['last', 'zero', 'zero']);
+    // The same fork before any game action: cancelled, E recorded.
+    const early = foldView(three, [...setup.slice(0, 3), junk], 1);
+    expect(early.cancelled).toBe(true);
+    expect(early.equivocators).toEqual([0]);
+    expect(early.scores).toEqual(['cancel', 'cancel', 'cancel']);
+    // A fork at seat 1's old setup step with play past it (only on the other side): still a stop.
+    const step1 = modelMove(setup[0] as ModelEvent, 1, 'shuf', 1);
+    const shuffle = foldView(three, [...setup, step1], 0);
+    expect([shuffle.status, shuffle.stopSeat, shuffle.cancelled]).toEqual(['stop', 1, false]);
+    // Under the regression rule (cancel by where P is) both late forks cancel.
+    expect(foldView({ ...three, cancelRule: 'position' }, [...setup, junk], 1).cancelled).toBe(true);
+    expect(foldView({ ...two, cancelRule: 'position' }, [...played, rival], 1).cancelled).toBe(true);
+  });
+
+  it('regression: cancelling by where P is lets E escape a game in play by a second setup step', () => {
+    const scope = { ...v2, mode: 'private', length: 3, setup: 1, advMoves: 3, coalition: [0] } as const;
+    const r = explore({ ...scope, cancelRule: 'position', stopAt: ['cancel-escape'] });
+    const v = r.violations['cancel-escape'];
+    expect(v?.first.detail).toMatch(/fork of seat 0 at R cancels a game in play/);
+    expect(v?.first.trace.some((t) => /signs 0[sj]\d/.test(t))).toBe(true);
+    const fixed = explore(scope);
+    expect(fixed.complete).toBe(true);
+    expectSafe(counts(fixed), SAFETY3);
+  });
+
+  it('setup steps: every coalition, 3 moves after one setup step; with claims, resigns and a deadline at 2', () => {
+    const s = sweep({ ...v2, mode: 'private', length: 3, setup: 1, advMoves: 3 });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts, SAFETY3);
+    expect(s.counts['honest-flagged'] ?? 0).toBe(0);
+    const c = sweep({
+      ...v2,
+      mode: 'private',
+      length: 2,
+      setup: 1,
+      advClaims: 1,
+      advResigns: 1,
+      expiries: 1,
+    });
+    expect(c.complete).toBe(true);
+    expectSafe(c.counts, SAFETY3);
+    for (const coalition of [[0], [1], [2]] as Seat[][])
+      expectSafe(
+        counts(
+          explore({
+            ...v2,
+            mode: 'private',
+            length: 2,
+            setup: 1,
+            advClaims: 1,
+            advResigns: 1,
+            expiries: 1,
+            coalition,
+          }),
+        ),
+        FINAL,
+      );
+  });
+
+  it('regression (M1): with only the topmost E recorded, a colluder’s higher fork erases a lower equivocator', () => {
+    const scope = { ...v2, mode: 'private', length: 3, advMoves: 4, coalition: [0, 1] } as const;
+    const r = explore({ ...scope, topmostOnly: true, stopAt: ['rating'] });
+    expect(r.violations.rating?.first.detail).toMatch(
+      /equivocator 1 is not rated last by the stop of seat 0/,
+    );
+    const s = sweep({ ...v2, mode: 'private', length: 3, advMoves: 4 });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts, SAFETY3);
+    expect(s.counts['honest-flagged'] ?? 0).toBe(0);
+  });
+
+  it('M1: every equivocator shares the last places; with 2 seats a double equivocation is a tie', () => {
+    const three = { ...v2, mode: 'private', length: 3, coalition: [0, 1] } as const;
+    const a = modelMove(null, 0, 'pass', 1);
+    const low = [modelMove(a, 1, 'pass', 0), modelMove(a, 1, 'pass', 1)];
+    const high = modelMove(null, 0, 'pass', 0);
+    const f = foldView(three, [a, ...low, high], 2);
+    expect([f.status, f.stopSeat]).toEqual(['stop', 0]);
+    expect(f.equivocators).toEqual([0, 1]);
+    expect(f.scores).toEqual(['last', 'last', 'unrated']);
+    expect(foldView({ ...three, topmostOnly: true }, [a, ...low, high], 2).scores).toEqual([
+      'last',
+      'unrated',
+      'unrated',
+    ]);
+    const two = { ...v2, seats: 2, mode: 'private', length: 3, coalition: [0, 1] } as const;
+    expect(foldView(two, [a, ...low, high], 0).scores).toEqual(['tie', 'tie']);
+  });
+
+  it('M3: a resign is attested at the head it names (and the round-3 counting head, for comparison)', () => {
+    for (const resignAt of ['named', 'counted'] as const)
+      for (const coalition of COALITIONS) {
+        const r = explore({
+          ...v2,
+          mode: 'private',
+          length: 3,
+          advMoves: 1,
+          advResigns: 1,
+          expiries: 1,
+          resignAt,
+          coalition,
+        });
+        expect(r.complete).toBe(true);
+        expectSafe(counts(r), SAFETY3);
+        if (coalition.length === 1) expectSafe(counts(r), FINAL);
+      }
+  });
+
+  it('M3: S stops at the first held fork past the named head; a resign that cancels there is no result', () => {
+    const three = { ...v2, mode: 'private', length: 4, coalition: [1] } as const;
+    const [m1, m2, m3] = line(null, [
+      [0, 'draw'],
+      [1, 'draw'],
+      [2, 'draw'],
+    ]) as [ModelEvent, ModelEvent, ModelEvent];
+    const resign: ModelEvent = { t: 'resign', id: `X1@${m1.id}`, seat: 1, head: m1.id };
+    const attest = (seat: Seat): ModelEvent => ({
+      t: 'attest',
+      id: `T${seat}:resign@${m1.id}:1`,
+      seat,
+      kind: 'resign',
+      head: m1.id,
+      forfeit: [1],
+    });
+    // Seat 1 resigns naming 0d0 after its own move, then forks below it: the resign stands (attested by 0 and 2).
+    const rival = modelMove(m1, 1, 'pass', 1);
+    const f = foldView(three, [m1, m2, m3, rival, resign, attest(0), attest(2)], 0);
+    expect(f.status).toBe('stood');
+    expect(f.standing).toEqual({ kind: 'resign', head: m1.id, forfeit: [1] });
+    // Naming the root before its own first action, with the fork right after its first action: S stops before
+    // that action, so the resign cancels, is no valid result, and the fork is a stop scored as seat 1's loss.
+    const rootResign: ModelEvent = { t: 'resign', id: 'X1@R', seat: 1, head: 'R' };
+    const g = foldView(three, [m1, m2, m3, rival, rootResign], 0);
+    expect([g.status, g.cancelled, g.stopSeat]).toEqual(['stop', false, 1]);
+  });
+});
+
+describe('protocol v2 (stop3 as specified): T0b, the features not modelled before', () => {
+  const v2 = {
+    ...base,
+    design: 'stop3',
+    advAcks: 0,
+    advAttests: 1,
+    stopScore: 'last',
+    ownCheck: true,
+  } as const;
+  const FINAL = ['attested-void', 'void-forfeit'] as const;
+
+  it('blocking public reveals (Luster refills): no safety kind; a claim forfeits every seat without a share', () => {
+    const s = sweep({ ...v2, mode: 'reveal-block', length: 2, advClaims: 1, expiries: 1 });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts, SAFETY3);
+    expect(s.counts['honest-flagged'] ?? 0).toBe(0);
+    for (const coalition of [[0], [1], [2]] as Seat[][])
+      expectSafe(
+        counts(explore({ ...v2, mode: 'reveal-block', length: 2, advClaims: 1, expiries: 1, coalition })),
+        FINAL,
+      );
+    // Two colluders that both withhold their share of a refill are timed out together (a two-seat forfeit list);
+    // a fork by one of them then voids it (residual 2 of the proposal, reported apart).
+    const pair = explore({
+      ...v2,
+      mode: 'reveal-block',
+      length: 2,
+      advClaims: 1,
+      expiries: 1,
+      coalition: [0, 2],
+      stopAt: ['void-forfeit'],
+    });
+    expect(pair.violations['void-forfeit']?.first.detail).toMatch(/voids seat 0,2's counted claim/);
+  });
+
+  it('unresolved anchors: an anchor no client holds is off every line; no safety kind', () => {
+    const three = { ...v2, mode: 'private', length: 3, coalition: [0, 1] } as const;
+    const [m1, m2, m3] = [modelMove(null, 0, 'draw')].flatMap((a) => {
+      const b = modelMove(a, 1, 'draw');
+      return [a, b, modelMove(b, 2, 'draw')];
+    }) as [ModelEvent, ModelEvent, ModelEvent];
+    const attest = (seat: Seat, head: string): ModelEvent => ({
+      t: 'attest',
+      id: `T${seat}:over@${head}:`,
+      seat,
+      kind: 'over',
+      head,
+      forfeit: [],
+    });
+    const held = [m1, m2, m3, attest(1, m3.id), attest(2, m3.id), modelMove(null, 0, 'pass', 1)];
+    expect(foldView(three, held, 2).status).toBe('stood');
+    const share: ModelEvent = { t: 'share', id: 'Z1:-1@U', seat: 1, pos: -1, to: null, head: 'U' };
+    expect(foldView(three, [...held, share], 2).status).toBe('stop');
+    expect(foldView(three, [...held, attest(1, 'U')], 2).status).toBe('stop');
+    // Signed by E itself it blocks nothing.
+    expect(foldView(three, [...held, { ...share, id: 'Z0:-1@U', seat: 0 }], 2).status).toBe('stood');
+    const s = sweep({ ...v2, mode: 'private', length: 3, advShares: 1, unresolved: true });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts, SAFETY3);
+    expect(s.counts['honest-flagged'] ?? 0).toBe(0);
+  });
+
+  it('regression (H2): with claims after a stop, a withheld secret demotes a seat; the approved rule fixes places', () => {
+    const scope = { ...v2, mode: 'private', length: 3, expiries: 1, secrets: true } as const;
+    const bad = explore({ ...scope, coalition: [0, 1], stopClaims: true, stopAt: ['stop-demotion'] });
+    expect(bad.violations['stop-demotion']?.first.detail).toMatch(
+      /seat 1 moves from unrated to last after the stop/,
+    );
+    // The approved rule, with a cheat that the partial audit after a stop proves (which may demote).
+    const s = sweep({ ...scope, advCheats: 1 });
+    expect(s.complete).toBe(true);
+    expectSafe(s.counts, SAFETY3);
+    expect(s.counts['honest-flagged'] ?? 0).toBe(0);
+  });
+
+  it('regression (N1): without End rules after a standing result, a cheater forks and withholds its secret', () => {
+    const scope = {
+      ...v2,
+      seats: 2,
+      mode: 'private',
+      length: 3,
+      secrets: true,
+      advCheats: 1,
+      coalition: [1],
+    } as const;
+    const bad = explore({ ...scope, noStandingEnd: true, stopAt: ['cheat-escape'] });
+    const v = bad.violations['cheat-escape'];
+    expect(v?.first.detail).toMatch(/standing result over/);
+    // The cheat, the end, seat 1's attestation, then its fork at its own old prev.
+    expect(v?.first.trace.some((t) => t.includes('(a cheat)'))).toBe(true);
+    expect(v?.first.trace.some((t) => t.startsWith('seat 1 attests over@'))).toBe(true);
+    for (const expiries of [0, 1]) {
+      const r = explore({ ...scope, expiries });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r), SAFETY3);
+    }
+  });
+
+  it('unordered roll contributions: the requester contributes after its move; a withholder is timed out', () => {
+    for (const coalition of COALITIONS) {
+      const r = explore({ ...v2, mode: 'roll', length: 2, advClaims: 1, expiries: 1, coalition });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r), SAFETY3);
+      if (coalition.length === 1) expectSafe(counts(r), FINAL);
+    }
+  });
+
+  it('regression (N2): auto-accepting a claim that forfeits only one’s own seat ends the game on an honest forfeit', () => {
+    const scope = { ...v2, mode: 'private', length: 3, advClaims: 1, coalition: [2] } as const;
+    const bad = explore({ ...scope, autoOwnForfeit: true, stopAt: ['honest-forfeit'] });
+    const v = bad.violations['honest-forfeit'];
+    expect(v?.first.detail).toMatch(/honest seat 1 timed out at 0d0/);
+    // The claim comes right after seat 0's move, with no deadline passed anywhere.
+    expect(v?.first.trace.some((t) => t.startsWith('deadline'))).toBe(false);
+    for (const coalition of [[0], [1], [2]] as Seat[][]) {
+      const r = explore({ ...scope, coalition });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r), SAFETY3);
+      expectSafe(counts(r), FINAL);
+    }
+  });
+
+  it('liveness: blocking reveals and rolls are readable once the network is quiet', () => {
+    for (const mode of ['reveal-block', 'roll'] as Mode[]) {
+      const live = explore({ ...v2, mode, length: 5, advMoves: 0, coalition: [] });
+      expect(live.complete).toBe(true);
+      expect(Object.keys(live.violations), mode).toEqual([]);
     }
   });
 });
@@ -963,4 +1309,86 @@ describe.runIf(BIG)('bigger scope for round 3 (PROTOCOL_MODEL_BIG=1, several hou
       for (const coalition of [[0], [1], [2], [3]] as Seat[][])
         check(explore({ ...e3, seats: 4, mode, length: 8, advClaims: 1, expiries: 1, coalition }), true);
   }, 14_400_000);
+});
+
+describe.runIf(BIG)('bigger scope for protocol v2, T0a and T0b (PROTOCOL_MODEL_BIG=1, about an hour)', () => {
+  const v2 = {
+    ...base,
+    design: 'stop3',
+    advAcks: 0,
+    advAttests: 1,
+    stopScore: 'last',
+    ownCheck: true,
+  } as const;
+  const FINAL = ['attested-void', 'void-forfeit'] as const;
+  const claims = { advClaims: 1, advResigns: 1, expiries: 1 } as const;
+  const check = (r: Result, single: boolean): void => {
+    expect(r.complete).toBe(true);
+    expectSafe(counts(r), SAFETY3);
+    expect(counts(r)['honest-flagged'] ?? 0).toBe(0);
+    if (single) expectSafe(counts(r), FINAL);
+  };
+  const each = (scope: Omit<Scope, 'coalition'>): void => {
+    for (const coalition of COALITIONS) check(explore({ ...scope, coalition }), coalition.length === 1);
+  };
+
+  it('one setup step, 3 moves, 3 adversary moves, a claim, a resign and a deadline (private)', () => {
+    each({ ...v2, mode: 'private', length: 3, setup: 1, advMoves: 3, ...claims });
+  }, 7_200_000);
+
+  it('blocking reveals and rolls, 3 moves, a claim and a deadline', () => {
+    for (const mode of ['reveal-block', 'roll'] as Mode[])
+      each({ ...v2, mode, length: 3, advClaims: 1, expiries: 1 });
+  }, 7_200_000);
+
+  it('unresolved anchors with a claim, a resign and a deadline (private, public)', () => {
+    for (const mode of ['private', 'public'] as Mode[])
+      each({ ...v2, mode, length: 3, advShares: 1, unresolved: true, ...claims });
+  }, 7_200_000);
+
+  it('the Secret phase with a cheat, a claim, a resign and a deadline; 2 seats at 4 moves', () => {
+    each({ ...v2, mode: 'private', length: 3, secrets: true, advCheats: 1, ...claims });
+    for (const coalition of [[0], [1]] as Seat[][])
+      check(
+        explore({
+          ...v2,
+          seats: 2,
+          mode: 'private',
+          length: 4,
+          advMoves: 3,
+          secrets: true,
+          advCheats: 1,
+          ...claims,
+          coalition,
+        }),
+        true,
+      );
+  }, 7_200_000);
+
+  it('M1 at depth: colluder pairs, 4 moves, 5 adversary moves (private)', () => {
+    for (const coalition of [
+      [0, 1],
+      [0, 2],
+      [1, 2],
+    ] as Seat[][])
+      check(explore({ ...v2, mode: 'private', length: 4, advMoves: 5, coalition }), false);
+  }, 7_200_000);
+
+  it('M3: two devices, 2 seats, a claim, a resign, a deadline and a stale outbox (B5c’s scope)', () => {
+    for (const coalition of [[0], [1]] as Seat[][]) {
+      const r = explore({
+        ...v2,
+        seats: 2,
+        mode: 'private',
+        length: 3,
+        devices: 2,
+        stale: 1,
+        outboxRule: true,
+        ...claims,
+        coalition,
+      });
+      expect(r.complete).toBe(true);
+      expectSafe(counts(r), SAFETY3);
+    }
+  }, 7_200_000);
 });
