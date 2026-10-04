@@ -43,9 +43,10 @@ import {
   rollSharesTemplate,
   secretTemplate,
   attestTemplate as statsTemplate,
+  timeoutTemplate,
   validateRoot,
 } from '@bored-games/protocol';
-import { auditGame, rankWithForfeits } from '../audit.ts';
+import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from '../audit.ts';
 import { ClientError } from '../errors.ts';
 import { deckPartitions, parsePartitionMove, shuffleStepGroup } from '../partitioned-deck.ts';
 import type { Session } from '../session-api.ts';
@@ -59,12 +60,31 @@ import type {
   SessionInput,
   SessionViewV2,
 } from '../types.ts';
+import { standingResult } from './cutoff.ts';
+import type { LineFold } from './line.ts';
 import { moveShape, nextShuffler, pendingAt } from './line.ts';
-import { attestedResult, endAttestedSeats, endVerdict, lineLogHash, ownResult } from './results.ts';
+import {
+  attestedResult,
+  endAttestedSeats,
+  endProblem,
+  endVerdict,
+  lineLogHash,
+  ownResult,
+  resignScoring,
+  type Scoring,
+} from './results.ts';
 import { contributions, rollEventProblem } from './rolls.ts';
 import { cardSharesProblem, DeckCaches, type LineShares, shareCtx } from './shares.ts';
 import { SideLines } from './sides.ts';
-import { type AfterStopAudit, demotedBy, partialAudit, type Stop, stopAt, stopOutcome } from './stop.ts';
+import {
+  type AfterStopAudit,
+  demotedBy,
+  partialAudit,
+  type Stop,
+  standingsAt,
+  stopAt,
+  stopOutcome,
+} from './stop.ts';
 import { EventStoreV2, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
 import { type Walk, walk } from './walk.ts';
@@ -141,6 +161,22 @@ interface Status {
   forfeits: number[];
 }
 
+/**
+ * The game's result (PROTOCOL-v2 §5.5) and where it is scored: this client's own result with no fork held, or the
+ * result standing against a held fork (§5.4), which is played out as if no fork were held (review N1).
+ */
+interface Ending {
+  readonly r: ResultId;
+  /** The line the result is scored on, its point at `seq`: the result's head, or S for a Resign (§8.3). */
+  readonly fold: LineFold;
+  readonly seq: number;
+  readonly point: LinePoint;
+  /** The module is over at the point: an `over` result, or a Resign whose S is over (v1 §8.3 step 4). */
+  readonly over: boolean;
+  /** The End phase's key, for the claims accepted in it: the result's identity and the point. */
+  readonly key: string;
+}
+
 export class GameSessionV2 implements Session {
   readonly proto = 2 as const;
 
@@ -179,6 +215,20 @@ export class GameSessionV2 implements Session {
    * (review of T10, L3).
    */
   private sideCache: SideLines | undefined = undefined;
+  /** Resign scoring positions by `${head}|${seat}`, dropped with the side lines. */
+  private scoringMemo = new Map<string, Scoring | null>();
+  /**
+   * The result standing against the walk's fork (the cutoff, §5.4) and the game's result with its scoring point,
+   * computed when first needed; dropped whenever a Move, Shares event, end attestation, Timeout claim or Resign is
+   * held (the events the cutoff and §5.3 read).
+   */
+  private verdictCache: { standing: ResultId | null; ending: Ending | null } | undefined = undefined;
+  /**
+   * End-phase claims this client accepted (v1 §8.1 "End", §8.2 "At the end"), by End-phase key (`Ending.key`): the
+   * claim's id and every seat stalled when it was accepted (whose secret was missing). Final for that result, as
+   * v1's accepted claims (§8.2 "Finality").
+   */
+  private readonly endClaims = new Map<string, { id: Hex; seats: number[] }>();
   /** The partial audit after a stop, by P, once it ran (its verdict depends on P's line alone). */
   private readonly stopAudits = new Map<Hex, AfterStopAudit>();
   /** Audits by the log hash of the line they ran on. */
@@ -283,20 +333,32 @@ export class GameSessionV2 implements Session {
    *   the cutoff, PROTOCOL-v2 §5.4), and `stored` otherwise;
    * - an end attestation is `accepted` when it is a valid attestation of this client's result, `rejected` when its
    *   log hash does not match the line to its head, and `stored` otherwise (unresolved, or another result);
-   * - Timeout claims and Resigns are `stored` (they count from T12), and Device notes `accepted` (stored only).
+   * - a Timeout claim is `accepted` when it is the End-phase claim this client accepts (a withheld secret, v1 §8.1),
+   *   otherwise `stored` (claims during play count from T12); Resigns are `stored` (they count as results through
+   *   the cutoff, and with no fork held from T12), and Device notes `accepted` (stored only).
    */
   receive(ev: unknown, now: number): ReceiveResult {
     try {
       this.observe(now);
-      return this.intake(ev, this.clockOf(now));
+      const r = this.intake(ev, this.clockOf(now));
+      this.decideEndClaim();
+      return r;
     } catch (e) {
       return { status: 'rejected', reason: `internal error: ${message(e)}` };
     }
   }
 
-  /** Advance the local clock. Never throws. Timeout claims are judged from T12, so nothing else changes yet. */
+  /**
+   * Advance the local clock. Never throws. An End-phase claim (a withheld secret) may count once this client's own
+   * deadline passes (v1 §8.1); claims during play are judged from T12.
+   */
   tick(now: number): void {
-    this.observe(now);
+    try {
+      this.observe(now);
+      this.decideEndClaim();
+    } catch {
+      // never throws
+    }
   }
 
   private observe(now: number): void {
@@ -359,7 +421,7 @@ export class GameSessionV2 implements Session {
     }
     const end = this.store.ends.get(id);
     if (end !== undefined) {
-      const bad = this.endProblem(end.ev);
+      const bad = endProblem(this.store, this.ctx.seats, end.ev);
       return bad === null ? { status: 'duplicate' } : { status: 'rejected', reason: bad };
     }
     if (this.store.cardShares.has(id) || this.store.rollShares.has(id)) {
@@ -514,7 +576,10 @@ export class GameSessionV2 implements Session {
     return { key: point.deckKey, deck: point.deck };
   }
 
-  /** A Timeout claim (v1 §4.6 at proto 2): kept within the caps, judged from T12. */
+  /**
+   * A Timeout claim (v1 §4.6 at proto 2): kept within the caps. It makes a `claim` result valid (§5.3, the cutoff),
+   * and in an End phase it may count for a withheld secret (`decideEndClaim`); claims during play count from T12.
+   */
   private intakeTimeout(ev: unknown, now: number): ReceiveResult {
     let t: ReturnType<typeof parseTimeout>;
     try {
@@ -530,10 +595,17 @@ export class GameSessionV2 implements Session {
     const kept = this.store.keepClaim(t, claimant);
     if (!kept.kept) return this.reject(t.id, kept.why);
     if (kept.evicted !== null) this.rejected.set(kept.evicted, 'claim limit');
+    this.cutoffChanged();
+    this.decideEndClaim();
+    for (const c of this.endClaims.values()) if (c.id === t.id) return { status: 'accepted' };
     return { status: 'stored' };
   }
 
-  /** A Resign (v1 §4.9 at proto 2): kept within the cap, counted from T12. */
+  /**
+   * A Resign (v1 §4.9 at proto 2): with a deck its secret must match the seat's deck key (v1 §8.3 "Validity"); kept
+   * within the cap, and its secret counts as the seat's Secret reveal. It makes a `resign` result valid (§5.3, the
+   * cutoff); counted with no fork held from T12.
+   */
   private intakeResign(ev: unknown, now: number): ReceiveResult {
     let r: ReturnType<typeof parseResign>;
     try {
@@ -545,9 +617,15 @@ export class GameSessionV2 implements Session {
     if (typeof seat !== 'number') return seat;
     this.see(r.id, now);
     if (!this.resignAllowed()) return this.reject(r.id, 'resigning is not allowed in this game');
+    if (r.secret !== null && !this.secretMatches(seat, r.secret))
+      return this.reject(r.id, `the Resign's deck secret does not match seat ${seat}'s deck key`);
+    const before = this.stallMark();
+    const known = this.secretOf(seat) !== null;
     const kept = this.store.keepResign(r, seat);
     if (!kept.kept) return this.reject(r.id, kept.why);
     if (kept.evicted !== null) this.rejected.set(kept.evicted, 'resign limit');
+    this.cutoffChanged();
+    if (!known && r.secret !== null) this.noteProgress(before, r.id);
     return { status: 'stored' };
   }
 
@@ -567,14 +645,8 @@ export class GameSessionV2 implements Session {
     if (typeof seat !== 'number') return seat;
     this.see(s.id, now);
     if (this.ctx.deckId === null) return this.reject(s.id, 'a deckless game has no deck secrets');
-    let matches: boolean;
-    try {
-      matches = G.multiply(s.deckSecret).equals(this.ctx.keys[seat] as CurvePoint);
-    } catch {
-      // x = 0 has no point.
-      matches = false;
-    }
-    if (!matches) return this.reject(s.id, `the deck secret does not match seat ${seat}'s deck key`);
+    if (!this.secretMatches(seat, s.deckSecret))
+      return this.reject(s.id, `the deck secret does not match seat ${seat}'s deck key`);
     const known = this.secretOf(seat) !== null;
     const before = this.stallMark();
     this.store.secrets.set(s.id, { ev: s, seat });
@@ -585,9 +657,24 @@ export class GameSessionV2 implements Session {
       : { status: 'accepted' };
   }
 
-  /** Seat `seat`'s verified deck secret, or null. */
+  /** Whether `x·G` is seat `seat`'s deck key. */
+  private secretMatches(seat: number, x: bigint): boolean {
+    try {
+      return G.multiply(x).equals(this.ctx.keys[seat] as CurvePoint);
+    } catch {
+      // x = 0 has no point.
+      return false;
+    }
+  }
+
+  /**
+   * Seat `seat`'s verified deck secret, or null: from its Secret reveal, or from a Resign it signed (v1 §8.3: the
+   * secret of every valid Resign kept counts as that seat's Secret reveal).
+   */
   private secretOf(seat: number): bigint | null {
     for (const x of this.store.secrets.values()) if (x.seat === seat) return x.ev.deckSecret;
+    for (const x of this.store.resigns.values())
+      if (x.seat === seat && x.ev.secret !== null) return x.ev.secret;
     return null;
   }
 
@@ -599,7 +686,12 @@ export class GameSessionV2 implements Session {
 
   /** The head and the seats stalled there, before an event is folded, for `noteProgress`. */
   private stallMark(): { head: Hex; stalled: number[] } {
-    return { head: this.head().id, stalled: this.stalled() };
+    return { head: this.stallHead(), stalled: this.stalled() };
+  }
+
+  /** The head the stall set is read at: the result's scoring point once there is a result, else the walk's head. */
+  private stallHead(): Hex {
+    return this.ending()?.point.id ?? this.head().id;
   }
 
   /**
@@ -607,7 +699,7 @@ export class GameSessionV2 implements Session {
    * at the head, its first-seen time counts toward P (v1 §8.1, D030 Ruling 11).
    */
   private noteProgress(before: { head: Hex; stalled: number[] }, id: Hex): void {
-    const after = this.head().id === before.head ? this.stalled() : null;
+    const after = this.stallHead() === before.head ? this.stalled() : null;
     if (after !== null && before.stalled.every((k) => after.includes(k))) return;
     this.stallProgress = Math.max(this.stallProgress, this.seenAt.get(id) ?? this.clock);
   }
@@ -637,22 +729,11 @@ export class GameSessionV2 implements Session {
     this.see(a.id, now);
     // Held whatever its validity (D066, V2-56): rule (b) counts it by its head.
     const first = this.store.addEnd(a, seat, bySession === undefined);
-    const bad = this.endProblem(a);
+    this.cutoffChanged();
+    const bad = endProblem(this.store, this.ctx.seats, a);
     if (bad !== null) return { status: 'rejected', reason: bad };
     if (!first) return { status: 'duplicate' };
     return this.endStatus(a);
-  }
-
-  /**
-   * Why a held end attestation counts for no result, or null: a seat in `forfeit` that the game does not have, or a
-   * log hash that does not match the line to its head (PROTOCOL-v2 §4.3). It stays held either way.
-   */
-  private endProblem(a: ParsedEndAttest): string | null {
-    const outside = a.end.forfeit.find((k) => k >= this.ctx.seats);
-    if (outside !== undefined) return `there is no seat ${outside}`;
-    if (endVerdict(this.store, a) === 'mismatch')
-      return "the end attestation's log hash does not match the line to its head";
-    return null;
   }
 
   /** How a held, valid-looking end attestation stands: see `receive`. */
@@ -706,6 +787,13 @@ export class GameSessionV2 implements Session {
   private lineChanged(): void {
     this.sideCache = undefined;
     this.stopCache = undefined;
+    this.scoringMemo = new Map();
+    this.verdictCache = undefined;
+  }
+
+  /** An end attestation, Timeout claim or Resign was held: the cutoff and the result are recomputed when needed. */
+  private cutoffChanged(): void {
+    this.verdictCache = undefined;
   }
 
   /** The side lines over the held events and the current walk (`SideLines`), made once per line change. */
@@ -722,22 +810,90 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * This client's result (PROTOCOL-v2 §5.5): null while live, and while a fork is held (the stop, `stopNow`; a result
-   * standing against the fork is T11's cutoff).
+   * The game's result (PROTOCOL-v2 §5.5): with no fork held, this client's own (the module over on the walk; claims
+   * and Resigns counted with no fork held are T12); with a fork held, the result standing against it (§5.4), or
+   * null (the game is stopped, `stopNow`). Null while live.
    */
   private result(): ResultId | null {
-    return ownResult(this.ctx, this.current);
+    return this.verdict().ending?.r ?? null;
+  }
+
+  /** The result standing against the walk's fork (the cutoff, §5.4), or null (none or several, or no fork held). */
+  private standing(): ResultId | null {
+    return this.verdict().standing;
+  }
+
+  /** The game's result and where it is scored, or null (`Ending`). */
+  private ending(): Ending | null {
+    return this.verdict().ending;
   }
 
   /**
-   * The stop at the walk's fork (PROTOCOL-v2 §5.6), or null while no fork is held. With a fork held and no result
-   * standing (the cutoff is T11), the game is stopped: cancelled, or scored.
+   * The cutoff and the game's result, from the held events (no clock, no arrival order: V2-20). With no fork held the
+   * result is this client's own, scored at the walk's head. With a fork held, a standing result X is scored on its
+   * own line: at its head, or at S for a Resign (§8.3), which may lie on a side of the fork (review N1).
    */
-  private stopNow(): Stop | null {
+  private verdict(): { standing: ResultId | null; ending: Ending | null } {
+    if (this.verdictCache !== undefined) return this.verdictCache;
+    const w = this.current;
+    let standing: ResultId | null = null;
+    let ending: Ending | null = null;
+    if (w.fork === null) {
+      const r = ownResult(this.ctx, w);
+      if (r !== null) ending = this.endingOf(r, w.fold, w.fold.point.seq);
+    } else {
+      const sides = this.sides();
+      standing = standingResult(this.ctx, this.store, sides, w.fork, (h, k) => this.scoring(h, k));
+      if (standing !== null) {
+        const k = standing.forfeit[0] as number;
+        const at: Scoring | null =
+          standing.kind === 'resign'
+            ? this.scoring(standing.head, k)
+            : (() => {
+                const f = sides.fold(standing.head);
+                return f === null ? null : { fold: f, seq: f.point.seq };
+              })();
+        // A standing result is valid, so its line folds: `at` is never null here.
+        if (at !== null) ending = this.endingOf(standing, at.fold, at.seq);
+      }
+    }
+    this.verdictCache = { standing, ending };
+    return this.verdictCache;
+  }
+
+  private endingOf(r: ResultId, fold: LineFold, seq: number): Ending {
+    const point = fold.points[seq] as LinePoint;
+    const over = point.state !== null && this.module.pending(point.state).type === 'over';
+    return { r, fold, seq, point, over, key: `${resultKey(r)}@${point.id}` };
+  }
+
+  /** A Resign's scoring position S (§8.3), memoised per (head, seat) for one set of held Moves and Shares events. */
+  private scoring(head: Hex, k: number): Scoring | null {
+    const key = `${head}|${k}`;
+    if (this.scoringMemo.has(key)) return this.scoringMemo.get(key) as Scoring | null;
+    const s = resignScoring(this.ctx, this.store, this.sides(), head, k);
+    this.scoringMemo.set(key, s);
+    return s;
+  }
+
+  /**
+   * The fork's stop analysis (PROTOCOL-v2 §5.6) whenever a fork is held: P, E, the cancel test and the M1
+   * equivocators. Equivocators are recorded whether or not a result stands (§5.2, §7.5).
+   */
+  private forkStop(): Stop | null {
     if (this.current.fork === null) return null;
     if (this.stopCache === undefined)
       this.stopCache = stopAt(this.ctx, this.store, this.current, this.sides());
     return this.stopCache;
+  }
+
+  /**
+   * The stop at the walk's fork (PROTOCOL-v2 §5.6), or null: no fork held, or a result stands against it (§5.4: the
+   * fork then only records E). Otherwise the game is stopped: cancelled, or scored.
+   */
+  private stopNow(): Stop | null {
+    if (this.current.fork === null || this.standing() !== null) return null;
+    return this.forkStop();
   }
 
   /**
@@ -774,48 +930,82 @@ export class GameSessionV2 implements Session {
     return this.module.resignAllowed?.(this.ctx.rules, this.ctx.seats) ?? true;
   }
 
+  /** Every seat's verified deck secret (the caller checks they are all held). */
+  private allSecretsList(): bigint[] {
+    return Array.from({ length: this.ctx.seats }, (_, k) => this.secretOf(k) as bigint);
+  }
+
   /**
-   * The full audit of the line to the head (PROTOCOL-v2 §7.2, v1 §7): a deckless game's runs as soon as it is over;
-   * with a deck it needs every seat's secret (the caller checks), and decrypts the final deck with them.
+   * The audit of the line to `e`'s point (PROTOCOL-v2 §7.2, v1 §7), cached by the line's log hash: the full audit
+   * (with the outcome compared) at a point where the module is over, otherwise the partial audit after a Resign (v1
+   * §8.3: no outcome compared). A deckless game's runs at once; with a deck it needs every seat's secret (the caller
+   * checks), and decrypts the final deck with them.
    */
-  private audit(): SessionAudit {
-    const key = lineLogHash(this.store, this.head().id) as Hex;
+  private auditAt(e: Ending): SessionAudit {
+    const key = `${e.over ? 'full' : 'prefix'}|${lineLogHash(this.store, e.point.id) as Hex}`;
     const known = this.audits.get(key);
     if (known !== undefined) return known;
-    const head = this.head();
     const deck = this.ctx.deckId !== null;
-    const audit = auditGame({
+    const input = {
       module: this.module,
       rules: this.ctx.rules,
       seats: this.ctx.seats,
       deckId: this.ctx.deckId,
-      deck: deck ? head.deck : [],
-      secrets: deck ? Array.from({ length: this.ctx.seats }, (_, k) => this.secretOf(k) as bigint) : [],
+      deck: deck ? e.point.deck : [],
+      secrets: deck ? this.allSecretsList() : [],
       cards: this.ctx.cards,
-      log: this.current.line.log.slice(0, head.logLength),
-      outcome: this.module.outcome(head.state),
-    });
+      log: e.fold.log.slice(0, e.point.logLength) as LoggedAction[],
+    };
+    const audit = e.over
+      ? auditGame({ ...input, outcome: this.module.outcome(e.point.state) })
+      : auditPrefix(input);
     if (this.audits.size >= MAX_AUDITS) this.audits.clear();
     this.audits.set(key, audit);
     return audit;
   }
 
+  /** Whether `e`'s End phase owes Secret reveals: a deck game at `over` (v1 §7 step 1) or after a Resign (v1 §8.3). */
+  private needsSecrets(e: Ending): boolean {
+    return this.ctx.deckId !== null && (e.over || e.r.kind === 'resign');
+  }
+
   /**
-   * The phase, outcome, audit and forfeits the view reports. With no fork and the module over, the result is the
-   * module's outcome with the audit verdict (PROTOCOL-v2 §7.2): the seats the audit fails forfeit, last. With a deck
-   * the audit waits for every seat's secret (phase `end` meanwhile). While a fork is held nothing is scored yet (the
-   * stop and the cutoff are T10, T11).
+   * The phase, outcome, audit and forfeits the view reports (PROTOCOL-v2 §5.5): the stop's (`stopStatus`) while a
+   * fork is held and no result stands; live while there is no result; otherwise the result scored at its point,
+   * as without a fork when it stands against one (review N1, V2-54):
+   * - `over` (or a Resign whose S is over, v1 §8.3 step 4): the module's outcome with the full audit (§7.2), the
+   *   failed seats forfeiting with the end adjustment; with a deck the audit waits for every secret (phase `end`),
+   *   and an End-phase claim accepted for a withheld secret forfeits the stalled seats instead (v1 §8.2 "At the end");
+   * - `claim`: v1 §8.2's forfeit ranking at its head, with no audit (`{fail, reason: 'timeout'}`);
+   * - `resign`: v1 §8.3's resign ranking at S, the resigner strictly last, unrated with 3 or more seats; with a deck
+   *   the partial audit up to S once every secret is in (or the End-phase claim's forfeits).
    */
   private status(): Status {
     const stop = this.stopNow();
     if (stop !== null) return this.stopStatus(stop);
-    const head = this.head();
-    const r = this.result();
-    if (r === null || r.kind !== 'over' || (this.ctx.deckId !== null && !this.allSecrets())) {
-      return { phase: head.phase, outcome: null, audit: 'pending', forfeits: [] };
+    const e = this.ending();
+    if (e === null) return { phase: this.head().phase, outcome: null, audit: 'pending', forfeits: [] };
+    if (e.r.kind === 'claim') return this.claimStatus(e);
+    if (e.over) return this.overStatus(e);
+    return this.resignStatus(e);
+  }
+
+  /** The result at a point where the module is over: its outcome, with the full audit or a withheld-secret claim. */
+  private overStatus(e: Ending): Status {
+    const declared = this.module.outcome(e.point.state) as ModuleOutcome;
+    const claimed = this.endClaims.get(e.key);
+    if (claimed !== undefined) {
+      const forfeits = ascending(claimed.seats);
+      return {
+        phase: 'done',
+        outcome: rankWithForfeits(declared.scores, forfeits, declared.places),
+        audit: { fail: [...forfeits], reason: 'withheld secret' },
+        forfeits,
+      };
     }
-    const declared = this.module.outcome(head.state) as ModuleOutcome;
-    const audit = this.audit();
+    if (this.ctx.deckId !== null && !this.allSecrets())
+      return { phase: 'end', outcome: null, audit: 'pending', forfeits: [] };
+    const audit = this.auditAt(e);
     const failed = typeof audit === 'object' ? ascending(audit.fail) : [];
     const outcome =
       failed.length === 0
@@ -823,6 +1013,66 @@ export class GameSessionV2 implements Session {
         : rankWithForfeits(declared.scores, failed, declared.places);
     const copy = typeof audit === 'object' ? { fail: [...audit.fail], reason: audit.reason } : audit;
     return { phase: 'done', outcome, audit: copy, forfeits: failed };
+  }
+
+  /** A `claim` result (v1 §8.2 "During play"): the forfeiting seats last, the others by `standings` at its head. */
+  private claimStatus(e: Ending): Status {
+    const forfeits = [...e.r.forfeit];
+    return {
+      phase: 'done',
+      outcome: rankWithForfeits(standingsAt(this.ctx, e.point), forfeits, null),
+      audit: { fail: [...forfeits], reason: 'timeout' },
+      forfeits,
+    };
+  }
+
+  /**
+   * A `resign` result whose S is not over (v1 §8.3): deckless, done at once (`{fail: [k], reason: 'resign'}`); with a
+   * deck, `end` until every secret is in, then the partial audit up to S (its failed seats forfeit too, above the
+   * resigner), or an accepted End-phase claim's stalled seats (`resign; withheld secret`).
+   */
+  private resignStatus(e: Ending): Status {
+    const k = e.r.forfeit[0] as number;
+    if (this.ctx.deckId === null)
+      return {
+        phase: 'done',
+        outcome: this.resignOutcome(e, k, [k]),
+        audit: { fail: [k], reason: 'resign' },
+        forfeits: [k],
+      };
+    let failed: readonly number[];
+    let reason: string;
+    const claimed = this.endClaims.get(e.key);
+    if (claimed !== undefined) {
+      failed = claimed.seats;
+      reason = 'resign; withheld secret';
+    } else if (this.allSecrets()) {
+      const a = this.auditAt(e);
+      failed = a === 'pass' || a === 'pending' ? [] : a.fail;
+      reason = typeof a === 'object' ? clipReason(`resign; ${a.reason}`) : 'resign';
+    } else {
+      return { phase: 'end', outcome: null, audit: 'pending', forfeits: [k] };
+    }
+    const forfeits = ascending([k, ...failed]);
+    return {
+      phase: 'done',
+      outcome: this.resignOutcome(e, k, forfeits),
+      audit: { fail: [...forfeits], reason },
+      forfeits,
+    };
+  }
+
+  /**
+   * A Resign's outcome (v1 §8.3): `forfeits` last, the others by `standings` at S, reason `resign`, the resigning seat
+   * strictly last (the other forfeiting seats share the place above it); with 3 or more seats also `unrated` and
+   * `endedBy` (D052).
+   */
+  private resignOutcome(e: Ending, k: number, forfeits: readonly number[]): Outcome {
+    const ranked = rankWithForfeits(standingsAt(this.ctx, e.point), forfeits, null);
+    const places = ranked.places.map((p, j) => (j === k ? this.ctx.seats : p));
+    const outcome: Outcome = { places, reason: 'resign', scores: ranked.scores };
+    if (this.ctx.seats < 3) return outcome;
+    return { ...outcome, unrated: true, endedBy: { type: 'resign', seat: k } };
   }
 
   /**
@@ -855,35 +1105,39 @@ export class GameSessionV2 implements Session {
 
   /**
    * The progress time P (v1 §8.1, D030 Rulings 10 and 11): the latest local first-seen time over the root and the
-   * walk's moves, and the Shares events and secrets that let the walk advance or removed a seat from the stall set
+   * moves of the chain (the walk's, or with a result the line to its scoring point, as without a fork: review N1),
+   * and the Shares events and secrets that let the walk advance or removed a seat from the stall set
    * (`noteProgress`). No `created_at` counts.
    */
   private progress(): number {
     let out = Math.max(this.rootSeenAt, this.stallProgress);
-    for (const h of this.current.chain) out = Math.max(out, this.seenAt.get(h.m.id) ?? this.clock);
+    const e = this.ending();
+    const chain = e === null ? this.current.chain : e.fold.chain.slice(0, e.seq);
+    for (const h of chain) out = Math.max(out, this.seenAt.get(h.m.id) ?? this.clock);
     return out;
   }
 
   /**
-   * The view's `pendingSince`: the progress time P, except while a fork is held, when no seat is stalled (§5.7) and
-   * it is the root's first-seen time, the floor of P (review of T9, I1). P itself depends on which Shares events
-   * this client accepted before the fork surfaced, so it would differ between arrival orders of the same events.
+   * The view's `pendingSince`: the progress time P, except while the game is stopped at a held fork, when no seat is
+   * stalled (§5.7) and it is the root's first-seen time, the floor of P (review of T9, I1). P itself depends on
+   * which Shares events this client accepted before the fork surfaced, so it would differ between arrival orders of
+   * the same events. A result standing against the fork has stalls (N1), so its P is shown.
    */
   private pendingSince(): number {
-    return this.current.fork === null ? this.progress() : this.rootSeenAt;
+    return this.current.fork !== null && this.standing() === null ? this.rootSeenAt : this.progress();
   }
 
   /**
-   * The seats stalled at the head (v1 §8.1 as PROTOCOL-v2 §8.1 amends it), ascending: none while a fork is held;
-   * after `over`, every seat whose secret is not in (with a deck; none deckless); during the shuffle, the seat whose
-   * step is next; during the deal, every seat missing deal shares (there is no shuffle-fork exception: a held fork
-   * stalls nobody); in play, as v1 (`stalledInPlay`).
+   * The seats stalled at the head (v1 §8.1 as PROTOCOL-v2 §8.1 amends it), ascending: none while the game is stopped
+   * at a held fork; once there is a result (also one standing against a fork: N1), the End phase's (`endStalled`);
+   * during the shuffle, the seat whose step is next; during the deal, every seat missing deal shares (there is no
+   * shuffle-fork exception: a held fork stalls nobody); in play, as v1 (`stalledInPlay`).
    */
   private stalled(): number[] {
+    const e = this.ending();
+    if (e !== null) return this.endStalled(e);
     if (this.current.fork !== null) return [];
     const all = Array.from({ length: this.ctx.seats }, (_, k) => k);
-    if (this.result() !== null)
-      return this.ctx.deckId === null ? [] : all.filter((k) => this.secretOf(k) === null);
     const head = this.head();
     const shares = this.current.shares;
     switch (head.phase) {
@@ -901,6 +1155,35 @@ export class GameSessionV2 implements Session {
       default:
         return [];
     }
+  }
+
+  /**
+   * The seats stalled in `e`'s End phase (v1 §8.1 "End"): with a deck, at `over` or after a Resign, every seat whose
+   * secret is not in, until an End-phase claim is accepted; none otherwise (a deckless game, a `claim` result).
+   */
+  private endStalled(e: Ending): number[] {
+    if (!this.needsSecrets(e) || this.endClaims.has(e.key)) return [];
+    return Array.from({ length: this.ctx.seats }, (_, k) => k).filter((k) => this.secretOf(k) === null);
+  }
+
+  /**
+   * Accept an End-phase claim when one is due (v1 §8.1 "Accepting", by this client's own clock): the game has a
+   * result whose End phase owes secrets, some seat's secret is missing, and a kept Timeout claim names the result's
+   * scoring point (its head, or S: never the fork point P, review N1) signed by a seat whose secret is in, with
+   * `now ≥ P + deadline`. The lowest such claim id is recorded, and every seat stalled then forfeits. Final for that
+   * result (v1 §8.2 "Finality").
+   */
+  private decideEndClaim(): void {
+    const e = this.ending();
+    if (e === null || !this.needsSecrets(e) || this.endClaims.has(e.key)) return;
+    const stalled = this.endStalled(e);
+    if (stalled.length === 0 || this.clock < this.progress() + this.root.deadline) return;
+    const ids = [...this.store.claims.values()]
+      .filter((c) => c.ev.headId === e.point.id && !stalled.includes(c.seat))
+      .map((c) => c.ev.id)
+      .sort();
+    const id = ids[0];
+    if (id !== undefined) this.endClaims.set(e.key, { id, seats: stalled });
   }
 
   /**
@@ -951,9 +1234,10 @@ export class GameSessionV2 implements Session {
   /** The canonical `{audit, logHash, outcome}` of the stats attestation (PROTOCOL-v2 §7.4), or null before `done`. */
   private statsContent(): string | null {
     const { phase, outcome, audit } = this.status();
-    const r = this.result();
-    if (phase !== 'done' || outcome === null || audit === 'pending' || r === null) return null;
-    return canonicalJson({ audit, logHash: lineLogHash(this.store, r.head), outcome });
+    const e = this.ending();
+    if (phase !== 'done' || outcome === null || audit === 'pending' || e === null) return null;
+    // The line up to the result's scoring point: its head, or S for a Resign (PROTOCOL-v2 §7.4, §8.3).
+    return canonicalJson({ audit, logHash: lineLogHash(this.store, e.point.id), outcome });
   }
 
   /** The seats whose latest stats attestation matches this client's result, ascending. */
@@ -963,15 +1247,22 @@ export class GameSessionV2 implements Session {
     return ascending([...this.store.stats].filter(([, a]) => a.content === mine).map(([seat]) => seat));
   }
 
+  /**
+   * A snapshot. With a result, `head`, `state`, `pending` and `events` are those of its scoring point (its head, or
+   * S for a Resign), also when it stands against a fork and lies on a side of it (review N1); otherwise the walk's
+   * head (P while stopped).
+   */
   view(): SessionViewV2 {
     const status = this.status();
-    const head = this.head();
     const w = this.current;
-    const r = this.result();
-    const events = w.line.events.slice(0, head.eventsLength);
+    const e = this.ending();
+    const r = e?.r ?? null;
+    const head = e?.point ?? this.head();
+    const events = (e?.fold.events ?? w.line.events).slice(0, head.eventsLength);
     const fork = w.fork;
     const stop = this.stopNow();
     const after = stop !== null && this.secretPhaseAfterStop() ? this.afterStop(stop) : null;
+    const resignedBy = r?.kind === 'resign' ? (r.forfeit[0] as number) : null;
     return {
       phase: status.phase,
       rootId: this.root.id,
@@ -984,14 +1275,14 @@ export class GameSessionV2 implements Session {
       pendingSince: this.pendingSince(),
       outcome: status.outcome,
       forfeits: status.forfeits,
-      resigned: [],
-      resignOverridden: [],
-      resignId: null,
-      equivocators: stop === null ? [] : [...stop.equivocators],
+      resigned: resignedBy !== null && e?.over === false ? [resignedBy] : [],
+      resignOverridden: resignedBy !== null && e?.over === true ? [resignedBy] : [],
+      resignId: r?.kind === 'resign' ? this.resignIdOf(r) : null,
+      // Every M1 equivocator whenever a fork is held, whether the game stopped or a result stands (§5.2, §7.5).
+      equivocators: fork === null ? [] : [...(this.forkStop()?.equivocators ?? [])],
       audit: status.audit,
       logHash: lineLogHash(this.store, head.id) as Hex,
-      resultLogHash:
-        (r === null ? null : lineLogHash(this.store, r.head)) ?? (lineLogHash(this.store, head.id) as Hex),
+      resultLogHash: lineLogHash(this.store, head.id) as Hex,
       deadline: this.root.deadline,
       attested: this.statsAttested(),
       events: Object.freeze(events.length > MAX_EVENTS ? events.slice(events.length - MAX_EVENTS) : events),
@@ -1001,14 +1292,23 @@ export class GameSessionV2 implements Session {
           ? null
           : { at: fork.at, seat: fork.seat, certificate: fork.successors.slice(0, 2) as Hex[] },
       result: r === null ? null : { kind: r.kind, head: r.head, forfeit: [...r.forfeit] },
-      stood: false,
+      stood: fork !== null && r !== null,
       stop: stop === null ? null : { at: stop.at, seat: stop.seat, cancelled: stop.cancelled },
       secretWithheld: after === null ? [] : after.withheld,
       auditIncomplete: after !== null && after.audit.state === 'incomplete',
-      endAttested: r === null ? [] : endAttestedSeats(this.store, r),
+      endAttested: r === null ? [] : endAttestedSeats(this.store, this.ctx.seats, r),
       owed: { reveal: this.owedReveal(), roll: this.owedRoll() },
       ownForfeit: null,
     };
+  }
+
+  /** The id of the held Resign a `resign` result counts (the lowest id by its seat naming its head), or null. */
+  private resignIdOf(r: ResultId): Hex | null {
+    const ids = [...this.store.resigns.values()]
+      .filter((x) => x.seat === r.forfeit[0] && x.ev.headId === r.head)
+      .map((x) => x.ev.id)
+      .sort();
+    return ids[0] ?? null;
   }
 
   /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
@@ -1063,18 +1363,21 @@ export class GameSessionV2 implements Session {
    *   release, before `decide` (no decision is pending while a beacon is);
    * - `decide`: the pending decision is mine and the module lists legal actions.
    * Once this client has a result:
-   * - `end`: it holds none of its seat's end attestations of it (PROTOCOL-v2 §7.1), before the Secret phase;
-   * - `secret`: with a deck, my deck secret is not in (v1 §7 step 1);
-   * - `attest`: the stats attestation, once the result and its audit are final (a SHOULD, PROTOCOL-v2 §7.4).
+   * - `end`: it holds none of its seat's end attestations of it (PROTOCOL-v2 §7.1), before the Secret phase; never
+   *   while a fork is held (a result standing against it included);
+   * - `secret`: the End phase owes secrets (a deck game at `over` or after a Resign) and my deck secret is not in
+   *   (v1 §7 step 1, §8.3), unless an End-phase claim was accepted; also for a result standing against a fork (N1);
+   * - `attest`: the stats attestation, once the result and its audit are final (a SHOULD, PROTOCOL-v2 §7.4): never
+   *   while a fork is held.
    */
   duties(): Duty[] {
     const me = this.me;
     if (me === null) return [];
-    if (this.current.fork !== null)
+    if (this.stopNow() !== null)
       // Stopped (no result stands, §5.7): nothing but the after-stop Secret reveal in a deck game (§7.3).
       return this.secretPhaseAfterStop() && this.secretOf(me.seat) === null ? [{ kind: 'secret' }] : [];
-    const r = this.result();
-    if (r === null) {
+    const e = this.ending();
+    if (e === null) {
       const head = this.head();
       if (head.phase === 'shuffle')
         return nextShuffler(this.ctx, head) === me.seat ? [{ kind: 'shuffle' }] : [];
@@ -1086,9 +1389,15 @@ export class GameSessionV2 implements Session {
       if (this.decides(me)) out.push({ kind: 'decide' });
       return out;
     }
-    if (!endAttestedSeats(this.store, r).includes(me.seat)) return [{ kind: 'end' }];
-    if (this.ctx.deckId !== null && this.secretOf(me.seat) === null) return [{ kind: 'secret' }];
-    if (this.statsContent() !== null && !this.statsAttested().includes(me.seat)) return [{ kind: 'attest' }];
+    // A result standing against a held fork is played out as without one (N1: the Secret phase), but nothing new is
+    // attested while the fork is held (§5.7, §7.1), and it is not final (§8.1 "Finality"), so no stats attestation.
+    const standing = this.current.fork !== null;
+    if (!standing && !endAttestedSeats(this.store, this.ctx.seats, e.r).includes(me.seat))
+      return [{ kind: 'end' }];
+    if (this.needsSecrets(e) && !this.endClaims.has(e.key) && this.secretOf(me.seat) === null)
+      return [{ kind: 'secret' }];
+    if (!standing && this.statsContent() !== null && !this.statsAttested().includes(me.seat))
+      return [{ kind: 'attest' }];
     return [];
   }
 
@@ -1369,12 +1678,12 @@ export class GameSessionV2 implements Session {
   attestTemplate(createdAt: number): EventTemplate {
     this.requireDuty('attest');
     const { outcome, audit } = this.status();
-    const r = this.result() as ResultId;
+    const e = this.ending() as Ending;
     return statsTemplate(
       {
         rootId: this.root.id,
         audit: audit as Exclude<SessionAudit, 'pending'>,
-        logHash: lineLogHash(this.store, r.head) as Hex,
+        logHash: lineLogHash(this.store, e.point.id) as Hex,
         outcome: outcome as Outcome,
       },
       createdAt,
@@ -1393,15 +1702,35 @@ export class GameSessionV2 implements Session {
     throw new ClientError('resigning a protocol 2 game is not built yet (build plan T12)');
   }
 
-  /** Timeout claims under protocol 2 are built in task T12: none yet. */
-  timeoutTarget(_now: number): number | null {
-    return null;
+  /**
+   * The seat this client may claim a timeout against at `now` (v1 §8.1 "Claiming"), or null. Built so far for the End
+   * phase only (claims during play are T12): the game has a result whose End phase owes secrets (also one standing
+   * against a fork: N1), my secret is in, another seat's is missing, no End-phase claim was accepted, and
+   * `now ≥ P + deadline`. The lowest stalled seat.
+   */
+  timeoutTarget(now: number): number | null {
+    this.observe(now);
+    const me = this.me;
+    const e = this.ending();
+    if (me === null || e === null || !this.needsSecrets(e) || this.endClaims.has(e.key)) return null;
+    const stalled = this.endStalled(e);
+    if (stalled.length === 0 || stalled.includes(me.seat)) return null;
+    if (this.clock < this.progress() + this.root.deadline) return null;
+    return stalled[0] as number;
   }
 
-  /** Timeout claims under protocol 2 are built in task T12: throws `ClientError`. */
-  buildTimeout(_seat: number, _rnd: RandomBytes, _createdAt: number): NostrEvent {
-    this.requireMe();
-    throw new ClientError('timeout claims in a protocol 2 game are not built yet (build plan T12)');
+  /**
+   * My Timeout claim against `seat` (v1 §4.6 at proto 2), naming the result's scoring point (its head, or S: never
+   * the fork point P, review N1). Throws `ClientError` unless `timeoutTarget` allows a claim now and `seat` is
+   * stalled.
+   */
+  buildTimeout(seat: number, rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireMe();
+    const e = this.ending();
+    if (this.timeoutTarget(this.clock) === null || e === null || !this.endStalled(e).includes(seat))
+      throw new ClientError(`no timeout claim against seat ${seat} is due`);
+    const t = timeoutTemplate({ rootId: this.root.id, headId: e.point.id, seat }, createdAt, '2');
+    return finalizeEvent(t, me.sessionSk, rnd);
   }
 
   /* ---------------------------------------------------------------------------------------------- chain */

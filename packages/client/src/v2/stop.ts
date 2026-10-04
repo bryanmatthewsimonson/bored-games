@@ -67,7 +67,7 @@ export function stopAt(ctx: GameCtx, store: EventStoreV2, w: Walk, sides: SideLi
 }
 
 /** The module's `standings` at `p` as integers, one per seat (0 where a module returns less). */
-function standingsAt(ctx: GameCtx, p: LinePoint): number[] {
+export function standingsAt(ctx: GameCtx, p: LinePoint): number[] {
   let raw: readonly number[] = [];
   try {
     if (p.state !== null) raw = ctx.module.standings(p.state);
