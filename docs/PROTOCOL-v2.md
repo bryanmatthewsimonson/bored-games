@@ -382,7 +382,8 @@ v1 §4.9 and §8.3, with these changes:
 
 ### 9.1 Gossip (A3)
 - A client MUST rebroadcast **both moves of every fork it holds** (the fork certificate) to the root's relays and its own relays, as soon as it holds them.
-- It SHOULD rebroadcast every game event of the game it holds (Moves, Shares events, Timeout claims, Resigns, Secret reveals, end attestations) to the root's relays, for example once after each sync.
+- A client MUST rebroadcast **every move on its chain** (every move it may anchor on), and **its own Shares events and end attestations**, to the root's relays and its own relays (review M2). Rebroadcasting a move once after first holding it and once after each sync is enough. Reason: an unresolved anchor blocks a result (§5.4 (b)). An honest seat that anchors shares on a move that E sent to it alone must make that move reach every client, or the result would depend on who holds it.
+- It SHOULD rebroadcast every other game event of the game it holds (other seats' Shares events, Timeout claims, Resigns, Secret reveals, end attestations) to the root's relays, for example once after each sync.
 - Rebroadcasting republishes the same signed event; it never re-signs (v1 §9).
 
 The design assumes (A3) that every event an honest client holds reaches every honest client within the game's deadline. Today's timeouts already assume it for moves.
@@ -443,7 +444,7 @@ v1 §11 holds for everything that does not concern fork choice. In addition (pro
 4. **Two devices.** The check before signing leaves a race of seconds. Shares and end attestations are automatic on every device, so a seat's second device acting on the other side of a fork keeps an attested result from standing (the stop is then E's forfeit). Two devices of one seat can also end on different results with no fork held (a claim or Resign race between them), as two clients can.
 5. **The claim and resign races** with no fork held (v1 §11), unchanged.
 6. **Assumptions.** A3 (gossip within the deadline, §9.1) and A6 (the relays a device queries return its own seat's events; at least one honest relay). When the opponent picks every root relay, A6 can fail; §9.4 mitigates it.
-7. **Unresolved anchors.** A Shares event or end attestation anchored on an event nobody holds counts as off every result's line (§5.4). Only a seat other than E can block a result that way, and an honest client anchors only on moves it holds and rebroadcasts (§9.1), so this is the same as a colluder withholding its attestation (item 2). The model does not include unresolved anchors.
+7. **Unresolved anchors.** A Shares event or end attestation anchored on an event nobody holds counts as off every result's line (§5.4). Only a seat other than E can block a result that way, and an honest client anchors only on moves on its chain, which it MUST rebroadcast (§9.1), so this is the same as a colluder withholding its attestation (item 2). The model does not include unresolved anchors.
 8. **Selective abort on dice.** Contributions are unordered (§6.2), so any seat, not only one fixed seat as in v1, can try to contribute last, see the faces first and withhold. Withholding is a timeout forfeit, and no seat can choose the faces.
 9. **Owed reveals and contributions out of turn** (§6.4): a seat whose app stays closed can be timed out in Luster and Bank when it is not its turn. Accepted by the owner (D060).
 10. **Denial of service.** v1 §11's bounds hold, with these changes. A shuffle fork needs only two well-formed steps, so no rival step's proof is verified (the candidate cap of v1 is gone). Junk game actions by the pending seat cost one validity check each, paid for with its own signed events, as in v1. The cutoff folds a side line only to judge a valid result on it, at most once per line and event set. Shares events, end attestations and Device notes are size-capped like every event (262,144 bytes); a client MAY drop duplicate end attestations of one identity by one seat, which never changes the cutoff.
@@ -513,7 +514,7 @@ Each item is a testable requirement on a v2 client (session, protocol package or
 - **V2-43** MUST compute a Resign's scoring position along its named head's line, stopping at the first held fork past it (§8.3).
 
 **Devices and relays**
-- **V2-44** MUST rebroadcast both moves of every fork it holds to the root's relays and its own (§9.1).
+- **V2-44** MUST rebroadcast both moves of every fork it holds, every move on its chain, and its own Shares events and end attestations, to the root's relays and its own (§9.1).
 - **V2-45** MUST apply the outbox rule to saved Moves, Shares events and end attestations (§9.2).
 - **V2-46** SHOULD run the check before signing before every Move, Resign and Timeout claim (§9.3).
 - **V2-47** SHOULD query and publish to the player's own relays besides the root's (§9.4).
