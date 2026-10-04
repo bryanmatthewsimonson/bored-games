@@ -127,6 +127,31 @@ export class Harness {
     return { rootId, address, bySeat };
   }
 
+  /** Start a 3-seat table of `game` with three profiles. Returns the profiles in seat order. */
+  async start3(
+    game: string,
+    ps: [Profile, Profile, Profile],
+  ): Promise<{ rootId: string; address: string; bySeat: Profile[] }> {
+    const [la, lb, lc] = ps.map((p) => this.lobby(p)) as [LobbyController, LobbyController, LobbyController];
+    const address = await la.createTable({
+      game,
+      seats: 3,
+      deadline: 259200,
+      invited: [],
+      relays: [this.relay.url],
+    });
+    for (const l of [lb, lc]) {
+      await waitFor('the open table', () => l.openTables.value.find((t) => t.address === address));
+      await l.join(address);
+    }
+    await waitFor('a full table', () => la.table(address).value?.full);
+    const rootId = await la.start(address);
+    for (const l of [lb, lc]) await waitFor('the root', () => l.table(address).value?.root?.id === rootId);
+    const seats = la.table(address).value?.root?.seats.map((s) => s.npub) ?? [];
+    const bySeat = seats.map((npub) => ps.find((p) => p.deps.signer.pubkey === npub) as Profile);
+    return { rootId, address, bySeat };
+  }
+
   /** Every stored event matching `filters` at `url` (the dev relay by default), from a fresh pool. */
   query(filters: Filter[], url = this.relay.url): Promise<NostrEvent[]> {
     const p = this.pool([url]);
@@ -201,6 +226,33 @@ export function offlinePool(real: PoolLike) {
     pool: {
       subscribe: (filters, onEvent, onEose?: (info: EoseInfo) => void, opts?) =>
         real.subscribe(filters, onEvent, onEose, opts),
+      publish: async (ev: NostrEvent, urls?: readonly string[]) => {
+        if (net.offline) return [{ url: 'offline', ok: false, message: 'offline' }];
+        net.published.push(ev.id);
+        return real.publish(ev, urls);
+      },
+      addRelays: (urls: readonly string[]) => real.addRelays?.(urls),
+    } as PoolLike,
+  };
+  return net;
+}
+
+/**
+ * A device that never receives the events in `hidden` (on any subscription), with publishing that can be cut off
+ * (`offline`); `published` records what went out.
+ */
+export function hiding(real: PoolLike, hidden: ReadonlySet<string>, offline = false) {
+  const net = {
+    offline,
+    published: [] as string[],
+    pool: {
+      subscribe: (filters, onEvent, onEose, opts) =>
+        real.subscribe(
+          filters,
+          (ev, url) => (hidden.has(ev.id) ? undefined : onEvent(ev, url)),
+          onEose,
+          opts,
+        ),
       publish: async (ev: NostrEvent, urls?: readonly string[]) => {
         if (net.offline) return [{ url: 'offline', ok: false, message: 'offline' }];
         net.published.push(ev.id);

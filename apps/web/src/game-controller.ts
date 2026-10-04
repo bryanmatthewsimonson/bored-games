@@ -595,11 +595,15 @@ export class GameController {
   }
 
   /**
-   * Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`), leaving out those the
-   * session refused (`#refused`): an invalid own event is not a rival anyone can link.
+   * Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`). For moves only, those
+   * the session refused (`#refused`) are left out: an invalid own move is not a rival anyone can link. A refused Shares
+   * event still counts: a deal on a rival deck is refused, and it must keep this seat from publishing another deal
+   * (D056, F7: never deal on two decks).
    */
   #otherMine(key: string, ev: NostrEvent | null): boolean {
-    for (const id of this.#mine.get(key) ?? []) if (id !== ev?.id && !this.#refused.has(id)) return true;
+    const move = key.startsWith('move:');
+    for (const id of this.#mine.get(key) ?? [])
+      if (id !== ev?.id && !(move && this.#refused.has(id))) return true;
     return false;
   }
 
