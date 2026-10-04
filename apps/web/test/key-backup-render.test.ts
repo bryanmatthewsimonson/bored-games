@@ -22,7 +22,8 @@ describe('the game screen’s key backup notices (D065)', () => {
       const t = renderTree(RestoreNotice({ state, onRetry: () => retried++ }));
       expect(spokenText(t)).toContain("You're watching this game");
       expect(buttons(t)).toEqual(['Try again']);
-      (findAll(t, (el) => el.tag === 'button')[0]?.attrs.onClick as () => void)();
+      const click = findAll(t, (el) => el.tag === 'button')[0]?.attrs.onClick as () => void;
+      click();
     }
     expect(retried).toBe(5);
     expect(RESTORE_TEXT.none).toContain('Open the game on the device you joined with');
