@@ -44,3 +44,19 @@ export function parsePartitionMove(ev: unknown, size: number, groups: readonly D
   }
   throw error;
 }
+
+/**
+ * The seat that signs shuffle step `step` (0-based): each seat shuffles every group in turn, so `groups.length`
+ * steps per seat. `null` when there is no group (a deckless game, which has no shuffle steps) or the step is not
+ * a non-negative integer, so a caller can never divide by zero or index with NaN.
+ */
+export function shuffleStepSeat(step: number, groups: readonly DeckPartition[]): number | null {
+  if (groups.length === 0 || !Number.isSafeInteger(step) || step < 0) return null;
+  return Math.floor(step / groups.length);
+}
+
+/** The group shuffled at step `step` (0-based), or `null` under the same conditions as `shuffleStepSeat`. */
+export function shuffleStepGroup(step: number, groups: readonly DeckPartition[]): DeckPartition | null {
+  if (groups.length === 0 || !Number.isSafeInteger(step) || step < 0) return null;
+  return groups[step % groups.length] ?? null;
+}
