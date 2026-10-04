@@ -554,7 +554,11 @@ Each as a JSON file under the package that owns it, with every intermediate valu
    - two valid attested results (rule (c): stop);
    - a fork below another fork (the topmost decides);
    - an unresolved anchor blocking a result;
-   - a Resign whose scoring position stops at a fork past its named head.
+   - a Resign whose scoring position stops at a fork past its named head;
+   - a fork at the root, or at an old shuffle step, signed after play began: a stop scored as E's loss, not a cancel (review H1); and a shuffle fork with no game action held past it: a cancel;
+   - a colluder's fork above another seat's fork: both seats are equivocators sharing the last places, and P is the higher fork (review M1);
+   - a stop in a deck game where an honest seat's secret never arrives: places unchanged, "secret withheld" recorded, no claim accepted (review H2); and a stop where the partial audit proves a failure;
+   - a returning client accepting at once a claim that forfeits only its own seat (review L2).
 6. **Prompt release scenarios:** the positions a seat releases after a Chain Reaction draw, a Luster refill and a Luster blind reservation; none while a fork is held; none of its own positions.
 7. **Dice scenarios:** a Bank roll with contributions arriving in every order, the requester's last; a rival Roll (a stop); two devices contributing the same `D` (not a fork).
 8. **Outbox scenarios:** a stale saved move discarded; a saved Shares event discarded once its position is dealt to its own seat; a saved end attestation discarded once a fork is held.
