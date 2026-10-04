@@ -6,8 +6,9 @@
 import { startDevRelay } from '@bored-games/dev-relay';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ALREADY_MOVED, type GameController } from '../src/game-controller.ts';
-import { Harness, laggingOwn, outboxSlots, type Profile, pause, waitFor } from './net-harness.ts';
+import { ALREADY_MOVED, type GameController, HOLD_CAP_S } from '../src/game-controller.ts';
+import type { PoolLike } from '../src/net.ts';
+import { Harness, laggingOwn, now, outboxSlots, type Profile, pause, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -91,6 +92,32 @@ describe('The check before signing (D059 item 2)', () => {
     await expect(t.act({ type: 'move', actor: 0, uci: 'd2d4' })).rejects.toThrow(ALREADY_MOVED);
     expect(t.view.value?.head.id).toBe(onOwn[0]?.id);
     expect(net.published).toEqual([]);
+  }, 60_000);
+});
+
+describe('The check before signing is bounded (D059 item 2)', () => {
+  it('holds a move while a live relay of the player stays silent, and stops waiting after the hold cap', async () => {
+    const SILENT = 'wss://silent.test';
+    const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
+    const [white] = bySeat;
+    let skew = 0;
+    const dev = h.secondDevice(white, address, [SILENT]);
+    const real = dev.deps.pool;
+    // SILENT is one of the player's relays: alive (never reported dead) but it never answers.
+    const pool: PoolLike = {
+      publish: (ev, urls) => real.publish(ev, urls),
+      subscribe: (f, onEvent, onEose, o) =>
+        real.subscribe(f, onEvent, onEose && ((info) => onEose({ ...info, relays: info.relays + 1 })), o),
+    };
+    const t = h.game(rootId, { ...dev.deps, pool, now: () => now() + skew });
+    await waitFor('the tablet decision', () => t.status.value === 'your-turn');
+    await expect(t.act({ type: 'move', actor: 0, uci: 'e2e4' })).rejects.toThrow(
+      /not every relay has answered/,
+    );
+    expect(t.view.value?.head.seq).toBe(0);
+    skew = HOLD_CAP_S + 1;
+    await t.act({ type: 'move', actor: 0, uci: 'e2e4' });
+    expect(t.view.value?.head.seq).toBe(1);
   }, 60_000);
 });
 

@@ -295,8 +295,8 @@ export class GameController {
    * null after a full one: past `HOLD_CAP_S` the check stops waiting, so it never blocks for ever.
    */
   #checkSince: number | null = null;
-  /** An automatic duty (`kind@headId`) held back by the check before signing until the next tick. */
-  #heldDuty: string | null = null;
+  /** Automatic duties (`kind@headId`) held back by the check before signing until the next tick. */
+  readonly #heldDuties = new Set<string>();
   /**
    * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
    * on a parent, `shares` for its Shares events, `resign` for its Resigns.
@@ -386,7 +386,7 @@ export class GameController {
   tick(): void {
     if (this.#disposed) return;
     // A duty the check before signing held back is tried again (D059 item 2).
-    this.#heldDuty = null;
+    this.#heldDuties.clear();
     this.#session?.tick(this.#d.now());
     if (this.#synced) this.#retryUndelivered();
     this.#refresh();
@@ -1426,7 +1426,7 @@ export class GameController {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
-      if (this.#blocked(kind, v) || this.#heldDuty === `${kind}@${v.head.id}`) continue;
+      if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
@@ -1482,7 +1482,7 @@ export class GameController {
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');
           done.add(key);
           if ((await this.#perform(session, kind)) === 'held') {
-            this.#heldDuty = key;
+            this.#heldDuties.add(key);
             this.#holding(
               'it is not yet known whether another device of yours already sent it (not every relay has answered)',
             );
