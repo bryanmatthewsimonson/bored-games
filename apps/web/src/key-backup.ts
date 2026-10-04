@@ -14,6 +14,7 @@ import {
   encodeKeyBackup,
   type Hex,
   isKeyBackupEvent,
+  isNip44Payload,
   KIND,
   keyBackupD,
   keyBackupTemplate,
@@ -24,7 +25,7 @@ import {
 import type { EoseInfo } from '@bored-games/relay';
 import type { Timers } from './clock.ts';
 import { bytesToHex, hexToBytes } from './hex.ts';
-import type { Signer, SignerKind } from './identity.ts';
+import type { Nip44, Signer, SignerKind } from './identity.ts';
 import { type PoolLike, unionRelays } from './net.ts';
 import {
   addToTableList,
@@ -79,8 +80,36 @@ export function backupDue(profile: string, store: KeyValueStore, tableAddress: s
   return loadBackupRecord(profile, store, tableAddress) === null;
 }
 
+/**
+ * Why `content` must not be published as the encryption of `plaintext`, or null (review L2). A browser extension's
+ * NIP-44 is not trusted: one that returned the plaintext, or a NIP-04 string, would publish the seat's keys in the
+ * clear. The content must be a NIP-44 v2 payload of exactly that length and contain neither secret; then it is
+ * decrypted once, if the signer allows, and must give the plaintext back.
+ */
+export async function ciphertextProblem(
+  nip44: Nip44,
+  pubkey: Hex,
+  content: string,
+  plaintext: string,
+  secrets: readonly string[],
+  timers: Timers,
+): Promise<string | null> {
+  const refused = 'Your signer returned something that is not a NIP-44 encryption, so nothing was published.';
+  if (!isNip44Payload(content, new TextEncoder().encode(plaintext).length)) return refused;
+  if (secrets.some((x) => content.toLowerCase().includes(x))) return refused;
+  let back: string | typeof TIMED_OUT;
+  try {
+    back = await withTimeout(nip44.decrypt(pubkey, content), timers, DECRYPT_MS);
+  } catch {
+    return null; // not allowed to decrypt: the shape checks above stand
+  }
+  if (back === TIMED_OUT) return null;
+  return back === plaintext ? null : refused;
+}
+
 /** What publishing and restoring need: a slice of `ControllerDeps`. */
 export interface BackupDeps {
+  timers: Timers;
   pool: PoolLike;
   signer: Signer;
   storage: KeyValueStore;
@@ -120,7 +149,18 @@ export async function publishKeyBackup(
       rootId,
       seat: opts.seat ?? null,
     });
-    const content = await nip44.encrypt(signer.pubkey, plaintext);
+    const content = await withTimeout(nip44.encrypt(signer.pubkey, plaintext), deps.timers, DECRYPT_MS);
+    if (content === TIMED_OUT)
+      return { ok: false, error: 'Your signer did not answer the request to encrypt.' };
+    const problem = await ciphertextProblem(
+      nip44,
+      signer.pubkey,
+      content,
+      plaintext,
+      [bytesToHex(secrets.sessionSk), bytesToHex(secrets.deckSecret).padStart(64, '0')],
+      deps.timers,
+    );
+    if (problem !== null) return { ok: false, error: problem };
     const event = await signer.sign(keyBackupTemplate(tableAddress, content, deps.now()));
     const results = await deps.pool.publish(event, unionRelays(opts.tableRelays, deps.relays()));
     if (!results.some((r) => r.ok))

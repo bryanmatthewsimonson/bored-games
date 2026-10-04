@@ -69,7 +69,7 @@ export {
   validateRoot,
   verifyJoin,
 } from './lobby.ts';
-export { getConversationKey, nip44Decrypt, nip44Encrypt } from './nip44.ts';
+export { getConversationKey, isNip44Payload, nip44Decrypt, nip44Encrypt } from './nip44.ts';
 export {
   type EventTemplate,
   eventBytes,

@@ -13,6 +13,7 @@ import {
   chacha20,
   getConversationKey,
   getMessageKeys,
+  isNip44Payload,
   nip44Decrypt,
   nip44Encrypt,
   utf8Decode,
@@ -86,6 +87,25 @@ describe('NIP-44 v2 official vectors', () => {
   it('invalid decrypt', () => {
     for (const v of V.invalid.decrypt)
       expect(() => nip44Decrypt(v.payload, hexToBytes(v.conversation_key)), v.note).toThrow();
+  });
+});
+
+describe('isNip44Payload (review L2)', () => {
+  it('accepts exactly a v2 payload of that plaintext length', () => {
+    for (const v of V.valid.encrypt_decrypt) {
+      const n = new TextEncoder().encode(v.plaintext).length;
+      expect(isNip44Payload(v.payload, n)).toBe(true);
+      expect(isNip44Payload(v.payload, n + calcPaddedLen(n))).toBe(false);
+    }
+    const ck = new Uint8Array(32).fill(1);
+    const text = '{"session":"' + 'ab'.repeat(32) + '"}';
+    const payload = nip44Encrypt(text, ck, new Uint8Array(32).fill(2));
+    expect(isNip44Payload(payload, text.length)).toBe(true);
+    expect(isNip44Payload(text, text.length)).toBe(false); // plaintext handed back
+    expect(isNip44Payload(`#${payload.slice(1)}`, text.length)).toBe(false);
+    expect(isNip44Payload(payload.slice(0, -4), text.length)).toBe(false);
+    expect(isNip44Payload(`Aw${payload.slice(2)}`, text.length)).toBe(false); // version 3
+    expect(isNip44Payload(null, text.length)).toBe(false);
   });
 });
 

@@ -222,6 +222,28 @@ export function nip44Encrypt(plaintext: string, conversationKey: Uint8Array, non
   return base64Encode(concatBytes(new Uint8Array([2]), nonce, ciphertext, mac));
 }
 
+/**
+ * Whether `payload` has the exact shape of a NIP-44 v2 payload of a `plaintextBytes`-byte plaintext: canonical
+ * base64 of version 2, a 32-byte nonce, the padded ciphertext and a 32-byte MAC. A check on what an untrusted encryptor
+ * (a browser extension) returned, before it is published; it cannot see the MAC's key.
+ */
+export function isNip44Payload(payload: unknown, plaintextBytes: number): boolean {
+  if (typeof payload !== 'string' || payload.length < 132 || payload.length > 87472) return false;
+  if (
+    !Number.isSafeInteger(plaintextBytes) ||
+    plaintextBytes < MIN_PLAINTEXT ||
+    plaintextBytes > MAX_PLAINTEXT
+  )
+    return false;
+  let data: Uint8Array;
+  try {
+    data = base64Decode(payload);
+  } catch {
+    return false;
+  }
+  return data[0] === 2 && data.length === 1 + 32 + 2 + calcPaddedLen(plaintextBytes) + 32;
+}
+
 /** Decrypt a NIP-44 v2 payload; throws on any malformed, tampered or unsupported payload. */
 export function nip44Decrypt(payload: string, conversationKey: Uint8Array): string {
   if (typeof payload !== 'string') throw new Error('invalid payload');
