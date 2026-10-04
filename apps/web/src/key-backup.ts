@@ -361,7 +361,7 @@ export async function backupHealthy(
   timers: Timers,
 ): Promise<boolean> {
   if (onRoot.length === 0) return false;
-  if (signer.kind !== 'local') return record?.id === undefined || onRoot.some((ev) => ev.id === record.id);
+  if (signer.kind !== 'local') return record?.id !== undefined && onRoot.some((ev) => ev.id === record.id);
   const r = await restoreKeyBackup(signer, root, onRoot, timers);
   return (
     r.kind === 'restored' &&

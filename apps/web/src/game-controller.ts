@@ -1430,13 +1430,17 @@ export class GameController {
         return;
       }
       if (this.#disposed || this.backup.value !== 'checking') return;
-      // Not found on a partial answer, with a backup recorded: most likely slow relays, so do not publish again now.
-      if (!q.complete && record !== null) {
-        this.backup.value = 'done';
+      // A local key republishes whenever the root's relays sent no healthy backup, partial answer or not: publishing
+      // costs no prompt and replaces nothing good, and a root relay that stays dead must not block it for ever (review
+      // R1).
+      if (signer.kind === 'local') {
+        this.backup.value = 'due';
+        void this.#publishBackup(root, seat);
         return;
       }
-      this.backup.value = 'due';
-      if (signer.kind === 'local') void this.#publishBackup(root, seat);
+      // An extension, on a partial answer, with the id of the backup it published recorded: most likely slow relays,
+      // so do not ask for a new one now. Without a recorded id, nothing is known to be there: offer the button (R2).
+      this.backup.value = !q.complete && record?.id !== undefined ? 'done' : 'due';
     })();
   }
 

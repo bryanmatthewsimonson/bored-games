@@ -105,6 +105,7 @@ export class Harness {
     a: Profile,
     b: Profile,
     rules?: unknown,
+    relays: string[] = [this.relay.url],
   ): Promise<{ rootId: string; address: string; bySeat: [Profile, Profile] }> {
     const la = this.lobby(a);
     const lb = this.lobby(b);
@@ -113,7 +114,7 @@ export class Harness {
       seats: 2,
       deadline: 86400,
       invited: [],
-      relays: [this.relay.url],
+      relays,
       ...(rules === undefined ? {} : { rules }),
     });
     await waitFor('the open table', () => lb.openTables.value.find((t) => t.address === address));

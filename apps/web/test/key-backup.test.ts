@@ -353,4 +353,41 @@ describe('The key backup (D065)', () => {
     await waitFor('the backup checked', () => phone.backup.value === 'done');
     expect(decrypts).toBe(before);
   }, 60_000);
+
+  it('review R1: a root relay that stays dead does not stop a local key from publishing its missing backup', async () => {
+    const keys = keyPair();
+    const dead = 'ws://127.0.0.1:9';
+    // Joined with an app that made no backup, at a table whose relays include one that never answers.
+    const { rootId, address, bySeat } = await h.start2(
+      'chess',
+      h.profile('a', { signer: keys.plain }),
+      h.profile('b'),
+      undefined,
+      [h.relay.url, dead],
+    );
+    const player = bySeat.find((p) => p.deps.signer.pubkey === keys.plain.pubkey) as Profile;
+    // An older app recorded a backup anyway.
+    player.deps.storage.setItem(backupRecordKey('a', address), JSON.stringify({ at: 1, rootId: null }));
+    const phone = h.game(rootId, { ...player.deps, signer: keys.full });
+    await waitFor('the backup published', () => phone.backup.value === 'done', 60_000);
+    expect(await backupsOf(keys.full.pubkey)).toHaveLength(1);
+  }, 90_000);
+
+  it('review R2: an extension with no recorded backup id is offered the button, even with a backup on the relays', async () => {
+    const keys = keyPair();
+    const ext: Signer = { ...keys.full, kind: 'nip07' };
+    const { rootId, address, bySeat } = await h.start2(
+      'chess',
+      h.profile('a', { signer: ext }),
+      h.profile('b'),
+    );
+    const player = bySeat.find((p) => p.deps.signer.pubkey === ext.pubkey) as Profile;
+    await backupsOf(ext.pubkey);
+    // A record without an id (an older app, or a restore): nothing says the backup there is this device's.
+    player.deps.storage.setItem(backupRecordKey('a', address), JSON.stringify({ at: 1, rootId: null }));
+    const phone = h.game(rootId, player.deps);
+    await waitFor('the offer', () => phone.backup.value === 'due');
+    await phone.backupKeys();
+    expect(phone.backup.value).toBe('done');
+  }, 60_000);
 });
