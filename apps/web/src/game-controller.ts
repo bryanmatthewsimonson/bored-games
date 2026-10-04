@@ -106,6 +106,10 @@ const vetted = (slot: string): boolean =>
  */
 export const CHECK_TIMEOUT_MS = 15_000;
 
+/** The latest and the oldest head date a deterministic build takes (s): now + 5 minutes, and a year back. */
+const MAX_FUTURE_S = 300;
+const MAX_AGE_S = 365 * 86_400;
+
 /** Why `act` refuses a move this seat already made on another device (D059 item 2). */
 export const ALREADY_MOVED = 'you already played this turn on another device';
 
@@ -286,6 +290,11 @@ export class GameController {
   readonly #got = new Set<string>();
   /** The seated game events the relays sent, by id, so the session can be rebuilt without a discarded event. */
   readonly #events = new Map<string, NostrEvent>();
+  /**
+   * Every seated game event's `created_at`, by id, kept past `MAX_BUFFER` (unlike `#events`), so a deterministic build
+   * dates its event at the head's date on every device (`#buildTime`).
+   */
+  readonly #dates = new Map<string, number>();
   /** This player's session key in the game, or null for a spectator. */
   #mySession: string | null = null;
   /** This player's seat and game secrets once the session holds a seat, for deterministic builds (`#buildRnd`). */
@@ -523,6 +532,7 @@ export class GameController {
     // Relays are not trusted to filter: only seated keys' game events are taken (PROTOCOL §11).
     if (!this.#seated(ev)) return;
     this.#got.add(ev.id);
+    this.#dates.set(ev.id, ev.created_at);
     if (this.#events.size < MAX_BUFFER) this.#events.set(ev.id, ev);
     if (ev.kind === KIND.resign) this.#resigns.set(ev.id, ev);
     if (ev.pubkey === this.#mySession) this.#noteMine(ev);
@@ -545,6 +555,8 @@ export class GameController {
   #receive(session: GameSession, ev: NostrEvent): ReturnType<GameSession['receive']> {
     const first = this.#seen.get(ev.id);
     const now = this.#d.now();
+    // Own events from the outbox too: the head may be this seat's own move, not yet back from a relay.
+    this.#dates.set(ev.id, ev.created_at);
     const r = session.receive(ev, first ?? now);
     if (first === undefined && r.status !== 'rejected') this.#noteSeen(ev.id, now);
     return r;
@@ -1518,8 +1530,11 @@ export class GameController {
       if (session.view().head.id !== head.id || !session.duties().some((d) => d.kind === kind)) return;
       // Both statements are fixed by the head, so the event is built from this seat's deterministic stream: two
       // devices that build it at the same moment sign the very same event, not two rivals (audit-bank F3).
-      const det = this.#buildRnd(`${kind}:${head.id}`);
-      const at = this.#buildTime(head.id);
+      // The head's date is signed by the previous mover, so it is used only when plausible (`#buildTime`);
+      // otherwise the event is dated now with fresh randomness, as before (the check above still applies).
+      const headAt = this.#buildTime(head.id);
+      const det = headAt === null ? rnd : this.#buildRnd(`${kind}:${head.id}`);
+      const at = headAt ?? now();
       const built =
         this.#reusable(slot, head.id) ??
         (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
@@ -1637,15 +1652,20 @@ export class GameController {
     return deterministicRandom(seatStreamKey(me.sessionSk, me.deckSecret), `${this.rootId}:${label}`);
   }
 
-  /** A date both devices of the seat agree on for an event built on `headId`: the head's own `created_at`. */
-  #buildTime(headId: string): number {
-    const ev =
-      headId === this.rootId
-        ? this.#rootEv
-        : (this.#events.get(headId) ??
-          [...this.#outbox.values()].find((e) => e.event.id === headId)?.event ??
-          null);
-    return ev?.created_at ?? this.#d.now();
+  /**
+   * A date both devices of the seat agree on for an event built on `headId`: the head's own `created_at`, when it is
+   * plausible; otherwise null (the event is then dated now, with fresh randomness).
+   */
+  #buildTime(headId: string): number | null {
+    const root = this.#rootEv;
+    const at = headId === this.rootId ? root?.created_at : this.#dates.get(headId);
+    if (at === undefined || root === null) return null;
+    // The previous mover chose that date: a future or ancient one would get the event refused by relays with
+    // `created_at` limits, and the stall blamed on this seat. Only a date between the root's and now + 5 minutes,
+    // and less than a year old, is used.
+    const now = this.#d.now();
+    if (at < root.created_at || at > now + MAX_FUTURE_S || now - at > MAX_AGE_S) return null;
+    return at;
   }
 
   /**

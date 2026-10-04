@@ -3,12 +3,16 @@
  * Each device is a GameController with the same player key and game keys and storage of its own, against the real
  * dev relay. Chess and Bank are deckless, so these are fast.
  */
+
+import { GameSession } from '@bored-games/client';
 import { startDevRelay } from '@bored-games/dev-relay';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ALREADY_MOVED, type GameController, HOLD_CAP_S } from '../src/game-controller.ts';
-import type { PoolLike } from '../src/net.ts';
-import { Harness, laggingOwn, now, outboxSlots, type Profile, pause, waitFor } from './net-harness.ts';
+import { bytesToHex } from '../src/hex.ts';
+import { MODULES, type PoolLike } from '../src/net.ts';
+import { loadSecrets } from '../src/storage.ts';
+import { Harness, laggingOwn, now, outboxSlots, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -118,6 +122,52 @@ describe('The check before signing is bounded (D059 item 2)', () => {
     skew = HOLD_CAP_S + 1;
     await t.act({ type: 'move', actor: 0, uci: 'e2e4' });
     expect(t.view.value?.head.seq).toBe(1);
+  }, 60_000);
+});
+
+describe('A deterministic build does not copy an implausible head date (D063)', () => {
+  /** A 2-seat Bank game whose roller signs its Roll dated `at` outside any controller; the contributor's controller. */
+  async function rollDated(at: number) {
+    const { rootId, address, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
+    const rootEv = (await h.query([{ ids: [rootId] }]))[0] as NostrEvent;
+    const root = parseRoot(rootEv);
+    const [, creator, tableId] = root.tableAddress.split(':') as [string, string, string];
+    const table = (
+      await h.query([{ kinds: [KIND.table], authors: [creator], '#d': [tableId] }])
+    )[0] as NostrEvent;
+    const joins = await h.query([{ ids: [...root.joinIds] }]);
+    const sessions = bySeat.map((p, seat) => {
+      const secrets = loadSecrets(p.name, p.deps.storage, address);
+      if (secrets === null) throw new Error('no secrets');
+      return GameSession.create({
+        modules: MODULES,
+        table,
+        joins,
+        root: rootEv,
+        me: { seat, sessionSk: secrets.sessionSk, deckSecret: BigInt(`0x${bytesToHex(secrets.deckSecret)}`) },
+        rootSeenAt: now(),
+      });
+    });
+    const roller = sessions.findIndex((s) => s.legalActions().length > 0);
+    const rs = sessions[roller] as GameSession;
+    const roll = rs.legalActions().find((a) => (a as { type?: string }).type === 'roll');
+    const ev = rs.buildAction(roll, rnd, at);
+    const contributor = bySeat[1 - roller] as Profile;
+    const g = h.game(rootId, contributor.deps);
+    await waitFor('the contributor loaded', () => g.view.value !== null && g.status.value !== 'syncing');
+    await h.pool().publish(ev);
+    await waitFor('the contribution', () => g.view.value?.head.seq === 2);
+    const key = root.seats[1 - roller]?.session as string;
+    return (await movesOn(ev.id, key))[0] as NostrEvent;
+  }
+
+  it('a Roll dated an hour ahead, or in 1970, gets a contribution dated now', async () => {
+    for (const at of [now() + 3600, 1]) {
+      const before = now();
+      const c = await rollDated(at);
+      expect(c.created_at).toBeGreaterThanOrEqual(before);
+      expect(c.created_at).toBeLessThanOrEqual(now());
+    }
   }, 60_000);
 });
 
