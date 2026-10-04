@@ -41,8 +41,11 @@ import {
 } from '@bored-games/protocol';
 import type { EoseInfo, Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
+import { deterministicRandom, seatStreamKey } from './det-random.ts';
 import { bytesToHex } from './hex.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
+import type { RandomBytes } from './random.ts';
+import { ownCardReason, sharePositions, shareVerdict } from './share-vet.ts';
 import {
   type GameStatusName,
   loadSecrets,
@@ -87,8 +90,22 @@ export interface OutboxEntry {
   orphan: boolean;
 }
 
-/** Outbox slots whose saved events can conflict with what this seat did elsewhere, so they are vetted (D056). */
-const vetted = (slot: string): boolean => slot.startsWith('move:') || slot === 'deal' || slot === 'resign';
+/**
+ * Outbox slots whose saved events can conflict with what this seat did elsewhere, or no longer fit the game, so
+ * they are vetted (D056): moves, the deal, Resigns, and Luster's prompt shares (`share:<positions>`), which carry no
+ * head and could otherwise reveal a card that is this seat's own on the branch fork choice settled on.
+ */
+const vetted = (slot: string): boolean =>
+  slot.startsWith('move:') || slot.startsWith('share:') || slot === 'deal' || slot === 'resign';
+
+/**
+ * The longest wait (ms) for a check-before-signing query's answer (D059 item 2), beyond the pool's own EOSE
+ * timeout, so a check never blocks for ever.
+ */
+export const CHECK_TIMEOUT_MS = 15_000;
+
+/** Why `act` refuses a move this seat already made on another device (D059 item 2). */
+export const ALREADY_MOVED = 'you already played this turn on another device';
 
 /**
  * How long (s) a saved event or the Secret reveal may be held back waiting for every counted relay, or for the
@@ -264,6 +281,15 @@ export class GameController {
   readonly #events = new Map<string, NostrEvent>();
   /** This player's session key in the game, or null for a spectator. */
   #mySession: string | null = null;
+  /** This player's seat and game secrets once the session holds a seat, for deterministic builds (`#buildRnd`). */
+  #me: Identity | null = null;
+  /**
+   * When the check before signing (D059 item 2) first got an answer that not every live counted relay gave, or
+   * null after a full one: past `HOLD_CAP_S` the check stops waiting, so it never blocks for ever.
+   */
+  #checkSince: number | null = null;
+  /** An automatic duty (`kind@headId`) held back by the check before signing until the next tick. */
+  #heldDuty: string | null = null;
   /**
    * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
    * on a parent, `shares` for its Shares events, `resign` for its Resigns.
@@ -352,6 +378,8 @@ export class GameController {
   /** Re-check deadlines and stored timeout claims, retry undelivered events, and resume duties. */
   tick(): void {
     if (this.#disposed) return;
+    // A duty the check before signing held back is tried again (D059 item 2).
+    this.#heldDuty = null;
     this.#session?.tick(this.#d.now());
     if (this.#synced) this.#retryUndelivered();
     this.#refresh();
@@ -375,7 +403,20 @@ export class GameController {
       const slot = moveSlot(head.seq + 1, head.id);
       if (this.#unvetted.has(slot)) throw new Error('a move saved on this device is still being checked');
       // Never build twice for one decision: fresh randomness would make a rival move (equivocation).
-      const ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, this.#d.now());
+      let ev = this.#reusable(slot, head.id);
+      if (ev === null) {
+        // The check before signing (D059 item 2): another device of this seat may have played this turn already.
+        if (this.#otherMine(`move:${head.id}`, null)) throw new Error(ALREADY_MOVED);
+        const check = await this.#checkBeforeSign(session);
+        if (this.#disposed) throw new Error('The game screen was closed.');
+        if (session.view().head.id !== head.id || this.#otherMine(`move:${head.id}`, null))
+          throw new Error(ALREADY_MOVED);
+        if (check === 'hold')
+          throw new Error(
+            'checking that you have not already played this turn on another device: not every relay has answered yet. Try again in a moment',
+          );
+        ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, this.#d.now());
+      }
       this.#commit(slot, ev);
       this.error.value = null;
     } catch (e) {
@@ -425,8 +466,19 @@ export class GameController {
       if (this.#disposed) throw new Error('The game screen was closed.');
       if (this.#unvetted.has('resign'))
         throw new Error('a resignation saved on this device is still being checked');
-      const saved = this.#live('resign');
+      let saved = this.#live('resign');
       if (saved === null && !session.canResign()) throw new Error('the game is no longer live');
+      if (saved === null) {
+        // The check before signing (D059 item 2): a Resign this seat sent from another device is adopted instead.
+        if (this.#otherMine('resign', null)) throw new Error('you already resigned on another device');
+        const check = await this.#checkBeforeSign(session);
+        if (this.#disposed) throw new Error('The game screen was closed.');
+        if (this.#otherMine('resign', null)) throw new Error('you already resigned on another device');
+        if (!session.canResign()) throw new Error('the game is no longer live');
+        if (check === 'hold')
+          throw new Error('not every relay has answered yet, so it is not known whether you resigned elsewhere');
+        saved = this.#live('resign');
+      }
       this.#commit('resign', saved ?? session.buildResign(this.#d.rnd, this.#d.now()));
       this.error.value = null;
     } catch (e) {
@@ -489,28 +541,32 @@ export class GameController {
     return r;
   }
 
-  /** Record one of this seat's own events the relays sent, by what it could conflict with (D056). */
+  /**
+   * Record one of this seat's own events the relays sent, by what it could conflict with (D056): `move:<prev>`,
+   * `shares` (and `share:<pos>` for each position a Shares event carries), `resign`.
+   */
   #noteMine(ev: NostrEvent): void {
-    const key =
+    const keys =
       ev.kind === KIND.move
-        ? `move:${prevOf(ev)}`
+        ? [`move:${prevOf(ev)}`]
         : ev.kind === KIND.shares
-          ? 'shares'
+          ? ['shares', ...(sharePositions(ev) ?? []).map((pos) => `share:${pos}`)]
           : ev.kind === KIND.resign
-            ? 'resign'
-            : null;
-    if (key === null) return;
-    let ids = this.#mine.get(key);
-    if (ids === undefined) {
-      ids = new Set();
-      this.#mine.set(key, ids);
+            ? ['resign']
+            : [];
+    for (const key of keys) {
+      let ids = this.#mine.get(key);
+      if (ids === undefined) {
+        ids = new Set();
+        this.#mine.set(key, ids);
+      }
+      ids.add(ev.id);
     }
-    ids.add(ev.id);
   }
 
   /** Whether the relays sent an event of this seat's other than `ev` under `key` (`#noteMine`). */
-  #otherMine(key: string, ev: NostrEvent): boolean {
-    for (const id of this.#mine.get(key) ?? []) if (id !== ev.id) return true;
+  #otherMine(key: string, ev: NostrEvent | null): boolean {
+    for (const id of this.#mine.get(key) ?? []) if (id !== ev?.id) return true;
     return false;
   }
 
@@ -619,8 +675,15 @@ export class GameController {
       this.#resolveMissing(session);
       return;
     }
+    // Shares after moves and the deal: a saved move vetted first may change the head the shares are judged on.
     const rank = (slot: string): number =>
-      slot.startsWith('move:') ? Number(slot.split(':')[1]) : slot === 'deal' ? 1e12 : 2e12;
+      slot.startsWith('move:')
+        ? Number(slot.split(':')[1])
+        : slot === 'deal'
+          ? 1e12
+          : slot.startsWith('share:')
+            ? 1.5e12
+            : 2e12;
     const slots = this.#toVet().sort((a, b) => rank(a) - rank(b));
     let rebuild = false;
     // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
@@ -674,6 +737,7 @@ export class GameController {
    */
   #verdict(session: GameSession, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
     if (slot === 'deal') return 'it is not signed by your key in this game';
+    if (slot.startsWith('share:')) return this.#shareVerdict(session, ev, fed);
     if (slot.startsWith('move:')) {
       const prev = prevOf(ev);
       if (prev === null) return 'it names no parent';
@@ -691,6 +755,37 @@ export class GameController {
     if (this.#otherMine('resign', ev)) return 'another resignation of yours is on the relays';
     if (!fed && !session.canResign()) return 'the game is over';
     return 'send';
+  }
+
+  /**
+   * What to do with a saved Shares event of Luster's prompt shares (D056, audit-luster F3): `send` it only if every
+   * position it carries is drawn on the current head, is not this seat's own private card, and is still owed by
+   * this seat (for one not folded in yet: the session's `share` duty lists it; for one folded in: no other Shares
+   * event of this seat carrying it is at the relays). Otherwise the reason to discard it (`shareVerdict`).
+   */
+  #shareVerdict(session: GameSession, ev: NostrEvent, fed: boolean): 'send' | string {
+    const positions = sharePositions(ev);
+    if (positions === null) return 'it is not a valid card reveal';
+    const duty = fed ? undefined : session.duties().find((d) => d.kind === 'share');
+    return shareVerdict({
+      positions,
+      mySeat: session.view().mySeat,
+      dealt: this.#dealt(session),
+      owed: fed ? null : duty?.kind === 'share' ? duty.positions : [],
+      sentElsewhere: (pos) => this.#otherMine(`share:${pos}`, ev),
+    });
+  }
+
+  /** Every deck position the module has dealt on the session's head (`GameModule.dealt`); empty before setup. */
+  #dealt(session: GameSession): readonly { pos: number; to: number | null }[] {
+    const v = session.view();
+    const module = this.#root === null ? undefined : this.#d.modules.get(this.#root.game);
+    if (module === undefined || v.state === null) return [];
+    try {
+      return module.dealt(v.state);
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -758,7 +853,14 @@ export class GameController {
         writeJson(this.#d.storage, key, all);
       }
     }
-    const what = slot === 'deal' ? 'deal' : slot === 'resign' ? 'resignation' : 'move';
+    const what =
+      slot === 'deal'
+        ? 'deal'
+        : slot === 'resign'
+          ? 'resignation'
+          : slot.startsWith('share:')
+            ? 'card reveal'
+            : 'move';
     this.#note(`A ${what} saved on this device was never sent, and it was discarded: ${why}.`);
   }
 
@@ -1106,6 +1208,12 @@ export class GameController {
     if (this.error.value?.startsWith('Still looking') || this.error.value?.startsWith('This game cannot'))
       this.error.value = null;
     this.#session = session;
+    this.#me = session.view().mySeat === null ? null : me;
+    // A seat recovered from saved game keys (D057) has no npub match: its own events are known by its session key.
+    if (this.#mySession === null && this.#me !== null) {
+      this.#mySession = root.seats[this.#me.seat]?.session ?? null;
+      for (const ev of this.#events.values()) if (ev.pubkey === this.#mySession) this.#noteMine(ev);
+    }
     if (table.id !== stored?.id && writeJson(this.#d.storage, tableKey(this.#d.profile, this.rootId), table))
       this.#storedTable = table;
     this.table.value = parseTable(table);
@@ -1266,7 +1374,7 @@ export class GameController {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
-      if (this.#blocked(kind, v)) continue;
+      if (this.#blocked(kind, v) || this.#heldDuty === `${kind}@${v.head.id}`) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
@@ -1282,6 +1390,8 @@ export class GameController {
       return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
     }
     if (kind === 'secret') return this.#secretHeld();
+    // A saved Shares event still being vetted may carry the very positions the duty lists (audit-luster F3).
+    if (kind === 'share') return [...this.#unvetted].some((slot) => slot.startsWith('share:'));
     if (kind !== 'deal') return false;
     if (this.#unvetted.has('deal')) return true;
     const held = this.#outbox.get('deal');
@@ -1319,7 +1429,12 @@ export class GameController {
           // A duty still due after its event was folded in would loop forever: stop at the second try.
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');
           done.add(key);
-          await this.#perform(session, kind);
+          if ((await this.#perform(session, kind)) === 'held') {
+            this.#heldDuty = key;
+            this.#holding(
+              'it is not yet known whether another device of yours already sent it (not every relay has answered)',
+            );
+          }
         } catch (e) {
           this.#failed.add(key);
           this.error.value = `Could not ${kind === 'deal' ? 'deal' : `send the ${kind}`}: ${errorText(e)}`;
@@ -1332,18 +1447,35 @@ export class GameController {
     }
   }
 
-  async #perform(session: GameSession, kind: Duty['kind']): Promise<void> {
+  /**
+   * Build (or reuse) and commit the event of one automatic duty. Before signing a new event it runs the check before
+   * signing (D059 item 2): `held` when not every live relay answered (tried again on the next tick), and nothing is
+   * signed when the answer brought this seat's own event for the slot from another device (the session folded it).
+   */
+  async #perform(session: GameSession, kind: Duty['kind']): Promise<'held' | void> {
     const head = session.view().head;
     const { rnd, now } = this.#d;
-    if (kind === 'shuffle') {
+    if (kind === 'shuffle' || kind === 'beacon') {
+      // A shuffle step or a public roll's share is a move on this head. Reusing the saved one is what keeps the seat
+      // from signing two moves on one parent.
       const slot = moveSlot(head.seq + 1, head.id);
-      return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildShuffle(rnd, now()));
+      const saved = this.#reusable(slot, head.id);
+      if (saved !== null) return this.#commit(slot, saved);
+      if (!(await this.#clearToSign(session, kind, head.id))) return 'held';
+      if (session.view().head.id !== head.id || !session.duties().some((d) => d.kind === kind)) return;
+      // Both statements are fixed by the head, so the event is built from this seat's deterministic stream: two
+      // devices that build it at the same moment sign the very same event, not two rivals (audit-bank F3).
+      const det = this.#buildRnd(`${kind}:${head.id}`);
+      const at = this.#buildTime(head.id);
+      const built =
+        this.#reusable(slot, head.id) ??
+        (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
+      return this.#commit(slot, built);
     }
-    if (kind === 'beacon') {
-      // A public roll's share is a move on this head. Reusing the saved one is what keeps the seat from signing
-      // two contributions on one parent.
-      const slot = moveSlot(head.seq + 1, head.id);
-      return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildBeacon(rnd, now()));
+    if ((kind === 'deal' || kind === 'share') && this.#live(this.#dutySlot(session, kind)) === null) {
+      // The check before signing, for Shares events: another device's deal or reveal is adopted instead.
+      if (!(await this.#clearToSign(session, kind, null))) return 'held';
+      if (!session.duties().some((d) => d.kind === kind)) return;
     }
     // A secret or attestation the session refused (an orphan: a changed result) is built anew: a seat's secret is
     // one value, and its latest attestation is the one that counts. A deal is not (D056, review F7): a seat deals
@@ -1353,10 +1485,8 @@ export class GameController {
     // deal on a rival deck.
     if (kind === 'deal') return this.#single('deal', () => session.buildDeal(rnd, now()));
     if (kind === 'share') {
-      const duty = session.duties().find((d) => d.kind === 'share');
-      if (duty?.kind !== 'share') return;
       // Per-position slots persist/reuse public shares without replacing the one-time setup deal.
-      return this.#single(`share:${duty.positions.join(',')}`, () => session.buildShares(rnd, now()));
+      return this.#single(this.#dutySlot(session, 'share'), () => session.buildShares(rnd, now()));
     }
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
@@ -1364,6 +1494,105 @@ export class GameController {
       const after = (): number => (this.#outbox.get('attest')?.event.created_at ?? 0) + 1;
       return this.#single('attest', () => this.#attestEvent(session, after()));
     }
+  }
+
+  /** The outbox slot of a Shares duty: `deal`, or `share:<positions>` for the positions the share duty lists. */
+  #dutySlot(session: GameSession, kind: 'deal' | 'share'): string {
+    if (kind === 'deal') return 'deal';
+    const duty = session.duties().find((d) => d.kind === 'share');
+    return `share:${duty?.kind === 'share' ? duty.positions.join(',') : ''}`;
+  }
+
+  /**
+   * Run the check before signing for a duty: false to hold it back. Before asking the relays it looks at what they
+   * already sent: a move of this seat on `parent` that the session has not taken (pooled, waiting for something)
+   * must not get a rival, so the duty fails at this head.
+   */
+  async #clearToSign(session: GameSession, kind: Duty['kind'], parent: string | null): Promise<boolean> {
+    const rival = (): boolean => parent !== null && this.#otherMine(`move:${parent}`, null);
+    if (rival()) throw new ClientError('another device of yours already sent it');
+    const check = await this.#checkBeforeSign(session);
+    if (this.#disposed) throw new Error('the game screen was closed');
+    if (session.view().head.id === parent && rival())
+      throw new ClientError(`another device of yours already sent the ${kind}`);
+    return check === 'clear';
+  }
+
+  /**
+   * The check before signing (D059 item 2; prompt-reveal §5.1 rule 9): ask the relays, the root's and this player's
+   * own, for this seat's moves on the current head and its Shares events and Resigns, and fold in what comes (an
+   * event this seat sent from another device is adopted). `clear` once every live counted relay answered (dead ones
+   * left out; with none alive there is nothing to ask, and the D056 outbox rule still vets the event before any
+   * republish); otherwise `hold`, until `HOLD_CAP_S` has passed since the first such answer, or Send anyway.
+   */
+  async #checkBeforeSign(session: GameSession): Promise<'clear' | 'hold'> {
+    const me = this.#mySession;
+    if (me === null || this.#root === null || this.#disposed) return 'clear';
+    const head = session.view().head.id;
+    const filters: Filter[] = [
+      { kinds: [KIND.move], authors: [me], '#e': [head] },
+      { kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] },
+    ];
+    const info = await new Promise<EoseInfo | null>((resolve) => {
+      let settled = false;
+      let stop: (() => void) | null = null;
+      let cancel: (() => void) | null = null;
+      const finish = (i: EoseInfo | null): void => {
+        if (settled) return;
+        settled = true;
+        stop?.();
+        cancel?.();
+        resolve(i);
+      };
+      const s = this.#d.pool.subscribe(filters, (ev) => this.#onEvent(ev), finish);
+      if (settled) s();
+      else {
+        stop = s;
+        this.#stops.push(s);
+      }
+      const c = this.#d.timers.later(CHECK_TIMEOUT_MS, () => finish(null));
+      if (settled) c();
+      else cancel = c;
+    });
+    if (info !== null && this.#liveAnswer(info)) {
+      this.#checkSince = null;
+      return 'clear';
+    }
+    if (this.#forced) return 'clear';
+    const now = this.#d.now();
+    this.#checkSince ??= now;
+    return now - this.#checkSince >= HOLD_CAP_S ? 'clear' : 'hold';
+  }
+
+  /**
+   * Whether `info` answers for every live relay that counts for the check before signing: the root's and this
+   * player's own, less those the pool reports dead (root relays included, unlike `#fullAnswer`: the other device
+   * published moments ago, to the same root relays). True when none is alive.
+   */
+  #liveAnswer(info: EoseInfo): boolean {
+    if (info.eosedUrls === undefined) return info.eose === info.relays;
+    const dead = new Set(info.deadUrls ?? []);
+    const eosed = new Set(info.eosedUrls);
+    const counted = unionRelays(this.#root?.relays ?? [], this.#d.relays()).filter((u) => !dead.has(u));
+    return counted.every((u) => eosed.has(u));
+  }
+
+  /** This seat's deterministic stream for `label` in this game (`det-random.ts`); the injected one for no seat. */
+  #buildRnd(label: string): RandomBytes {
+    const me = this.#me;
+    if (me === null) return this.#d.rnd;
+    return deterministicRandom(seatStreamKey(me.sessionSk, me.deckSecret), `${this.rootId}:${label}`);
+  }
+
+  /** A date both devices of the seat agree on for an event built on `headId`: the head's own `created_at`. */
+  #buildTime(headId: string): number {
+    const ev =
+      headId === this.rootId
+        ? this.#rootEv
+        : (this.#events.get(headId) ??
+          [...this.#outbox.values()].find((e) => e.event.id === headId)?.event ??
+          null);
+    return ev?.created_at ?? this.#d.now();
   }
 
   /**
@@ -1491,6 +1720,22 @@ export class GameController {
     const root = this.#root;
     if (this.#disposed || entry === undefined || entry.orphan || root === null || this.#inFlight.has(slot))
       return;
+    // The owner never releases its own private layer (D058, audit-luster F3): a Shares event of a position that is
+    // now this seat's own card is discarded, whatever path brought it here.
+    const session = this.#session;
+    if (slot.startsWith('share:') && session !== null) {
+      const own = ownCardReason(
+        sharePositions(entry.event) ?? [],
+        session.view().mySeat,
+        this.#dealt(session),
+      );
+      if (own !== null) {
+        const fed = this.#fed.has(entry.event.id);
+        this.#discard(slot, own);
+        if (fed) this.#rebuild();
+        return;
+      }
+    }
     this.#inFlight.add(slot);
     try {
       // The deck first, so a relay that takes the deal has its deck already (D056).
