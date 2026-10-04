@@ -392,11 +392,53 @@ describe('forks in the shuffle and the deal, and late forks there (Chain Reactio
     const rival = rivalStep(base, 2);
     const r = inOrders(base, [...steps, ...deals, rival], 'stop-cr-deal');
     cancelledEverywhere(r, (steps[1] as NostrEvent).id, 2);
-    // A game action on the rival step: at or past P, but its line holds a step whose proof fails.
+    // A game action on the rival step: at or past P, but its line holds a step whose proof fails (verified for real
+    // in the replays: only honest steps are trusted there) and the deal there never happened.
     const first = base.spectator.view().pending as { seat: number };
     const onRival = actionAt(base, first.seat, rival.id, 4, { type: 'x' }, NOW + 8);
     const r2 = inOrders(base, [...steps, ...deals, rival, onRival], 'stop-cr-deal-2', 2);
     cancelledEverywhere(r2, (steps[1] as NostrEvent).id, 2);
+  });
+
+  it('V2-22, V2-50: play on a forged step never counts: its line is not valid, so H1 cancels, and a pair on it is no M1 pair', () => {
+    // A rival of the last step whose proof fails, and play on it: the deal and a first game action, built in a table
+    // that trusts the forged step (review of T10, L1). The replays below verify it for real.
+    const forged = rivalStep(base, 2);
+    const side = replay(base, [...steps.slice(0, 2), forged], undefined, [forged]);
+    expect(side.spectator.view().head.id).toBe(forged.id);
+    const sideDeals = runAuto(side, ['deal']).map((x) => x.ev);
+    const k = decider(side) as number;
+    const play = act(side, k, side.players[k]?.legalActions()[0]);
+    const log = [...steps, forged, ...sideDeals, play];
+    const r = inOrders(base, log, 'stop-cr-forged-play', 2);
+    cancelledEverywhere(r, (steps[1] as NostrEvent).id, 2);
+    // Were the forged step valid, the same events would be a stop scored before play.
+    expect(replay(base, log, undefined, [forged]).spectator.view().stop).toEqual({
+      at: (steps[1] as NostrEvent).id,
+      seat: 2,
+      cancelled: false,
+    });
+    // A forged step 2 by seat 1, and seat 2's two well-formed steps 3 on it: the pair's prev has no valid line.
+    const forged2 = rivalStep(base, 1);
+    const m3 = parseMove(steps[2], 108, '2') as ParsedMove;
+    const c3 = m3.content as Extract<ParsedMove['content'], { type: 'shuffle' }>;
+    const pair = [0, 1].map((n) =>
+      signedMove(
+        base,
+        2,
+        forged2.id,
+        3,
+        { ...c3, deck: n === 0 ? [...c3.deck].reverse() : c3.deck },
+        NOW + 20 + n,
+      ),
+    );
+    const r2 = inOrders(
+      base,
+      [...steps.slice(0, 2), forged2, ...(pair as NostrEvent[])],
+      'stop-cr-forged-pair',
+      2,
+    );
+    cancelledEverywhere(r2, (steps[0] as NostrEvent).id, 1);
   });
 
   it("H1: a fork at an old shuffle step signed after play began is E's loss, P before play: the others share first, scores 0", () => {

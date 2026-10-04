@@ -89,24 +89,69 @@ export class LineFold {
   private readonly store: EventStoreV2;
   private readonly caches: DeckCaches;
   /** One point per head, `points[i]` at seq `i`; the last is the current head. */
-  readonly points: LinePoint[] = [];
+  readonly points: LinePoint[];
   /** The interleaved action log (v1 §7): game actions and derived reveals, in fold order. */
-  readonly log: LoggedAction[] = [];
+  readonly log: LoggedAction[];
   /** The module events of every `apply` and `learn`, in fold order. */
-  readonly events: unknown[] = [];
+  readonly events: unknown[];
   /** The linked moves, in seq order. */
-  readonly chain: HeldMove[] = [];
+  readonly chain: HeldMove[];
   /** The line's card shares at the head, from the final deck on; null before it and in a deckless game. */
   shares: LineShares | null = null;
   /** The rolls the linked game actions requested, by the module's roll id (V2-31). */
   readonly rolls = new Map<number, RollRef>();
   /** How many rolls each linked requesting move requested, by move id (only game actions that requested some). */
   readonly requests = new Map<Hex, number>();
+  /** Every roll requested on the line, in link order (`prefix` rebuilds `rolls` and `requests` from it). */
+  private readonly rollLog: RollRef[];
 
-  constructor(ctx: GameCtx, store: EventStoreV2, caches: DeckCaches) {
+  /**
+   * A fold at the root, or, with `from`, a copy of `from.fold` cut back to its point at seq `from.seq` (`prefix`):
+   * the same points, log, events and chain up to that point, its card shares rebuilt from the final deck's pool and
+   * the linked game actions' shares, and its rolls from the moves linked so far. A fold depends only on its line and
+   * the held events, so the copy is the fold a fresh `LineFold` reaches by linking those moves again (review of T10,
+   * L3: side lines start from the nearest folded ancestor).
+   */
+  constructor(
+    ctx: GameCtx,
+    store: EventStoreV2,
+    caches: DeckCaches,
+    from: { readonly fold: LineFold; readonly seq: number } | null = null,
+  ) {
     this.ctx = ctx;
     this.store = store;
     this.caches = caches;
+    if (from !== null) {
+      const src = from.fold;
+      const p = src.points[from.seq];
+      if (p === undefined) throw new Error(`LineFold: no point at seq ${from.seq}`);
+      this.points = src.points.slice(0, from.seq + 1);
+      this.chain = src.chain.slice(0, from.seq);
+      this.log = src.log.slice(0, p.logLength);
+      this.events = src.events.slice(0, p.eventsLength);
+      const linked = new Set(this.chain.map((h) => h.m.id));
+      this.rollLog = [];
+      for (const ref of src.rollLog) {
+        if (!linked.has(ref.move)) break;
+        this.rollLog.push(ref);
+        this.rolls.set(ref.id, ref);
+        this.requests.set(ref.move, (this.requests.get(ref.move) ?? 0) + 1);
+      }
+      if (p.deckKey !== null) {
+        this.shares = new LineShares(ctx.seats, poolFor(ctx, store, caches, p.deckKey, p.deck).shares);
+        for (const h of this.chain) {
+          const c = h.m.content;
+          if (c.type === 'action')
+            for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(h.seat, pos, share);
+        }
+      }
+      return;
+    }
+    this.points = [];
+    this.log = [];
+    this.events = [];
+    this.chain = [];
+    this.rollLog = [];
     if (ctx.deckId === null) {
       // A deckless game starts in play, its view-mode state set up at once.
       const state = this.setUp();
@@ -128,6 +173,11 @@ export class LineFold {
       deckKey: null,
       learned: [],
     };
+  }
+
+  /** A copy of this fold cut back to its point at seq `seq` (see the constructor); this fold is unchanged. */
+  prefix(seq: number): LineFold {
+    return new LineFold(this.ctx, this.store, this.caches, { fold: this, seq });
   }
 
   /** The current head. */
@@ -320,7 +370,10 @@ export class LineFold {
       for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(h.seat, pos, share);
     const requested = appendedRolls(ctx, p.state, j.state, h.m.id);
     if (requested.length > 0) this.requests.set(h.m.id, requested.length);
-    for (const ref of requested) this.rolls.set(ref.id, ref);
+    for (const ref of requested) {
+      this.rolls.set(ref.id, ref);
+      this.rollLog.push(ref);
+    }
     this.log.push({ actor: h.seat, action: c.action, seq: h.m.seq });
     for (const e of j.events) this.events.push(deepFreeze(e));
     const state = deepFreeze(j.state);

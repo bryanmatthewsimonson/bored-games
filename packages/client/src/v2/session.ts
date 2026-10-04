@@ -173,6 +173,12 @@ export class GameSessionV2 implements Session {
    * lines, whose validity any held event may change); undefined until then, null while no fork is held.
    */
   private stopCache: Stop | null | undefined = undefined;
+  /**
+   * The side lines folded for the stop and the cutoff (`SideLines`), made when first needed; dropped, with the stop,
+   * whenever a Move or a Shares event is held (`lineChanged`), the only events that can change a line's validity
+   * (review of T10, L3).
+   */
+  private sideCache: SideLines | undefined = undefined;
   /** The partial audit after a stop, by P, once it ran (its verdict depends on P's line alone). */
   private readonly stopAudits = new Map<Hex, AfterStopAudit>();
   /** Audits by the log hash of the line they ran on. */
@@ -311,8 +317,6 @@ export class GameSessionV2 implements Session {
   }
 
   private intake(ev: unknown, now: number): ReceiveResult {
-    // Any held event may change a side line's validity (shares, contributions, moves): the stop is recomputed.
-    this.stopCache = undefined;
     const id = idOf(ev);
     if (id !== null) {
       // A known event is answered before it is parsed again (its id was authenticated when it was parsed).
@@ -429,6 +433,8 @@ export class GameSessionV2 implements Session {
     // A roll event is measured before it is held: the roll store reads the held events directly.
     const rollBefore = s.type === 'roll' ? { kept: this.keptRolls(s.moveId), mark: this.stallMark() } : null;
     this.store.addShares(s, seat);
+    // A held Shares event may complete a side line's owed shares or a roll there, even when the walk ignores it.
+    this.lineChanged();
     const bad = this.sharesProblem(s.id);
     if (bad !== null) return { status: 'rejected', reason: bad };
     if (s.type === 'roll') {
@@ -690,6 +696,22 @@ export class GameSessionV2 implements Session {
   /** Walk the held events again from the root. */
   private refold(): void {
     this.current = walk(this.ctx, this.store, this.judgements, this.caches);
+    this.lineChanged();
+  }
+
+  /**
+   * A Move or a Shares event was held: line validity may have changed, so the side lines and the stop are dropped
+   * (recomputed when next needed). Other events (secrets, attestations, claims, Resigns, Device notes) keep them.
+   */
+  private lineChanged(): void {
+    this.sideCache = undefined;
+    this.stopCache = undefined;
+  }
+
+  /** The side lines over the held events and the current walk (`SideLines`), made once per line change. */
+  private sides(): SideLines {
+    if (this.sideCache === undefined) this.sideCache = new SideLines(this.store, this.current);
+    return this.sideCache;
   }
 
   /* ---------------------------------------------------------------------------------------------- fold */
@@ -714,12 +736,7 @@ export class GameSessionV2 implements Session {
   private stopNow(): Stop | null {
     if (this.current.fork === null) return null;
     if (this.stopCache === undefined)
-      this.stopCache = stopAt(
-        this.ctx,
-        this.store,
-        this.current,
-        new SideLines(this.ctx, this.store, this.caches),
-      );
+      this.stopCache = stopAt(this.ctx, this.store, this.current, this.sides());
     return this.stopCache;
   }
 

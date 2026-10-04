@@ -46,6 +46,8 @@ export interface Walk {
   readonly requests: ReadonlyMap<Hex, number>;
   /** The roll store for a requesting move on the chain, from the held events: `[n][seat]` (none for another move). */
   readonly contributions: (move: Hex) => (Share | null)[][];
+  /** The fold along the chain, its head at the walk's head: side lines start from it (`SideLines`). Never linked. */
+  readonly fold: LineFold;
 }
 
 /** Whether a judgement makes a move part of C(h): valid-looking (and maybe valid). */
@@ -112,5 +114,6 @@ export function walk(
     rolls: fold.rolls,
     requests: fold.requests,
     contributions: (move) => fold.contributionsOf(move),
+    fold,
   };
 }

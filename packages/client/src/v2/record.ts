@@ -16,6 +16,10 @@ import type { SessionViewV2 } from '../types.ts';
  *   `equivocators`).
  * - Every equivocator is recorded, and every seat recorded as "secret withheld" after a stop (an anti-cheat mark);
  *   a stop whose partial audit could not run is "audit incomplete".
+ *
+ * `rated` is the only rating flag to read (review of T10, I2): a 3-or-more-seat stop is rated for some seats and not
+ * others, which `Outcome.unrated` (one flag for the whole result) cannot carry, so a stop's outcome has no `unrated`.
+ * A deck stop's record may change while it is "audit incomplete" (a demotion once the last secret arrives).
  */
 
 export interface GameRecord {

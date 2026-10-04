@@ -173,6 +173,13 @@ export interface ResultId {
  * fork stop, the result's identity and the end attestations. `equivocators` holds the seats recorded as
  * equivocators (review M1). While a fork is held and no result stands, no seat is stalled (§5.7) and `pendingSince`
  * is the root's first-seen time, so that it is the same in every arrival order of the same events.
+ *
+ * **Ratings: read `gameRecord(view).rated`, never `outcome.unrated`** (review of T10, I2). A stop of 3 or more seats
+ * is rated for the seats in the shared last places (the equivocators and the seats a proven audit failure demoted)
+ * and unrated for the others (§5.6, §7.5). `Outcome.unrated` is one flag for the whole result, so it cannot say
+ * that: a stop's outcome carries neither `unrated` nor `endedBy` (a stop is never attested, V2-38, so the outcome
+ * never reaches the wire). A deck stop's record can also still change while it is "audit incomplete" (a demotion
+ * lands once the last secret arrives), so a consumer stores it again whenever it changes.
  */
 export interface SessionViewV2 extends SessionView {
   proto: 2;

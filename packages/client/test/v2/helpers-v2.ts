@@ -48,15 +48,34 @@ export function v2Table(
   return { game, players, spectator, all: [...players, spectator], log: [] };
 }
 
+/** A session's shuffle-proof cache (a test-only view of a private field). */
+const cachesOf = (s: GameSessionV2): { shuffleOk: Map<Hex, boolean> } =>
+  (s as unknown as { caches: { shuffleOk: Map<Hex, boolean> } }).caches;
+
+/**
+ * The steps known honest: built by `buildShuffle` and trusted with `trustSteps`. `replay` trusts only these (and the
+ * ones a caller names), so a forged step is verified for real there (review of T10, L1).
+ */
+const HONEST = new Set<Hex>();
+
+/**
+ * Real verdicts of shuffle steps, by id, shared by every replayed session (a verdict depends on the step's line,
+ * which its id fixes): each forged step is verified once per test file.
+ */
+const VERDICTS = new Map<Hex, boolean>();
+
 /**
  * Shuffle proofs take a second or so each to verify, and they are covered by the shuffle tests. `trustSteps` marks
- * published steps as verified in each session (a test-only shortcut through a private cache), as v1's `trust`.
+ * published steps as verified in each session (a test-only shortcut through a private cache), as v1's `trust`, and
+ * records them as honest for `replay`. Only ever pass steps built by `buildShuffle`: a forged step must never be
+ * trusted (to build play on one, pass it to `replay`'s `trust` instead).
  */
 export function trustSteps(sessions: readonly GameSessionV2[], steps: readonly NostrEvent[]): void {
-  for (const s of sessions) {
-    const caches = (s as unknown as { caches: { shuffleOk: Map<Hex, boolean> } }).caches;
-    for (const ev of steps) caches.shuffleOk.set(ev.id, true);
+  for (const ev of steps) {
+    HONEST.add(ev.id);
+    VERDICTS.set(ev.id, true);
   }
+  for (const s of sessions) for (const ev of steps) cachesOf(s).shuffleOk.set(ev.id, true);
 }
 
 /** Deliver `ev` to every session of `t` (and log it); returns the statuses. */
@@ -162,14 +181,26 @@ const isStep = (ev: NostrEvent): boolean => {
 };
 
 /**
- * A fresh table on `t`'s game whose sessions have received `log` in order (or `order`, indices into `log`), each
- * shuffle step trusted: a cheap copy of a table at the end of `log`.
+ * A fresh table on `t`'s game whose sessions have received `log` in order (or `order`, indices into `log`): a cheap
+ * copy of a table at the end of `log`. Only honest shuffle steps (`trustSteps`) are trusted, and those in `trust`; any
+ * other step is verified for real, its verdict shared through `VERDICTS` (review of T10, L1: a forged step must fail
+ * in a replay, so that play on it never counts). A step in `trust` is trusted in this copy only (to build play on a
+ * forged step), and the copy's verdicts are then kept apart from `VERDICTS`.
  */
-export function replay(t: V2Table, log: readonly NostrEvent[] = t.log, order?: readonly number[]): V2Table {
+export function replay(
+  t: V2Table,
+  log: readonly NostrEvent[] = t.log,
+  order?: readonly number[],
+  trust: readonly NostrEvent[] = [],
+): V2Table {
   const players = t.players.map((_, k) => v2Session(t.game, k));
   const spectator = v2Session(t.game, null);
   const copy: V2Table = { game: t.game, players, spectator, all: [...players, spectator], log: [] };
-  trustSteps(copy.all, log.filter(isStep));
+  const verdicts = trust.length === 0 ? VERDICTS : new Map(VERDICTS);
+  for (const ev of log.filter(isStep)) if (HONEST.has(ev.id)) verdicts.set(ev.id, true);
+  for (const ev of trust) verdicts.set(ev.id, true);
+  for (const s of copy.all)
+    (s as unknown as { caches: { shuffleOk: Map<Hex, boolean> } }).caches.shuffleOk = verdicts;
   for (const i of order ?? log.map((_, j) => j)) send(copy, log[i] as NostrEvent);
   return copy;
 }
