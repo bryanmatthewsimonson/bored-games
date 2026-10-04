@@ -956,3 +956,29 @@ D059 approved candidate (e), "plain stop", for protocol v2. `docs/PROTOCOL-v2.md
   - `gems: 'any'`, and any rules object without the field (every earlier table), keeps 0.2.0's any-number rule.
   - The engine version is not bumped. A root pins the module version, so a bump would orphan games in progress. Legacy rules validate to themselves, so their folds and hashes are unchanged.
   - The forced pass is a platform rule (D015/D016); the published rules have no pass.
+
+## D064: Protocol v2 build, task 0: the model is aligned with the spec, and A3 is enforced by rebroadcast (2026-10-04)
+- **T0a and T0b** (`tools/protocol-model`): the model now covers the spec's fixes from the D061 review rounds:
+  - setup steps;
+  - the H1 cancel rule;
+  - M1 (every equivocator rated last);
+  - M3 (resign identity at the named head);
+  - claims that forfeit several seats;
+  - blocking public reveals (`reveal-block`) and unordered rolls;
+  - unresolved anchors;
+  - the Secret phase with a cheat, with v1's End rules at a standing result (N1) and no claims after a stop (H2);
+  - no automatic acceptance of a claim that forfeits only the client's own seat (N2).
+- **Regression variants.** Each of these reproduces the attack it closes: `cancelRule: 'position'`, `topmostOnly`, `stopClaims`, `noStandingEnd` and `autoOwnForfeit`.
+- **Results.** The fixed design shows no safety kind in CI or in nine larger scopes (up to 24.6 M states). Two of the model's own checks were corrected; review confirmed both corrections were honest.
+- **The review approved T0a and T0b.**
+- **The spec amendment: A3 is now enforced.** The model assumes every event an honest client holds reaches every other honest client (A3). Three traces split one honest seat's two devices without it: `a3gap`, `rv-a3resign` and `rv-cap`. §9.1 therefore now requires every client to rebroadcast every event of the game it holds that the fold, the cutoff or the audit reads: Moves, Shares events, end attestations, Timeout claims, Resigns and Secret reveals.
+  - **Bounds:** only events that pass the session's checks, where a Shares event qualifies if it parses with a seated signer even when its shares don't verify; at most two Moves per signer and prev, except that every Move a held event names (an anchor, a roll's requesting move, an end attestation's head, a prev, a claim's or a Resign's head) is always rebroadcast; and after each sync, only what a relay lacks.
+  - **Rule (b)** counts a Shares event once it is held and parses with a seated signer.
+  - §12.2 gains 7a, the rebroadcast fold vectors.
+- **Next: T0c, the gate.** Re-run the full battery with the updated model: the 20 scope groups in the T0 report, plus five the review added:
+  - setup steps with two devices and a stale outbox;
+  - setup steps with the Secret phase, a cheat and a resign;
+  - roll mode at 4 seats;
+  - reveal-block and roll with resigns and with devices;
+  - the `resignAt: counted` comparison.
+- **Older battery figures** (round 3) predate these model changes and are superseded once T0c reports.
