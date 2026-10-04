@@ -78,7 +78,8 @@ export type GameStatus = 'syncing' | 'working' | 'stuck' | 'waiting' | 'your-tur
 /**
  * Restoring a seat's game keys from the player's backup (D065): `restoring`, then `restored` (the seat is played), or
  * why not: `none` (no backup on the relays), `incomplete` (the relays did not answer in time), `unreadable`,
- * `mismatch` (not this seat's keys), `failed` (storage refused them), `unavailable` (the signer cannot decrypt).
+ * `mismatch` (not this seat's keys), `failed` (storage refused them), `unavailable` (the signer cannot decrypt),
+ * `refused` (the extension refused or failed to decrypt), `timeout` (it did not answer within `DECRYPT_MS`).
  * `retry` is the moment between a retry and the new query.
  */
 export type RestoreState =
@@ -90,6 +91,8 @@ export type RestoreState =
   | 'mismatch'
   | 'failed'
   | 'unavailable'
+  | 'refused'
+  | 'timeout'
   | 'retry';
 
 /**
@@ -1356,7 +1359,7 @@ export class GameController {
         CHECK_TIMEOUT_MS,
       );
       if (this.#disposed) return;
-      const r = await restoreKeyBackup(this.#d.signer, root, events);
+      const r = await restoreKeyBackup(this.#d.signer, root, events, this.#d.timers);
       if (this.#disposed) return;
       if (r.kind !== 'restored') {
         this.restore.value = r.kind === 'none' && !complete ? 'incomplete' : r.kind;

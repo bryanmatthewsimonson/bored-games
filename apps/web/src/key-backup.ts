@@ -24,7 +24,7 @@ import {
 import type { EoseInfo } from '@bored-games/relay';
 import type { Timers } from './clock.ts';
 import { bytesToHex, hexToBytes } from './hex.ts';
-import type { Signer } from './identity.ts';
+import type { Signer, SignerKind } from './identity.ts';
 import { type PoolLike, unionRelays } from './net.ts';
 import {
   addToTableList,
@@ -206,19 +206,47 @@ export function fetchKeyBackups(
  * - `restored`: the newest backup that decrypts and whose keys are the player's seat in `root`;
  * - `none`: no backup event found;
  * - `unreadable`: backups found, but none decrypts (another key, or damaged);
- * - `mismatch`: a backup decrypts, but its keys are not this seat's in this game.
+ * - `mismatch`: a backup decrypts, but its keys are not this seat's in this game;
+ * - `refused`: the browser extension refused (or failed) to decrypt: a rejected prompt is not a bad backup;
+ * - `timeout`: the signer did not answer within `DECRYPT_MS` (an extension prompt left open).
  */
 export type RestoreResult =
   | { kind: 'restored'; seat: number; secrets: GameSecrets }
   | { kind: 'none' }
   | { kind: 'unreadable' }
-  | { kind: 'mismatch' };
+  | { kind: 'mismatch' }
+  | { kind: 'refused' }
+  | { kind: 'timeout' };
+
+/** How long one decryption (or encryption) by the signer may take: an extension prompt waits for the player. */
+export const DECRYPT_MS = 60_000;
+
+const TIMED_OUT = Symbol('timed out');
+
+/** `p`, or `TIMED_OUT` after `ms` (review L4): an unanswered extension prompt must not hang the screen. */
+export function withTimeout<T>(p: Promise<T>, timers: Timers, ms: number): Promise<T | typeof TIMED_OUT> {
+  return new Promise((resolve, reject) => {
+    const cancel = timers.later(ms, () => resolve(TIMED_OUT));
+    p.then(
+      (v) => {
+        cancel();
+        resolve(v);
+      },
+      (e: unknown) => {
+        cancel();
+        reject(e);
+      },
+    );
+  });
+}
 
 /** Decrypt and check the backups `events` against the player's seat in `root` (newest first). */
 export async function restoreKeyBackup(
-  signer: Pick<Signer, 'pubkey' | 'nip44'>,
+  signer: Pick<Signer, 'pubkey' | 'nip44'> & { kind?: SignerKind },
   root: Pick<ParsedRoot, 'id' | 'tableAddress' | 'seats'>,
   events: readonly NostrEvent[],
+  timers: Timers,
+  ms = DECRYPT_MS,
 ): Promise<RestoreResult> {
   const nip44 = signer.nip44;
   const mine = events
@@ -227,9 +255,18 @@ export async function restoreKeyBackup(
   if (mine.length === 0 || nip44 === undefined) return { kind: 'none' };
   let worst: RestoreResult = { kind: 'unreadable' };
   for (const ev of mine) {
+    let text: string | typeof TIMED_OUT;
+    try {
+      text = await withTimeout(nip44.decrypt(signer.pubkey, ev.content), timers, ms);
+    } catch {
+      // An extension that throws may have been refused by the player: say so, and ask nothing more.
+      if (signer.kind === 'nip07') return { kind: 'refused' };
+      continue;
+    }
+    if (text === TIMED_OUT) return { kind: 'timeout' };
     let backup: ReturnType<typeof parseKeyBackup>;
     try {
-      backup = parseKeyBackup(await nip44.decrypt(signer.pubkey, ev.content));
+      backup = parseKeyBackup(text);
     } catch {
       continue;
     }
@@ -288,4 +325,8 @@ export const RESTORE_TEXT = {
     "You're watching this game: the backup found does not hold the keys of your seat in this game. Open the game on the device you joined with: it backs up the right keys when it opens the game.",
   failed:
     "You're watching this game: your game keys were found in your backup, but this browser would not save them.",
+  refused:
+    "You're watching this game: your browser extension did not decrypt the backup of your game keys (the request was refused, or it failed). Try again and allow it.",
+  timeout:
+    "You're watching this game: your browser extension did not answer the request to decrypt the backup of your game keys. Try again and allow it.",
 } as const;

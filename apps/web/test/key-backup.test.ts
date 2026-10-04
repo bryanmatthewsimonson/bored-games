@@ -17,6 +17,7 @@ import {
   parseRoot,
 } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { platformTimers } from '../src/clock.ts';
 import { ALREADY_MOVED, type GameController } from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import { bytesToHex } from '../src/hex.ts';
@@ -32,6 +33,8 @@ import { loadSecrets, loadTableList, memoryStorage } from '../src/storage.ts';
 import { Harness, laggingOwn, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
+type Args = Parameters<typeof restoreKeyBackup>;
+const restore = (s: Args[0], r: Args[1], e: Args[2]) => restoreKeyBackup(s, r, e, platformTimers);
 beforeEach(() => h.setup());
 afterEach(() => h.teardown());
 
@@ -83,7 +86,7 @@ describe('The key backup (D065)', () => {
     expect(loadBackupRecord('a', a.deps.storage, address)).not.toBeNull();
 
     // Round trip.
-    const ok = await restoreKeyBackup(a.deps.signer, root, evs);
+    const ok = await restore(a.deps.signer, root, evs);
     expect(ok).toMatchObject({ kind: 'restored', seat: seatA });
     if (ok.kind !== 'restored') throw new Error('not restored');
     expect(ok.secrets.sessionSk).toEqual(mine.sessionSk);
@@ -92,17 +95,17 @@ describe('The key backup (D065)', () => {
 
     // The wrong key: A's npub, B's NIP-44 (another conversation key): nothing decrypts.
     const wrong = { pubkey: A, nip44: b.deps.signer.nip44 as NonNullable<Signer['nip44']> };
-    expect(await restoreKeyBackup(wrong, root, evs)).toEqual({ kind: 'unreadable' });
+    expect(await restore(wrong, root, evs)).toEqual({ kind: 'unreadable' });
     // Another player's backup is not A's.
-    expect(await restoreKeyBackup(a.deps.signer, root, await backupsOf(b.deps.signer.pubkey))).toEqual({
+    expect(await restore(a.deps.signer, root, await backupsOf(b.deps.signer.pubkey))).toEqual({
       kind: 'none',
     });
 
     // Tampered content: re-signed, the MAC fails; not re-signed, the event is invalid.
     const flipped = ev.content.slice(0, 40) + (ev.content[40] === 'A' ? 'B' : 'A') + ev.content.slice(41);
     const resigned = await a.deps.signer.sign(keyBackupTemplate(address, flipped, ev.created_at + 1));
-    expect(await restoreKeyBackup(a.deps.signer, root, [resigned])).toEqual({ kind: 'unreadable' });
-    expect(await restoreKeyBackup(a.deps.signer, root, [{ ...ev, content: flipped }])).toEqual({
+    expect(await restore(a.deps.signer, root, [resigned])).toEqual({ kind: 'unreadable' });
+    expect(await restore(a.deps.signer, root, [{ ...ev, content: flipped }])).toEqual({
       kind: 'none',
     });
 
@@ -118,14 +121,14 @@ describe('The key backup (D065)', () => {
       const content = await (a.deps.signer.nip44 as NonNullable<Signer['nip44']>).encrypt(A, text);
       return a.deps.signer.sign(keyBackupTemplate(address, content, ev.created_at + 2));
     };
-    expect(await restoreKeyBackup(a.deps.signer, root, [await forge(theirs, rootId)])).toEqual({
+    expect(await restore(a.deps.signer, root, [await forge(theirs, rootId)])).toEqual({
       kind: 'mismatch',
     });
-    expect(await restoreKeyBackup(a.deps.signer, root, [await forge(mine, 'ee'.repeat(32))])).toEqual({
+    expect(await restore(a.deps.signer, root, [await forge(mine, 'ee'.repeat(32))])).toEqual({
       kind: 'mismatch',
     });
     // The newest backup that checks out wins over a newer one that does not.
-    expect(await restoreKeyBackup(a.deps.signer, root, [await forge(theirs, rootId), ev])).toMatchObject({
+    expect(await restore(a.deps.signer, root, [await forge(theirs, rootId), ev])).toMatchObject({
       kind: 'restored',
       seat: seatA,
     });

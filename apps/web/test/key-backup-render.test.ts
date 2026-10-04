@@ -18,14 +18,22 @@ describe('the game screen’s key backup notices (D065)', () => {
 
   it('a failed restore tells the player what to do, with Try again', () => {
     let retried = 0;
-    for (const state of ['none', 'incomplete', 'unreadable', 'mismatch', 'failed'] as const) {
+    for (const state of [
+      'none',
+      'incomplete',
+      'unreadable',
+      'mismatch',
+      'failed',
+      'refused',
+      'timeout',
+    ] as const) {
       const t = renderTree(RestoreNotice({ state, onRetry: () => retried++ }));
       expect(spokenText(t)).toContain("You're watching this game");
       expect(buttons(t)).toEqual(['Try again']);
       const click = findAll(t, (el) => el.tag === 'button')[0]?.attrs.onClick as () => void;
       click();
     }
-    expect(retried).toBe(5);
+    expect(retried).toBe(7);
     expect(RESTORE_TEXT.none).toContain('Open the game on the device you joined with');
     const ext = renderTree(RestoreNotice({ state: 'unavailable', onRetry: () => {} }));
     expect(spokenText(ext)).toContain(BACKUP_NO_NIP44);
