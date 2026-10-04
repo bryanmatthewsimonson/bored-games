@@ -840,7 +840,7 @@ The incident: in a 3-player Chain Reaction game, every client showed only "Shuff
 
 ## D058: Bank, and the key-committed dice beacon (owner request, 2026-10-03)
 The owner asked for **Bank**, a folk push-your-luck dice game, as a hosted game beside Chain Reaction and Chess. Hanabi stays spec only (D054): its build is still blocked on Phase K. Bank does not use a card prompt duty (D050). The same day, the owner corrected the first reading of that decision: a public dice roll is not analogous to a hidden card, and the other shares are sent automatically.
-- **What it is.** Public title Bank, module id `bank`, package `packages/games/bank`. The rules are `docs/games/bank/RULES.md` (catalog C01–C31), taken from Family Game Shelf's "How to Play the Bank Dice Game" (2024), BoardGameGeek 412804, and ThunderHive's public scoring description. This is the folk game: no Shield, no secret simultaneous banking, no timer, no Bank Run and no Speed Banker. No licensed pack and no `compareTo` (D053). The catalog tile stays the generated initials; the table is original SVG dice on a CSS felt. `bggId` is null.
+- **What it is.** Public title Bank, module id `bank`, package `packages/games/bank`. The rules are `docs/games/bank/RULES.md` (catalog C01–C31), taken from Family Game Shelf's "How to Play the Bank Dice Game" (2024), BoardGameGeek 412804, and ThunderHive's public scoring description. This is the folk game: no Shield, no secret simultaneous banking, no timer, no Bank Run and no Speed Banker. No licensed pack and no `compareTo` (D053). The catalog tile stays the generated initials; the table is original SVG dice on a CSS felt. `bggId` was null at first; D060 sets it to 412804.
 - **Rules of play.** Two dice, seats 2–6 (best 3–5). The default is 10 rounds; a new table may pick 5, 10 or 20, and a banking variant. The first three rolls of a round are safe: a 7 adds 70, and any other sum, doubles included, is added. From the fourth roll a 7 busts (the pot goes to 0 and seats still in score nothing more that round); a double replaces the add with the pot doubled; any other sum is added. A 7 is never a double. **Bank** adds the current pot to that seat's score, and that seat sits out the rest of the round. The pot stays for the others. A round opens on the roller, who rolls before anyone is asked to bank; an empty pot cannot be banked (corrected the same day, after the opening poll asked a seat to stay on a blank table). **Table** (the default) then asks every seat still in, in order, starting at the seat after the roller and ending with the roller. A non-roller chooses Bank or Stay; the roller chooses Bank or Roll. The pot does not change during that poll. **Turn** asks only the roller, for Bank or Roll. The variant is a named option on the table. A round ends on a bust, when every seat has banked, or after 30 rolls (D015): if the 30th resolution is a bust, the bust stands; otherwise every seat still in banks that pot, in seat order, and the round ends. The highest total wins. Equal totals share a place (1, 1, 3). `standings` is the point totals, so a forfeit ranks a higher score first. The next round's roller is the seat after the last human action of the round: the roller who busted, the last seat who chose to bank, or the roller of the capping roll.
 - **Resign.** The deckless path (D045, D052). The Resign carries no deck secret. Two seats: a rated loss, and the resigner is last. Three or more: unrated, and the resigner is last. A Resign before any roll cancels, because that is before the first game action.
 - **Fair dice, option 1b (GAME-SYSTEMS §4.3).** A contribution to roll `i` is `x·H_i` with `H_i = h2c('roll:' + rootId + ':' + i)`, the same Chaum–Pedersen share a card decryption uses, bound to the reserved deck id `roll` (`packages/deck/src/beacon.ts`: `makeRollShare`, `verifyRollShare`). The seed is the SHA-256 of each share's `D` as compressed SEC1 bytes (`D.toBytes(true)`), in seat order: the bytes, where §4.3's sketch hashed the base64 text. `packages/dice` `faces(seed, count, sides)` draws the faces by rejection sampling over a SHA-256 stream, so a remainder never favours a face. The engine imports neither package. The session derives `{type:'rolled', actor:'beacon', id, dice:[a,b]}` and applies it, as it derives a public reveal (PROTOCOL §6.3a). A player who sends that action is rejected (`a player does not send the dice`).
@@ -863,3 +863,75 @@ Follow-up: the owner requested random starts instead of the tabletop youngest-pl
 Luster interface follow-up (owner, 2026-10-04): use conventional Diamond, Sapphire, Emerald, Ruby, Onyx and Gold names; original artwork remains required. The owner clarified "Use whatever the rules dictate" for supply after observing a two-player game, so the standard 4/5/7 per-color setup and five Gold remain unchanged. Large clickable gem stacks, removable selection gems, clickable card/deck/noble faces and a card panel with discounted prices and direct Gold swaps replace numeric arrows and payment dropdowns. Only Luster's theme, art, UI, setup copy, catalog search expectation and tests change; engine 0.2.0 and Bank's implementation are preserved. The D050 exception stays limited to Luster.
 
 Luster hand/sidebar follow-up: every reserved card is displayed face down outside the owner’s separate hand, including previously exposed market cards. This hides artwork, cost, discount and prestige from the hand presentation without changing immutable public deck assignments or concealing identities already present in signed public history. Blind cards retain engine-level owner-only knowledge. The desktop board now has a sticky right-hand score/resource sidebar; narrow screens stack the player panels below it. Styles and presentation components remain Luster-specific; no Bank, shared runtime or protocol changes.
+
+## D059: The owner approves the Phase K recommendations (owner, 2026-10-04)
+The owner answered the eight questions of `docs/proposals/prompt-reveal.md` §10: *"Proceed with all recommendations."* Each answer below is the recommendation as written there.
+1. **A1 (one card readable after a stop):**
+   - one active device per seat per game is required in games with audit `'none'`;
+   - accepted elsewhere, where every card is public at the end.
+2. **Devices:**
+   - **Everywhere:**
+     - the outbox rule (required);
+     - the check before signing (SHOULD);
+     - devices also query relays of their own choosing, not only the root's (F2).
+   - **In audit-`'none'` games:** one designated playing device per seat; the others are view-only until handed over with a signed "this device now plays" note.
+3. **No clock-based time limit on stops.**
+4. **A stop with 3 or more seats:** the equivocator is rated last and recorded, and the game is unrated for the others.
+5. **Roll binding:** when the dice beacon is built for protocol v2, each roll's point is bound to the move that requests it: `h2c('roll:' + rootId + ':' + moveId + ':' + n)`.
+6. **F1 is accepted for now:** a finished game stays voidable while a seat is absent. Each void costs the equivocator a rated loss and exposes nothing.
+7. **F4, result identity:**
+   - results are keyed on (kind, head, forfeiting seat);
+   - an end attestation, published as a content variant of kind 7456, excludes the audit;
+   - the audit verdict is computed from the events, so it needs no attestation;
+   - the PROTOCOL §7 attestation is kept for stats only.
+8. **Candidate (e), as amended (round 3 with F1–F5), is approved** as the prompt-reveal design for protocol version 2.
+   - It is to be specified in PROTOCOL and then built.
+   - The unproven model scopes (§6.7) must be finished, or re-run on a bigger machine, before the build.
+   - Until it is built, D050 stands: no game ships a prompt duty, apart from the owner's Luster exception below. A public dice roll (Bank) is not a prompt duty (D050, D060).
+
+**Luster exception (owner, 2026-10-04).** The owner told the author of Luster to override D050 for Luster only, so its "isolated prompt shares" are an owner-approved exception. No other game may ship a prompt duty before protocol v2. The owner's next step is to implement protocol version 2, and Luster moves onto v2's prompt-reveal design when it lands.
+
+## D060: Owner rulings on the Bank and Luster audits (owner, 2026-10-04)
+Read-only audits of Bank and Luster (built by other assistants) went to the owner. The owner ruled:
+- **Bank's dice are public, so there is nothing to reveal.** *"Everybody makes their own decision based on the exact same publicly known dice roll. Before you assume something is a problem, you need to evaluate it against the game mechanics."*
+  - The automatic contribution stays, as D050's public-dice ruling already says.
+  - The one mechanics-relevant residual is foreknowledge of the next roll before a bank decision. Rolls are bound to the round's roll counter, so a rival Roll on another branch computes the same faces early. It is closed by D059 item 5 (bind each roll to its requesting move) in protocol v2.
+  - A false equivocation flag from two devices contributing to one roll is fixed client-side by the check before signing (D059 item 2).
+- **No interim fork-stop before v2.** Luster and Bank keep v1 fork choice until protocol v2 ships.
+- **Luster: an owed reveal keeps its timeout.** A seat whose share blocks a refill can still be timed out, but the game screen and Home must say clearly who owes a reveal and when the deadline passes.
+- **Luster gets "Compare to Splendor"** (amends D053: a second allowed phrase, stored once in the Luster package; "Splendor" and its publisher go on the restricted list). Its BoardGameGeek id is 148228.
+- **Bank stays a folk game,** with public name "Bank" and no Compare-to phrase. Its BoardGameGeek link is 412804. Neither 412804 nor Luster's 148228 could be checked against BoardGameGeek, which refused automated requests; both are the owner's ids.
+
+## D061: Protocol version 2 specified (`docs/PROTOCOL-v2.md`), reviewed and approved (2026-10-04)
+D059 approved candidate (e), "plain stop", for protocol v2. `docs/PROTOCOL-v2.md` now specifies it as a delta on v1, and `docs/PROTOCOL.md` §5.5 and §6.2a document Luster's partitioned deck and share duty as shipped v1 (owner exception, D059). The spec went through an independent adversarial review: NOT APPROVED (H1, H2, M1–M3, L1–L3), then NOT APPROVED (N1–N3), then APPROVED (review text in the session scratchpad; outcomes below).
+
+**The main choices:**
+- **Versioning:** `["proto","2"]` on every event of a game. v1 games stay v1 forever, clients fold both, and new tables are proto 2. v2 clients MUST NOT create or join new v1 Luster or Bank tables, and they keep folding v1 games in progress.
+- **Events:**
+  - Shares 7453 gains an `anchor` e tag (the releaser's head), plus a roll variant keyed by (seat, move, n).
+  - The end attestation is a content variant of 7456 keyed on (kind, head, forfeiting seats); `forfeit` is a list.
+  - The "this device now plays" note is a new kind, 7458.
+- **Dice (Q5):** each roll's point is `h2c('roll:' + rootId + ':' + moveId + ':' + n)`. Contributions are unordered: a last contributor can withhold and so kingmake, at the cost of a timeout forfeit, which matches v1's fixed last seat.
+- **Fork stop and cutoff (review H1, M1):**
+  - A fork cancels the game only if no game action is held at or past P on any line; otherwise it is a stop.
+  - Every seat with two valid-looking moves on one prev, on any held line, is recorded and rated last. The topmost fork still fixes P.
+  - With 2 seats, double equivocation is a tie.
+- **After a stop (H2, N3):**
+  - Places are fixed at the stop, and no Timeout claims count afterwards.
+  - A withheld secret never forfeits. It is recorded as "secret withheld" and counts as an anti-cheat mark, and the game shows as "audit incomplete".
+  - A partial audit runs once every position decrypts, and only a proven failure demotes a seat.
+- **A standing result (N1):** it is played out as if no fork were held. v1's End rules apply at the result's head (S for a resign), so a cheater cannot fork to dodge its own audit.
+- **Own forfeit (L2, N2):** a client never auto-accepts, before its own deadline, a claim that forfeits only its own seat. It asks the player instead, shows the question only on a device that was not watching that head, and makes "play" the default.
+- **Clients:**
+  - MUST rebroadcast every move on their chain, plus their own Shares events and end attestations (M2);
+  - MUST apply the outbox rule to Shares events and end attestations;
+  - SHOULD make the check before signing;
+  - query their own relays too.
+  - A device that loses its storage starts view-only.
+- **Prompt release** applies to every deck game in v2: only while no fork is held, no result stands and the final deck is complete, and only for positions dealt to another seat or to the table.
+
+**Before the build (PLAN, Phase v2 task 0):**
+- give the protocol model a cancel case (H1);
+- align the model's resign identity with the spec's named-head identity (M3);
+- finish or re-run the unproven scopes;
+- check kind 7458 against the NIPs registry.
