@@ -8,7 +8,7 @@ import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/proto
 import { type EoseInfo, type Filter, RelayPool } from '@bored-games/relay';
 import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox } from '../src/game-controller.ts';
-import type { Signer } from '../src/identity.ts';
+import { localNip44, type Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
 import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
@@ -50,13 +50,15 @@ export class Harness {
   /** A browser profile: its own key (unless given), store and pool. Its own relays: the dev relay and `extra`. */
   profile(
     name: string,
-    opts: { store?: KeyValueStore; signer?: Signer; extra?: readonly string[] } = {},
+    opts: { store?: KeyValueStore; signer?: Signer; extra?: readonly string[]; nip44?: boolean } = {},
   ): Profile {
     const sk = rnd(32);
+    // NIP-44 (the game key backup, D065) only when asked: without it nothing is backed up, as before.
     const signer: Signer = opts.signer ?? {
       kind: 'local',
       pubkey: getPublicKey(sk),
       sign: async (t) => finalizeEvent(t, sk, rnd),
+      ...(opts.nip44 === true ? { nip44: localNip44(sk, rnd) } : {}),
     };
     const extra = opts.extra ?? [];
     return {
