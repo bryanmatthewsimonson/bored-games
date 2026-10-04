@@ -53,6 +53,13 @@ const ALLOWLIST: Record<string, Allowed> = {
       'v1 games fold by the frozen v1 rules: the golden corpus (packages/client/test/golden-v1.test.ts)',
   },
   'V2-04': { until: 'T14' },
+  'V2-05': {
+    until: 'T14: the lobby filters tables with validateTable',
+    partial:
+      'validateTable and validateRoot reject a (module, engine version) that does not support the proto, and the ' +
+      'session refuses such a root (packages/protocol/test/lobby.test.ts, packages/client/test/bank-versions.test.ts); ' +
+      'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
+  },
   'V2-08': { until: 'T7, T8' },
   'V2-11': {
     until: 'T7 (both keys count for the seat)',

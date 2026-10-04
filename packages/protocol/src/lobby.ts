@@ -717,7 +717,11 @@ export function validateRoot(
 
     if (n > 0 && jointKey(root.seats.map((s) => s.deckKey)).is0()) add('the joint key is the identity');
 
-    const module = moduleFor(modules, root.game, root.version) ?? modules.get(root.game);
+    // The (game, version) pair's module; else the game's current module, so a version mismatch is named. Never a
+    // module kept under an `@` key: a game id that is such a key (`bank@0.1.0`) names no game (review L1).
+    const current = root.game.includes('@') ? undefined : modules.get(root.game);
+    const module =
+      moduleFor(modules, root.game, root.version) ?? (current?.id === root.game ? current : undefined);
     if (module === undefined) {
       add(`there is no module for game ${root.game}`);
     } else {

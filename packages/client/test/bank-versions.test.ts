@@ -1,6 +1,7 @@
 import { bank, bankV1 } from '@bored-games/bank';
 import { parseJoin, parseRoot, parseTable, validateRoot, validateTable } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
+import { ClientError } from '../src/errors.ts';
 import { GameSession } from '../src/session.ts';
 import { MODULES, makeModuleGame, ROOT_SEEN, type TestGame } from './helpers.ts';
 
@@ -32,7 +33,7 @@ function create(g: TestGame, seat: number | null): GameSession {
 }
 
 describe('Bank 0.2.0 and Bank 0.1.0 in one registry', () => {
-  it('V2-05 a Bank table or root is rejected unless its engine version supports its proto', () => {
+  it('V2-05 (partial) a Bank table or root is rejected unless its engine version supports its proto', () => {
     // Bank 0.2.0 at proto 1, and Bank 0.1.0 at proto 2: rejected, table and root alike.
     const newAtV1 = makeModuleGame(bank, 2, 'bank-0.2.0-proto-1', bank.defaultRules(), '1');
     expect(problems(newAtV1)).toEqual({
@@ -61,6 +62,24 @@ describe('Bank 0.2.0 and Bank 0.1.0 in one registry', () => {
       '1',
     );
     expect(problems(unknown).table).toEqual(['there is no module for game bank 0.0.9']);
+  });
+
+  it('a table and root whose game id is an @ registry key (bank@0.1.0) name no game: rejected cleanly (review L1)', () => {
+    const crafted = makeModuleGame(
+      { ...bankV1, id: 'bank@0.1.0' },
+      2,
+      'bank-at-key',
+      bankV1.defaultRules(),
+      '1',
+    );
+    expect(problems(crafted)).toEqual({
+      table: ['there is no module for game bank@0.1.0 0.1.0'],
+      root: ['there is no module for game bank@0.1.0'],
+    });
+    for (const seat of [0, null]) {
+      expect(() => create(crafted, seat)).toThrow(ClientError);
+      expect(() => create(crafted, seat)).toThrow(/there is no module for game bank@0\.1\.0/);
+    }
   });
 
   it('a v1 Bank 0.1.0 game folds with Bank 0.1.0 (moduleFor through bank@0.1.0), not the current Bank 0.2.0', () => {

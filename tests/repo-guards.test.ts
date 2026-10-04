@@ -110,6 +110,31 @@ describe('promptShares (D050, D059 item 8)', () => {
   });
 });
 
+describe('the unhedged share-nonce hook (T4, review I3)', () => {
+  // `dleq.ts` keeps an internal maker that takes the DLEQ nonce from its caller, so the vector scripts can list it.
+  // Production shares must use the hedged `makeShare`: outside the deck's own scripts and tests, nothing may name
+  // the hook. The name is assembled here so this guard does not name it.
+  const HOOK = new RegExp(`\\b${['makeShare', 'WithNonce'].join('')}\\b`);
+  const ALLOWED = (rel: string): boolean =>
+    rel === 'packages/deck/src/dleq.ts' ||
+    rel.startsWith('packages/deck/scripts/') ||
+    rel.startsWith('packages/deck/test/');
+  it('is named only by packages/deck/src/dleq.ts and the deck scripts and tests', () => {
+    const everywhere = [...packageDirs(), join(root, 'tests'), join(root, 'scripts')].flatMap((d) =>
+      files(d, /\.(ts|tsx|js|mjs|cjs|mts)$/),
+    );
+    const named = everywhere
+      .filter((f) => HOOK.test(readFileSync(f, 'utf8')))
+      .map((f) => relative(root, f))
+      .filter((rel) => !ALLOWED(rel))
+      .sort();
+    expect(named).toEqual([]);
+    // The guard does look: the deck's own uses are found.
+    expect(everywhere.some((f) => relative(root, f) === 'packages/deck/src/dleq.ts')).toBe(true);
+    expect(HOOK.test(readFileSync(join(root, 'packages/deck/src/dleq.ts'), 'utf8'))).toBe(true);
+  });
+});
+
 describe('web app impurity', () => {
   // apps/web is not a pure package, but clock, randomness and storage enter only through three files.
   const allowed = ['clock.ts', 'random.ts', 'storage.ts'];

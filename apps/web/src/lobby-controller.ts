@@ -24,6 +24,7 @@ import {
   parseTable,
   type TableStatus,
   tableTemplate,
+  validateTable,
   verifyEvent,
 } from '@bored-games/protocol';
 import type { Filter } from '@bored-games/relay';
@@ -267,6 +268,9 @@ export class LobbyController {
     const tableEv = await this.#sign(template);
     const table = tryParseTable(tableEv);
     if (table === null) throw new Error('The table is not valid: check the seats, invitations and relays.');
+    // Never publish a table no client can start (review I2): an engine that does not support the table's proto.
+    const problems = validateTable(table, this.#d.modules);
+    if (problems.length > 0) throw new Error(`This game cannot be started: ${problems.join('; ')}.`);
     const joinEv = await this.#signJoin(table);
     this.#ingest(tableEv);
     this.#ingest(joinEv);
@@ -511,8 +515,10 @@ export class LobbyController {
 
   #refreshOpen(): void {
     const out: TableEntry[] = [];
+    // Current modules only: a table naming an `@` key (a kept older version) is no game to list (review L1).
+    const games = currentModules(this.#d.modules);
     for (const entry of this.#tables.values()) {
-      if (entry.table.status !== 'open' || !this.#d.modules.has(entry.table.game)) continue;
+      if (entry.table.status !== 'open' || !games.has(entry.table.game)) continue;
       out.push(entry);
     }
     out.sort((a, b) => b.event.created_at - a.event.created_at || (a.address < b.address ? -1 : 1));

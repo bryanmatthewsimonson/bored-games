@@ -369,6 +369,28 @@ describe('LobbyController', () => {
     expect(root.id).toBe(rootId);
     expect(root.seats.map((s) => s.npub)).toEqual([a, ...picked].map((p) => p.deps.signer.pubkey));
   }, 30_000);
+
+  it('never publishes a table no client can start: an engine that supports no proto of the table (review I2)', async () => {
+    const a = profile('a');
+    const published: NostrEvent[] = [];
+    const real = a.deps.pool;
+    const pool: PoolLike = {
+      publish: (ev, urls) => {
+        published.push(ev);
+        return real.publish(ev, urls);
+      },
+      subscribe: (...args) => real.subscribe(...args),
+    };
+    // A registry whose Chess engine runs under no protocol version: validateTable refuses every table of it.
+    const chess = MODULES.get('chess') as NonNullable<ReturnType<typeof MODULES.get>>;
+    const modules: ControllerDeps['modules'] = new Map([...MODULES, ['chess', { ...chess, protocols: [] }]]);
+    const la = lobby({ ...a, deps: { ...a.deps, pool, modules } });
+    await expect(
+      la.createTable({ game: 'chess', seats: 2, deadline: 86400, invited: [], relays: [relay.url] }),
+    ).rejects.toThrow(/cannot be started: chess [0-9.]+ does not support proto/);
+    expect(published).toEqual([]);
+    expect(la.openTables.value).toEqual([]);
+  }, 30_000);
 });
 
 describe('LobbyController and a changed player key (D041)', () => {
