@@ -418,11 +418,38 @@ describe('Result attestations, protocol 2 (PROTOCOL-v2 §4.3)', () => {
     const headed = tagged(stats, (t) => [...t, ['e', HEAD, '', 'head']]);
     expect(code(() => parseAttestV2(sign(headed, NPUB_SK)))).toBe('bad-tag');
     const forked = { ...OUTCOME, unrated: true as const, endedBy: { type: 'fork' as const, seat: 1 } };
-    const t = attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0, '2');
-    expect(code(() => parseAttestV2(sign(t, NPUB_SK)))).toBe('bad-content');
     // v1 still accepts its frozen ends.
     const v1 = attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0);
     expect(code(() => parseAttest(sign(v1, NPUB_SK)))).toBe('accepted');
+    // The same content at proto 2 (built by hand: the template refuses it) is rejected.
+    const t = tagged(v1, (tags) => tags.map((x) => (x[0] === 'proto' ? ['proto', '2'] : x)));
+    expect(code(() => parseAttestV2(sign(t, NPUB_SK)))).toBe('bad-content');
+  });
+
+  it('attestTemplate refuses to build a proto 2 stats attestation ended by a fork (T2/T3 review I1)', () => {
+    const forked = { ...OUTCOME, unrated: true as const, endedBy: { type: 'fork' as const, seat: 1 } };
+    const build = () =>
+      attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0, '2');
+    expect(build).toThrow(ProtocolError);
+    expect(code(build)).toBe('bad-content');
+    // v1 keeps building it, byte for byte as before.
+    expect(attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0).tags).toEqual([
+      ['e', ROOT, '', 'root'],
+      ['proto', '1'],
+    ]);
+  });
+
+  it('parseAttestV2 dispatches on the exact key list: comma-bearing keys match neither variant (review I4)', () => {
+    for (const c of [
+      { 'audit,logHash': 'pass', outcome: OUTCOME },
+      { audit: 'pass', 'logHash,outcome': LOG },
+      { 'end,x': {} },
+    ]) {
+      expect(
+        code(() => parseAttestV2(sign(withContent(stats, c), NPUB_SK))),
+        JSON.stringify(c),
+      ).toBe('bad-content');
+    }
   });
 
   it('V2-51 rejects an end attestation without exactly the root and head e tags, and a stats attestation or Device note without exactly the root one', () => {

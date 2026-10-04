@@ -1076,6 +1076,16 @@ describe('protocol versions in the lobby (PROTOCOL-v2 §2, §10)', () => {
     // An object without `proto` (a caller's hand-made v1 object) is proto 1.
     const bare = <T extends { proto: Proto }>(o: T) => ({ ...o, proto: undefined }) as unknown as T;
     expect(validateRoot(bare(root), bare(table), byId(...[jA, jB, jC].map(bare)), modules)).toEqual([]);
+    // Under a proto-2 table such objects are reported as proto 1, never "proto undefined" (T2/T3 review I3).
+    const bareProblems = validateRoot(
+      bare(rootAt(table2, [kA, kB, kC])),
+      table2,
+      byId(kA, kB, bare(kC)),
+      modules,
+    );
+    expect(bareProblems).toContainEqual("proto 1 differs from the table's 2");
+    expect(bareProblems).toContainEqual('seat 2: the join is for proto 1');
+    expect(bareProblems.join('; ')).not.toContain('undefined');
   });
 
   it('V2-05 (partial) validateRoot and validateTable reject a module version that does not support the proto', () => {

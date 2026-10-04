@@ -655,7 +655,7 @@ export function validateRoot(
     if (root.deadline !== table.deadline)
       add(`deadline ${root.deadline} differs from the table's ${table.deadline}`);
     const proto = table.proto ?? '1';
-    if ((root.proto ?? '1') !== proto) add(`proto ${root.proto} differs from the table's ${proto}`);
+    if ((root.proto ?? '1') !== proto) add(`proto ${root.proto ?? '1'} differs from the table's ${proto}`);
 
     const n = root.seats.length;
     if (n !== table.seats) add(`the root has ${n} seats but the table has ${table.seats}`);
@@ -675,7 +675,7 @@ export function validateRoot(
         if (join.session !== seat.session) add(`seat ${i}: the session differs from its join`);
         if (join.rulesHash !== root.rulesHash) add(`seat ${i}: the join committed to other rules`);
         if (join.version !== root.version) add(`seat ${i}: the join committed to version ${join.version}`);
-        if ((join.proto ?? '1') !== proto) add(`seat ${i}: the join is for proto ${join.proto}`);
+        if ((join.proto ?? '1') !== proto) add(`seat ${i}: the join is for proto ${join.proto ?? '1'}`);
         if (!join.deckKey.equals(seat.deckKey)) add(`seat ${i}: the deck key differs from its join`);
         if (!verifyJoin(join)) add(`seat ${i}: the join's proof of knowledge does not verify`);
       } catch {

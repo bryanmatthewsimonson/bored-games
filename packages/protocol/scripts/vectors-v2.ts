@@ -431,7 +431,13 @@ export function generateParserVectors(): {
     'stats attestation: endedBy fork (no frozen ends in v2)',
     'attestV2',
     '2',
-    sign(attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0, '2'), npubSk),
+    // attestTemplate refuses `fork` at proto 2, so the case is the v1 form with its proto tag set to "2".
+    sign(
+      tagged(attestTemplate({ rootId: ROOT, audit: 'pass', logHash: LOG, outcome: forked }, T0), (t) =>
+        t.map((x) => (x[0] === 'proto' ? ['proto', '2'] : x)),
+      ),
+      npubSk,
+    ),
   );
   add(
     'stats attestation: with a head tag',

@@ -15,6 +15,7 @@ import {
 import { canonicalJson } from '@bored-games/game-kit';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
+import { ProtocolError } from './errors.ts';
 import { KIND, type Proto } from './kinds.ts';
 import { badContent, badTag, canonicalContent, decimal, hex64, list, parseEvent, record } from './lobby.ts';
 import { type EventTemplate, type Hex, isHex64 } from './nostr.ts';
@@ -435,9 +436,15 @@ export function parseSecret(ev: unknown, proto: Proto = '1'): ParsedSecret {
 
 /**
  * The Result attestation (kind 7456), unsigned (PROTOCOL §4.8). At proto `'2'` it is the stats attestation
- * (PROTOCOL-v2 §4.3, §7.4), whose `endedBy.type` may only be `'resign'`.
+ * (PROTOCOL-v2 §4.3, §7.4), whose `endedBy.type` may only be `'resign'`: an outcome ended by a `'fork'` (v1's frozen
+ * ends, removed in v2) throws a `ProtocolError` (`bad-content`) rather than build an event every v2 client rejects.
  */
 export function attestTemplate(a: AttestSpec, createdAt: number, proto: Proto = '1'): EventTemplate {
+  if (proto !== '1' && a.outcome.endedBy !== undefined && a.outcome.endedBy.type !== 'resign')
+    throw new ProtocolError(
+      'bad-content',
+      `a proto ${proto} stats attestation never carries endedBy "${a.outcome.endedBy.type}" (PROTOCOL-v2 §4.3)`,
+    );
   return template(
     KIND.attest,
     createdAt,
@@ -707,10 +714,11 @@ export function parseAttestV2(ev: unknown): ParsedEndAttest | ParsedStatsAttest 
       const raw = canonicalContent(e.content);
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
         badContent('content: expected an object');
-      const keys = Object.keys(raw as object)
-        .sort()
-        .join(',');
-      if (keys === 'end') {
+      // Compare the key list itself, not a joined string (a key may contain a comma).
+      const keys = Object.keys(raw as object).sort();
+      const is = (want: readonly string[]): boolean =>
+        keys.length === want.length && want.every((k, i) => keys[i] === k);
+      if (is(['end'])) {
         const ids = markedIds(e.tags, ['root', 'head']);
         const end = endOf((raw as Record<string, unknown>).end);
         return {
@@ -721,7 +729,7 @@ export function parseAttestV2(ev: unknown): ParsedEndAttest | ParsedStatsAttest 
           end,
         };
       }
-      if (keys === 'audit,logHash,outcome') {
+      if (is(['audit', 'logHash', 'outcome'])) {
         const ids = markedIds(e.tags, ['root']);
         const c = raw as Record<string, unknown>;
         const outcome = outcomeOf(c.outcome);
