@@ -45,6 +45,8 @@ export function coverageTags(_s: ChessState, events: readonly ChessEvent[]): str
 export const chess: GameModule<ChessState, ChessEvent, ChessRules> = {
   id: CHESS_ID,
   version: CHESS_VERSION,
+  // Runs unchanged under both protocols (PROTOCOL-v2 §2 item 6).
+  protocols: [1, 2],
   defaultRules: () => DEFAULT_RULES,
   validateRules,
   seatRange: () => ({ min: 2, max: 2 }),

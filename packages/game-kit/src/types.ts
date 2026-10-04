@@ -12,6 +12,12 @@
 /** Zero-based seat index in turn order as fixed at game creation. */
 export type Seat = number;
 
+/**
+ * A protocol version a module version can run under (PROTOCOL-v2 §2 item 6, §10): 1 is `docs/PROTOCOL.md`, 2 is
+ * `docs/PROTOCOL-v2.md`. On the wire it is the `["proto", "1" | "2"]` tag.
+ */
+export type ProtocolVersion = 1 | 2;
+
 export interface EngineError {
   readonly code: string;
   readonly message: string;
@@ -77,12 +83,22 @@ export type Pending =
   | { readonly type: 'over' };
 
 /**
- * One committed dice roll (D058). `id` is never reused. `last` is the seat whose contribution is published last,
- * and who therefore can learn the faces first.
+ * One committed dice roll under protocol 1 (D058, PROTOCOL §6.3a). `id` is never reused. `last` is the seat whose
+ * contribution is published last, and who therefore can learn the faces first.
  */
 export interface DiceRoll {
   readonly id: number;
   readonly last: number;
+}
+
+/**
+ * One roll under protocol 2 (PROTOCOL-v2 §6.2, §10): `id` is never reused; the session derives `count` faces in
+ * `1..sides` from every seat's contribution. `count` and `sides` are positive safe integers.
+ */
+export interface RollEntry {
+  readonly id: number;
+  readonly count: number;
+  readonly sides: number;
 }
 
 export interface Outcome {
@@ -98,9 +114,10 @@ export interface Outcome {
   readonly unrated?: true;
   /**
    * Set only by the platform, with `unrated`: the seat whose Resign ended the game (`resign`), or the forker whose
-   * ending branch holds only by the freeze (`fork`). Absent otherwise.
+   * ending branch holds only by the freeze (`fork`). Absent otherwise. `stop` is the protocol 2 equivocator whose
+   * fork stopped the game (PROTOCOL-v2 §5.6): a session-internal value, never attested (§7.4), so never on the wire.
    */
-  readonly endedBy?: { readonly type: 'resign' | 'fork'; readonly seat: Seat };
+  readonly endedBy?: { readonly type: 'resign' | 'fork' | 'stop'; readonly seat: Seat };
 }
 
 export type SetupInput<R> =
@@ -124,6 +141,11 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   readonly id: string;
   /** Engine semver; a game is pinned to the engine version it started on. */
   readonly version: string;
+  /**
+   * The protocol versions this module version runs under (PROTOCOL-v2 §2 item 6, §10). Absent means `[1]`; read it
+   * with `moduleProtocols`. A Table or root at a protocol its (id, version) does not list is rejected.
+   */
+  readonly protocols?: readonly ProtocolVersion[];
 
   defaultRules(): R;
   validateRules(rules: unknown): Result<R>;
@@ -174,14 +196,24 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   coverage?(state: S, events: readonly E[]): readonly string[];
   /**
    * Append-only dice commitments, present only on a game that rolls with the beacon (D058). The list never
-   * drops an entry. Absent on a game that does not roll.
+   * drops an entry. Absent on a game that does not roll. Under protocol 1 the entries are `DiceRoll`s; a module
+   * version that runs under protocol 2 lists `RollEntry`s (`isRollEntry`), which only a game action appends,
+   * and pends `{type: 'beacon', id}` for a new entry before any player decision that should not see it
+   * (PROTOCOL-v2 §10).
    */
-  rolls?(state: S): readonly DiceRoll[];
+  rolls?(state: S): readonly (DiceRoll | RollEntry)[];
   /**
    * The roll id `action` must carry exactly one beacon share for, or null when the action carries none.
-   * Absent on a game that does not roll. Never throws.
+   * Absent on a game that does not roll. Never throws. Protocol 1 only: v2 sessions do not use it (PROTOCOL-v2
+   * §10).
    */
   beaconOf?(state: S, action: unknown): number | null;
+  /**
+   * What the end of a game makes public (PROTOCOL-v2 §10): `'reveal'` (the default when absent) when every card is
+   * public at the end and the audit runs, `'none'` otherwise. `'none'` requires PROTOCOL-v2 §9.5, which is not
+   * built: a guard test fails while any registered module declares it.
+   */
+  audit?(rules: R): 'reveal' | 'none';
   /**
    * Whether a seat may resign a game with these rules and seats (PROTOCOL §4.9, D052). Absent means yes. A game
    * whose hidden cards the resigner's published deck secret would expose to others (a co-op game, or one where

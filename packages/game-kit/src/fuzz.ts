@@ -1,6 +1,7 @@
 import { assertJsonSafe, jsonEqual } from './canonical.ts';
 import { stateHash } from './hash.ts';
 import { createRng, type Rng, range, shuffle } from './prng.ts';
+import { isRollEntry } from './registry.ts';
 import { replay } from './replay.ts';
 import type {
   DealtPosition,
@@ -282,9 +283,12 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
         };
         action = reveal;
       } else if (pending.type === 'beacon') {
-        // The fuzzer does not run the beacon. Faces are uniform and come from the move rng, never a seat policy.
-        const die = (): number => moveRng.int(6) + 1;
-        action = { type: 'rolled', actor: 'beacon', id: pending.id, dice: [die(), die()] };
+        // The fuzzer does not run the beacon. Faces are uniform and come from the move rng, never a seat policy:
+        // the roll entry's `count` faces of `sides` (a protocol 2 `RollEntry`), else two of six (a `DiceRoll`).
+        const entry = module.rolls?.(full).find((r) => r.id === pending.id);
+        const { count, sides } = isRollEntry(entry) ? entry : { count: 2, sides: 6 };
+        const dice = Array.from({ length: count }, () => moveRng.int(sides) + 1);
+        action = { type: 'rolled', actor: 'beacon', id: pending.id, dice };
       } else {
         const legal = module.legalActions(full, pending.seat);
         if (legal.length === 0) return fail(`seat ${pending.seat} has no legal action (${pending.decision})`);

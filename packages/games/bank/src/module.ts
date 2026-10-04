@@ -44,6 +44,8 @@ export function coverageTags(_s: BankState, events: readonly BankEvent[]): strin
 export const bank: GameModule<BankState, BankEvent, BankRules> = {
   id: BANK_ID,
   version: BANK_VERSION,
+  // 0.1.0 is v1-only: its counter-bound roll point and `contribute` decision (PROTOCOL-v2 §2 item 6).
+  protocols: [1],
   defaultRules: () => DEFAULT_RULES,
   validateRules,
   seatRange: () => ({ min: 2, max: 6 }),

@@ -123,6 +123,8 @@ export function coverageTags(s: ChainReactionState, events: readonly ChainReacti
 export const chainReaction: GameModule<ChainReactionState, ChainReactionEvent, ChainReactionRules> = {
   id: CHAIN_REACTION_ID,
   version: CHAIN_REACTION_VERSION,
+  // Runs unchanged under both protocols (PROTOCOL-v2 §2 item 6).
+  protocols: [1, 2],
   defaultRules: () => DEFAULT_RULES,
   validateRules,
   seatRange: (rules) => ({ min: rules.minPlayers, max: rules.maxPlayers }),

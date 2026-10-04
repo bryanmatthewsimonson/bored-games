@@ -4,9 +4,10 @@
  * first player action, at every seat count where it allows a Resign. The only exemption is a module that opts out
  * of Resign at every seat count (`resignAllowed(rules, seats) → false`, Luster today), and the test says which.
  */
-import type { GameModule } from '@bored-games/game-kit';
+import { type GameModule, moduleProtocols } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { checkRevealContract, resignSeatCounts } from '../../../packages/client/test/reveal-contract.ts';
+import { checkRollContract } from '../../../packages/client/test/roll-contract.ts';
 import { MODULES } from '../src/net.ts';
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
@@ -43,5 +44,19 @@ describe('D052: every registered module with a deck pends public reveals only be
       continue;
     }
     it(`${module.id} (seats ${seats.join(', ')})`, () => checkRevealContract(module, seats));
+  }
+});
+
+describe('the protocol 2 module contract over every registered module (PROTOCOL-v2 §10)', () => {
+  it('no registered module declares audit "none": PROTOCOL-v2 §9.5 (V2-48) must be built first', () => {
+    for (const m of MODULES.values()) expect(m.audit?.(m.defaultRules()) ?? 'reveal', m.id).toBe('reveal');
+  });
+
+  for (const module of [...MODULES.values()].filter(
+    (m) => moduleProtocols(m).includes(2) && typeof m.rolls === 'function',
+  )) {
+    const { min, max } = module.seatRange(module.defaultRules());
+    const seats = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+    it(`${module.id} ${module.version}: protocol 2 roll entries`, () => checkRollContract(module, seats));
   }
 });

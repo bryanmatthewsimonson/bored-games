@@ -25,6 +25,8 @@ export function revealsOf(s: LusterState, raw: unknown): Learn[] {
 export const luster: GameModule<LusterState, LusterEvent, LusterRules> = {
   id: LUSTER_ID,
   version: LUSTER_VERSION,
+  // Runs unchanged under both protocols (PROTOCOL-v2 §2 item 6).
+  protocols: [1, 2],
   defaultRules: () => DEFAULT_RULES,
   validateRules,
   seatRange: () => ({ min: 2, max: 4 }),
