@@ -72,7 +72,8 @@ const ALLOWLIST: Record<string, Allowed> = {
     until: 'T13 (the order harness: incremental against from-scratch on random arrival orders)',
     partial:
       'every cutoff and standing-result scenario replayed in several arrival orders with duplicates, into every ' +
-      'seat and a spectator (packages/client/test/v2/cutoff.test.ts, packages/client/test/v2/standing.test.ts)',
+      'seat and a spectator (packages/client/test/v2/cutoff.test.ts, packages/client/test/v2/standing.test.ts); ' +
+      'the claim and Resign caps in every order of their units (packages/client/test/v2/caps.test.ts, D069)',
   },
   'V2-23': { until: 'T12' },
   'V2-52': { until: 'T12, T17' },
