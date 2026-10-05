@@ -1538,7 +1538,11 @@ export class GameSessionV2 implements Session {
       outcome: status.outcome,
       forfeits: status.forfeits,
       resigned:
-        cancel?.by === 'resign' ? [cancel.seat] : resignedBy !== null && e?.over === false ? [resignedBy] : [],
+        cancel?.by === 'resign'
+          ? [cancel.seat]
+          : resignedBy !== null && e?.over === false
+            ? [resignedBy]
+            : [],
       resignOverridden: resignedBy !== null && e?.over === true ? [resignedBy] : [],
       resignId:
         cancel?.by === 'resign' && this.counted !== null
@@ -1613,8 +1617,7 @@ export class GameSessionV2 implements Session {
   private owedReveal(): number[] {
     const head = this.head();
     const shares = this.current.shares;
-    if (this.current.fork !== null || this.ended() || head.phase !== 'play' || shares === null)
-      return [];
+    if (this.current.fork !== null || this.ended() || head.phase !== 'play' || shares === null) return [];
     const p = pendingAt(this.ctx, head);
     if (p?.type !== 'reveal') return [];
     return this.owesReveal(
