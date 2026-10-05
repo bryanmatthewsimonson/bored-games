@@ -204,7 +204,7 @@ describe('N1: a cheat that forks at its own old prev after the end attestations 
     expect(r.spectator.view().audit).toEqual({ fail: [C], reason: 'withheld secret' });
   });
 
-  it('V2-39 (partial): with C’s secret published instead, the full audit at the standing result fails C, in any order (N1)', () => {
+  it('V2-39: with C’s secret published instead, the full audit at the standing result fails C, in any order (N1)', () => {
     const r = inOrders(t, [...log, cSecret], 'n1-audit', 2);
     for (const s of honest(r)) {
       const v = s.view();

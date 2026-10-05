@@ -8,7 +8,7 @@ import { looksValid, type Walk } from './walk.ts';
 
 /*
  * Results and end attestations (PROTOCOL-v2 §4.3, §5.3; build plan D-E layer 5): this client's own `over` result with
- * no fork held (claims and Resigns counted with no fork held are T12), each end attestation's validity, the
+ * no fork held (the session adds the claims and Resigns it counts itself, T12), each end attestation's validity, the
  * validity of a result from the held events without a clock (§5.3, V2-17), and a Resign's scoring position S along
  * its named head's line (§8.3, V2-43). All are functions of the held events: the cutoff (`cutoff.ts`) reads them.
  */

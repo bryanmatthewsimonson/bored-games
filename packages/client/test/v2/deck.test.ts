@@ -427,7 +427,7 @@ describe('GameSessionV2 with a deck: play to the end (Chain Reaction)', () => {
     }
   }, 600_000);
 
-  it('V2-39 (partial) plays a 3-seat game to over with prompt releases; end attestations, then secrets, then the full audit passes', () => {
+  it('V2-39 plays a 3-seat game to over with prompt releases; end attestations, then secrets, then the full audit passes', () => {
     const v = game.spectator.view();
     expect(v.result).toMatchObject({ kind: 'over', forfeit: [] });
     // Every draw was released at once by the other seats, never by the drawer.
@@ -478,7 +478,7 @@ describe('GameSessionV2 with a deck: play to the end (Chain Reaction)', () => {
     expect(game.spectator.waitingFor()).toEqual([]);
   });
 
-  it('V2-39 (partial) applies a failed full audit with a deck to places and scores, never to the result', () => {
+  it('V2-39 applies a failed full audit with a deck to places and scores, never to the result', () => {
     // A registry whose full-mode engine rejects seat 1's first placement: the replay fails seat 1, which moves to
     // the last place. The view-mode game is unchanged, so the same events fold to the same result.
     const strict: AnyModule = {

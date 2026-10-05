@@ -208,6 +208,11 @@ export interface SessionViewV2 extends SessionView {
   endAttested: number[];
   /** The seats that owe a public reveal or a roll contribution at the head, ascending (PROTOCOL-v2 §6.4). */
   owed: { reveal: number[]; roll: number[] };
-  /** A Timeout claim that forfeits only this seat, awaiting its player's answer (PROTOCOL-v2 §8.1, N2), or null. */
+  /**
+   * A Timeout claim that forfeits only this seat, awaiting its player's answer (PROTOCOL-v2 §8.1, review N2), or
+   * null: it names the walk's head, the seats stalled there are this seat alone, this client's own deadline has not
+   * passed, and the device was not watching that head (its first-seen time and the progress time both lie in the
+   * latest sync, `GameSessionV2.noteSync`). "Play" is the default answer; `confirmOwnForfeit` accepts it.
+   */
   ownForfeit: { claim: Hex } | null;
 }

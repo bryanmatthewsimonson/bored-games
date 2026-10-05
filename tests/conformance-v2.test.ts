@@ -36,14 +36,13 @@ interface Allowed {
 /** Every id not yet covered. Each task removes the ids it covers; nothing is ever added back. */
 const ALLOWLIST: Record<string, Allowed> = {
   'V2-01': {
-    until:
-      'T12 (the session builders for the Resign and Timeout claim), ' +
-      'T14 (the controller creates tables and joins at proto 2)',
+    until: 'T14 (the controller creates tables and joins at proto 2)',
     partial:
       'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts), the lobby helpers carrying ' +
       "the table's proto (packages/client/test/lobby.test.ts), and the v2 session's move, end attestation and " +
       'stats attestation (packages/client/test/v2/core-deckless.test.ts), shuffle step, deal, release and Secret ' +
-      'reveal (packages/client/test/v2/deck.test.ts), roll Shares event (packages/client/test/v2/dice.test.ts)',
+      'reveal (packages/client/test/v2/deck.test.ts), roll Shares event (packages/client/test/v2/dice.test.ts), ' +
+      'Resign and Timeout claim (packages/client/test/v2/claims-resign.test.ts)',
   },
   'V2-04': { until: 'T14' },
   'V2-05': {
@@ -62,12 +61,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'rule (b) of the cutoff reads every held event, an inapplicable Shares variant and an end attestation naming ' +
       'a non-seat included (packages/client/test/v2/cutoff.test.ts)',
   },
-  'V2-17': {
-    until: 'T12 (the identities of the claims and Resigns this client counts itself, with no fork held)',
-    partial:
-      'the identity and clock-free validity of the attested results the cutoff reads: over, claim (no clock, no ' +
-      'stall check) and resign (named head, S, the cancel rule) (packages/client/test/v2/cutoff.test.ts)',
-  },
   'V2-20': {
     until: 'T13 (the order harness: incremental against from-scratch on random arrival orders)',
     partial:
@@ -75,8 +68,14 @@ const ALLOWLIST: Record<string, Allowed> = {
       'seat and a spectator (packages/client/test/v2/cutoff.test.ts, packages/client/test/v2/standing.test.ts); ' +
       'the claim and Resign caps in every order of their units (packages/client/test/v2/caps.test.ts, D069)',
   },
-  'V2-23': { until: 'T12' },
-  'V2-52': { until: 'T12, T17' },
+  'V2-52': {
+    until: 'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
+    partial:
+      'the session half: no claim forfeiting only this seat counts before its own deadline without the ' +
+      "player's confirmation (confirmOwnForfeit, confirmedForfeits after a reload), view.ownForfeit asks only on a " +
+      "device that was not watching the head, and otherwise v1's own-clock rule (the N2 Chess trace and the " +
+      'returning client: packages/client/test/v2/claims-resign.test.ts)',
+  },
   'V2-25': {
     until: 'T15 (the controller publishes only what the session owes)',
     partial:
@@ -107,23 +106,12 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the session owes and builds no end or stats attestation for a stop or a cancelled game ' +
       '(packages/client/test/v2/fork-stop.test.ts, packages/client/test/v2/after-stop.test.ts)',
   },
-  'V2-39': {
-    until: 'T12 (the claims and Resigns this client counts itself)',
-    partial:
-      'over in a deckless game: the audit runs on the result at once and a failed seat forfeits in places and ' +
-      'scores, the identity unchanged (packages/client/test/v2/core-deckless.test.ts); over with a deck: the ' +
-      'full audit once every secret is in, a failed seat forfeiting (packages/client/test/v2/deck.test.ts); over ' +
-      'in a dice game: the audit replays the logged rolls (packages/client/test/v2/dice.test.ts); a result ' +
-      'standing against a fork: the full audit on it fails a cheat (packages/client/test/v2/standing.test.ts)',
-  },
   'V2-55': {
     until: 'T17 (the game screen and the list of games show "audit incomplete" and "secret withheld")',
     partial:
       'the session view and the stats record (gameRecord) carry "audit incomplete" and each "secret withheld" ' +
       'seat after a stop (packages/client/test/v2/after-stop.test.ts, packages/client/test/v2/record.test.ts)',
   },
-  'V2-42': { until: 'T12' },
-  'V2-43': { until: 'T12' },
   'V2-44': { until: 'T13, T16' },
   'V2-45': { until: 'T13, T16' },
   'V2-46': { until: 'T16' },

@@ -331,7 +331,7 @@ describe('two results, claims and Resigns (Chess; proposal §6.7)', () => {
     expect(expectStop(r, m1.id, 1).outcome?.places).toEqual([1, 2]);
   });
 
-  it('V2-17 (partial): a claim that stands (valid with no clock or stall check): E timed out cannot void its forfeit by forking at the claimed head', () => {
+  it('V2-17: a claim that stands (valid with no clock or stall check): E timed out cannot void its forfeit by forking at the claimed head', () => {
     const t = v2Table(chess as AnyModule, 2, 'cut-claim-stands');
     const m1 = actionAt(t, 0, t.game.rootId, 1, mv(0, 'e2e4'));
     const claim = claimOf(t, 0, m1.id, 1);
@@ -441,7 +441,7 @@ describe('claims and Resigns with 3 seats (Bank 0.2.0)', () => {
     });
   });
 
-  it('V2-17 (partial): a Resign that stands with 3 seats, its identity at the named head: the resigner strictly last at S, unrated, endedBy', () => {
+  it('V2-17: a Resign that stands with 3 seats, its identity at the named head: the resigner strictly last at S, unrated, endedBy', () => {
     const d = lastChoice();
     const [j, l] = [0, 1, 2].filter((x) => x !== d.seat) as [number, number];
     // d.seat resigns naming the head where it was to decide, then forks there: its own forfeit, so (a) needs only

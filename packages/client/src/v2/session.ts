@@ -114,8 +114,12 @@ import { type Walk, walk } from './walk.ts';
  * `cutoff.ts`): a valid result (§5.3, `results.ts`) attested by every seat but E, with nothing off its line by
  * another seat, and alone, stands against the fork, which then only records E; it is played out as if no fork were
  * held (N1): scored at its head (S for a Resign), with the End phase's stalls, claims (a withheld secret, by this
- * client's own clock), Secret reveals and audit. Not yet: Timeout claims and Resigns counted with no fork held
- * (T12; both are held, and read by the cutoff), the outbox rule and the rebroadcast set (T13).
+ * client's own clock), Secret reveals and audit. Claims and Resigns with no fork held (T12, §8): the first to count is
+ * final while no fork is held (a claim by this client's own clock at the walk's head, every stalled seat forfeiting,
+ * or before the first game action a cancel; a Resign once its named head is on the chain, scored at S along that
+ * head's line), moves past it still link unscored so a fork past it is found, and a held fork replaces it unless it
+ * stands; a claim forfeiting only this seat counts early only on its player's confirmation (N2,
+ * `confirmOwnForfeit`). Not yet: the outbox rule and the rebroadcast set (T13).
  */
 
 /** The module events `view().events` keeps (as v1). */
@@ -378,9 +382,11 @@ export class GameSessionV2 implements Session {
    *   the cutoff, PROTOCOL-v2 §5.4), and `stored` otherwise;
    * - an end attestation is `accepted` when it is a valid attestation of this client's result, `rejected` when its
    *   log hash does not match the line to its head, and `stored` otherwise (unresolved, or another result);
-   * - a Timeout claim is `accepted` when it is the End-phase claim this client accepts (a withheld secret, v1 §8.1),
-   *   otherwise `stored` (claims during play count from T12); Resigns are `stored` (they count as results through
-   *   the cutoff, and with no fork held from T12), and Device notes `accepted` (stored only).
+   * - a Timeout claim is `accepted` when it counts now (with no fork held, by this client's own clock, `decideCounted`;
+   *   or as the End-phase claim for a withheld secret, v1 §8.1), otherwise `stored` (held: it may count later, and a
+   *   `claim` result reads it, §5.3); a Resign is `accepted` when it counts now (its named head is on the chain, no
+   *   fork held, the game live), otherwise `stored`; Device notes are `accepted` (stored only). A claim or Resign
+   *   that a waiting cap let go is `rejected` with "…: too many waiting for their head", not for good (D069).
    */
   receive(ev: unknown, now: number): ReceiveResult {
     try {
@@ -654,7 +660,8 @@ export class GameSessionV2 implements Session {
 
   /**
    * A Timeout claim (v1 §4.6 at proto 2): kept within the caps. It makes a `claim` result valid (§5.3, the cutoff),
-   * and in an End phase it may count for a withheld secret (`decideEndClaim`); claims during play count from T12.
+   * and it may count: during play with no fork held (`decideCounted`), or in an End phase for a withheld secret
+   * (`decideEndClaim`).
    */
   private intakeTimeout(ev: unknown, now: number): ReceiveResult {
     let t: ReturnType<typeof parseTimeout>;
@@ -681,7 +688,7 @@ export class GameSessionV2 implements Session {
   /**
    * A Resign (v1 §4.9 at proto 2): with a deck its secret must match the seat's deck key (v1 §8.3 "Validity"); kept
    * within the cap, and its secret counts as the seat's Secret reveal. It makes a `resign` result valid (§5.3, the
-   * cutoff); counted with no fork held from T12.
+   * cutoff), and with no fork held it counts once its named head is on the chain (`decideCounted`, §8.3).
    */
   private intakeResign(ev: unknown, now: number): ReceiveResult {
     let r: ReturnType<typeof parseResign>;
@@ -887,9 +894,9 @@ export class GameSessionV2 implements Session {
   }
 
   /**
-   * The game's result (PROTOCOL-v2 §5.5): with no fork held, this client's own (the module over on the walk; claims
-   * and Resigns counted with no fork held are T12); with a fork held, the result standing against it (§5.4), or
-   * null (the game is stopped, `stopNow`). Null while live.
+   * The game's result (PROTOCOL-v2 §5.5): with no fork held, this client's own (`ownEnding`: the claim or Resign it
+   * counted, else the module over on the walk); with a fork held, the result standing against it (§5.4), or null (the
+   * game is stopped, `stopNow`). Null while live and when cancelled.
    */
   private result(): ResultId | null {
     return this.verdict().ending?.r ?? null;

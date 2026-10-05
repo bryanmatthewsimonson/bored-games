@@ -135,7 +135,7 @@ describe('GameSessionV2: deckless play (Chess)', () => {
     expect(opened.proto).toBe(2);
   });
 
-  it("V2-39 (partial) plays Fool's mate to over: the result (over, head, []) and the module's audit at once, deckless", () => {
+  it("V2-39 plays Fool's mate to over: the result (over, head, []) and the module's audit at once, deckless", () => {
     const t = table('v2-mate');
     const moves = FOOLS_MATE.map(([seat, uci]) => play(t, seat, uci));
     const head = moves[3] as NostrEvent;
@@ -161,7 +161,7 @@ describe('GameSessionV2: deckless play (Chess)', () => {
     expect(t.players.map((s) => s.duties())).toEqual([[{ kind: 'end' }], [{ kind: 'end' }]]);
   });
 
-  it('V2-39 (partial) applies a failed audit to places and scores: the winner, whose move the replay rejects, forfeits', () => {
+  it('V2-39 applies a failed audit to places and scores: the winner, whose move the replay rejects, forfeits', () => {
     // A module whose full-mode setup has no black pawn on e7 (board index 52): the audit's replay rejects Black's
     // 1... e5, so the audit fails seat 1, which mated in the view-mode game, and the places change.
     const noE7: AnyModule = {

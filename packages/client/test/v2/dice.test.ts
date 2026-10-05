@@ -712,7 +712,7 @@ describe('Bank 0.2.0 under protocol 2: a whole game (3 seats)', () => {
     runAuto(t);
   }, 300_000);
 
-  it('V2-39 (partial) plays to over with every roll contributed by every seat; the audit replays the logged rolls and passes', () => {
+  it('V2-39 plays to over with every roll contributed by every seat; the audit replays the logged rolls and passes', () => {
     const v = t.spectator.view();
     expect(v.phase).toBe('done');
     expect(v.audit).toBe('pass');

@@ -8,7 +8,8 @@ import { type AnyModule, act, actionAt, inOrders, runAuto, type V2Table, v2Table
 /*
  * The stats record (PROTOCOL-v2 §7.5, F5; build plan D-H, T10): `gameRecord(view)`, a pure function of the session's
  * view, computed from the held events and never from attestations. Real games give the `over` result and the stop;
- * the claim and resign kinds are counted from T12, so their views are built by hand from a real one.
+ * the claim and resign kinds are built by hand from a real view here (the sessions count them since T12:
+ * `claims-resign.test.ts`).
  */
 
 const mv = (seat: number, uci: string) => ({ type: 'move', actor: seat, uci });

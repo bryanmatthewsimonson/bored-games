@@ -277,6 +277,22 @@ describe("v1's Resign refusals are unchanged (v1 §8.3, PROTOCOL-v2 §8.3)", () 
   });
 });
 
+describe('the Resign and Timeout claim builders', () => {
+  it('V2-01 (partial) builds the Resign and the Timeout claim with exactly one ["proto","2"] tag', () => {
+    const t = chessTable('t12-proto');
+    act(t, 0, mv(0, 'e2e4'));
+    const r = (t.players[1] as GameSessionV2).buildResign(t.game.rnd, NOW);
+    tickAll(t, LATE);
+    // Black is to move: White may claim against it once its deadline passed; Black, stalled, may not claim.
+    const c = (t.players[0] as GameSessionV2).buildTimeout(1, t.game.rnd, LATE);
+    expect(t.players[1]?.timeoutTarget(LATE)).toBeNull();
+    expect(() => t.players[1]?.buildTimeout(0, t.game.rnd, LATE)).toThrow(/no timeout claim/);
+    for (const ev of [r, c]) expect(ev.tags.filter((x) => x[0] === 'proto')).toEqual([['proto', '2']]);
+    expect(r.kind).toBe(7457);
+    expect(c.kind).toBe(7454);
+  });
+});
+
 describe('Timeout claims counted with no fork held (Chess)', () => {
   it("V2-17 accepts a claim at the head by this client's own clock, with the seats stalled then as its identity; never one naming an old head or signed by a stalled seat", () => {
     const t = chessTable('t12-claim');
