@@ -1,3 +1,4 @@
+import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { canonicalJson, createRng } from '@bored-games/game-kit';
 import {
@@ -7,13 +8,26 @@ import {
   logHash,
   type NostrEvent,
   resignTemplate,
+  secretTemplate,
   timeoutTemplate,
 } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import type { Identity, ResultId } from '../../src/types.ts';
 import { MAX_CLAIMS, MAX_RESIGNS, MAX_UNKNOWN_CLAIMS } from '../../src/v2/store.ts';
-import { NOW, ROOT_SEEN } from '../helpers.ts';
-import { type AnyModule, actionAt, replay, send, type V2Table, v2Session, v2Table } from './helpers-v2.ts';
+import { LATE, NOW, ROOT_SEEN } from '../helpers.ts';
+import {
+  type AnyModule,
+  actionAt,
+  decider,
+  quick,
+  replay,
+  runAuto,
+  send,
+  shuffleAll,
+  type V2Table,
+  v2Session,
+  v2Table,
+} from './helpers-v2.ts';
 
 /*
  * The claim and Resign caps keep the same set in every arrival order (D069; review of T11, H1, M1, L1 and L2). A cap
@@ -405,4 +419,98 @@ describe('L1, L2: when a standing result first stood (Chess)', () => {
     expect(feed([att, rival, ...m])).toBeGreaterThanOrEqual(arrival);
     expect(feed([...m, att, rival])).toBeGreaterThanOrEqual(arrival);
   });
+});
+
+describe('L1: an accepted End-phase claim stays final when S moves (Chain Reaction, 3 seats)', () => {
+  it("k resigns, E forks after k's next turn and withholds its secret; W's claim at S is final when E's second fork moves S, and counts where S moved first", () => {
+    const t = v2Table(chainReaction as AnyModule, 3, 'caps-l1-cr');
+    shuffleAll(t);
+    runAuto(t, ['deal', 'release']);
+    const rng = createRng('caps-l1-cr');
+    // Play turns by the quick policy, each decision recorded with a rival: another legal action, built, not sent.
+    const played: { seat: number; ev: NostrEvent; rival: NostrEvent | null }[] = [];
+    const turns = (): number => played.filter((x, i) => i === 0 || x.seat !== played[i - 1]?.seat).length;
+    let rival1: NostrEvent | null = null;
+    for (let guard = 0; guard < 60; guard++) {
+      const seat = decider(t) as number;
+      const s = t.players[seat] as NonNullable<V2Table['players'][number]>;
+      const legal = s.legalActions();
+      const chosen = quick(legal, seat, rng);
+      const other = legal.find((a) => canonicalJson(a) !== canonicalJson(chosen));
+      const rival = other === undefined ? null : s.buildAction(other, t.game.rnd, NOW + 1);
+      const starts = played.length > 0 && played[played.length - 1]?.seat !== seat;
+      if (starts && turns() === 4) {
+        // The fifth turn (E's second): its first move is sent, its rival is fork 1.
+        rival1 = rival;
+        send(t, s.buildAction(chosen, t.game.rnd, NOW));
+        break;
+      }
+      played.push({ seat, ev: s.buildAction(chosen, t.game.rnd, NOW), rival });
+      send(t, played[played.length - 1]?.ev as NostrEvent);
+      runAuto(t, ['release']);
+    }
+    const turnOf = (n: number) =>
+      played.filter(
+        (_, i) =>
+          played.slice(0, i + 1).filter((x, j) => j === 0 || x.seat !== played[j - 1]?.seat).length === n,
+      );
+    const [t1, t2, , t4] = [turnOf(1), turnOf(2), turnOf(3), turnOf(4)];
+    const k = t1[0]?.seat as number;
+    const E = t2[0]?.seat as number;
+    const W = 3 - k - E;
+    expect(t4[0]?.seat).toBe(k);
+    expect(t2.length).toBeGreaterThanOrEqual(2);
+    expect(rival1).not.toBeNull();
+    // k resigns at H, its last move of turn 1 (it played on in turn 4: "resign, then move"); k and W attest it.
+    const H = t1[t1.length - 1]?.ev.id as Hex;
+    const X: ResultId = { kind: 'resign', head: H, forfeit: [k] };
+    const kid = t.game.ids[k] as Identity;
+    const wid = t.game.ids[W] as Identity;
+    const resign = finalizeEvent(
+      resignTemplate({ rootId: t.game.rootId, headId: H, secret: kid.deckSecret }, NOW, '2'),
+      kid.sessionSk,
+      t.game.rnd,
+    );
+    const wSecret = finalizeEvent(
+      secretTemplate({ rootId: t.game.rootId, deckSecret: wid.deckSecret }, NOW, '2'),
+      wid.sessionSk,
+      t.game.rnd,
+    );
+    const atts = [endOf(t, k, X, t.log), endOf(t, W, X, t.log)];
+    // S stops at fork 1: just after k's turn 4. Fork 2, a rival at one of E's decisions in turn 2, moves S back there.
+    const S1 = t4[t4.length - 1]?.ev.id as Hex;
+    // (E's last decision of turn 2 that had another legal action.)
+    const last2 = [...t2].reverse().find((x) => x.rival !== null) as (typeof played)[number];
+    const rival2 = last2.rival as NostrEvent;
+    const S2 = prevOf(last2.ev);
+    // W claims at S1 against E, whose secret is missing.
+    const claim = claimOf(t, W, S1, E);
+    const log = [...t.log, resign, ...atts, rival1 as NostrEvent, wSecret, claim];
+    const withheld = {
+      phase: 'done',
+      forfeits: [E, k].sort(),
+      audit: { fail: [E, k].sort(), reason: 'resign; withheld secret' },
+    };
+
+    // A: the claim is accepted at S1 after the deadline; then fork 2 moves S to S2, and the claim stays final.
+    const a = replay(t, log).spectator;
+    expect(a.view()).toMatchObject({ stood: true, result: X, phase: 'end', head: { id: S1 } });
+    a.tick(LATE);
+    expect(a.view()).toMatchObject({ ...withheld, head: { id: S1 } });
+    const since = a.view().pendingSince;
+    a.receive(rival2, LATE + 1);
+    expect(a.view()).toMatchObject({
+      ...withheld,
+      stood: true,
+      result: X,
+      head: { id: S2 },
+      pendingSince: since,
+    });
+
+    // B: fork 2 arrives first, so S is S2 when the deadline passes: the claim at S1 (past H) still counts.
+    const b = replay(t, [...log, rival2]).spectator;
+    expect(b.view()).toMatchObject({ stood: true, result: X, phase: 'end', head: { id: S2 } });
+    b.tick(LATE);
+    expect(b.view()).toMatchObject({ ...withheld, head: { id: S2 } });
+  }, 300_000);
 });
