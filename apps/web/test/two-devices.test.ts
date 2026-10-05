@@ -26,8 +26,11 @@ import {
 } from './net-harness.ts';
 
 const h = new Harness();
-/** Bank games here are v1 games (Bank 0.1.0, contributions as turns), started by a client from before 0.2.0. */
-const V1_BANK = { modules: OLDER_BANK_CLIENT };
+/**
+ * Bank games here are v1 games (Bank 0.1.0, contributions as turns), started by a client from before 0.2.0 and
+ * protocol 2 (`older`: since T14 this build's own tables are proto 2).
+ */
+const V1_BANK = { modules: OLDER_BANK_CLIENT, older: true };
 beforeEach(() => h.setup());
 afterEach(() => h.teardown());
 

@@ -109,6 +109,16 @@ function profile(name: string, store: KeyValueStore = memoryStorage(), signer = 
   };
 }
 
+/**
+ * A profile of a client from before protocol 2 (`ControllerDeps.olderClient`): its tables are proto 1. The tests of
+ * v1-only behaviour (fork choice, v1 builders, the Secret held on a partial view) play the v1 games such a client
+ * started, which this build still loads and plays under v1; since T14 this build's own tables are proto 2.
+ */
+function older(name: string): Profile {
+  const p = profile(name);
+  return { ...p, deps: { ...p.deps, olderClient: true } };
+}
+
 function lobby(p: Profile): LobbyController {
   const c = new LobbyController(p.deps);
   disposers.push(() => c.dispose());
@@ -984,7 +994,7 @@ describe('GameController', () => {
   }, 240_000);
 
   it('never discards or rebuilds a refused deal it never sent: reloads after a shuffle fork deal nothing (D056, I1)', async () => {
-    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(older('a'), older('b'), older('c'));
     const [h, s1, e] = bySeat as [Profile, Profile, Profile];
     const hNet = switchable(h.deps.pool);
     hNet.offline = false;
@@ -1066,7 +1076,7 @@ describe('GameController', () => {
   }, 300_000);
 
   it('vets a saved move only once every relay has answered: a silent relay holds it back (D056, I2)', async () => {
-    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(older('a'), older('b'), older('c'));
     const players = bySeat.map((p) => game(rootId, p.deps));
     const phone = await waitFor(
       'the first decision',
@@ -1117,7 +1127,7 @@ describe('GameController', () => {
   }, 240_000);
 
   it('vets a saved deal and a saved Resign that names an old head, and publishes both (D056, I3)', async () => {
-    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(older('a'), older('b'), older('c'));
     const [s0, s1, s2] = bySeat as [Profile, Profile, Profile];
     // Seat 0 publishes its shuffle step, then loses its connection before it deals: its deal is saved, unsent.
     const net0 = switchable(s0.deps.pool);
@@ -1190,7 +1200,7 @@ describe('GameController', () => {
   }, 300_000);
 
   it('leaves a dead relay out of a full answer, and offers Send anyway past the hold cap (D056, fix round 2 A)', async () => {
-    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(older('a'), older('b'), older('c'));
     const players = bySeat.map((p) => game(rootId, p.deps));
     const phone = await waitFor(
       'the first decision',
@@ -1299,7 +1309,7 @@ describe('GameController', () => {
   }, 240_000);
 
   it('a seated device does not reveal its secret on a partial view (D056, fix round 2 F)', async () => {
-    const { rootId, address, bySeat } = await startGame(profile('a'), profile('b'), profile('c'));
+    const { rootId, address, bySeat } = await startGame(older('a'), older('b'), older('c'));
     const players = bySeat.map((p) => game(rootId, p.deps));
     const first = await waitFor(
       'the first decision',

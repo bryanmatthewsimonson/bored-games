@@ -17,9 +17,15 @@ import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
 /**
  * The registry of a client from before Bank 0.2.0: its new Bank tables are Bank 0.1.0 at proto 1, so the tests of
  * v1 Bank behaviour (contributions as turns) play the v1 games such a client started, which this build still folds
- * with Bank 0.1.0 (PROTOCOL-v2 §2 item 5).
+ * with Bank 0.1.0 (PROTOCOL-v2 §2 item 5). Use it with `older: true` (`ControllerDeps.olderClient`).
  */
 export const OLDER_BANK_CLIENT: ModuleRegistry = new Map([...MODULES, [bankV1.id, bankV1]]);
+
+/**
+ * A profile option for a client from before protocol 2 (`ControllerDeps.olderClient`): its tables are proto 1, so a
+ * test of v1 behaviour plays the v1 game such a client started, which this build still loads and plays under v1.
+ */
+export const OLDER = { older: true } as const;
 
 export const rnd = (n: number): Uint8Array => crypto.getRandomValues(new Uint8Array(n));
 export const now = (): number => Math.floor(Date.now() / 1000);
@@ -67,6 +73,8 @@ export class Harness {
       extra?: readonly string[];
       modules?: ModuleRegistry;
       nip44?: boolean;
+      /** A client from before protocol 2 (`ControllerDeps.olderClient`): proto 1 tables. */
+      older?: boolean;
     } = {},
   ): Profile {
     const sk = rnd(32);
@@ -90,6 +98,7 @@ export class Harness {
         now,
         modules: opts.modules ?? MODULES,
         timers: platformTimers,
+        ...(opts.older === true ? { olderClient: true } : {}),
       },
     };
   }
@@ -99,7 +108,13 @@ export class Harness {
     const store = memoryStorage();
     const key = `bg:${p.name}:secrets:${address}`;
     store.setItem(key, p.deps.storage.getItem(key) as string);
-    return this.profile(p.name, { store, signer: p.deps.signer, extra, modules: p.deps.modules });
+    return this.profile(p.name, {
+      store,
+      signer: p.deps.signer,
+      extra,
+      modules: p.deps.modules,
+      older: p.deps.olderClient === true,
+    });
   }
 
   lobby(p: Profile): LobbyController {

@@ -262,10 +262,11 @@ export class LobbyController {
       if (!checked.ok) throw new Error(checked.error.message);
       rules = checked.value;
     }
-    // Every new table is protocol 2 (PROTOCOL-v2 §2 item 5, V2-04); its Joins and root carry the table's proto.
+    // Every new table is protocol 2 (PROTOCOL-v2 §2 item 5, V2-04); its Joins and root carry the table's proto. Only a
+    // test's stand-in for an older build makes proto 1 tables (`ControllerDeps.olderClient`).
     const template = tableTemplate(
       {
-        proto: '2',
+        proto: this.#d.olderClient === true ? '1' : '2',
         tableId,
         game,
         version: module.version,
@@ -317,7 +318,7 @@ export class LobbyController {
     if (table === null) throw new Error('That table is not valid.');
     if (table.status !== 'open') throw new Error('That table is no longer open.');
     // Never a protocol 1 Bank or Luster table (V2-53), nor one no engine here can play (V2-05).
-    if (olderTable(table)) throw new Error(OLDER_VERSION_TABLE);
+    if (this.#refusesOlder(table)) throw new Error(OLDER_VERSION_TABLE);
     const problems = validateTable(table, this.#d.modules);
     if (problems.length > 0) throw new Error(`This table cannot be played here: ${problems.join('; ')}.`);
     const view = this.#fold(address);
@@ -369,7 +370,7 @@ export class LobbyController {
       if (view === null || !view.full) throw new Error('The table is not full yet.');
       // A root already signed is republished above; a new one is never signed for a protocol 1 Bank or Luster
       // table (V2-53: no new v1 game of either), nor for a table no engine here can play.
-      if (olderTable(table)) throw new Error(OLDER_VERSION_TABLE);
+      if (this.#refusesOlder(table)) throw new Error(OLDER_VERSION_TABLE);
       const problems = validateTable(table, this.#d.modules);
       if (problems.length > 0) throw new Error(`This game cannot be started: ${problems.join('; ')}.`);
       rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), seats));
@@ -395,6 +396,14 @@ export class LobbyController {
   }
 
   /* ----------------------------------------------------------------------------------------- internals */
+
+  /**
+   * Whether this client refuses to join or start `table`: a protocol 1 Bank or Luster table (V2-53), unless this client
+   * stands for an older build in a test (`ControllerDeps.olderClient`).
+   */
+  #refusesOlder(table: ParsedTable): boolean {
+    return this.#d.olderClient !== true && olderTable(table);
+  }
 
   /** Run `task` unless one is already in flight for `address`, in which case return that one. */
   #once<T>(inFlight: Map<string, Promise<T>>, address: string, task: () => Promise<T>): Promise<T> {
@@ -492,7 +501,7 @@ export class LobbyController {
         event: ev,
         table,
         problems: validateTable(table, this.#d.modules),
-        older: olderTable(table),
+        older: this.#refusesOlder(table),
       });
       address = table.address;
       this.#trimTables();

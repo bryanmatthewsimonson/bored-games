@@ -11,7 +11,7 @@ import type { GameController } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import { MODULES } from '../src/net.ts';
 import { loadGameStatus, loadSecrets } from '../src/storage.ts';
-import { Harness, now, offlinePool, outboxSlots, pause, rnd, waitFor } from './net-harness.ts';
+import { Harness, now, OLDER, offlinePool, outboxSlots, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -21,7 +21,12 @@ type Action = { type: string; deck?: string; pos?: number };
 
 describe('Luster: saved card reveals are vetted before they are published (D056, audit-luster F3)', () => {
   it('a stale reveal after a fork switch is discarded, and a reveal of the seat’s own blind reservation is never sent', async () => {
-    const { rootId, address, bySeat } = await h.start2('luster', h.profile('a'), h.profile('b'));
+    // A v1 game (prompt shares, D056), started by a client from before protocol 2: this build's tables are proto 2.
+    const { rootId, address, bySeat } = await h.start2(
+      'luster',
+      h.profile('a', OLDER),
+      h.profile('b', OLDER),
+    );
     const games = bySeat.map((p) => h.game(rootId, p.deps));
     const first = await waitFor(
       'the first decision',

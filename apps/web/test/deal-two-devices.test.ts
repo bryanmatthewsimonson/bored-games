@@ -10,7 +10,7 @@ import { loadOutbox } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import { MODULES } from '../src/net.ts';
 import { loadSecrets } from '../src/storage.ts';
-import { Harness, hiding, now, pause, rnd, waitFor } from './net-harness.ts';
+import { Harness, hiding, now, OLDER, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -18,10 +18,11 @@ afterEach(() => h.teardown());
 
 describe('A seat on two devices never deals on two decks (D056 F7)', () => {
   it('the tablet keeps its saved deal on A unsent when the phone already dealt on B, after fork choice settles on A', async () => {
+    // A v1 game (fork choice), started by a client from before protocol 2: this build's tables are proto 2.
     const { rootId, address, bySeat } = await h.start3('chain-reaction', [
-      h.profile('a'),
-      h.profile('b'),
-      h.profile('c'),
+      h.profile('a', OLDER),
+      h.profile('b', OLDER),
+      h.profile('c', OLDER),
     ]);
     const [H, s1, E] = bySeat as [(typeof bySeat)[0], (typeof bySeat)[0], (typeof bySeat)[0]];
     const phone0 = h.game(rootId, H.deps);

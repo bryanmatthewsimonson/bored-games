@@ -69,6 +69,12 @@ export interface ControllerDeps {
   now: () => number;
   modules: ModuleRegistry;
   timers: Timers;
+  /**
+   * Tests only; the app never sets it. This client stands for a build from before protocol 2 (PROTOCOL-v2 §2): its new
+   * tables (and so their Joins and root) are proto 1, and it joins and starts proto 1 tables of every game, Bank and
+   * Luster included. Tests use it to start the v1 games this build must keep loading and playing under v1.
+   */
+  olderClient?: boolean;
 }
 
 /** Distinct relay URLs, in first-seen order. */

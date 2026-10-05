@@ -4,7 +4,14 @@
  */
 import type { ChessState } from '@bored-games/chess';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
-import { finalizeEvent, getPublicKey, KIND, type NostrEvent } from '@bored-games/protocol';
+import {
+  finalizeEvent,
+  getPublicKey,
+  KIND,
+  type NostrEvent,
+  parseAttestV2,
+  parseRoot,
+} from '@bored-games/protocol';
 import { type Filter, RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
@@ -98,7 +105,10 @@ function queryAt(url: string, ...filters: Filter[]): Promise<NostrEvent[]> {
 }
 
 /** A started 2-seat Chess game: the creator (White) and the joiner (Black), each with a game controller. */
-async function startChess(whiteRelays: readonly string[] = []): Promise<{
+async function startChess(
+  whiteRelays: readonly string[] = [],
+  opts: { older?: boolean } = {},
+): Promise<{
   rootId: string;
   address: string;
   a: Profile;
@@ -108,6 +118,8 @@ async function startChess(whiteRelays: readonly string[] = []): Promise<{
 }> {
   const a = profile('a', whiteRelays);
   const b = profile('b');
+  // A client from before protocol 2 makes a proto 1 table (`ControllerDeps.olderClient`): a v1 game.
+  if (opts.older === true) a.deps = { ...a.deps, olderClient: true };
   const la = lobby(a);
   const lb = lobby(b);
   const address = await la.createTable({
@@ -208,36 +220,57 @@ describe('GameController with a deckless game (Chess)', () => {
     expect(await query({ kinds: [KIND.resign], '#e': [rootId] })).toHaveLength(1);
   }, 60_000);
 
-  it('a seat recovered from saved game keys plays, resigns and never attests with the wrong key (D057)', async () => {
-    const { rootId, address, b, white, black } = await startChess();
-    black.dispose();
-    // Black's player key is lost; this browser still holds Black's game keys for the table.
-    const saved = loadSecrets(b.deps.profile, b.deps.storage, address);
-    if (saved === null) throw new Error('no saved game keys');
-    const b2 = profile('b-new');
-    expect(saveSecrets(b2.deps.profile, b2.deps.storage, address, saved)).toBe(true);
-    const black2 = game(rootId, b2);
-    await waitFor('the recovered seat', () => black2.recovered.value);
-    expect(black2.recovered.value).toEqual({ seat: 1, npub: b.deps.signer.pubkey });
-    await play(white, 0, 'e2e4', 1);
-    await play(black2, 1, 'e7e5', 2);
-    await waitFor(
-      'the move at White',
-      () => (white.view.value?.state as ChessState | null)?.history.length === 2,
-    );
-    await play(white, 0, 'g1f3', 3);
-    await waitFor("Black's turn", () => black2.status.value === 'your-turn');
-    expect(black2.canResign.value).toBe(true);
-    await black2.resign();
-    expect(black2.error.value).toBeNull();
-    for (const c of [white, black2]) await waitFor('the end', () => c.view.value?.phase === 'done');
-    // White attests; the recovered seat does not, since an attestation is signed by the npub it joined with.
-    await waitFor("White's attestation", () => black2.view.value?.attested.includes(0));
-    await new Promise((r) => setTimeout(r, 500));
-    expect(black2.status.value).toBe('done');
-    expect(white.view.value?.attested).toEqual([0]);
-    const attests = await query({ kinds: [KIND.attest], '#e': [rootId] });
-    expect(attests.map((ev) => ev.pubkey)).not.toContain(b2.deps.signer.pubkey);
-    expect(attests).toHaveLength(1);
-  }, 60_000);
+  // A v1 game and a v2 game (since T14 this build's tables are proto 2). In v1 the recovered seat sends no
+  // attestation: its only one is signed by the npub. In v2 it still end-attests with its session key (T15), and
+  // sends no stats attestation (the npub's).
+  it.each([
+    ['1', true],
+    ['2', false],
+  ] as const)(
+    'a seat recovered from saved game keys plays, resigns and never attests with the wrong key (D057; proto %s)',
+    async (proto, older) => {
+      const { rootId, address, b, white, black } = await startChess([], { older });
+      black.dispose();
+      // Black's player key is lost; this browser still holds Black's game keys for the table.
+      const saved = loadSecrets(b.deps.profile, b.deps.storage, address);
+      if (saved === null) throw new Error('no saved game keys');
+      const b2 = profile('b-new');
+      expect(saveSecrets(b2.deps.profile, b2.deps.storage, address, saved)).toBe(true);
+      const black2 = game(rootId, b2);
+      await waitFor('the recovered seat', () => black2.recovered.value);
+      expect(black2.recovered.value).toEqual({ seat: 1, npub: b.deps.signer.pubkey });
+      await play(white, 0, 'e2e4', 1);
+      await play(black2, 1, 'e7e5', 2);
+      await waitFor(
+        'the move at White',
+        () => (white.view.value?.state as ChessState | null)?.history.length === 2,
+      );
+      await play(white, 0, 'g1f3', 3);
+      await waitFor("Black's turn", () => black2.status.value === 'your-turn');
+      expect(black2.canResign.value).toBe(true);
+      await black2.resign();
+      expect(black2.error.value).toBeNull();
+      for (const c of [white, black2]) await waitFor('the end', () => c.view.value?.phase === 'done');
+      // White attests; the recovered seat does not, since an attestation is signed by the npub it joined with.
+      await waitFor("White's attestation", () => black2.view.value?.attested.includes(0));
+      await new Promise((r) => setTimeout(r, 500));
+      expect(black2.status.value).toBe('done');
+      expect(white.view.value?.attested).toEqual([0]);
+      const attests = await query({ kinds: [KIND.attest], '#e': [rootId] });
+      expect(attests.map((ev) => ev.pubkey)).not.toContain(b2.deps.signer.pubkey);
+      expect(attests.map((ev) => ev.pubkey)).not.toContain(b.deps.signer.pubkey);
+      if (proto === '1') expect(attests).toHaveLength(1);
+      else {
+        // White's end attestation (session key) and stats attestation (npub), and Black's end attestation by the
+        // session key the recovered game keys hold.
+        const root = parseRoot((await query({ ids: [rootId] }))[0]);
+        const blackSession = root.seats[1]?.session;
+        expect(attests).toHaveLength(3);
+        const byBlack = attests.filter((ev) => ev.pubkey === blackSession);
+        expect(byBlack).toHaveLength(1);
+        expect(parseAttestV2(byBlack[0]).variant).toBe('end');
+      }
+    },
+    60_000,
+  );
 });
