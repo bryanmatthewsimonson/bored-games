@@ -34,6 +34,15 @@ export interface ShareWords {
 /** The wording for a game that names none: neutral, true of any share. */
 export const NEUTRAL_SHARE: ShareWords = { act: 'send their share', owed: 'a share' };
 
+/**
+ * A roll contribution (PROTOCOL-v2 §6.2, §6.4): every seat's share of a public dice roll, which each open app sends by
+ * itself (D058, D060). The words for a game that rolls (its registry entry's `owedWords`) and for an owed roll.
+ */
+export const ROLL_WORDS: ShareWords = {
+  act: 'send their contribution to the roll',
+  owed: 'a contribution to the roll',
+};
+
 /** "Ann", "Ann and Bo", "Ann, Bo and Cy". */
 export function listNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';
@@ -59,16 +68,19 @@ export interface WaitingInput {
 }
 
 /**
- * A card reveal the game waits on (D060): in play, the seats whose share of a card the game needs before anyone can
- * act, other than the deciding seat itself. In Luster, a market refill (every seat's share) or another seat's blind
- * reservation (every other seat's share); in any game, the shares a decision waits for. A seat that owes one can be
- * timed out once `until` passes, though it is not its turn.
+ * A card reveal or a roll contribution the game waits on (D060, PROTOCOL-v2 §6.4): in play, the seats whose share of
+ * a card the game needs before anyone can act, other than the deciding seat itself, or whose contribution to a
+ * pending dice roll is not in. In Luster, a market refill (every seat's share) or another seat's blind reservation
+ * (every other seat's share); in any game, the shares a decision waits for; in Bank under protocol 2, each roll's
+ * contributions. A seat that owes one can be timed out once `until` passes, though it is not its turn.
  */
 export interface OwedReveal {
   /** The seats that owe their share, ascending (this client's own seat included). */
   seats: readonly number[];
   /** When the deadline passes (Unix seconds): the pending position's progress time plus the table's deadline. */
   until: number;
+  /** `roll` for contributions to a pending dice roll (`{type: 'beacon'}`); left out for a card reveal. */
+  kind?: 'roll';
 }
 
 export function owedReveal(input: {
@@ -83,13 +95,19 @@ export function owedReveal(input: {
   if (input.phase !== 'play') return null;
   const p = input.pending;
   const seats =
-    p.type === 'reveal'
+    p.type === 'reveal' || p.type === 'beacon'
       ? [...input.waiting]
       : p.type === 'player'
         ? input.waiting.filter((seat) => seat !== p.seat)
         : [];
   if (seats.length === 0) return null;
-  return { seats, until: input.pendingSince + input.deadline };
+  const until = input.pendingSince + input.deadline;
+  return p.type === 'beacon' ? { seats, until, kind: 'roll' } : { seats, until };
+}
+
+/** The words for what `owed` waits on: a roll's contributions (`ROLL_WORDS`), else the game's own (`share`). */
+export function owedWords(owed: OwedReveal | null, share: ShareWords | undefined): ShareWords {
+  return owed?.kind === 'roll' ? ROLL_WORDS : (share ?? NEUTRAL_SHARE);
 }
 
 /** "If it is not sent within 2d 4h, Ann can be timed out.", or that the deadline has passed. */

@@ -72,4 +72,9 @@ export interface WebGame extends GameMeta {
   RulesPage: ComponentType<{ section: string | null }>;
   /** Copy for the shuffle and deal steps, or null when the game has no deck. */
   setupCopy(hasDeck: boolean): SetupCopy | null;
+  /**
+   * How a deckless game names what a seat owes out of turn (PROTOCOL-v2 §6.4): Bank's roll contributions
+   * (`ROLL_WORDS`). A game with a deck names its shares in `setupCopy(true).share` (`shareWordsOf`).
+   */
+  owedWords?: ShareWords;
 }

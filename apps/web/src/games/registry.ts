@@ -4,6 +4,7 @@
  * its id to ids.ts, its module to MODULES (net.ts) and an entry here (a test checks that the three agree).
  */
 
+import { ROLL_WORDS, type ShareWords } from '../waiting-model.ts';
 import { BankGame } from './bank/game.tsx';
 import { BANK_META } from './bank/meta.ts';
 import { BankRulesPage } from './bank/rules-page.tsx';
@@ -44,6 +45,7 @@ export const GAMES: readonly WebGame[] = [
     Component: BankGame,
     RulesPage: BankRulesPage,
     setupCopy: () => null,
+    owedWords: ROLL_WORDS,
   },
   {
     ...LUSTER_META,
@@ -67,4 +69,12 @@ export function webGame(id: string): WebGame | undefined {
 /** The registered games in picker order (`GAME_IDS`). */
 export function pickerGames(): WebGame[] {
   return GAME_IDS.map((id) => BY_ID.get(id)).filter((g): g is WebGame => g !== undefined);
+}
+
+/**
+ * How a game names a share or contribution owed out of turn (D060, PROTOCOL-v2 §6.4), for the game screen and Home:
+ * its `owedWords`, else its deck's share words; undefined for neutral words.
+ */
+export function shareWordsOf(game: WebGame | undefined): ShareWords | undefined {
+  return game?.owedWords ?? game?.setupCopy(true)?.share;
 }

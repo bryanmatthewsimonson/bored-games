@@ -9,7 +9,7 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
-import { webGame } from '../games/registry.ts';
+import { shareWordsOf, webGame } from '../games/registry.ts';
 import { joinGate, keptKeys, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
@@ -70,7 +70,7 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
           const reveal =
             blocked || t.table.status === 'cancelled'
               ? null
-              : revealDetail(cached, lobby.now(), webGame(t.table.game)?.setupCopy(true)?.share);
+              : revealDetail(cached, lobby.now(), shareWordsOf(webGame(t.table.game)));
           const chip = tableChip(t.table, t.lobby, known.status);
           const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
           // Another key's table: what can be done about it here, never a switch to a key this browser lacks (D065).

@@ -4,7 +4,7 @@
  * play area to the registry's component for the table's game. The controller performs the automatic duties; the
  * player's decisions go to `act`.
  */
-import type { SessionView } from '@bored-games/client';
+import type { SessionView, SessionViewV2 } from '@bored-games/client';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from '../bech32.ts';
@@ -15,13 +15,13 @@ import { RecoveredNotice, WatchingNotice } from '../components/watching.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { gameTitle } from '../game-names.ts';
-import { webGame } from '../games/registry.ts';
+import { shareWordsOf, webGame } from '../games/registry.ts';
 import type { Audit, SetupCopy } from '../games/types.ts';
 import { keptKeys, switchToKeptKey } from '../identity.ts';
 import type { ProfileInfo } from '../profile-model.ts';
 import { usePlayerProfiles } from '../profiles.ts';
 import { activeGame, homeHref } from '../router.ts';
-import { formatDeadline, ownRevealLine, waitingLine } from '../waiting-model.ts';
+import { formatDeadline, listNames, owedWords, ownRevealLine, waitingLine } from '../waiting-model.ts';
 import { localTableRecord, myTableCount, type WatchNotice, watchNotice } from '../watch-model.ts';
 
 export { formatDeadline } from '../waiting-model.ts';
@@ -124,6 +124,8 @@ export function forkLine(view: SessionView | null, names: readonly string[]): st
  */
 export function attestLine(view: SessionView | null): string | null {
   if (view === null || view.phase !== 'done' || view.outcome === null) return null;
+  // Protocol 2: nothing is attested while a fork is held, a stop or a result standing against it (V2-38).
+  if (v2Of(view)?.fork != null) return null;
   const n = view.attested.length;
   if (n !== view.seats) return `Result signed by ${n} of ${view.seats} players so far.`;
   return n === 2
@@ -142,6 +144,133 @@ export function timedOutSeats(view: SessionView | null): readonly number[] {
   if (a.reason !== 'resign; withheld secret') return [];
   const not = new Set([...resignedSeats(view), ...equivocatorsOf(view)]);
   return a.fail.filter((seat) => !not.has(seat));
+}
+
+/** The protocol 2 view (PROTOCOL-v2 §5–§8), or null for a protocol 1 game or none. */
+export function v2Of(view: SessionView | null): SessionViewV2 | null {
+  return (view as { proto?: unknown } | null)?.proto === 2 ? (view as SessionViewV2) : null;
+}
+
+const seatName = (names: readonly string[], seat: number): string => names[seat] ?? `Seat ${seat + 1}`;
+
+/**
+ * The line for a game stopped at a fork (PROTOCOL-v2 §5.6, §7.5), or null: who forked (E), every other equivocator,
+ * and the final places with E last. With 3 or more players only the shared last places (the equivocators, and any
+ * seat a proven audit failure demoted) count toward ratings: "unrated for the others". A stop before the first game
+ * action is a cancel (`cancelledText`).
+ */
+export function stopLine(view: SessionView | null, names: readonly string[]): string | null {
+  const v = v2Of(view);
+  const stop = v?.stop ?? null;
+  if (v === null || stop === null || stop.cancelled || v.result !== null || v.outcome === null) return null;
+  const others = v.equivocators.filter((seat) => seat !== stop.seat);
+  const also =
+    others.length === 0
+      ? ''
+      : ` ${listNames(others.map((k) => seatName(names, k)))} also signed two rival moves.`;
+  const head = `Stopped: ${seatName(names, stop.seat)} signed two rival moves for the same turn, so the game ended there.${also}`;
+  const places = `Final places: ${placesText(v, names, stop.seat)}.`;
+  if (v.seats < 3) return `${head} ${places}`;
+  const rated = [...new Set([...v.equivocators, ...v.forfeits])].sort((a, b) => a - b);
+  return `${head} ${places} Rated only for ${listNames(rated.map((k) => seatName(names, k)))}, ranked last; unrated for the others.`;
+}
+
+/** "Result stood despite a fork by Ann." for a result standing against a held fork (PROTOCOL-v2 §5.4), or null. */
+export function stoodLine(view: SessionView | null, names: readonly string[]): string | null {
+  const v = v2Of(view);
+  if (v === null || !v.stood || v.fork === null) return null;
+  return `Result stood despite a fork by ${seatName(names, v.fork.seat)}.`;
+}
+
+/**
+ * After a stop in a game with a deck (PROTOCOL-v2 §7.3, V2-55): each seat whose end-of-game secret is not in ("secret
+ * withheld", an anti-cheat mark in the game's record), and "audit incomplete" while the end-of-game check cannot run
+ * for want of one (the places may still change). Empty otherwise.
+ */
+export function afterStopLines(view: SessionView | null, names: readonly string[]): string[] {
+  const v = v2Of(view);
+  if (v === null) return [];
+  const out: string[] = [];
+  if (v.secretWithheld.length > 0) {
+    const who = listNames(v.secretWithheld.map((k) => seatName(names, k)));
+    const one = v.secretWithheld.length === 1;
+    out.push(
+      `Secret withheld: ${who} ${one ? 'has' : 'have'} not sent their end-of-game secret. Each one missing is recorded against that player.`,
+    );
+  }
+  if (v.auditIncomplete)
+    out.push(
+      'Audit incomplete: the game cannot be checked without every end-of-game secret, so these places may still change.',
+    );
+  return out;
+}
+
+/** "Game ended, waiting for its events.": a result this device counted before a reload, its events not held yet (D070). */
+export function awaitingLine(view: SessionView | null): string | null {
+  return v2Of(view)?.awaitingCounted != null ? 'Game ended, waiting for its events.' : null;
+}
+
+/** Why a game was cancelled, for the Game cancelled panel. */
+export function cancelledText(view: SessionView | null, names: readonly string[]): string {
+  const quit = resignedSeats(view);
+  if (quit.length > 0)
+    return `${quit.map((k) => seatName(names, k)).join(', ')} resigned before the first move, so this game ended without a result.`;
+  const stop = v2Of(view)?.stop ?? null;
+  if (stop?.cancelled === true) {
+    const others = (v2Of(view)?.equivocators ?? []).filter((seat) => seat !== stop.seat);
+    const also =
+      others.length === 0
+        ? ''
+        : ` ${listNames(others.map((k) => seatName(names, k)))} also signed two rival moves.`;
+    return `${seatName(names, stop.seat)} signed two rival moves before the first move, so this game was cancelled without a result.${also}`;
+  }
+  return 'A player stalled before the first move, so this game ended without a result.';
+}
+
+/**
+ * The own-forfeit question to show (PROTOCOL-v2 §8.1, review N2, V2-52), or null: the session asks about a Timeout
+ * claim that forfeits only this seat (`view.ownForfeit`), unless the player already answered "Play" for that head.
+ * Keyed on the head, never on the claim id: a lower-id claim at the same head replaces the one named, so keying on
+ * the id would ask again for each one (an opponent fishing for a misclick; review of T12, L-2).
+ */
+export function ownForfeitAsk(view: SessionView | null, played: string | null): { head: string } | null {
+  const asked = v2Of(view)?.ownForfeit ?? null;
+  if (asked === null || asked.head === played) return null;
+  return { head: asked.head };
+}
+
+/**
+ * "You were timed out: accept?" (V2-52): another player claims this seat missed the deadline, though by this device's
+ * clock it has not passed (`left`, from `formatDeadline`). "Play" comes first and is the default: leaving the
+ * question unanswered accepts nothing, and a move made in time makes the claim fail. Accepting forfeits at once.
+ */
+export function OwnForfeitDialog(props: {
+  left: string;
+  /** Whether a game action has been played: before one, accepting cancels the game instead. */
+  started: boolean;
+  busy: boolean;
+  onPlay: () => void;
+  onAccept: () => void;
+}) {
+  const accept = props.started
+    ? 'If you accept, you forfeit: the game ends now and you are ranked last.'
+    : 'If you accept, the game is cancelled without a result.';
+  return (
+    <section class="claim-confirm own-forfeit" role="alertdialog" aria-labelledby="own-forfeit-h">
+      <p id="own-forfeit-h">
+        <strong>You were timed out: accept?</strong> Another player claims you missed the move deadline, but
+        by this device's clock you still have time ({props.left}). {accept}
+      </p>
+      <div class="row">
+        <button type="button" class="btn btn-small btn-primary" onClick={props.onPlay}>
+          Play
+        </button>
+        <button type="button" class="btn btn-small" disabled={props.busy} onClick={props.onAccept}>
+          Accept the timeout
+        </button>
+      </div>
+    </section>
+  );
 }
 
 /** Each seat's short npub, after its profile name when it has one: "Ann (npub1abcdef…uvwxyz)". */
@@ -191,6 +320,8 @@ function SetupProgress(props: {
   waiting: string | null;
   /** "You're watching this game", when the key in use holds no seat (D057). */
   watching: ComponentChildren;
+  /** The own-forfeit question (`OwnForfeitDialog`), or nothing. */
+  ownForfeit: ComponentChildren;
   log: readonly string[];
   onSendAnyway: (() => void) | null;
 }) {
@@ -205,6 +336,7 @@ function SetupProgress(props: {
           An automatic step failed. Reload the page to retry.
         </p>
       )}
+      {props.ownForfeit}
       {props.status === 'waiting' && <p class="muted">{props.waiting ?? WAITING_FALLBACK}</p>}
       {props.claim !== null && (
         <div class="row">
@@ -295,13 +427,16 @@ export function SyncNotes(props: { lines: readonly string[] }) {
   );
 }
 
-/** Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign or a timeout). */
-export function placesText(view: SessionView, names: readonly string[]): string {
+/**
+ * Final places, best first: "1. Ann, 2. Bo", for an ending outside the rules (a resign, a timeout or a stop). `last`,
+ * the seat that forked a stopped game, comes after the seats sharing its place.
+ */
+export function placesText(view: SessionView, names: readonly string[], last: number | null = null): string {
   const o = view.outcome;
   if (o === null) return '';
   return o.places
     .map((place, seat) => ({ place, seat }))
-    .sort((a, b) => a.place - b.place || a.seat - b.seat)
+    .sort((a, b) => a.place - b.place || Number(a.seat === last) - Number(b.seat === last) || a.seat - b.seat)
     .map(({ place, seat }) => `${place}. ${names[seat] ?? `Seat ${seat + 1}`}`)
     .join(', ');
 }
@@ -364,6 +499,8 @@ export function GameScreen(props: { rootId: string }) {
     [seats, tableAddress, spectating, kept, profile, store, signer],
   );
   const [switchError, setSwitchError] = useState('');
+  // The head the player answered "Play" for in the own-forfeit question (V2-52): never asked again at that head.
+  const [played, setPlayed] = useState<string | null>(null);
   const onSwitch = (pubkey: string) => {
     const r = switchToKeptKey(profile, store, pubkey, { current: signer.pubkey, now: deps.now() });
     if (r.ok) window.location.reload();
@@ -392,10 +529,11 @@ export function GameScreen(props: { rootId: string }) {
       )}
     </>
   );
-  // A card reveal owed out of turn (D060): who owes it and when they can be timed out for it.
+  // A card reveal or a roll contribution owed out of turn (D060, PROTOCOL-v2 §6.4): who owes it and when they can
+  // be timed out for it.
   const owed = ctl.owed.value;
-  // How this game names the share (Chain Reaction: a share of a tile; Luster: a card reveal).
-  const shareWords = game?.setupCopy(true)?.share;
+  // How this game names it (Chain Reaction: a share of a tile; Luster: a card reveal; a roll: a contribution).
+  const shareWords = owedWords(owed, shareWordsOf(game));
   const waiting =
     view === null || status !== 'waiting'
       ? null
@@ -406,22 +544,31 @@ export function GameScreen(props: { rootId: string }) {
           waiting: ctl.waiting.value,
           names,
           ...(view.phase === 'play' && owed !== null ? { secondsLeft: owed.until - now } : {}),
-          ...(shareWords === undefined ? {} : { share: shareWords }),
+          share: shareWords,
         });
   // This seat's own reveal, when its app is not sending it right now (held back, stuck or undelivered).
   const ownReveal =
     view === null || status === 'working' ? null : ownRevealLine(owed, view.mySeat, now, shareWords);
 
+  // "You were timed out: accept?" (V2-52), keyed on the head the player answered "Play" for.
+  const ask = ownForfeitAsk(view, played);
+  const ownForfeit =
+    ask === null || view === null ? null : (
+      <OwnForfeitDialog
+        key={ask.head}
+        left={formatDeadline(view.pendingSince + view.deadline - now)}
+        started={view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps}
+        busy={busy}
+        onPlay={() => setPlayed(ask.head)}
+        onAccept={() => void ctl.confirmOwnForfeit()}
+      />
+    );
+
   if (status === 'cancelled') {
-    const quit = resignedSeats(view);
     return (
       <section class="panel" aria-labelledby="game-title">
         <h1 id="game-title">Game cancelled</h1>
-        <p>
-          {quit.length > 0
-            ? `${quit.map(nameOf).join(', ')} resigned before the first move, so this game ended without a result.`
-            : 'A player stalled before the first move, so this game ended without a result.'}
-        </p>
+        <p>{cancelledText(view, names)}</p>
         <p>
           <a href={homeHref()}>Back to the start</a>
         </p>
@@ -449,6 +596,7 @@ export function GameScreen(props: { rootId: string }) {
         claim={claim}
         waiting={waiting}
         watching={watching}
+        ownForfeit={ownForfeit}
         log={log}
         onSendAnyway={sendAnyway}
       />
@@ -469,6 +617,10 @@ export function GameScreen(props: { rootId: string }) {
   const timedOut = timedOutSeats(view);
   const resigned = resignLine(view, names);
   const forked = forkLine(view, names);
+  const stopped = stopLine(view, names);
+  const stood = stoodLine(view, names);
+  const afterStop = afterStopLines(view, names);
+  const awaiting = awaitingLine(view);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
   const Component = game.Component;
@@ -490,7 +642,28 @@ export function GameScreen(props: { rootId: string }) {
           {error}
         </p>
       )}
-      {cheats.length > 0 && (
+      {ownForfeit}
+      {awaiting !== null && (
+        <p class="muted game-awaiting" role="status">
+          {awaiting}
+        </p>
+      )}
+      {stopped !== null && (
+        <p class="warning game-stopped" role="status">
+          {stopped}
+        </p>
+      )}
+      {stood !== null && (
+        <p class="warning game-stood" role="status">
+          {stood}
+        </p>
+      )}
+      {afterStop.map((line) => (
+        <p key={line} class="warning game-after-stop" role="status">
+          {line}
+        </p>
+      ))}
+      {cheats.length > 0 && stopped === null && (
         <p class="warning" role="alert">
           {cheats.map(nameOf).join(', ')} {cheats.length === 1 ? 'has' : 'have'} signed two rival moves for
           the same turn.
