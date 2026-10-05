@@ -5,6 +5,7 @@ import { DECK_OFFSETS, type LusterState, luster } from '@bored-games/luster';
 import {
   cardSharesTemplate,
   finalizeEvent,
+  getPublicKey,
   type Hex,
   type NostrEvent,
   parseSharesV2,
@@ -15,7 +16,7 @@ import { GameSession } from '../../src/session.ts';
 import { openSession } from '../../src/session-api.ts';
 import type { Duty, Identity } from '../../src/types.ts';
 import { gameRecord } from '../../src/v2/record.ts';
-import { GameSessionV2 } from '../../src/v2/session.ts';
+import type { GameSessionV2 } from '../../src/v2/session.ts';
 import { GOLDEN_MODULES, type GoldenFixture, goldenSession, identityOf } from '../golden-v1/fold.ts';
 import { MODULES, NOW } from '../helpers.ts';
 import {
@@ -67,8 +68,7 @@ const isShares = (ev: NostrEvent): boolean => ev.kind === 7453;
 const reservedCard = (s: GameSessionV2, seat: number, deck: string, pos: number): number | null | undefined =>
   stateOf(s).players[seat]?.reserved.find((h) => h.deck === deck && h.pos === pos)?.card;
 /** The pubkey of each seat's session key. */
-const keyOf = (t: V2Table, seat: number): Hex =>
-  (t.game.joins[seat] as NostrEvent).tags.find((x) => x[0] === 'session')?.[1] as Hex;
+const keyOf = (t: V2Table, seat: number): Hex => getPublicKey((t.game.ids[seat] as Identity).sessionSk);
 
 /** The seats in turn order after `k` (3 seats). */
 const after = (k: number): [number, number] => [(k + 1) % 3, (k + 2) % 3];
@@ -154,7 +154,7 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
       expect(x.legalActions()).toEqual([]);
       // 3 seats: E last and rated; the others unrated, by `standings` at P.
       expect(v.outcome?.places[e]).toBe(3);
-      expect(gameRecord(v).rated.map((r, k) => (r ? k : -1)).filter((k) => k >= 0)).toEqual([e]);
+      expect((gameRecord(v).rated ?? []).map((r, k) => (r ? k : -1)).filter((k) => k >= 0)).toEqual([e]);
     }
     // Stopped: no seat owes a release, a decision or a roll; only the after-stop Secret reveal (§7.3).
     for (const x of t.players) {
@@ -170,11 +170,11 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
     for (const ev of t.log.filter((x) => x.id !== a.id)) sn.receive(ev, NOW);
     expect(sn.view().fork).toBeNull();
     const onB = sn.buildAction(blindOf(sn, 'tier-1'), t.game.rnd, NOW);
-    sn.receive(a, NOW);
     send(t, onB);
     for (const x of t.all) expect(x.view().stop).toEqual({ at: h.id, seat: e, cancelled: false });
     for (const x of t.players) expect(releaseOf(x.duties())).toBeUndefined();
-    // N never released p (N's own card on B) after the fork; the only shares of p are those released on A, for E.
+    // No share of p went out after the fork, though p is N's card on B: the only ones are those released on A, for E
+    // (N's included: p was E's card there, and E's reading it is what the stop makes worthless).
     const sharesOfP = t.log.filter((ev) => isShares(ev) && positionsOf(ev).includes(p));
     expect(sharesOfP.map((ev) => ev.id).sort()).toEqual(released.map((r) => r.ev.id).sort());
   });
@@ -224,9 +224,9 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
     }
     for (const x of reference.players) expect(x.duties()).toEqual([{ kind: 'secret' }]);
     // The shares of p ever published: M's only. N's own layer of p (its card on B) never went out.
-    expect(events.filter((ev) => isShares(ev) && positionsOf(ev).includes(p)).map((ev) => ev.pubkey)).toEqual([
-      keyOf(t, m),
-    ]);
+    expect(events.filter((ev) => isShares(ev) && positionsOf(ev).includes(p)).map((ev) => ev.pubkey)).toEqual(
+      [keyOf(t, m)],
+    );
   });
 
   it('audit F2: two devices of an honest seat, the phone reserves blind and the lagging tablet signs a take on the same prev: the outbox rule discards the tablet’s move, and neither device releases the seat’s own card', () => {
@@ -299,7 +299,7 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
     expect(fresh.heldSet().filter((x) => x.seat === hs && x.at === a.id)).toEqual([]);
 
     // With no fork at all: a release of my own card, saved by a faulty build, is discarded at the head too.
-    const u = replay(base, t.log.filter((ev) => ev.id !== b.id && ev.id !== blind.id && !onB.some((r) => r.ev === ev)));
+    const u = replay(base);
     const k = decider(u) as number;
     const sk = u.players[k] as GameSessionV2;
     const own = physical('tier-1', stateOf(sk).decks['tier-1'].next);
@@ -312,9 +312,10 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
   it('an owed reveal keeps its timeout (D060): a seat that never releases a refill is stalled though it is not its turn, and is timed out', () => {
     const t = replay(base);
     const k = decider(t) as number;
-    const [x, y] = after(k);
+    // y decides next; x's app is closed.
+    const [y, x] = after(k);
     const move = act(t, k, displayOf(t.players[k] as GameSessionV2, 'tier-1'));
-    // k and y release; x's app is closed.
+    // k and y release; x does not.
     for (const seat of [k, y]) {
       const s = t.players[seat] as GameSessionV2;
       send(t, buildAuto(t, seat, releaseOf(s.duties()) as Duty));
@@ -323,7 +324,7 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
     expect(v.pending.type).toBe('reveal');
     expect(v.owed.reveal).toEqual([x]);
     expect(t.spectator.waitingFor()).toEqual([x]);
-    // Not x's turn: the decision after the refill is y's or k's own, but the game waits on x.
+    // Not x's turn (y decides once the refill is revealed), but the game waits on x.
     for (const seat of [k, y]) {
       const s = t.players[seat] as GameSessionV2;
       expect(s.duties()).toEqual([]);
@@ -356,7 +357,10 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
           a.type === 'buy' &&
           stateOf(s).players[k]?.reserved.some((r) => r.deck === a.deck && r.pos === a.pos && r.private),
       );
-      const blind = rng.int(4) === 0 ? legal.find((a) => a.type === 'reserve' && a.pos === stateOf(s).decks[a.deck as Tier]?.next) : undefined;
+      const blind =
+        rng.int(4) === 0
+          ? legal.find((a) => a.type === 'reserve' && a.pos === stateOf(s).decks[a.deck as Tier]?.next)
+          : undefined;
       if (buyReserved !== undefined) blinds++;
       act(t, k, buyReserved ?? blind ?? quick(legal, k, rng));
     }
@@ -400,7 +404,13 @@ describe('Resign stays refused for Luster under protocol 2 (D052)', () => {
   it('at every seat count, no seat may resign, no Resign can be built, and a Resign signed anyway is rejected', () => {
     const { min, max } = luster.seatRange(luster.defaultRules());
     for (let seats = min; seats <= max; seats++) {
-      const t = v2Table(luster as AnyModule, seats, `v2-luster-resign-${seats}`, luster.defaultRules(), REGISTRY);
+      const t = v2Table(
+        luster as AnyModule,
+        seats,
+        `v2-luster-resign-${seats}`,
+        luster.defaultRules(),
+        REGISTRY,
+      );
       for (const s of t.players) {
         expect(s.canResign()).toBe(false);
         expect(() => s.buildResign(t.game.rnd, NOW)).toThrow(/not allowed/);
@@ -412,7 +422,10 @@ describe('Resign stays refused for Luster under protocol 2 (D052)', () => {
         t.game.rnd,
       );
       for (const s of t.all)
-        expect(s.receive(forged, NOW)).toEqual({ status: 'rejected', reason: 'resigning is not allowed in this game' });
+        expect(s.receive(forged, NOW)).toEqual({
+          status: 'rejected',
+          reason: 'resigning is not allowed in this game',
+        });
     }
   });
 });
