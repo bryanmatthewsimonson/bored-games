@@ -22,6 +22,8 @@ import {
   joinCheck,
   joinRequestPending,
   needsPicker,
+  OLDER_VERSION_TABLE,
+  olderTable,
   openCandidates,
   REQUEST_PENDING,
   seatListFor,
@@ -162,7 +164,9 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   const missing = t.seats - view.seatsFilled;
   const picker = needsPicker(view);
   const chosen = picks ?? defaultPicks(view);
-  const canStart = isCreator && view.full && view.root === null && t.status === 'open';
+  // A protocol 1 Bank or Luster table is never started here (V2-53): no new v1 game of either.
+  const older = olderTable(t);
+  const canStart = isCreator && view.full && view.root === null && t.status === 'open' && !older;
   const startReady = !picker || chosen.length === t.open;
   const url = shareUrl(window.location.href, t.creator, t.tableId);
 
@@ -271,7 +275,10 @@ export function TableScreen(props: { creator: string; tableId: string }) {
                 You will be taken to the game when it starts.
               </p>
             )}
-            {isCreator && !view.full && <p>Share the link below so players can take the remaining seats.</p>}
+            {isCreator && older && <p class="muted">{OLDER_VERSION_TABLE}</p>}
+            {isCreator && !view.full && !older && (
+              <p>Share the link below so players can take the remaining seats.</p>
+            )}
 
             {canStart && !confirming && (
               <div class="row">

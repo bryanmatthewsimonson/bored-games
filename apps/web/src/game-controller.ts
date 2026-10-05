@@ -19,14 +19,27 @@
  * - Timeouts run on local receipt time (D030 Ruling 10): the controller saves when it first saw each event
  *   (`bg:<profile>:seen:<rootId>`) and passes that time to `receive`, so a reopened tab keeps the deadlines. On
  *   load it feeds what it holds in first-seen order, which reproduces the session, a timeout's finality included.
+ * - Protocol 2 games (PROTOCOL-v2; build tasks T14–T15) run on the same outbox, with their own automatic duties
+ *   (`AUTO_V2`: the deal, prompt releases debounced by `RELEASE_DEBOUNCE_MS`, roll contributions, the end attestation
+ *   signed by the session key with no prompt, the Secret reveal as soon as the result needs it, the stats
+ *   attestation). The refeed contract (PLAN, T15 notes): every event's first-seen time is saved on arrival, rejected
+ *   ones included; a load refeeds in first-seen order at the saved times with no live event in between, then ticks;
+ *   `standingTimes()`, `confirmedForfeits()` and `countedResult()` are saved with the first-seen times and passed back
+ *   on the next load (`v2StateKey`); each completed sync is reported with `noteSync`. Nothing of this seat's goes out
+ *   while the session holds a fork, but what its duties still ask for (the Secret reveal, D067). Saved protocol 2
+ *   events are vetted by `GameSessionV2.vetSaved` before they are sent (the rest of §9 is T16's).
  */
 import {
   ClientError,
+  type CountedResult,
   type Duty,
+  GameSessionV2,
   type Identity,
   openSession,
   type Session,
+  type SessionInput,
   type SessionView,
+  type SessionViewV2,
   seatForGameKeys,
   v1Session,
 } from '@bored-games/client';
@@ -39,6 +52,7 @@ import {
   type ParsedRoot,
   type ParsedTable,
   parseRoot,
+  parseSharesV2,
   parseTable,
   verifyEvent,
 } from '@bored-games/protocol';
@@ -110,11 +124,31 @@ export type BackupState = 'checking' | 'due' | 'sending' | 'done' | 'unavailable
 /** How often `tick` runs while the controller is started, in ms. */
 export const TICK_MS = 30_000;
 
-/** The game event kinds a game subscription asks for (PROTOCOL §9). */
-export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
+/**
+ * The game event kinds a game subscription asks for (PROTOCOL §9; PROTOCOL-v2 §4.5 adds the Device note, 7458, in
+ * protocol 2 games).
+ */
+export const GAME_KINDS = [
+  KIND.move,
+  KIND.shares,
+  KIND.timeout,
+  KIND.reveal,
+  KIND.attest,
+  KIND.resign,
+  KIND.device,
+];
 
-/** The game event kinds signed by a seat's session key; attestations (`KIND.attest`) are signed by its npub. */
-const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.resign];
+/**
+ * The game event kinds signed by a seat's session key in a protocol 1 game; attestations (`KIND.attest`) are signed
+ * by its npub.
+ */
+const SESSION_KINDS_V1: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.resign];
+
+/**
+ * In a protocol 2 game (PROTOCOL-v2 §4.5) the session key also signs end attestations (7456, beside the npub's stats
+ * attestations) and Device notes (7458).
+ */
+const SESSION_KINDS_V2: readonly number[] = [...SESSION_KINDS_V1, KIND.attest, KIND.device];
 
 /**
  * Stored game events asked for per page. A page that brings any event not seen before is followed by an older
@@ -122,8 +156,34 @@ const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, 
  */
 export const GAME_PAGE = 500;
 
-/** Automatic duties, in the order they are performed. */
-const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'beacon', 'secret', 'attest'];
+/** Automatic duties of a protocol 1 game, in the order they are performed. */
+const AUTO_V1: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'beacon', 'secret', 'attest'];
+
+/**
+ * Automatic duties of a protocol 2 game, in the order they are performed (T15): no `share` or `beacon` (prompt
+ * releases and roll contributions are Shares events, PROTOCOL-v2 §6), and the end attestation before the Secret
+ * reveal and the stats attestation (§7.1). Only `decide` waits for the player.
+ */
+const AUTO_V2: readonly Duty['kind'][] = ['shuffle', 'deal', 'release', 'roll', 'end', 'secret', 'attest'];
+
+/**
+ * How long (ms) a prompt release waits for its head to stay put before it is built (PROTOCOL-v2 §6.1: a client MAY
+ * debounce a burst of moves for about a second): each new head restarts the wait, so a burst gets one release.
+ */
+export const RELEASE_DEBOUNCE_MS = 1000;
+
+/** How a failed automatic duty is named in `error` (protocol 1 kinds keep their own names). */
+const DUTY_WORDS: Partial<Record<Duty['kind'], string>> = {
+  release: 'card reveal',
+  roll: 'dice contribution',
+  end: 'end attestation',
+};
+
+/** The most Timeout claims and Resigns kept for a second try after a waiting cap let them go (`#capped`). */
+const MAX_CAPPED = 1000;
+
+/** The reason a v2 session gives for a claim or Resign a waiting cap let go, which is not final (D069). */
+const CAPPED = /too many waiting for their head$/;
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -138,7 +198,14 @@ export interface OutboxEntry {
  * head and could otherwise reveal a card that is this seat's own on the branch fork choice settled on.
  */
 const vetted = (slot: string): boolean =>
-  slot.startsWith('move:') || slot.startsWith('share:') || slot === 'deal' || slot === 'resign';
+  slot.startsWith('move:') ||
+  slot.startsWith('share:') ||
+  slot === 'deal' ||
+  slot === 'resign' ||
+  // Protocol 2 (T15): prompt releases, roll contributions and end attestations go through `vetSaved`.
+  slot.startsWith('release:') ||
+  slot.startsWith('roll:') ||
+  slot.startsWith('end:');
 
 /**
  * The longest wait (ms) for a check-before-signing query's answer (D059 item 2), beyond the pool's own EOSE
@@ -175,6 +242,46 @@ export const outboxKey = (profile: string, rootId: string): string => storageKey
 export const seenKey = (profile: string, rootId: string): string => storageKey(profile, `seen:${rootId}`);
 
 export const tableKey = (profile: string, rootId: string): string => storageKey(profile, `table:${rootId}`);
+
+/**
+ * What a protocol 2 session decided that a reload must keep (PLAN, T15 notes; D070): `standingTimes()`,
+ * `confirmedForfeits()` and `countedResult()`, saved with the first-seen times and passed back as
+ * `SessionInput.savedStanding`, `confirmedForfeits` and `savedCounted`.
+ */
+export const v2StateKey = (profile: string, rootId: string): string => storageKey(profile, `v2:${rootId}`);
+
+/** A protocol 2 game's saved decisions (`v2StateKey`). */
+export interface V2Saved {
+  standing: Record<string, number>;
+  confirmed: Hex[];
+  counted: CountedResult | null;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+function countedOf(v: unknown): CountedResult | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { kind, id, head, forfeit } = v as Record<string, unknown>;
+  if (kind !== 'claim' && kind !== 'resign') return null;
+  if (typeof id !== 'string' || !HEX64.test(id) || typeof head !== 'string' || !HEX64.test(head)) return null;
+  if (!Array.isArray(forfeit) || !forfeit.every((k) => Number.isSafeInteger(k) && k >= 0)) return null;
+  return { kind, id: id as Hex, head: head as Hex, forfeit: [...(forfeit as number[])] };
+}
+
+/** The saved decisions of a protocol 2 game (`v2StateKey`); empty when none are saved or they do not parse. */
+export function loadV2State(store: ControllerDeps['storage'], profile: string, rootId: string): V2Saved {
+  const out: V2Saved = { standing: {}, confirmed: [], counted: null };
+  const v = readJson(store, v2StateKey(profile, rootId));
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return out;
+  const { standing, confirmed, counted } = v as Record<string, unknown>;
+  if (typeof standing === 'object' && standing !== null && !Array.isArray(standing))
+    for (const [key, at] of Object.entries(standing as Record<string, unknown>))
+      if (typeof at === 'number' && Number.isFinite(at)) out.standing[key] = at;
+  if (Array.isArray(confirmed))
+    out.confirmed = confirmed.filter((id): id is Hex => typeof id === 'string' && HEX64.test(id));
+  out.counted = countedOf(counted);
+  return out;
+}
 
 /**
  * The Table event this profile validated the game's root against, saved on the first successful load, or null
@@ -420,6 +527,47 @@ export class GameController {
   readonly #stops: (() => void)[] = [];
   #started = false;
   #disposed = false;
+  /**
+   * Prompt releases waiting out `RELEASE_DEBOUNCE_MS` (protocol 2), by `release@<anchor>`: false while the wait runs,
+   * true once the head has stayed put for it.
+   */
+  readonly #debounce = new Map<string, boolean>();
+  /**
+   * Protocol 2 Timeout claims and Resigns a waiting cap let go (D069: not refused for good), by the head they name,
+   * then id. Fed again when that head arrives and after each full sync (PLAN, T15 notes): the relay pool does not
+   * deliver an id twice on one subscription, so a peer's rebroadcast would not bring one back.
+   */
+  readonly #capped = new Map<string, Map<string, NostrEvent>>();
+  #cappedCount = 0;
+  /** The latest completed sync of the game's events (protocol 2, `noteSync`): local start and end times. */
+  #lastSync: { from: number; to: number } | null = null;
+  /**
+   * A sync that ended on a partial answer (a counted relay silent): when it started and when it ended. It completes
+   * at the next full answer, at Send anyway, or at the hold cap (the time of that decision is its end).
+   */
+  #partialSync: { from: number; since: number } | null = null;
+  /**
+   * The head whose Timeout claims and Resigns were fetched again for a saved counted result still waiting for its
+   * events (protocol 2, D070), since the last full sync.
+   */
+  #refetched: string | null = null;
+  /** The protocol 2 decisions last saved (`#saveV2State`), as JSON: storage is written only on a change. */
+  #v2Written = '';
+
+  /** Whether this is a protocol 2 game (its root says so). */
+  get #v2(): boolean {
+    return this.#root?.proto === '2';
+  }
+
+  /** The kinds signed by a seat's session key in this game's protocol. */
+  #sessionKinds(): readonly number[] {
+    return this.#v2 ? SESSION_KINDS_V2 : SESSION_KINDS_V1;
+  }
+
+  /** The automatic duties of this game's protocol, in order. */
+  #auto(): readonly Duty['kind'][] {
+    return this.#v2 ? AUTO_V2 : AUTO_V1;
+  }
 
   /** Stored game events asked for per page (`GAME_PAGE`; tests make it small to exercise paging). */
   readonly #page: number;
@@ -456,6 +604,7 @@ export class GameController {
     // A duty the check before signing held back is tried again (D059 item 2).
     this.#heldDuties.clear();
     this.#session?.tick(this.#d.now());
+    if (this.#v2) this.#v2Tick();
     if (this.#synced) this.#retryUndelivered();
     this.#refresh();
     this.#queueDuties();
@@ -575,6 +724,8 @@ export class GameController {
   sendAnyway(): void {
     if (this.#disposed || !this.#synced) return;
     this.#forced = true;
+    // A sync left partial by a silent relay ends at this decision (`noteSync`, PLAN T15 notes).
+    this.#endPartialSync();
     this.#vetSaved(true);
     this.#refresh();
     this.#queueDuties();
@@ -590,6 +741,9 @@ export class GameController {
     }
     // Relays are not trusted to filter: only seated keys' game events are taken (PROTOCOL §11).
     if (!this.#seated(ev)) return;
+    // Protocol 2: the first-seen time is when the event arrived, whatever the session makes of it later (PLAN, T15
+    // notes: every held event's time is saved, rejected ones included), so a refeed replays the arrival order.
+    if (this.#v2) this.#noteSeen(ev.id, this.#d.now());
     this.#got.add(ev.id);
     this.#dates.set(ev.id, ev.created_at);
     if (this.#events.size < MAX_BUFFER) this.#events.set(ev.id, ev);
@@ -624,8 +778,49 @@ export class GameController {
       if (r.status === 'rejected') this.#refused.add(ev.id);
       else this.#refused.delete(ev.id);
     }
-    if (first === undefined && r.status !== 'rejected') this.#noteSeen(ev.id, now);
+    // Protocol 2 saves every event's time, a rejected one too: a Move invalid at its prev, an invalid Shares event or
+    // an end attestation with a bad log hash is still held, and the cutoff and the standing floor read it.
+    if (first === undefined && (r.status !== 'rejected' || this.#v2)) this.#noteSeen(ev.id, now);
+    if (this.#v2) this.#afterReceiveV2(session, ev, r);
     return r;
+  }
+
+  /**
+   * Protocol 2 bookkeeping after `receive` (PLAN, T15 notes; D069): a Timeout claim or Resign a waiting cap let go is
+   * kept for a second try (never refused for good), and a Move that arrives is the head some of them were waiting for.
+   */
+  #afterReceiveV2(session: Session, ev: NostrEvent, r: ReturnType<Session['receive']>): void {
+    if (
+      r.status === 'rejected' &&
+      CAPPED.test(r.reason) &&
+      (ev.kind === KIND.timeout || ev.kind === KIND.resign)
+    ) {
+      const head = ev.tags.find((t) => t[0] === 'e' && t[3] === 'head')?.[1];
+      if (head === undefined || this.#cappedCount >= MAX_CAPPED) return;
+      let ids = this.#capped.get(head);
+      if (ids === undefined) {
+        ids = new Map();
+        this.#capped.set(head, ids);
+      }
+      if (!ids.has(ev.id)) {
+        ids.set(ev.id, ev);
+        this.#cappedCount++;
+      }
+      return;
+    }
+    if (ev.kind === KIND.move && r.status !== 'rejected') this.#refeedCapped(session, [ev.id]);
+  }
+
+  /** Feed again the capped claims and Resigns naming one of `heads` (all of them when null), at their saved times. */
+  #refeedCapped(session: Session, heads: readonly string[] | null): void {
+    for (const head of heads ?? [...this.#capped.keys()]) {
+      const ids = this.#capped.get(head);
+      if (ids === undefined) continue;
+      this.#capped.delete(head);
+      this.#cappedCount -= ids.size;
+      // Each goes back into `#capped` if a cap lets it go again.
+      for (const ev of ids.values()) this.#receive(session, ev);
+    }
   }
 
   /**
@@ -712,7 +907,10 @@ export class GameController {
     // Among events seen at the same time (or never, on a fresh load) a resign goes last. The session would wait for
     // its head anyway (PROTOCOL §8.3), but a resign whose head is already on the chain counts at once, outside the
     // per-seat cap on waiting resigns, so junk resigns the same seat flooded cannot crowd it out on a fresh device.
-    const rank = (ev: NostrEvent): number => (ev.kind === KIND.resign ? 1 : 0);
+    // Protocol 2 refeeds in first-seen order alone (PLAN, T15 notes): its caps keep a Resign on a held head whatever
+    // the order (D069), and a counted result survives through `savedCounted`.
+    const v2 = this.#v2;
+    const rank = (ev: NostrEvent): number => (!v2 && ev.kind === KIND.resign ? 1 : 0);
     held.sort((a, b) => at(a.ev) - at(b.ev) || rank(a.ev) - rank(b.ev));
     for (const { ev, slot } of held) {
       if (slot !== null) this.#fed.add(ev.id);
@@ -721,6 +919,12 @@ export class GameController {
       if (entry === undefined || entry.orphan) continue;
       entry.orphan = true;
       this.#persist(slot);
+    }
+    if (v2) {
+      // Once the refeed is complete (and before any live event): the deadlines at the current time, and the sync the
+      // events came from, for the own-forfeit question.
+      session.tick(this.#d.now());
+      this.#applySync();
     }
     if (this.#viewFull) this.#vetSaved(false);
   }
@@ -779,6 +983,7 @@ export class GameController {
             ? 1.5e12
             : 2e12;
     const slots = this.#toVet().sort((a, b) => rank(a) - rank(b));
+    const v2 = session instanceof GameSessionV2 ? session : null;
     let rebuild = false;
     // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
     // than waiting for ever on a parent that will never come.
@@ -794,6 +999,20 @@ export class GameController {
         dropped.add(ev.id);
         this.#discard(slot, 'it follows a saved move that was discarded');
         continue;
+      }
+      // Protocol 2: the session's outbox rule first (PROTOCOL-v2 §9.2, D071), with every unconfirmed event of this
+      // seat as `unconfirmed`. `send` still goes through the checks below (the conservative side: they only send
+      // less); `wait` keeps it; a discard is final. A deal it holds back because another deal of this seat is out
+      // is kept as an orphan by `#vetDeal`, as in protocol 1 (a seat deals once).
+      if (v2 !== null) {
+        const verdict = v2.vetSaved(ev, this.#unconfirmedIds());
+        if (verdict === 'wait' && !(slot === 'deal' && this.#otherMine('shares', ev))) continue;
+        if (typeof verdict === 'object') {
+          if (fed) rebuild = true;
+          if (ev.kind === KIND.move) dropped.add(ev.id);
+          this.#discard(slot, verdict.discard);
+          continue;
+        }
       }
       if (slot === 'deal' && this.#ownDeal(slot, entry)) {
         this.#vetDeal(session, entry, fed);
@@ -831,6 +1050,8 @@ export class GameController {
    */
   #verdict(session: Session, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
     if (slot === 'deal') return 'it is not signed by your key in this game';
+    // Protocol 2 only, already vetted by the session's outbox rule (`#vetSaved`).
+    if (slot.startsWith('release:') || slot.startsWith('roll:') || slot.startsWith('end:')) return 'send';
     if (slot.startsWith('share:')) return this.#shareVerdict(session, ev, fed);
     if (slot.startsWith('move:')) {
       const prev = prevOf(ev);
@@ -921,6 +1142,11 @@ export class GameController {
     );
   }
 
+  /** The ids of every event of this seat in the outbox that no relay has confirmed (`vetSaved`'s `unconfirmed`). */
+  #unconfirmedIds(): string[] {
+    return [...this.#outbox.values()].filter((e) => !e.confirmed).map((e) => e.event.id);
+  }
+
   /** Add a line to `log` and show it as the notice. */
   #note(line: string): void {
     this.log.value = [...this.log.value, line].slice(-MAX_LOG);
@@ -954,15 +1180,22 @@ export class GameController {
         ? 'deal'
         : slot === 'resign'
           ? 'resignation'
-          : slot.startsWith('share:')
+          : slot.startsWith('share:') || slot.startsWith('release:')
             ? 'card reveal'
-            : 'move';
+            : slot.startsWith('roll:')
+              ? 'dice contribution'
+              : slot.startsWith('end:')
+                ? 'end attestation'
+                : 'move';
     this.#note(`A ${what} saved on this device was never sent, and it was discarded: ${why}.`);
   }
 
   /** Build the session again from the relays' events and the outbox, after a folded-in event was discarded. */
   #rebuild(): void {
     if (this.#session === null || this.#disposed) return;
+    // The new session starts from what this one decided (protocol 2), as after a reload.
+    this.#saveSeen();
+    this.#saveV2State();
     this.#session = null;
     this.#fed.clear();
     this.#buffer = [...this.#events.values()];
@@ -1036,6 +1269,9 @@ export class GameController {
    */
   #secretHeld(): boolean {
     const session = this.#session;
+    // Protocol 2 sends the Secret reveal as soon as the result needs it (PROTOCOL-v2 §7.2): v1's wait for a full view
+    // protected the freeze, which v2 does not have.
+    if (this.#v2) return false;
     if (session === null || this.#forced || !session.duties().some((d) => d.kind === 'secret')) return false;
     if (this.#viewFull && !this.#behind(session)) return false;
     return this.#secretSince === null || this.#d.now() - this.#secretSince < HOLD_CAP_S;
@@ -1079,9 +1315,10 @@ export class GameController {
     const filters: Filter[] = [{ kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] }];
     if (prevs.size > 0) filters.push({ kinds: [KIND.move], authors: [me], '#e': [...prevs] });
     const whole = secret || saved.some((slot) => this.#unvetted.has(slot));
+    const from = this.#d.now();
     if (whole)
       filters.push({
-        kinds: [...SESSION_KINDS],
+        kinds: [...this.#sessionKinds()],
         authors: [...this.#sessionKeys],
         '#e': [this.rootId],
         limit: this.#page,
@@ -1095,7 +1332,10 @@ export class GameController {
         this.#vetting = false;
         if (this.#disposed) return;
         if (this.#fullAnswer(info)) {
-          if (whole) this.#viewFull = true;
+          if (whole) {
+            this.#viewFull = true;
+            this.#onFullSync(from);
+          }
           this.#vetSaved(false);
           const session = this.#session;
           if (session !== null && this.#behind(session)) this.#resolveMissing(session);
@@ -1110,7 +1350,8 @@ export class GameController {
   /** Whether `ev` is a game event of this game signed by the key its kind needs: a seat's session key or npub. */
   #seated(ev: NostrEvent): boolean {
     if (!ev.tags.some((t) => t[0] === 'e' && t[1] === this.rootId)) return false;
-    if (SESSION_KINDS.includes(ev.kind)) return this.#sessionKeys.has(ev.pubkey);
+    // Protocol 2: an end attestation is signed by the session key or the npub (PROTOCOL-v2 §4.3).
+    if (this.#sessionKinds().includes(ev.kind) && this.#sessionKeys.has(ev.pubkey)) return true;
     return ev.kind === KIND.attest && this.#npubs.has(ev.pubkey);
   }
 
@@ -1126,10 +1367,12 @@ export class GameController {
     const filters = (until: number | null): Filter[] => {
       const page = { '#e': [this.rootId], limit: this.#page, ...(until === null ? {} : { until }) };
       return [
-        { kinds: [...SESSION_KINDS], authors: [...this.#sessionKeys], ...page },
+        { kinds: [...this.#sessionKinds()], authors: [...this.#sessionKeys], ...page },
         { kinds: [KIND.attest], authors: [...this.#npubs], ...page },
       ];
     };
+    // When this sync began, by the local clock (`noteSync`'s `from`, PLAN T15 notes): not the app's start.
+    const from = this.#d.now();
     // Whether every relay answered every page so far: one page answered by every relay and the next by some only
     // leaves the sync partial (D056).
     let full = true;
@@ -1157,7 +1400,11 @@ export class GameController {
         }
         this.#gameEose = true;
         this.#viewFull = full;
+        // Protocol 2: the sync window the refeed reports (`noteSync`); a partial answer completes later.
+        if (this.#v2 && full) this.#lastSync = { from, to: this.#d.now() };
+        else if (this.#v2) this.#partialSync = { from, since: this.#d.now() };
         if (this.#session !== null) this.#feedHeld();
+        if (full) this.#onFullSync(from);
         this.#maybeSynced();
       };
       stop = this.#d.pool.subscribe(filters(until), onEvent, onEose);
@@ -1259,11 +1506,13 @@ export class GameController {
         this.error.value = "Still looking for this game's table and players on the relays…";
       return;
     }
-    const base = {
+    const base: Omit<SessionInput, 'table' | 'me'> = {
       modules: this.#d.modules,
       joins: [...this.#joins.values()],
       root: rootEv,
       rootSeenAt: this.#seen.get(root.id) ?? this.#d.now(),
+      // Protocol 2: what this client decided before a reload (PLAN, T15 notes). Protocol 1 games get nothing new.
+      ...(root.proto === '2' ? this.#v2Input() : {}),
     };
     // The Table the root validates against: validation does not depend on the seat.
     let table: NostrEvent | null = null;
@@ -1319,6 +1568,115 @@ export class GameController {
     if (this.#gameEose) this.#feedHeld();
     this.#refresh();
     this.#maybeSynced();
+  }
+
+  /** The saved protocol 2 decisions (`v2StateKey`) as `SessionInput` fields. */
+  #v2Input(): Pick<SessionInput, 'savedStanding' | 'confirmedForfeits' | 'savedCounted'> {
+    const saved = loadV2State(this.#d.storage, this.#d.profile, this.rootId);
+    return { savedStanding: saved.standing, confirmedForfeits: saved.confirmed, savedCounted: saved.counted };
+  }
+
+  /**
+   * Save what the protocol 2 session decided that a reload must keep (PLAN, T15 notes; D070): when each result first
+   * stood (the earlier time wins, also against another tab's), the own-forfeit confirmations (merged), and the
+   * counted claim or Resign (this session's, else the one saved). Written only on a change.
+   */
+  #saveV2State(): void {
+    const session = this.#session;
+    if (!(session instanceof GameSessionV2) || this.#disposed) return;
+    const stored = loadV2State(this.#d.storage, this.#d.profile, this.rootId);
+    const standing = { ...stored.standing };
+    for (const [key, at] of Object.entries(session.standingTimes())) {
+      const was = standing[key];
+      if (was === undefined || at < was) standing[key] = at;
+    }
+    const confirmed = [...new Set([...stored.confirmed, ...session.confirmedForfeits()])].sort();
+    const counted = session.countedResult() ?? stored.counted;
+    const state: V2Saved = { standing, confirmed, counted };
+    const json = JSON.stringify(state);
+    if (json === this.#v2Written) return;
+    if (writeJson(this.#d.storage, v2StateKey(this.#d.profile, this.rootId), state)) this.#v2Written = json;
+  }
+
+  /** Tell the protocol 2 session about the latest completed sync (`noteSync`), if any. */
+  #applySync(): void {
+    const session = this.#session;
+    const sync = this.#lastSync;
+    if (session instanceof GameSessionV2 && sync !== null) session.noteSync(sync.from, sync.to);
+  }
+
+  /**
+   * A sync of the game's events completed with every counted relay answering (protocol 2): the initial sync, or a
+   * later whole-game query. It is reported to the session (`noteSync(from, now)`, PLAN T15 notes), the capped claims
+   * and Resigns are fed again, and a saved counted result still waiting for its events has them fetched again.
+   */
+  #onFullSync(from: number): void {
+    if (!this.#v2 || this.#disposed) return;
+    this.#lastSync = { from, to: this.#d.now() };
+    this.#partialSync = null;
+    this.#refetched = null;
+    const session = this.#session;
+    // Before the session exists or the relays sent all, the refeed reports it (`#feedHeld`).
+    if (session === null || !this.#gameEose) return;
+    this.#applySync();
+    this.#refeedCapped(session, null);
+    this.#refetchCounted();
+  }
+
+  /** A sync left partial by a silent relay ends now: at Send anyway, or at the hold cap (PLAN T15 notes). */
+  #endPartialSync(): void {
+    const partial = this.#partialSync;
+    if (partial !== null) this.#onFullSync(partial.from);
+  }
+
+  /** Protocol 2 housekeeping on each tick: a partial sync's hold cap, and the counted result's re-fetch. */
+  #v2Tick(): void {
+    const partial = this.#partialSync;
+    if (partial !== null && this.#d.now() - partial.since >= HOLD_CAP_S) this.#endPartialSync();
+    this.#refetchCounted();
+  }
+
+  /**
+   * A counted claim or Resign restored from the last load still waits for its events after a full sync (D070,
+   * `view.awaitingCounted`): fetch the Timeout claims and Resigns naming its head again, from every counted relay
+   * (PLAN, T15 notes). Once per head per full sync; it stays pending meanwhile, never dropped.
+   */
+  #refetchCounted(): void {
+    const session = this.#session;
+    if (!(session instanceof GameSessionV2) || !this.#viewFull || !this.#gameEose || this.#disposed) return;
+    const waiting = session.view().awaitingCounted;
+    if (waiting === null || this.#refetched === waiting.head) return;
+    this.#refetched = waiting.head;
+    let stop = (): void => {};
+    stop = this.#d.pool.subscribe(
+      [{ kinds: [KIND.timeout, KIND.resign], authors: [...this.#sessionKeys], '#e': [waiting.head] }],
+      (ev) => this.#onEvent(ev),
+      () => {
+        stop();
+        if (this.#disposed) return;
+        this.#refresh();
+        this.#queueDuties();
+      },
+    );
+    this.#stops.push(stop);
+  }
+
+  /**
+   * "You were timed out: accept?" answered yes (PROTOCOL-v2 §8.1, review N2): confirm the Timeout claim the session
+   * asks about (`view.ownForfeit`), save the confirmation, and refresh. True when it made the claim count. The dialog
+   * is the screen's (T17); "Play" is the default, which needs no call.
+   */
+  confirmOwnForfeit(): boolean {
+    const session = this.#session;
+    if (!(session instanceof GameSessionV2) || this.#disposed) return false;
+    const asked = session.view().ownForfeit;
+    if (asked === null) return false;
+    const counted = session.confirmOwnForfeit(asked.claim);
+    this.#saveSeen();
+    this.#saveV2State();
+    this.#refresh();
+    this.#queueDuties();
+    return counted;
   }
 
   /**
@@ -1503,6 +1861,8 @@ export class GameController {
     const now = this.#d.now();
     this.clock.value = now;
     this.#saveSeen();
+    // After the first-seen times, so a saved counted result never refers to times not saved (PLAN, T15 notes).
+    this.#saveV2State();
     if (session === null) return;
     const v = session.view();
     const duties = session.duties();
@@ -1527,7 +1887,7 @@ export class GameController {
    */
   #trackHold(now: number): void {
     const session = this.#session;
-    const secretDue = session?.duties().some((d) => d.kind === 'secret') === true;
+    const secretDue = !this.#v2 && session?.duties().some((d) => d.kind === 'secret') === true;
     const secretWaits =
       secretDue && !this.#forced && !(this.#viewFull && session !== null && !this.#behind(session));
     if (this.#synced && secretWaits) this.#secretSince ??= now;
@@ -1548,6 +1908,8 @@ export class GameController {
     const id = v.resignId;
     const root = this.#root;
     if (!this.#synced || id === null || root === null || this.#echoed.has(id) || this.#disposed) return;
+    // Protocol 2: nothing goes out while a fork is held (the §9.1 rebroadcast is T16's).
+    if ((v as SessionViewV2).fork != null) return;
     const ev = this.#resigns.get(id);
     if (ev === undefined) return;
     this.#echoed.add(id);
@@ -1600,7 +1962,10 @@ export class GameController {
     });
     const me = v.mySeat;
     const undelivered = [...this.#outbox].some(
-      ([slot, e]) => slot.startsWith('share:') && !e.confirmed && !e.orphan,
+      ([slot, e]) =>
+        (slot.startsWith('share:') || slot.startsWith('release:') || slot.startsWith('roll:')) &&
+        !e.confirmed &&
+        !e.orphan,
     );
     if (me === null || !undelivered || v.phase !== 'play' || owed?.seats.includes(me)) return owed;
     return {
@@ -1621,7 +1986,45 @@ export class GameController {
 
   /** An automatic duty is due but failed at this head. */
   #stuck(duties: readonly Duty[], v: SessionView): boolean {
-    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
+    const auto = this.#auto();
+    return duties.some(
+      (d) => auto.includes(d.kind) && this.#failed.has(this.#autoKey(d.kind, duties, v.head.id)),
+    );
+  }
+
+  /**
+   * The key of an automatic duty at a head (`kind@headId`), for `#failed`, `#heldDuties` and `#waits`. A protocol 2
+   * roll duty is keyed by its requesting move too, since one head may owe contributions to more than one.
+   */
+  #autoKey(kind: Duty['kind'], duties: readonly Duty[], headId: string): string {
+    if (kind !== 'roll') return `${kind}@${headId}`;
+    const duty = duties.find((d) => d.kind === 'roll');
+    return `roll:${duty?.kind === 'roll' ? duty.move : ''}@${headId}`;
+  }
+
+  /**
+   * Whether a protocol 2 release is still waiting out its debounce (`RELEASE_DEBOUNCE_MS`): the first time its anchor
+   * is seen the wait starts, and its timer queues the duties again. Each new head is a new anchor, so a burst of moves
+   * gets one release, a second after the last.
+   */
+  #debouncing(duties: readonly Duty[]): boolean {
+    const duty = duties.find((d) => d.kind === 'release');
+    if (duty?.kind !== 'release') return false;
+    const key = `release@${duty.anchor}`;
+    const ready = this.#debounce.get(key);
+    if (ready === true) return false;
+    if (ready === undefined) {
+      // Only the current anchor's wait matters.
+      this.#debounce.clear();
+      this.#debounce.set(key, false);
+      this.#stops.push(
+        this.#d.timers.later(RELEASE_DEBOUNCE_MS, () => {
+          if (this.#debounce.has(key)) this.#debounce.set(key, true);
+          this.#queueDuties();
+        }),
+      );
+    }
+    return true;
   }
 
   /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
@@ -1643,15 +2046,19 @@ export class GameController {
   /* -------------------------------------------------------------------------------------------- duties */
 
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
-    for (const kind of AUTO) {
+    for (const kind of this.#auto()) {
+      if (!duties.some((d) => d.kind === kind)) continue;
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
-      // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
+      // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057). A protocol 2 end
+      // attestation is signed by the session key, so a recovered seat still sends it (T15).
       if (kind === 'attest' && this.recovered.value !== null) continue;
-      if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
+      const key = this.#autoKey(kind, duties, v.head.id);
+      if (this.#blocked(kind, v) || this.#heldDuties.has(key)) continue;
       // Waiting for its date (`#buildDate`) until the wake timer fires (or its time has come, should it be late).
-      const wake = this.#waits.get(`${kind}@${v.head.id}`);
+      const wake = this.#waits.get(key);
       if (wake !== undefined && this.#d.now() < wake) continue;
-      if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
+      if (kind === 'release' && this.#debouncing(duties)) continue;
+      if (!this.#failed.has(key)) return kind;
     }
     return null;
   }
@@ -1666,6 +2073,12 @@ export class GameController {
       return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
     }
     if (kind === 'secret') return this.#secretHeld();
+    // Protocol 2: while a saved release, contribution or end attestation waits to be vetted, a new one of its kind
+    // is not built (it would reuse the saved one unvetted, `#single`).
+    if (kind === 'release' || kind === 'roll' || kind === 'end') {
+      const prefix = `${kind}:`;
+      return [...this.#unvetted].some((slot) => slot.startsWith(prefix));
+    }
     // A saved Shares event still being vetted may carry positions the duty lists (audit-luster F3): only those
     // duties wait, so a silent relay does not hold back reveals of other cards.
     if (kind === 'share') {
@@ -1712,7 +2125,7 @@ export class GameController {
         await this.#yield();
         if (this.#disposed) return;
         const head = session.view().head;
-        const key = `${kind}@${head.id}`;
+        const key = this.#autoKey(kind, session.duties(), head.id);
         try {
           // A duty still due after its event was folded in would loop forever: stop at the second try.
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');
@@ -1727,7 +2140,7 @@ export class GameController {
           }
         } catch (e) {
           this.#failed.add(key);
-          this.error.value = `Could not ${kind === 'deal' ? 'deal' : `send the ${kind}`}: ${errorText(e)}`;
+          this.error.value = `Could not ${kind === 'deal' ? 'deal' : `send the ${DUTY_WORDS[kind] ?? kind}`}: ${errorText(e)}`;
         }
       }
     } finally {
@@ -1756,17 +2169,7 @@ export class GameController {
       // decides only when to sign: a date ahead of it is waited for, never changed.
       const plan = this.#buildDate(session, head.id);
       if (plan !== null && plan.wait > 0) {
-        // One wake time per duty, armed once: ticks do not re-run a waiting duty (`#nextAuto`).
-        const key = `${kind}@${head.id}`;
-        if (!this.#waits.has(key)) {
-          this.#waits.set(key, now() + plan.wait);
-          this.#stops.push(
-            this.#d.timers.later(plan.wait * 1000 + 1000, () => {
-              this.#waits.delete(key);
-              this.#queueDuties();
-            }),
-          );
-        }
+        this.#waitFor(`${kind}@${head.id}`, plan.wait);
         return 'wait';
       }
       if (!(await this.#clearToSign(session, kind, head.id))) return 'held';
@@ -1780,6 +2183,20 @@ export class GameController {
         this.#reusable(slot, head.id) ??
         (kind === 'shuffle' ? session.buildShuffle(det, at) : v1Session(session).buildBeacon(det, at));
       return this.#commit(slot, built);
+    }
+    if ((kind === 'release' || kind === 'roll') && session instanceof GameSessionV2)
+      return this.#performShares(session, kind);
+    if (kind === 'end') {
+      if (!(session instanceof GameSessionV2)) return;
+      const r = session.view().result;
+      if (r === null) return;
+      // One end attestation per result identity (PROTOCOL-v2 §7.1): its slot names the identity, so a reload or a
+      // second try reuses the saved event. Signed by the session key with no prompt, saved before it is published
+      // (`#commit`), and so are the decisions it rests on (the counted result, the first-seen times).
+      const slot = `end:${r.kind}:${r.head}:${r.forfeit.join(',')}`;
+      this.#saveSeen();
+      this.#saveV2State();
+      return this.#single(slot, () => session.buildEndAttest(rnd, now()));
     }
     if ((kind === 'deal' || kind === 'share') && this.#live(this.#dutySlot(session, kind)) === null) {
       // The check before signing, for Shares events: another device's deal or reveal is adopted instead.
@@ -1803,6 +2220,49 @@ export class GameController {
       const after = (): number => (this.#outbox.get('attest')?.event.created_at ?? 0) + 1;
       return this.#single('attest', () => this.#attestEvent(session, after()));
     }
+  }
+
+  /** Arm one wake time for a duty waiting for its date (`#buildDate`): ticks do not re-run it (`#nextAuto`). */
+  #waitFor(key: string, wait: number): void {
+    if (this.#waits.has(key)) return;
+    this.#waits.set(key, this.#d.now() + wait);
+    this.#stops.push(
+      this.#d.timers.later(wait * 1000 + 1000, () => {
+        this.#waits.delete(key);
+        this.#queueDuties();
+      }),
+    );
+  }
+
+  /**
+   * A protocol 2 prompt release (`release:<anchor>`, PROTOCOL-v2 §6.1) or roll contribution (`roll:<move>`, §6.2): a
+   * Shares event anchored on the head, which the session owes only with no fork held, no result, and (for a roll)
+   * its requesting move on the chain (V2-25, V2-34). No check before signing: two devices' Shares events are never a
+   * fork (§6.2), and §9.3 is T16's. Its statement is fixed by the head (the anchor, the positions or roll indices
+   * owed there), so it is built from this seat's deterministic stream and dated from shared events (`#buildDate`),
+   * and two devices built on one head usually sign the same event; where they differ (one device holds a verified
+   * share the other lacks) the share nonces are hedged with the statement (deck `dleq.ts`), so no nonce is reused.
+   */
+  // biome-ignore lint/suspicious/noConfusingVoidType: as `#perform`, every branch but a wait returns its commit's result.
+  async #performShares(session: GameSessionV2, kind: 'release' | 'roll'): Promise<'wait' | void> {
+    const head = session.view().head;
+    const duties = session.duties();
+    const duty = duties.find((d) => d.kind === kind);
+    if (duty === undefined || (duty.kind !== 'release' && duty.kind !== 'roll')) return;
+    const slot = duty.kind === 'release' ? `release:${duty.anchor}` : `roll:${duty.move}`;
+    const saved = this.#live(slot);
+    if (saved !== null) return this.#commit(slot, saved);
+    const plan = this.#buildDate(session, head.id);
+    if (plan !== null && plan.wait > 0) {
+      this.#waitFor(this.#autoKey(kind, duties, head.id), plan.wait);
+      return 'wait';
+    }
+    const label = duty.kind === 'release' ? `release:${duty.anchor}` : `roll:${duty.move}:${duty.anchor}`;
+    const det = plan === null ? this.#d.rnd : this.#buildRnd(label);
+    const at = plan?.at ?? this.#d.now();
+    const built =
+      duty.kind === 'release' ? session.buildRelease(det, at) : session.buildRoll(duty.move, det, at);
+    return this.#commit(slot, built);
   }
 
   /** The outbox slot of a Shares duty: `deal`, or `share:<positions>` for the positions the share duty lists. */
@@ -2041,9 +2501,27 @@ export class GameController {
     const root = this.#root;
     if (this.#disposed || entry === undefined || entry.orphan || root === null || this.#inFlight.has(slot))
       return;
-    // The owner never releases its own private layer (D058, audit-luster F3): a Shares event of a position that is
-    // now this seat's own card is discarded, whatever path brought it here.
     const session = this.#session;
+    // Protocol 2: nothing of this seat's goes out while the session holds a fork (PROTOCOL-v2 §5.7, §6, §7.1; V2-25,
+    // V2-34, V2-37, V2-38), but the Secret reveal its duties still ask for (§7.3, D067), a move already on its chain
+    // (D071 M-1), and an End-phase Timeout claim of a result standing against the fork (N1). The event stays saved.
+    if (session instanceof GameSessionV2 && !this.#sendableNow(session, slot, entry.event)) return;
+    // The owner never releases its own private layer (D058, audit-luster F3): a Shares event of a position that is
+    // now this seat's own card is discarded, whatever path brought it here. In protocol 2 the same guard holds for a
+    // prompt release (§9.2; the session never owes one, so this only catches a stale saved event).
+    if (slot.startsWith('release:') && session !== null) {
+      const own = ownCardReason(
+        this.#releasePositions(entry.event),
+        session.view().mySeat,
+        this.#dealt(session),
+      );
+      if (own !== null) {
+        const fed = this.#fed.has(entry.event.id);
+        this.#discard(slot, own);
+        if (fed) this.#rebuild();
+        return;
+      }
+    }
     if (slot.startsWith('share:') && session !== null) {
       const own = ownCardReason(
         sharePositions(entry.event) ?? [],
@@ -2068,6 +2546,26 @@ export class GameController {
       else this.notice.value = 'Not delivered to any relay yet; retrying.';
     } finally {
       this.#inFlight.delete(slot);
+    }
+  }
+
+  /** Whether a protocol 2 game lets this seat publish the slot's event now (`#publish`). */
+  #sendableNow(session: GameSessionV2, slot: string, ev: NostrEvent): boolean {
+    const v = session.view();
+    if (v.fork === null) return true;
+    if (slot === 'secret') return true;
+    if (slot.startsWith('move:')) return session.chainSeq(ev.id) !== null;
+    if (slot.startsWith('timeout:')) return v.stood;
+    return false;
+  }
+
+  /** The positions of a protocol 2 card Shares event, or none when it is not one. */
+  #releasePositions(ev: NostrEvent): number[] {
+    try {
+      const p = parseSharesV2(ev);
+      return p.type === 'shares' ? p.shares.map((x) => x.pos) : [];
+    } catch {
+      return [];
     }
   }
 

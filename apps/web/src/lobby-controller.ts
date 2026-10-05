@@ -31,6 +31,7 @@ import type { Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex, hexToBytes } from './hex.ts';
 import { backupDue, publishKeyBackup } from './key-backup.ts';
+import { OLDER_VERSION_TABLE, olderTable } from './lobby-model.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
 import {
   addToTableList,
@@ -52,6 +53,16 @@ export interface TableEntry {
   address: string;
   event: NostrEvent;
   table: ParsedTable;
+  /**
+   * Why no module of this client can play the table (`validateTable`: an unknown engine version, a proto its engine
+   * does not support, rules or a seat count it refuses), empty when one can. The open list leaves such tables out.
+   */
+  problems: readonly string[];
+  /**
+   * A protocol 1 Bank or Luster table (PROTOCOL-v2 §2 item 5, V2-53): listed as made by an older version, never
+   * joined or started here. Its game, once started, still loads and plays under v1.
+   */
+  older: boolean;
 }
 
 /** A table this player created or joined, with what its lobby events say. */
@@ -251,8 +262,10 @@ export class LobbyController {
       if (!checked.ok) throw new Error(checked.error.message);
       rules = checked.value;
     }
+    // Every new table is protocol 2 (PROTOCOL-v2 §2 item 5, V2-04); its Joins and root carry the table's proto.
     const template = tableTemplate(
       {
+        proto: '2',
         tableId,
         game,
         version: module.version,
@@ -303,6 +316,10 @@ export class LobbyController {
     const table = tryParseTable(tableEv);
     if (table === null) throw new Error('That table is not valid.');
     if (table.status !== 'open') throw new Error('That table is no longer open.');
+    // Never a protocol 1 Bank or Luster table (V2-53), nor one no engine here can play (V2-05).
+    if (olderTable(table)) throw new Error(OLDER_VERSION_TABLE);
+    const problems = validateTable(table, this.#d.modules);
+    if (problems.length > 0) throw new Error(`This table cannot be played here: ${problems.join('; ')}.`);
     const view = this.#fold(address);
     if (view?.joins.some((j) => j.npub === this.#me)) return;
     const joinEv = await this.#signJoin(table);
@@ -350,6 +367,11 @@ export class LobbyController {
     }
     if (rootEv === null) {
       if (view === null || !view.full) throw new Error('The table is not full yet.');
+      // A root already signed is republished above; a new one is never signed for a protocol 1 Bank or Luster
+      // table (V2-53: no new v1 game of either), nor for a table no engine here can play.
+      if (olderTable(table)) throw new Error(OLDER_VERSION_TABLE);
+      const problems = validateTable(table, this.#d.modules);
+      if (problems.length > 0) throw new Error(`This game cannot be started: ${problems.join('; ')}.`);
       rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), seats));
       if (!writeJson(this.#d.storage, rootKey, rootEv))
         throw new Error('Could not save the game start in this browser.');
@@ -465,7 +487,13 @@ export class LobbyController {
       if (held !== undefined && (held.event.id === ev.id || !supersedes(ev, held.event))) return;
       const table = tryParseTable(ev);
       if (table === null) return;
-      this.#tables.set(table.address, { address: table.address, event: ev, table });
+      this.#tables.set(table.address, {
+        address: table.address,
+        event: ev,
+        table,
+        problems: validateTable(table, this.#d.modules),
+        older: olderTable(table),
+      });
       address = table.address;
       this.#trimTables();
     } else if (ev.kind === KIND.join || ev.kind === KIND.root) {
@@ -531,8 +559,11 @@ export class LobbyController {
     const out: TableEntry[] = [];
     // Current modules only: a table naming an `@` key (a kept older version) is no game to list (review L1).
     const games = currentModules(this.#d.modules);
+    // A table no engine here can play is left out (`validateTable`, V2-05); a protocol 1 Bank or Luster table is
+    // listed, marked `older`, and cannot be joined (V2-53).
     for (const entry of this.#tables.values()) {
-      if (entry.table.status !== 'open' || !games.has(entry.table.game)) continue;
+      if (entry.table.status !== 'open' || !games.has(entry.table.game) || entry.problems.length > 0)
+        continue;
       out.push(entry);
     }
     out.sort((a, b) => b.event.created_at - a.event.created_at || (a.address < b.address ? -1 : 1));
@@ -562,13 +593,15 @@ export class LobbyController {
     for (const address of addresses) {
       const entry = this.#tables.get(address);
       if (entry === undefined) continue;
-      const { event, table } = entry;
+      const { event, table, problems, older } = entry;
       const lobby = this.#fold(address);
       const otherKey = !tableIsMine(this.#d.profile, this.#d.storage, address, this.#me);
       out.push({
         address,
         event,
         table,
+        problems,
+        older,
         role: table.creator === this.#me ? 'creator' : 'player',
         lobby,
         otherKey,
@@ -600,6 +633,7 @@ export class LobbyController {
 }
 
 function specOf(t: ParsedTable): {
+  proto: ParsedTable['proto'];
   tableId: string;
   game: string;
   version: string;
@@ -612,6 +646,8 @@ function specOf(t: ParsedTable): {
   rules: unknown;
 } {
   return {
+    // The started Table keeps the open one's proto: a game has one version for good (PROTOCOL-v2 §2 item 2).
+    proto: t.proto,
     tableId: t.tableId,
     game: t.game,
     version: t.version,

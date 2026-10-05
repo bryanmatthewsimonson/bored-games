@@ -135,7 +135,25 @@ export interface TableLike {
   seats: number;
   open: number;
   status: 'open' | 'started' | 'cancelled';
+  /** The module id; with `proto`, it says whether this client may join (`olderTable`). */
+  game?: string;
+  /** The table's protocol version (PROTOCOL-v2 §2); absent means `'1'`. */
+  proto?: '1' | '2';
 }
+
+/**
+ * Games whose protocol 1 tables this client never creates, joins or starts (PROTOCOL-v2 §2 item 5, V2-53): their v1
+ * forms carry known exposures (Luster's share duty, Bank's counter-bound roll point). Their v1 games already in
+ * progress still load and play under v1.
+ */
+export const NO_V1_TABLES: ReadonlySet<string> = new Set(['bank', 'luster']);
+
+/** Why an open protocol 1 Bank or Luster table cannot be joined (`olderTable`). */
+export const OLDER_VERSION_TABLE = "Made by an older version of the app, so it can't be joined.";
+
+/** Whether `table` is a protocol 1 table of a game this client never joins (`NO_V1_TABLES`). */
+export const olderTable = (table: TableLike): boolean =>
+  (table.proto ?? '1') === '1' && table.game !== undefined && NO_V1_TABLES.has(table.game);
 
 export interface LobbyLike {
   table: TableLike;
@@ -307,6 +325,7 @@ export function joinCheck(lobby: LobbyLike | null, me: Hex): JoinCheck {
   if (t.status === 'cancelled') return no('This table was cancelled.');
   if (me === t.creator) return no('You created this table.');
   if (lobby.joins.some((j) => j.npub === me)) return no('You are seated at this table.');
+  if (olderTable(t)) return no(OLDER_VERSION_TABLE);
   if (joinRequestPending(lobby, me)) return no(REQUEST_PENDING);
   if (t.invited.includes(me)) return { eligible: true, reason: 'invited', why: '' };
   if (freeOpenSeats(lobby) > 0) return { eligible: true, reason: 'open', why: '' };

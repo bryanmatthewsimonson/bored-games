@@ -18,6 +18,7 @@ import {
   cardGameStatus,
   joinButtonLabel,
   joinCheck,
+  OLDER_VERSION_TABLE,
   revealDetail,
   tableChip,
 } from '../lobby-model.ts';
@@ -163,6 +164,22 @@ export function OpenTables(props: { tables: readonly TableEntry[]; me: Hex; empt
       {props.tables.map((t) => {
         const invitedMe = t.table.invited.includes(props.me);
         const free = t.table.open;
+        // A protocol 1 Bank or Luster table (V2-53): shown, never joined.
+        if (t.older)
+          return (
+            <TableCard
+              key={t.address}
+              href={tableHref(t.table.creator, t.table.tableId)}
+              game={t.table.game}
+              seats={t.table.seats}
+              deadline={t.table.deadline}
+              creator={t.table.creator}
+              isCreator={false}
+              chip="open"
+              badge={null}
+              detail={OLDER_VERSION_TABLE}
+            />
+          );
         const failure = error?.address === t.address ? error.message : null;
         const label = busy === t.address ? 'Joining…' : invitedMe ? 'Accept invitation' : 'Join';
         return (
