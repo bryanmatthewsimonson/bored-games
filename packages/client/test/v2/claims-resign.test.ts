@@ -334,9 +334,10 @@ describe('Timeout claims counted with no fork held (Chess)', () => {
     for (const s of t.all) expect(s.view().result).toEqual(want);
     expect(t.players.map((s) => s.canResign())).toEqual([false, false]);
     expect(t.players.map((s) => s.timeoutTarget(LATE))).toEqual([null, null]);
-    // Received before the deadline, the same claim waits for this client's clock.
+    // Received before the deadline, the same claim waits for this client's clock, except on White's own session: a
+    // claim its own seat signed (another device of it) counts at once (PROTOCOL-v2 §9.3, T16).
     const early = replay(t, [...m, claim]);
-    for (const s of early.all) expect(s.view().result).toBeNull();
+    for (const s of early.all) expect(s.view().result).toEqual(s === early.players[0] ? want : null);
     tickAll(early, LATE);
     for (const s of early.all) expect(s.view().result).toEqual(want);
   });
@@ -345,7 +346,9 @@ describe('Timeout claims counted with no fork held (Chess)', () => {
     const t = chessTable('t12-claim-cancel');
     const claim = claimOf(t, 1, t.game.rootId, 0);
     send(t, claim);
-    for (const s of t.all) expect(s.view()).toMatchObject({ phase: 'play', result: null });
+    // Black's own session cancels at once: a claim its own seat signed is accepted (PROTOCOL-v2 §9.3, T16).
+    for (const s of t.all)
+      expect(s.view()).toMatchObject({ phase: s === t.players[1] ? 'cancelled' : 'play', result: null });
     tickAll(t, LATE);
     for (const s of t.all)
       expect(s.view()).toMatchObject({ phase: 'cancelled', result: null, outcome: null, forfeits: [0] });
@@ -463,7 +466,8 @@ describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () =>
     h.noteSync(ROOT_SEEN, ROOT_SEEN + 5);
     const m1 = act(t, 0, mv(0, 'e2e4'));
     const claim = claimOf(t, 0, m1.id, 1);
-    expect(send(t, claim)).toEqual(['stored', 'stored', 'stored']);
+    // Only the claimant's own session takes it: a claim its own seat signed is accepted (PROTOCOL-v2 §9.3, T16).
+    expect(send(t, claim)).toEqual(['accepted', 'stored', 'stored']);
     // Not accepted (H's deadline has not passed, no confirmation), and not asked: H watched the head arrive.
     expect(h.view()).toMatchObject({ phase: 'play', result: null, ownForfeit: null });
     expect(h.duties()).toEqual([{ kind: 'decide' }]);
@@ -475,13 +479,14 @@ describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () =>
     expect(ha.view()).toMatchObject({ result: null, ownForfeit: { claim: claim.id } });
     expect(away.players[0]?.view().ownForfeit).toBeNull();
     expect(away.spectator.view().ownForfeit).toBeNull();
-    // H moves: the claim names an old head, so it fails on every client, whatever their clocks.
+    // H moves: the claim names an old head, so it fails on every client but the claimant's own, whatever their
+    // clocks.
     for (const x of [t, away]) {
       act(x, 1, mv(1, 'e7e5'));
       tickAll(x, LATE);
       for (const s of x.all)
-        expect(s.view()).toMatchObject({ phase: 'play', result: null, ownForfeit: null });
-      expect(x.players[0]?.duties()).toEqual([{ kind: 'decide' }]);
+        if (s !== x.players[0])
+          expect(s.view()).toMatchObject({ phase: 'play', result: null, ownForfeit: null });
     }
   });
 
@@ -552,11 +557,12 @@ describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () =>
     w.noteSync(BACK + 3, BACK + 4);
     expect(w.view()).toMatchObject({ result: null, ownForfeit: null });
     expect(() => t.spectator.confirmOwnForfeit(claim.id)).toThrow(/spectator/);
-    // A confirmation of a claim that does not forfeit only this seat changes nothing.
+    // A confirmation of a claim that does not forfeit only this seat makes nothing count. (White's own session
+    // counted its own seat's claim at once, PROTOCOL-v2 §9.3; Black's, before its deadline, does not.)
     const white = v2Session(t.game, 0);
     for (const ev of [...m, claim]) white.receive(ev, NOW);
     expect(white.confirmOwnForfeit(claim.id)).toBe(false);
-    expect(white.view().result).toBeNull();
+    expect(white.view().result).toEqual(want);
   });
 });
 

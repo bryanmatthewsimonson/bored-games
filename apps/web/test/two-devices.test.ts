@@ -67,7 +67,8 @@ describe('The check before signing (D059 item 2)', () => {
     // The tablet plays another move on the same parent: the check finds the phone's and folds it in instead.
     await expect(t.act({ type: 'move', actor: 0, uci: 'd2d4' })).rejects.toThrow(ALREADY_MOVED);
     expect(t.view.value?.head.seq).toBe(1);
-    expect(net.published).toEqual([]);
+    // Nothing it signed went out (a protocol 2 device rebroadcasts what it received, PROTOCOL-v2 §9.1).
+    expect(net.built()).toEqual([]);
     expect(outboxSlots(tablet, rootId)).toEqual([]);
     expect(await movesOn(root, wKey)).toHaveLength(1);
     await pause(300);
@@ -111,7 +112,8 @@ describe('The check before signing (D059 item 2)', () => {
 
     await expect(t.act({ type: 'move', actor: 0, uci: 'd2d4' })).rejects.toThrow(ALREADY_MOVED);
     expect(t.view.value?.head.id).toBe(onOwn[0]?.id);
-    expect(net.published).toEqual([]);
+    // Nothing it signed went out (a protocol 2 device rebroadcasts what it received, PROTOCOL-v2 §9.1).
+    expect(net.built()).toEqual([]);
   }, 60_000);
 });
 

@@ -264,13 +264,19 @@ export function laggingOwn(real: PoolLike, key: () => string | null) {
   const net = {
     offline: false,
     published: [] as string[],
+    /** The ids this device received: a protocol 2 device rebroadcasts them (PROTOCOL-v2 §9.1). */
+    received: new Set<string>(),
+    /** What this device published that it never received: the events it built and signed itself. */
+    built: (): string[] => net.published.filter((id) => !net.received.has(id)),
     pool: {
       subscribe: (filters, onEvent, onEose, opts) => {
         const paged = filters.some((f) => f.limit !== undefined);
         return real.subscribe(
           filters,
           (ev, url) => {
-            if (!paged || ev.pubkey !== key()) onEvent(ev, url);
+            if (paged && ev.pubkey === key()) return;
+            net.received.add(ev.id);
+            onEvent(ev, url);
           },
           onEose,
           opts,
@@ -292,10 +298,13 @@ export function offlinePool(real: PoolLike) {
   const net = {
     offline: true,
     published: [] as string[],
+    /** Every publish asked for, offline or not. */
+    attempted: [] as string[],
     pool: {
       subscribe: (filters, onEvent, onEose?: (info: EoseInfo) => void, opts?) =>
         real.subscribe(filters, onEvent, onEose, opts),
       publish: async (ev: NostrEvent, urls?: readonly string[]) => {
+        net.attempted.push(ev.id);
         if (net.offline) return [{ url: 'offline', ok: false, message: 'offline' }];
         net.published.push(ev.id);
         return real.publish(ev, urls);

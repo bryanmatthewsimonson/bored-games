@@ -109,9 +109,10 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
     const guard = (p: () => Profile) => (ev: NostrEvent) => {
       const q = p();
       if (ev.kind !== KIND.attest) return;
-      const saved = [...loadOutbox(q.deps.storage, q.name, rootOf.id).values()].some(
-        (e) => e.event.id === ev.id,
-      );
+      const outbox = [...loadOutbox(q.deps.storage, q.name, rootOf.id).values()];
+      // Only this seat's own: the device also rebroadcasts the other seat's (PROTOCOL-v2 §9.1).
+      if (!outbox.some((e) => e.event.pubkey === ev.pubkey)) return;
+      const saved = outbox.some((e) => e.event.id === ev.id);
       if (!saved && parseAttestV2(ev).variant === 'end') unsaved.push(ev.id);
     };
     const rootOf = { id: '' };
@@ -241,14 +242,18 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
       expect(g.legal.value).toEqual([]);
       expect(g.canResign.value).toBe(false);
     }
-    const before = wNet.published.size;
+    // What White signed that reached the relay (its device also rebroadcasts what it received, PROTOCOL-v2 §9.1).
+    const w = (await seatsOf(rootId))[0] as { session: Hex; npub: Hex };
+    const built = async (): Promise<string[]> =>
+      (await h.query([{ authors: [w.session, w.npub], '#e': [rootId] }])).map((ev) => ev.id).sort();
+    const before = await built();
     for (let i = 0; i < 3; i++) {
       gw.tick();
       gb.tick();
       await pause(300);
     }
     // White published nothing after the stop, and nobody end- or stats-attested it.
-    expect(wNet.published.size).toBe(before);
+    expect(await built()).toEqual(before);
     expect((await gameEvents(rootId)).filter((ev) => ev.kind === KIND.attest)).toEqual([]);
     await expect(gw.act(chessMove(0, 'g1f3'))).rejects.toThrow();
 

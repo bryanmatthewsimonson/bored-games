@@ -170,7 +170,8 @@ describe('The key backup (D065)', () => {
     await waitFor('Black sees the move', () => blackGame.view.value?.head.seq === 1);
     await expect(phone.act({ type: 'move', actor: 0, uci: 'd2d4' })).rejects.toThrow(ALREADY_MOVED);
     expect(phone.view.value?.head.seq).toBe(1);
-    expect(net.published).toEqual([]);
+    // Nothing it signed went out (a protocol 2 device rebroadcasts what it received, PROTOCOL-v2 §9.1).
+    expect(net.built()).toEqual([]);
     const moves = await h.query([{ kinds: [KIND.move], authors: [wKey], '#e': [rootId] }]);
     expect(moves).toHaveLength(1);
     // Black answers; both devices of White see it and agree.

@@ -26,8 +26,12 @@
  *   ones included; a load refeeds in first-seen order at the saved times with no live event in between, then ticks;
  *   `standingTimes()`, `confirmedForfeits()` and `countedResult()` are saved with the first-seen times and passed back
  *   on the next load (`v2StateKey`); each completed sync is reported with `noteSync`. Nothing of this seat's goes out
- *   while the session holds a fork, but what its duties still ask for (the Secret reveal, D067). Saved protocol 2
- *   events are vetted by `GameSessionV2.vetSaved` before they are sent (the rest of §9 is T16's).
+ *   while the session holds a fork, but what its duties still ask for (the Secret reveal, D067).
+ * - Protocol 2's §9 (T16, D073): every saved event is vetted by `GameSessionV2.vetSaved` after a full answer before it
+ *   is sent again (§9.2); the check before signing also asks for the seat's claims, Resigns and attestations, so the
+ *   session adopts what another device of the seat decided (§9.3); and the session's rebroadcast set goes to the
+ *   root's relays and the player's own, each event once after it is first held and, after each sync, to the relays
+ *   an `ids` query finds lacking it, never an event of this seat's still in the outbox (§9.1, §9.4).
  */
 import {
   ClientError,
@@ -39,7 +43,6 @@ import {
   type Session,
   type SessionInput,
   type SessionView,
-  type SessionViewV2,
   seatForGameKeys,
   v1Session,
 } from '@bored-games/client';
@@ -222,7 +225,8 @@ const vetted = (slot: string): boolean =>
  * L2): the Secret reveal, Timeout claims and the stats attestation. `vetSaved` decides only whether they are sent:
  * a Secret reveal waits while the game is live here, so a deck secret is never published mid-game.
  */
-const vettedFedV2 = (slot: string): boolean => slot === 'secret' || slot.startsWith('timeout:') || slot === 'attest';
+const vettedFedV2 = (slot: string): boolean =>
+  slot === 'secret' || slot.startsWith('timeout:') || slot === 'attest';
 
 /**
  * The longest wait (ms) for a check-before-signing query's answer (D059 item 2), beyond the pool's own EOSE
@@ -245,7 +249,8 @@ export const ALREADY_MOVED = 'you already played this turn on another device';
  * Why `act` or `claimTimeout` refuses once the check before signing found the game decided (protocol 2, PROTOCOL-v2
  * §9.3): a Timeout claim or a result this seat decided on another device, or one that counts now.
  */
-export const GAME_DECIDED = 'the game was already decided (on another device of yours, or by a claim or resignation)';
+export const GAME_DECIDED =
+  'the game was already decided (on another device of yours, or by a claim or resignation)';
 
 /**
  * How long (s) a saved event or the Secret reveal may be held back waiting for every counted relay, or for the
@@ -1329,7 +1334,8 @@ export class GameController {
               : slot.startsWith('end:')
                 ? 'end attestation'
                 : 'move';
-    this.#note(`A ${what} saved on this device was never sent, and it was discarded: ${why}.`);
+    const article = what === 'end attestation' ? 'An' : 'A';
+    this.#note(`${article} ${what} saved on this device was never sent, and it was discarded: ${why}.`);
   }
 
   /** Build the session again from the relays' events and the outbox, after a folded-in event was discarded. */
@@ -2461,7 +2467,10 @@ export class GameController {
   /**
    * The check before signing (D059 item 2; prompt-reveal §5.1 rule 9): ask the relays, the root's and this player's
    * own, for this seat's moves on the current head and its Shares events and Resigns, and fold in what comes (an
-   * event this seat sent from another device is adopted). `clear` once every live counted relay answered (dead ones
+   * event this seat sent from another device is adopted). Protocol 2 (PROTOCOL-v2 §9.3, T16) also asks for the seat's
+   * Timeout claims, Resigns and attestations by its session key and npub, then for the heads they name that are not
+   * held and the claims and Resigns naming each attested head, so the session adopts a claim or result another
+   * device of the seat decided (`GameSessionV2`'s fold). `clear` once every live counted relay answered (dead ones
    * left out; with none alive there is nothing to ask, and the D056 outbox rule still vets the event before any
    * republish); otherwise `hold`, until `HOLD_CAP_S` has passed since the first such answer for this `slot`
    * (`kind@headId`), or Send anyway.
@@ -2500,7 +2509,9 @@ export class GameController {
     };
     let ok = await this.#ask(filters, onEvent);
     const more: Filter[] = [];
-    const missing = [...named].filter((id) => session.chainSeq(id) === null && session.branchOf(id) === 'unknown');
+    const missing = [...named].filter(
+      (id) => session.chainSeq(id) === null && session.branchOf(id) === 'unknown',
+    );
     if (missing.length > 0) more.push({ ids: missing });
     if (results.size > 0)
       more.push({ kinds: [KIND.timeout, KIND.resign], authors: [...this.#sessionKeys], '#e': [...results] });

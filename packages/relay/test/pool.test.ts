@@ -463,7 +463,9 @@ describe('RelayPool', () => {
     latest(B).open();
     const got: string[] = [];
     const onEose = vi.fn();
-    const stop = p.subscribe([{ ids: ['x'] }], (ev, url) => got.push(`${url}:${ev.id}`), onEose, { urls: [B] });
+    const stop = p.subscribe([{ ids: ['x'] }], (ev, url) => got.push(`${url}:${ev.id}`), onEose, {
+      urls: [B],
+    });
     expect(latest(A).frames()).toEqual([]);
     expect(latest(B).frames()).toEqual([['REQ', 'bg-1', { ids: ['x'] }]]);
     // A relay not asked cannot answer for it.
