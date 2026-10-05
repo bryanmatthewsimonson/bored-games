@@ -69,6 +69,7 @@ import { type OutboxCtx, type Rebroadcast, rebroadcast, type Verdict, vetSaved }
 import {
   attestedResult,
   endAttestedSeats,
+  endCounts,
   endProblem,
   endVerdict,
   lineLogHash,
@@ -1395,10 +1396,18 @@ export class GameSessionV2 implements Session {
    *   identity is (claim, head, those seats), §5.3. One exception (review N2, V2-52): a claim whose stalled seats are
    *   this seat alone counts before the deadline only once this seat's player confirmed it (`confirmOwnForfeit`,
    *   `SessionInput.confirmedForfeits`). The lowest valid id counts.
+   * - The check before signing's adoptions (PROTOCOL-v2 §9.3; T16), so one seat's devices never end on different
+   *   results: a claim signed by this seat (another device of it, or this one) that names the walk's head counts
+   *   without waiting for this client's own deadline (that device's clock passed it), and a claim or Resign result
+   *   this seat end-attested with a valid attestation (another device counted it) is adopted as if this client had
+   *   counted it before a reload (`savedCounted`): it ends the game here at once and counts once its event is held
+   *   and its head is on the walk. A claim naming a head below the walk's head is adopted through the end
+   *   attestation, which carries the forfeiting seats.
    */
   private decideCounted(): void {
     if (this.counted !== null || this.current.fork !== null) return;
     const onChain = new Set<Hex>([this.root.id, ...this.current.chain.map((h) => h.m.id)]);
+    this.savedCounted ??= this.attestedByMe();
     if (this.savedCounted !== null) {
       this.restoreCounted(this.savedCounted, onChain);
       return;
@@ -1420,11 +1429,37 @@ export class GameSessionV2 implements Session {
     const id = [...this.store.claims.values()]
       .filter((c) => c.ev.headId === head && !stalled.includes(c.seat))
       .map((c) => c.ev.id)
-      .filter((x) => due || (own && this.confirmed.has(x)))
+      .filter((x) => due || (own && this.confirmed.has(x)) || this.byMe(this.store.claims.get(x)?.seat))
       .sort()[0];
     if (id === undefined) return;
     this.counted = { kind: 'claim', id, head, seats: stalled };
     this.cutoffChanged();
+  }
+
+  /** Whether `seat` is this client's own seat (a claim or end attestation another device of it signed). */
+  private byMe(seat: number | undefined): boolean {
+    return this.me !== null && seat === this.me.seat;
+  }
+
+  /**
+   * A claim or Resign result this seat end-attested (PROTOCOL-v2 §9.3: another device of it counted it), to adopt:
+   * from this seat's valid end attestations (`endCounts`) of a `claim` or `resign` identity, the lowest result key.
+   * Its id is the lowest held claim or Resign supporting it, or the attestation's own id while none is held
+   * (`restoreCounted` then takes the lowest supporting id). Null for a spectator or when there is none.
+   */
+  private attestedByMe(): CountedResult | null {
+    if (this.me === null) return null;
+    let best: { key: string; r: CountedResult } | null = null;
+    for (const [id, x] of this.store.ends) {
+      if (!this.byMe(x.seat) || x.ev.end.kind === 'over') continue;
+      if (!endCounts(this.store, this.ctx.seats, x.ev)) continue;
+      const r = attestedResult(x.ev);
+      if (r.forfeit.length === 0 || (r.kind === 'resign' && r.forfeit.length !== 1)) continue;
+      const key = resultKey(r);
+      if (best !== null && best.key <= key) continue;
+      best = { key, r: { kind: r.kind as 'claim' | 'resign', id, head: r.head, forfeit: [...r.forfeit] } };
+    }
+    return best?.r ?? null;
   }
 
   /**
@@ -1563,21 +1598,23 @@ export class GameSessionV2 implements Session {
    * Accept an End-phase claim when one is due (v1 §8.1 "Accepting", by this client's own clock): the game has a
    * result whose End phase owes secrets, some seat's secret is missing, and a kept Timeout claim names the result's
    * scoring point (its head, or S: never the fork point P, review N1; for a Resign also its head H or any held move at
-   * or past H, every S it has had, D069) signed by a seat whose secret is in, with `now ≥ P + deadline`. The lowest
-   * such claim id is recorded, and every seat stalled then forfeits. Final for that result, by its identity whatever
-   * its S (v1 §8.2 "Finality", D069).
+   * or past H, every S it has had, D069) signed by a seat whose secret is in, with `now ≥ P + deadline`, or signed by
+   * this client's own seat (another device of it accepted it, §9.3). The lowest such claim id is recorded, and every
+   * seat stalled then forfeits. Final for that result, by its identity whatever its S (v1 §8.2 "Finality", D069).
    */
   private decideEndClaim(): void {
     const e = this.ending();
     if (e === null || !this.needsSecrets(e) || this.endClaims.has(e.key)) return;
     const stalled = this.endStalled(e);
-    if (stalled.length === 0 || this.clock < this.progress() + this.root.deadline) return;
+    if (stalled.length === 0) return;
+    // A claim this seat signed (another device of it) counts without this client's own deadline (§9.3, T16).
+    const due = this.clock >= this.progress() + this.root.deadline;
     // A Resign's S can move after it stands (a fork between H and S, or moves past S): a claim naming H or any move
     // at or past it counts, so one built at an earlier S still does (D069, review of T11 L1).
     const names = (h: Hex): boolean =>
       h === e.point.id || (e.r.kind === 'resign' && this.store.atOrPast(h, e.r.head));
     const ids = [...this.store.claims.values()]
-      .filter((c) => names(c.ev.headId) && !stalled.includes(c.seat))
+      .filter((c) => names(c.ev.headId) && !stalled.includes(c.seat) && (due || this.byMe(c.seat)))
       .map((c) => c.ev.id)
       .sort();
     const id = ids[0];

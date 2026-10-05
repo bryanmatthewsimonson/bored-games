@@ -172,6 +172,16 @@ const AUTO_V2: readonly Duty['kind'][] = ['shuffle', 'deal', 'release', 'roll', 
  */
 export const RELEASE_DEBOUNCE_MS = 1000;
 
+/**
+ * The §9.1 rebroadcast of a protocol 2 game (T16): at most this many events are published in one pass after they are
+ * first held (the rest follow `GOSSIP_PAUSE_MS` later), and the per-relay pass after a sync runs at most once per
+ * `GOSSIP_SYNC_S`, asking each relay for the ids it holds in chunks of `GOSSIP_IDS`.
+ */
+export const GOSSIP_BATCH = 200;
+export const GOSSIP_PAUSE_MS = 1000;
+export const GOSSIP_SYNC_S = 600;
+const GOSSIP_IDS = 250;
+
 /** How a failed automatic duty is named in `error` (protocol 1 kinds keep their own names). */
 const DUTY_WORDS: Partial<Record<Duty['kind'], string>> = {
   release: 'card reveal',
@@ -208,6 +218,13 @@ const vetted = (slot: string): boolean =>
   slot.startsWith('end:');
 
 /**
+ * Protocol 2 slots that are vetted too, but fed to the session at load like any held event (T16, review of T14+T15
+ * L2): the Secret reveal, Timeout claims and the stats attestation. `vetSaved` decides only whether they are sent:
+ * a Secret reveal waits while the game is live here, so a deck secret is never published mid-game.
+ */
+const vettedFedV2 = (slot: string): boolean => slot === 'secret' || slot.startsWith('timeout:') || slot === 'attest';
+
+/**
  * The longest wait (ms) for a check-before-signing query's answer (D059 item 2), beyond the pool's own EOSE
  * timeout, so a check never blocks for ever.
  */
@@ -223,6 +240,12 @@ const MAX_WAIT_S = 86_400;
 
 /** Why `act` refuses a move this seat already made on another device (D059 item 2). */
 export const ALREADY_MOVED = 'you already played this turn on another device';
+
+/**
+ * Why `act` or `claimTimeout` refuses once the check before signing found the game decided (protocol 2, PROTOCOL-v2
+ * §9.3): a Timeout claim or a result this seat decided on another device, or one that counts now.
+ */
+export const GAME_DECIDED = 'the game was already decided (on another device of yours, or by a claim or resignation)';
 
 /**
  * How long (s) a saved event or the Secret reveal may be held back waiting for every counted relay, or for the
@@ -505,6 +528,8 @@ export class GameController {
   #forced = false;
   /** A vetting query is in flight. */
   #vetting = false;
+  /** Protocol 2: this seat's saved moves discarded by `#vetSaved` (this load), so saved moves built on them go too. */
+  readonly #droppedMoves = new Set<string>();
   /** Shuffle steps republished with this seat's deal (D056). */
   readonly #echoedSteps = new Set<string>();
   /** When this profile first saw each event of this game (Unix seconds), saved in storage. */
@@ -555,6 +580,16 @@ export class GameController {
    * events (protocol 2, D070), since the last full sync.
    */
   #refetched: string | null = null;
+  /**
+   * The rebroadcast (PROTOCOL-v2 §9.1, T16): the ids published once after first holding them (or checked at every
+   * relay by the pass after a sync), whether that live rebroadcast has begun (after the first pass after a sync), when
+   * that pass last ran, and whether one, or a deferred live batch, is pending.
+   */
+  readonly #gossiped = new Set<string>();
+  #gossipReady = false;
+  #gossipSyncAt: number | null = null;
+  #gossipSyncing = false;
+  #gossipQueued = false;
   /** The protocol 2 decisions last saved (`#saveV2State`), as JSON: storage is written only on a change. */
   #v2Written = '';
 
@@ -642,6 +677,8 @@ export class GameController {
         if (this.#disposed) throw new Error('The game screen was closed.');
         if (session.view().head.id !== head.id || this.#otherMine(`move:${head.id}`, null))
           throw new Error(ALREADY_MOVED);
+        // Protocol 2 (§9.3): the session adopted a claim or result another device of this seat decided.
+        if (this.#v2 && !session.duties().some((d) => d.kind === 'decide')) throw new Error(GAME_DECIDED);
         if (check === 'hold')
           throw new Error(
             'checking that you have not already played this turn on another device: not every relay has answered yet. Try again in a moment',
@@ -672,8 +709,21 @@ export class GameController {
       if (this.#disposed) throw new Error('The game screen was closed.');
       const head = session.view().head;
       const slot = `timeout:${seat}:${head.id}`;
-      const ev = this.#outbox.get(slot)?.event ?? session.buildTimeout(seat, this.#d.rnd, this.#d.now());
-      this.#commit(slot, ev);
+      let ev = this.#outbox.get(slot)?.event ?? null;
+      if (ev === null && this.#v2) {
+        // The check before signing (PROTOCOL-v2 §9.3, V2-46): another device of this seat may have claimed already,
+        // or played, or end-attested a result; the session adopts what it finds, and no second claim is signed.
+        const check = await this.#checkBeforeSign(session, `timeout@${head.id}`);
+        if (this.#disposed) throw new Error('The game screen was closed.');
+        if (session.view().head.id !== head.id) throw new Error('the game moved on meanwhile');
+        if (session.timeoutTarget(this.#d.now()) !== seat) throw new Error(GAME_DECIDED);
+        if (check === 'hold')
+          throw new Error(
+            'not every relay has answered yet, so it is not known whether you already claimed on another device. Try again in a moment',
+          );
+        ev = this.#outbox.get(slot)?.event ?? null;
+      }
+      this.#commit(slot, ev ?? session.buildTimeout(seat, this.#d.rnd, this.#d.now()));
       this.error.value = null;
     } catch (e) {
       this.error.value = `The timeout claim was not sent: ${errorText(e)}`;
@@ -977,8 +1027,9 @@ export class GameController {
     for (const [slot, entry] of this.#outbox) {
       // A deal of this seat's is fed even when refused and never sent: the session must know the seat dealt, so it
       // owes no second deal (D056, review F7).
-      if (this.#unvetted.has(slot) || (entry.orphan && !entry.confirmed && !this.#ownDeal(slot, entry)))
-        continue;
+      // Protocol 2's vetted Secret reveal, claims and stats attestation are fed all the same (`vettedFedV2`).
+      const waits = this.#unvetted.has(slot) && !(this.#v2 && vettedFedV2(slot));
+      if (waits || (entry.orphan && !entry.confirmed && !this.#ownDeal(slot, entry))) continue;
       held.push({ ev: entry.event, slot });
     }
     for (const ev of this.#buffer.splice(0)) held.push({ ev, slot: null });
@@ -1023,7 +1074,8 @@ export class GameController {
     const dealing = this.#session?.view().phase === 'deal';
     return [...this.#outbox]
       .filter(
-        ([slot, e]) => vetted(slot) && !e.confirmed && (!e.orphan || (dealing && this.#ownDeal(slot, e))),
+        ([slot, e]) =>
+          this.#vetted(slot) && !e.confirmed && (!e.orphan || (dealing && this.#ownDeal(slot, e))),
       )
       .map(([slot]) => slot);
   }
@@ -1066,8 +1118,9 @@ export class GameController {
     const v2 = session instanceof GameSessionV2 ? session : null;
     let rebuild = false;
     // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
-    // than waiting for ever on a parent that will never come.
-    const dropped = new Set<string>();
+    // than waiting for ever on a parent that will never come. Protocol 2 remembers them across passes (T16): a
+    // saved move whose parent, a saved move of this seat, was discarded earlier never waits for it.
+    const dropped = v2 !== null ? this.#droppedMoves : new Set<string>();
     for (const slot of slots) {
       const entry = this.#outbox.get(slot);
       if (entry === undefined) continue;
@@ -1108,8 +1161,11 @@ export class GameController {
       }
       let verdict = v2 !== null ? 'send' : this.#verdict(session, slot, ev, fed);
       if (verdict === 'wait') continue;
+      // Fed in this pass to be checked (an event never fed is fed first, and discarded if the session refuses it).
+      let fedNow = false;
       if (verdict === 'send' && !fed) {
         this.#fed.add(ev.id);
+        fedNow = true;
         const r = this.#receive(session, ev);
         if (r.status === 'rejected') verdict = `the game refuses it (${r.reason})`;
       }
@@ -1118,7 +1174,10 @@ export class GameController {
         void this.#publish(slot);
         continue;
       }
-      if (fed) rebuild = true;
+      // A protocol 2 session holds even the events it refuses (rule (b) of the cutoff reads them), so one fed only
+      // to be checked here is rebuilt away too: no session keeps an own event that was never sent (T16, review of
+      // T14+T15 L4).
+      if (fed || (fedNow && v2 !== null)) rebuild = true;
       if (ev.kind === KIND.move) dropped.add(ev.id);
       this.#discard(slot, verdict);
     }
@@ -1430,6 +1489,11 @@ export class GameController {
     this.#stops.push(stop);
   }
 
+  /** Whether a saved event in `slot` is vetted before it is sent again (`vetted`, and `vettedFedV2` in protocol 2). */
+  #vetted(slot: string): boolean {
+    return vetted(slot) || (this.#v2 && vettedFedV2(slot));
+  }
+
   /** Whether `ev` is a game event of this game signed by the key its kind needs: a seat's session key or npub. */
   #seated(ev: NostrEvent): boolean {
     if (!ev.tags.some((t) => t[0] === 'e' && t[1] === this.rootId)) return false;
@@ -1513,6 +1577,10 @@ export class GameController {
     this.#storedTable = loadTable(this.#d.storage, this.#d.profile, this.rootId, root.tableAddress);
     if (this.#storedTable !== null) this.table.value = parseTable(this.#storedTable);
     this.#mySession = root.seats.find((s) => s.npub === this.#d.signer.pubkey)?.session ?? null;
+    // Protocol 2 also vets the saved Secret reveal, Timeout claims and stats attestation before they go out again.
+    if (root.proto === '2')
+      for (const [slot, e] of this.#outbox)
+        if (vettedFedV2(slot) && !e.confirmed && !e.orphan) this.#unvetted.add(slot);
     this.#subscribeGame(root);
     const seats = root.seats.map((s) => s.npub);
     this.seats.value = seats;
@@ -1704,6 +1772,7 @@ export class GameController {
     this.#applySync();
     this.#refeedCapped(session, null);
     this.#refetchCounted();
+    this.#gossipAfterSync();
   }
 
   /** A sync left partial by a silent relay ends now: at Send anyway, or at the hold cap (PLAN T15 notes). */
@@ -1925,6 +1994,8 @@ export class GameController {
     this.#retryUndelivered();
     this.#refresh();
     this.#queueDuties();
+    // The rebroadcast after the initial sync, once every counted relay answered it (a partial one completes later).
+    if (this.#viewFull) this.#gossipAfterSync();
   }
 
   /* ------------------------------------------------------------------------------------------- refresh */
@@ -1960,6 +2031,7 @@ export class GameController {
     this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
+    this.#gossipNew();
     this.#cacheStatus(v.head.seq, this.status.value, now, owed);
     this.#maybePrune(v, duties);
   }
@@ -1991,8 +2063,8 @@ export class GameController {
     const id = v.resignId;
     const root = this.#root;
     if (!this.#synced || id === null || root === null || this.#echoed.has(id) || this.#disposed) return;
-    // Protocol 2: nothing goes out while a fork is held (the §9.1 rebroadcast is T16's).
-    if ((v as SessionViewV2).fork != null) return;
+    // Protocol 2: the §9.1 rebroadcast publishes every held Resign, the counted one included (`#gossipNew`).
+    if (this.#v2) return;
     const ev = this.#resigns.get(id);
     if (ev === undefined) return;
     this.#echoed.add(id);
@@ -2155,7 +2227,9 @@ export class GameController {
     if (kind === 'shuffle' || kind === 'beacon') {
       return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
     }
-    if (kind === 'secret') return this.#secretHeld();
+    // Protocol 2: a saved Secret reveal or stats attestation still being vetted is not reused and sent by the duty.
+    if (kind === 'secret') return this.#secretHeld() || (this.#v2 && this.#unvetted.has('secret'));
+    if (kind === 'attest' && this.#v2 && this.#unvetted.has('attest')) return true;
     // Protocol 2: while a saved release, contribution or end attestation waits to be vetted, a new one of its kind
     // is not built (it would reuse the saved one unvetted, `#single`).
     if (kind === 'release' || kind === 'roll' || kind === 'end') {
@@ -2394,12 +2468,59 @@ export class GameController {
    */
   async #checkBeforeSign(session: Session, slot: string): Promise<'clear' | 'hold'> {
     const me = this.#mySession;
-    if (me === null || this.#root === null || this.#disposed) return 'clear';
+    const root = this.#root;
+    if (me === null || root === null || this.#disposed) return 'clear';
     const head = session.view().head.id;
     const filters: Filter[] = [
       { kinds: [KIND.move], authors: [me], '#e': [head] },
       { kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] },
     ];
+    // Protocol 2 (PROTOCOL-v2 §9.3 step 1): also this seat's Timeout claims, Resigns and attestations, by its session
+    // key and its npub, so the session adopts a claim or result another device of the seat decided (T16).
+    const npub = this.#me === null ? null : (root.seats[this.#me.seat]?.npub ?? null);
+    const v2 = this.#v2;
+    if (v2)
+      filters.push({
+        kinds: [KIND.timeout, KIND.resign, KIND.attest],
+        authors: npub === null ? [me] : [me, npub],
+        '#e': [this.rootId],
+      });
+    // Step 2: what those events name (a claim's or Resign's head, an end attestation's head and the claims or
+    // Resigns of its result), asked for once the first answer is in.
+    const named = new Set<string>();
+    const results = new Set<string>();
+    const onEvent = (ev: NostrEvent): void => {
+      this.#onEvent(ev);
+      if (!v2 || (ev.pubkey !== me && ev.pubkey !== npub)) return;
+      if (ev.kind !== KIND.timeout && ev.kind !== KIND.resign && ev.kind !== KIND.attest) return;
+      const h = ev.tags.find((t) => t[0] === 'e' && t[3] === 'head')?.[1];
+      if (h === undefined) return;
+      named.add(h);
+      if (ev.kind === KIND.attest) results.add(h);
+    };
+    let ok = await this.#ask(filters, onEvent);
+    const more: Filter[] = [];
+    const missing = [...named].filter((id) => session.chainSeq(id) === null && session.branchOf(id) === 'unknown');
+    if (missing.length > 0) more.push({ ids: missing });
+    if (results.size > 0)
+      more.push({ kinds: [KIND.timeout, KIND.resign], authors: [...this.#sessionKeys], '#e': [...results] });
+    if (ok && more.length > 0 && !this.#disposed) ok = await this.#ask(more, (ev) => this.#onEvent(ev));
+    if (ok) {
+      this.#checkSince.delete(slot);
+      return 'clear';
+    }
+    if (this.#forced) return 'clear';
+    const now = this.#d.now();
+    const since = this.#checkSince.get(slot) ?? now;
+    this.#checkSince.set(slot, since);
+    return now - since >= HOLD_CAP_S ? 'clear' : 'hold';
+  }
+
+  /**
+   * One query of the check before signing: true once every live counted relay answered (`#liveAnswer`), false when
+   * some did not within `CHECK_TIMEOUT_MS`.
+   */
+  async #ask(filters: Filter[], onEvent: (ev: NostrEvent) => void): Promise<boolean> {
     const info = await new Promise<EoseInfo | null>((resolve) => {
       let settled = false;
       let stop: (() => void) | null = null;
@@ -2411,7 +2532,7 @@ export class GameController {
         cancel?.();
         resolve(i);
       };
-      const s = this.#d.pool.subscribe(filters, (ev) => this.#onEvent(ev), finish);
+      const s = this.#d.pool.subscribe(filters, onEvent, finish);
       if (settled) s();
       else {
         stop = s;
@@ -2421,15 +2542,7 @@ export class GameController {
       if (settled) c();
       else cancel = c;
     });
-    if (info !== null && this.#liveAnswer(info)) {
-      this.#checkSince.delete(slot);
-      return 'clear';
-    }
-    if (this.#forced) return 'clear';
-    const now = this.#d.now();
-    const since = this.#checkSince.get(slot) ?? now;
-    this.#checkSince.set(slot, since);
-    return now - since >= HOLD_CAP_S ? 'clear' : 'hold';
+    return info !== null && this.#liveAnswer(info);
   }
 
   /**
@@ -2699,7 +2812,7 @@ export class GameController {
     let vet = this.#toVet().some((slot) => this.#outbox.get(slot)?.orphan === true) || this.#secretHeld();
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
-      if (vetted(slot)) {
+      if (this.#vetted(slot)) {
         // Just vetted and being published (after a load): no need to ask the relays again yet.
         if (!this.#inFlight.has(slot)) vet = true;
         continue;
@@ -2712,6 +2825,163 @@ export class GameController {
       void this.#publish(slot);
     }
     if (vet) this.#startVet();
+  }
+
+  /* ------------------------------------------------------------------------- rebroadcast (protocol 2, T16) */
+
+  /**
+   * This seat's saved events no relay has confirmed, orphans included: the rebroadcast never lists them (`unconfirmed`,
+   * PROTOCOL-v2 §9.1's exception, D071 H-1). They go out only through the outbox rule (`#vetSaved`), or never.
+   */
+  #unconfirmedAll(): string[] {
+    return [...this.#outbox.values()].filter((e) => !e.confirmed).map((e) => e.event.id);
+  }
+
+  /**
+   * The event to rebroadcast for `id`: one a relay sent, or one of this seat's that a relay confirmed. Never an event
+   * only saved here (an orphan the session holds after the outbox was pruned, say): it is not public.
+   */
+  #gossipEvent(id: string): NostrEvent | null {
+    const ev = this.#events.get(id);
+    if (ev !== undefined) return ev;
+    for (const e of this.#outbox.values()) if (e.event.id === id) return e.confirmed ? e.event : null;
+    return null;
+  }
+
+  /**
+   * The session's rebroadcast set (`GameSessionV2.rebroadcast`) and where each part goes (PROTOCOL-v2 §9.1, §9.4): the
+   * fork certificate, the chain, this seat's and the other seats' held events to the root's relays and the player's
+   * own; each seat's latest stats attestation and Device notes (`rootOnly`) to the root's relays.
+   */
+  #gossipSet(session: GameSessionV2, root: ParsedRoot): { ids: string[]; urls: string[] }[] {
+    const r = session.rebroadcast(this.#unconfirmedAll());
+    return [
+      {
+        ids: [...r.certificate, ...r.chain, ...r.own, ...r.other],
+        urls: unionRelays(root.relays, this.#d.relays()),
+      },
+      { ids: r.rootOnly, urls: [...root.relays] },
+    ];
+  }
+
+  /**
+   * Publish once each event of the rebroadcast set not published yet: an event first held since the last pass, as
+   * soon as it is held (§9.1). At most `GOSSIP_BATCH` per pass; the rest follow `GOSSIP_PAUSE_MS` later. It starts
+   * after the first pass after a sync (`#gossipAfterSync`), which covers what the sync brought, relay by relay.
+   */
+  #gossipNew(): void {
+    const session = this.#session;
+    const root = this.#root;
+    if (!(session instanceof GameSessionV2) || root === null || !this.#gossipReady || this.#disposed) return;
+    let sent = 0;
+    for (const { ids, urls } of this.#gossipSet(session, root))
+      for (const id of ids) {
+        if (this.#gossiped.has(id)) continue;
+        const ev = this.#gossipEvent(id);
+        if (ev === null) continue;
+        this.#gossiped.add(id);
+        void this.#d.pool.publish(ev, urls).catch(() => {
+          // Best effort: the pass after the next sync sends what a relay still lacks.
+        });
+        if (++sent < GOSSIP_BATCH) continue;
+        if (!this.#gossipQueued) {
+          this.#gossipQueued = true;
+          this.#stops.push(
+            this.#d.timers.later(GOSSIP_PAUSE_MS, () => {
+              this.#gossipQueued = false;
+              this.#gossipNew();
+            }),
+          );
+        }
+        return;
+      }
+  }
+
+  /**
+   * The rebroadcast after a sync with every counted relay (§9.1): each relay of the set is asked which of its events
+   * it holds (an `ids` query on that relay alone), and is sent only those it lacks. At most once per `GOSSIP_SYNC_S`.
+   * It runs after the sync's own vetting, so any saved event discarded there is out of the session first (§9.1).
+   */
+  #gossipAfterSync(): void {
+    if (!this.#v2 || !this.#synced || this.#gossipSyncing || this.#disposed) return;
+    const now = this.#d.now();
+    if (this.#gossipSyncAt !== null && now - this.#gossipSyncAt < GOSSIP_SYNC_S) return;
+    this.#gossipSyncAt = now;
+    this.#gossipSyncing = true;
+    void this.#gossipSync().finally(() => {
+      this.#gossipSyncing = false;
+      this.#gossipReady = true;
+      this.#gossipNew();
+    });
+  }
+
+  async #gossipSync(): Promise<void> {
+    await this.#yield();
+    const session = this.#session;
+    const root = this.#root;
+    if (!(session instanceof GameSessionV2) || root === null || this.#disposed) return;
+    const byUrl = new Map<string, string[]>();
+    for (const { ids, urls } of this.#gossipSet(session, root)) {
+      const known = ids.filter((id) => this.#gossipEvent(id) !== null);
+      for (const id of known) this.#gossiped.add(id);
+      for (const url of urls) byUrl.set(url, [...(byUrl.get(url) ?? []), ...known]);
+    }
+    for (const [url, ids] of byUrl) {
+      if (ids.length === 0) continue;
+      const have = await this.#idsAt(url, ids);
+      if (this.#disposed) return;
+      if (have === null) continue;
+      const pending = new Set(this.#unconfirmedAll());
+      for (const id of ids) {
+        if (have.has(id) || pending.has(id)) continue;
+        const ev = this.#gossipEvent(id);
+        if (ev === null) continue;
+        void this.#d.pool.publish(ev, [url]).catch(() => {
+          // Best effort, as above.
+        });
+      }
+    }
+  }
+
+  /**
+   * The ids among `ids` that relay `url` holds, asked of that relay alone in chunks of `GOSSIP_IDS`; null when it did
+   * not answer every chunk within `CHECK_TIMEOUT_MS`.
+   */
+  async #idsAt(url: string, ids: readonly string[]): Promise<Set<string> | null> {
+    const have = new Set<string>();
+    for (let i = 0; i < ids.length; i += GOSSIP_IDS) {
+      const chunk = ids.slice(i, i + GOSSIP_IDS);
+      const answered = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        let stop: (() => void) | null = null;
+        let cancel: (() => void) | null = null;
+        const finish = (ok: boolean): void => {
+          if (settled) return;
+          settled = true;
+          stop?.();
+          cancel?.();
+          resolve(ok);
+        };
+        const s = this.#d.pool.subscribe(
+          [{ ids: chunk }],
+          (ev) => {
+            have.add(ev.id);
+          },
+          (info) => finish(info.eosedUrls?.includes(url) ?? info.eose === info.relays),
+          { urls: [url] },
+        );
+        if (settled) s();
+        else {
+          stop = s;
+          this.#stops.push(s);
+        }
+        const c = this.#d.timers.later(CHECK_TIMEOUT_MS, () => finish(false));
+        if (settled) c();
+        else cancel = c;
+      });
+      if (!answered || this.#disposed) return null;
+    }
+    return have;
   }
 
   #yield(): Promise<void> {
