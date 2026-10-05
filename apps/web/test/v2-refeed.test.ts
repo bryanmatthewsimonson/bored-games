@@ -7,7 +7,7 @@
  */
 import type { ChessState } from '@bored-games/chess';
 import type { SessionViewV2 } from '@bored-games/client';
-import { finalizeEvent, KIND, moveTemplate, type NostrEvent } from '@bored-games/protocol';
+import { finalizeEvent, moveTemplate, type NostrEvent } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type GameController, loadSeen, loadV2State } from '../src/game-controller.ts';
 import type { PoolLike } from '../src/net.ts';
