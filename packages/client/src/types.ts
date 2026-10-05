@@ -33,6 +33,21 @@ export interface SessionInput {
    * recomputed while the events are fed again, so a reload keeps the End-phase deadline exactly. Ignored by v1.
    */
   savedStanding?: Readonly<Record<string, number>>;
+  /**
+   * Protocol 2 only (PROTOCOL-v2 §8.1, §8.3, D070): the Timeout claim or Resign this client counted with no fork held,
+   * as `GameSessionV2.countedResult()` returned it before a reload. While set it is the only one that may count, once
+   * its event is held and its head is on the walk, so a reload never undoes it whatever the refeed order. Ignored by v1.
+   */
+  savedCounted?: CountedResult | null;
+}
+
+/** A Timeout claim or Resign a protocol 2 client counted with no fork held: its event id and its result's identity. */
+export interface CountedResult {
+  kind: 'claim' | 'resign';
+  id: Hex;
+  head: Hex;
+  /** The forfeiting seats, ascending: those stalled when the claim was accepted, or the resigning seat. */
+  forfeit: number[];
 }
 
 /** `cancelled`: a timeout claim was accepted before the first game action (D030 R5); there is no result. */
@@ -212,7 +227,10 @@ export interface SessionViewV2 extends SessionView {
    * A Timeout claim that forfeits only this seat, awaiting its player's answer (PROTOCOL-v2 §8.1, review N2), or
    * null: it names the walk's head, the seats stalled there are this seat alone, this client's own deadline has not
    * passed, and the device was not watching that head (its first-seen time and the progress time both lie in the
-   * latest sync, `GameSessionV2.noteSync`). "Play" is the default answer; `confirmOwnForfeit` accepts it.
+   * latest sync, `GameSessionV2.noteSync`). "Play" is the default answer; `confirmOwnForfeit` accepts it. `claim` is
+   * the lowest such id, which a lower-id claim at the same head replaces: key the question on `head` (and the
+   * player's "Play" for that head), never on the claim id, so repeated claims cannot re-ask (review of T12, L-2).
+   * Confirming any claim at that head has the same effect.
    */
-  ownForfeit: { claim: Hex } | null;
+  ownForfeit: { claim: Hex; head: Hex } | null;
 }

@@ -52,6 +52,7 @@ import { ClientError } from '../errors.ts';
 import { deckPartitions, parsePartitionMove, shuffleStepGroup } from '../partitioned-deck.ts';
 import type { Session } from '../session-api.ts';
 import type {
+  CountedResult,
   Duty,
   Identity,
   Phase,
@@ -206,14 +207,19 @@ export class GameSessionV2 implements Session {
   /** When this client first saw each held event (its first `receive`), for the progress time P. */
   private readonly seenAt = new Map<Hex, number>();
   /**
-   * The latest first-seen time of the held events that can help a result stand (`touch`): Moves and Shares events
-   * not refused, end attestations with no problem (valid, or not resolved yet), and claims and Resigns kept on a held
-   * head or promoted to one; never an event answered `rejected`, nor one still waiting for its head (the Move that
-   * promotes it counts then, with it). A result first standing here stands no earlier than it (`noteStanding`), the
-   * fallback floor for a refeed in another order (D069, review of T11 L2; narrowed by D070, review L-A). The exact
-   * time is the one persisted: `standingTimes()` and `SessionInput.savedStanding`.
+   * Per seat, the latest first-seen time of the held events that can help a result stand by their validity
+   * (`touch`): Moves and Shares events not refused, end attestations with no problem (valid, or not resolved yet), and
+   * claims and Resigns kept on a held head or promoted to one (the Move that promotes a waiting one counts then, with
+   * it).
    */
-  private lastSeen = Number.NEGATIVE_INFINITY;
+  private readonly touchedSeen: number[];
+  /**
+   * Per seat, the latest first-seen time of every held Move, Shares event and end attestation, whatever its validity
+   * (`hold`): rule (b) of the cutoff reads them all, so one signed by a seat other than E can make a result stand by
+   * blocking a rival result (rule (c)). E's are left out (rule (b) ignores them).
+   */
+  private readonly heldSeen: number[];
+  /** Events refused for good, by id, with the reason: they are not held. */
   /** Events refused for good, by id, with the reason: they are not held. */
   private readonly rejected = new Map<Hex, string>();
   /** Judgements that never change, by move id and the log length at its prev (`walk`, deckless games only). */
@@ -268,6 +274,12 @@ export class GameSessionV2 implements Session {
     | { readonly kind: 'resign'; readonly id: Hex; readonly head: Hex; readonly seat: number }
     | null = null;
   /**
+   * What this client counted before a reload (`SessionInput.savedCounted`, from `countedResult()`), or null: while set
+   * and not yet restored, it is the only claim or Resign that may count (`decideCounted`), once its event is held and
+   * its head is on the walk, so a reload never undoes a counted result whatever the refeed order (review of T12, H-1).
+   */
+  private savedCounted: CountedResult | null = null;
+  /**
    * The Timeout claims this seat's player confirmed as its own forfeit before its own deadline (PROTOCOL-v2 §8.1,
    * review N2): `confirmOwnForfeit`, and `SessionInput.confirmedForfeits` after a reload.
    */
@@ -308,9 +320,14 @@ export class GameSessionV2 implements Session {
     this.me = input.me === null ? null : { ...input.me, sessionSk: input.me.sessionSk.slice() };
     this.rootSeenAt = input.rootSeenAt;
     this.clock = input.rootSeenAt;
+    this.touchedSeen = root.seats.map(() => Number.NEGATIVE_INFINITY);
+    this.heldSeen = root.seats.map(() => Number.NEGATIVE_INFINITY);
     this.store = new EventStoreV2(root.id);
     this.current = walk(this.ctx, this.store, this.judgements, this.caches);
     for (const id of input.confirmedForfeits ?? []) if (typeof id === 'string') this.confirmed.add(id);
+    const saved = input.savedCounted;
+    if (saved !== undefined && saved !== null)
+      this.savedCounted = { kind: saved.kind, id: saved.id, head: saved.head, forfeit: [...saved.forfeit] };
     for (const [key, at] of Object.entries(input.savedStanding ?? {}))
       if (typeof at === 'number' && Number.isFinite(at)) this.stoodSince.set(key, at);
   }
@@ -391,6 +408,10 @@ export class GameSessionV2 implements Session {
   receive(ev: unknown, now: number): ReceiveResult {
     try {
       this.observe(now);
+      // A deadline may have passed before this event arrived: judge the stored claims first (v1 §8.1, as v1's
+      // session does), then again once the event is folded (review of T12, H-1).
+      this.decideCounted();
+      this.decideEndClaim();
       const r = this.intake(ev, this.clockOf(now));
       this.decideCounted();
       this.noteStanding(this.clockOf(now));
@@ -430,10 +451,16 @@ export class GameSessionV2 implements Session {
     if (!this.seenAt.has(id)) this.seenAt.set(id, now);
   }
 
-  /** Held event `id` can help a result stand: its first-seen time counts toward `lastSeen` (D070, review L-A). */
-  private touch(id: Hex): void {
+  /** Held event `id` by `seat` can help a result stand by its validity: see `touchedSeen` (D070, review L-A). */
+  private touch(id: Hex, seat: number): void {
     const at = this.seenAt.get(id);
-    if (at !== undefined) this.lastSeen = Math.max(this.lastSeen, at);
+    if (at !== undefined) this.touchedSeen[seat] = Math.max(this.touchedSeen[seat] as number, at);
+  }
+
+  /** Move, Shares event or end attestation `id` by `seat` is held, whatever its validity: see `heldSeen`. */
+  private hold(id: Hex, seat: number): void {
+    const at = this.seenAt.get(id);
+    if (at !== undefined) this.heldSeen[seat] = Math.max(this.heldSeen[seat] as number, at);
   }
 
   /**
@@ -529,10 +556,14 @@ export class GameSessionV2 implements Session {
     // Claims and Resigns waiting for this move are kept now (D069); the refold drops the verdict too.
     const promoted = this.store.promote(m.id);
     if (promoted.length > 0) this.cutoffChanged();
-    for (const id of promoted) this.touch(id);
+    for (const id of promoted) {
+      const by = this.store.claims.get(id)?.seat ?? this.store.resigns.get(id)?.seat;
+      if (by !== undefined) this.touch(id, by);
+    }
+    this.hold(m.id, seat);
     this.refold();
     const status = this.moveStatus(m.id);
-    if (status.status !== 'rejected') this.touch(m.id);
+    if (status.status !== 'rejected') this.touch(m.id, seat);
     return status;
   }
 
@@ -576,11 +607,12 @@ export class GameSessionV2 implements Session {
     // A roll event is measured before it is held: the roll store reads the held events directly.
     const rollBefore = s.type === 'roll' ? { kept: this.keptRolls(s.moveId), mark: this.stallMark() } : null;
     this.store.addShares(s, seat);
+    this.hold(s.id, seat);
     // A held Shares event may complete a side line's owed shares or a roll there, even when the walk ignores it.
     this.lineChanged();
     const bad = this.sharesProblem(s.id);
     if (bad !== null) return { status: 'rejected', reason: bad };
-    this.touch(s.id);
+    this.touch(s.id, seat);
     if (s.type === 'roll') {
       const was = rollBefore as { kept: number; mark: { head: Hex; stalled: number[] } };
       // Not a requesting move on the walk (not held, off the walk, or no roll requested there and judged above).
@@ -678,7 +710,7 @@ export class GameSessionV2 implements Session {
     const kept = this.store.keepClaim(t, claimant);
     const refused = this.settle(t.id, kept, 'claim limit');
     if (refused !== null) return refused;
-    if (this.store.claims.has(t.id)) this.touch(t.id);
+    if (this.store.claims.has(t.id)) this.touch(t.id, claimant);
     this.cutoffChanged();
     this.decideEndClaim();
     for (const c of this.endClaims.values()) if (c.id === t.id) return { status: 'accepted' };
@@ -708,7 +740,7 @@ export class GameSessionV2 implements Session {
     // The secret counts whether the Resign is kept, waits or is let go by the waiting cap (v1 §8.3 "The early secret").
     if (!known && r.secret !== null) this.store.resignSecrets.set(seat, r.secret);
     const kept = this.store.keepResign(r, seat);
-    if (this.store.resigns.has(r.id)) this.touch(r.id);
+    if (this.store.resigns.has(r.id)) this.touch(r.id, seat);
     this.cutoffChanged();
     if (!known && r.secret !== null) this.noteProgress(before, r.id);
     return this.settle(r.id, kept, 'resign limit') ?? { status: 'stored' };
@@ -812,10 +844,11 @@ export class GameSessionV2 implements Session {
     this.see(a.id, now);
     // Held whatever its validity (D066, V2-56): rule (b) counts it by its head.
     const first = this.store.addEnd(a, seat, bySession === undefined);
+    this.hold(a.id, seat);
     this.cutoffChanged();
     const bad = endProblem(this.store, this.ctx.seats, a);
     if (bad !== null) return { status: 'rejected', reason: bad };
-    this.touch(a.id);
+    this.touch(a.id, seat);
     if (!first) return { status: 'duplicate' };
     return this.endStatus(a);
   }
@@ -1264,15 +1297,26 @@ export class GameSessionV2 implements Session {
 
   /**
    * After an event is folded at local time `now` (its first-seen time): if a result now stands against the held
-   * fork that had not stood here before, record the time it first stood (`stoodSince`): `now`, or the latest
-   * first-seen time of any event received if later (D069, review of T11 L2). In arrival order the two agree; on a
-   * refeed in another order with saved first-seen times, the later of them is never earlier than the moment it
-   * first stood in arrival order.
+   * fork that had not stood here before, record the time it first stood (`stoodSince`): `now`, or a floor if later
+   * (D069, review of T11 L2; D070). The floor is the latest first-seen time of every event fed so far that can make
+   * a result stand: for each seat other than the fork's signer E, every held Move, Shares event and end attestation
+   * whatever its validity (rule (b) reads them, and through rule (c) they can make a result stand), and every claim
+   * and Resign kept on a held head; for E, only those that can help by their validity (rule (b) ignores E's events).
+   * In arrival order the floor is never later than `now`. On a refeed in another order with saved first-seen times
+   * it keeps the time from moving earlier in every case where standing is monotone in the events fed, and is the
+   * fallback only: the exact time is the persisted one (`standingTimes()`, `SessionInput.savedStanding`), which wins.
    */
   private noteStanding(now: number): void {
-    if (this.current.fork === null) return;
+    const fork = this.current.fork;
+    if (fork === null) return;
     const e = this.ending();
-    if (e !== null && !this.stoodSince.has(e.key)) this.stoodSince.set(e.key, Math.max(now, this.lastSeen));
+    if (e === null || this.stoodSince.has(e.key)) return;
+    let floor = now;
+    for (let k = 0; k < this.ctx.seats; k++) {
+      floor = Math.max(floor, this.touchedSeen[k] as number);
+      if (k !== fork.seat) floor = Math.max(floor, this.heldSeen[k] as number);
+    }
+    this.stoodSince.set(e.key, floor);
   }
 
   /**
@@ -1339,8 +1383,12 @@ export class GameSessionV2 implements Session {
    */
   private decideCounted(): void {
     if (this.counted !== null || this.current.fork !== null) return;
-    if (ownResult(this.ctx, this.current) !== null) return;
     const onChain = new Set<Hex>([this.root.id, ...this.current.chain.map((h) => h.m.id)]);
+    if (this.savedCounted !== null) {
+      this.restoreCounted(this.savedCounted, onChain);
+      return;
+    }
+    if (ownResult(this.ctx, this.current) !== null) return;
     const resign = [...this.store.resigns.values()]
       .filter((x) => onChain.has(x.ev.headId))
       .sort((a, b) => (a.ev.id < b.ev.id ? -1 : 1))[0];
@@ -1365,13 +1413,52 @@ export class GameSessionV2 implements Session {
   }
 
   /**
+   * Restore `saved` as the counted claim or Resign once its event is held, with its signer and head as saved, and its
+   * head is on the walk (this client counted it before a reload, so its head was on the walk then, and with no fork
+   * held the walk only grows). A claim keeps the forfeiting seats saved: the seats stalled when it was accepted.
+   */
+  private restoreCounted(saved: CountedResult, onChain: ReadonlySet<Hex>): void {
+    if (!onChain.has(saved.head)) return;
+    const seats = saved.forfeit;
+    if (seats.length === 0 || seats.some((k) => !Number.isSafeInteger(k) || k < 0 || k >= this.ctx.seats))
+      return;
+    if (saved.kind === 'claim') {
+      const c = this.store.claims.get(saved.id);
+      if (c === undefined || c.ev.headId !== saved.head || seats.includes(c.seat)) return;
+      this.counted = { kind: 'claim', id: saved.id, head: saved.head, seats: ascending(seats) };
+    } else {
+      const r = this.store.resigns.get(saved.id);
+      if (r === undefined || r.ev.headId !== saved.head || seats.length !== 1 || r.seat !== seats[0]) return;
+      this.counted = { kind: 'resign', id: saved.id, head: saved.head, seat: r.seat };
+    }
+    this.savedCounted = null;
+    this.cutoffChanged();
+  }
+
+  /**
+   * The claim or Resign this client counted with no fork held (or the one restored from `SessionInput.savedCounted`
+   * while it waits for its events), or null: persist it with the first-seen times and pass it back as
+   * `SessionInput.savedCounted`, so a reload keeps it whatever the refeed order (review of T12, H-1). A cancel is
+   * included: it is the counted claim or Resign that cancels.
+   */
+  countedResult(): CountedResult | null {
+    const c = this.counted;
+    if (c === null) {
+      const w = this.savedCounted;
+      return w === null ? null : { ...w, forfeit: [...w.forfeit] };
+    }
+    const forfeit = c.kind === 'claim' ? ascending(c.seats) : [c.seat];
+    return { kind: c.kind, id: c.id, head: c.head, forfeit };
+  }
+
+  /**
    * The own-forfeit question (PROTOCOL-v2 §8.1, review N2, V2-52): the lowest kept Timeout claim that names the walk's
    * head, whose stalled seats there are this seat alone, by a seat not stalled, while this client's own deadline has
    * not passed and no fork is held, the game live; asked only on a device that was not watching that head: the head's
    * first-seen time and the progress time P both lie in its latest sync (`noteSync`). Null otherwise, and on a device
    * that has not synced. Claims in an End phase (a missing secret) are never asked about: the client sends its secret.
    */
-  private ownForfeit(): { claim: Hex } | null {
+  private ownForfeit(): { claim: Hex; head: Hex } | null {
     const me = this.me;
     const sync = this.sync;
     if (me === null || sync === null || this.current.fork !== null || this.ended()) return null;
@@ -1386,17 +1473,19 @@ export class GameSessionV2 implements Session {
       .filter((c) => c.ev.headId === head && c.seat !== me.seat)
       .map((c) => c.ev.id)
       .sort()[0];
-    return id === undefined ? null : { claim: id };
+    return id === undefined ? null : { claim: id, head };
   }
 
   /**
    * This seat's player confirms Timeout claim `claimId` as its own forfeit ("You were timed out: accept?", PROTOCOL-v2
    * §8.1, review N2). The confirmation is kept (persist it and pass it back as `SessionInput.confirmedForfeits`); the
    * claim then counts before this client's deadline whenever it names the walk's head and its stalled seats there are
-   * this seat alone. Returns whether a claim now counts. Throws `ClientError` for a spectator.
+   * this seat alone. Returns true only when this call made such a confirmed claim count (false when nothing counted,
+   * or something had counted before). Throws `ClientError` for a spectator.
    */
   confirmOwnForfeit(claimId: Hex): boolean {
     this.requireMe();
+    const before = this.counted;
     try {
       this.confirmed.add(claimId);
       this.decideCounted();
@@ -1404,7 +1493,8 @@ export class GameSessionV2 implements Session {
     } catch {
       // never throws past the spectator check
     }
-    return this.counted?.kind === 'claim';
+    const c = this.counted;
+    return before === null && c?.kind === 'claim' && this.confirmed.has(c.id);
   }
 
   /** The Timeout claims this seat's player confirmed (`confirmOwnForfeit`), ascending: persist them. */

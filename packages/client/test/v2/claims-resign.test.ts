@@ -1,3 +1,4 @@
+import { bank } from '@bored-games/bank';
 import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { createRng } from '@bored-games/game-kit';
@@ -527,7 +528,10 @@ describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () =>
     });
     // "Play" stays possible: the decision is still owed.
     expect(b.duties()).toEqual([{ kind: 'decide' }]);
+    expect(b.view().ownForfeit).toEqual({ claim: claim.id, head: want.head });
     expect(b.confirmOwnForfeit(claim.id)).toBe(true);
+    // Only the call that made the confirmed claim count says so.
+    expect(b.confirmOwnForfeit(claim.id)).toBe(false);
     expect(b.view()).toMatchObject({ phase: 'done', result: want, ownForfeit: null });
     expect(b.confirmedForfeits()).toEqual([claim.id]);
     expect(b.duties()).toEqual([{ kind: 'end' }]);
@@ -789,5 +793,122 @@ describe('the first-standing time is persisted (review of T11, L-A)', () => {
     const restored = feed(order, times, saved);
     expect(restored.view()).toMatchObject({ stood: true, result: X, pendingSince: ROOT_SEEN + 1000 });
     expect(restored.standingTimes()).toEqual(saved);
+  });
+  it("the fallback floor counts every held event rule (b) reads by a seat other than E, refused ones included, and not E's refused ones (review of T12, L-1)", () => {
+    // An end attestation of X by White (not E) with a wrong log hash: held and refused (it counts for no result), and
+    // anchored at X's head, so it blocks nothing. Fed before the attestation in a refeed, the floor counts it: rule (b)
+    // reads it, so such an event can make a result stand by blocking a rival (rule (c)). The same by Black (E) does
+    // not count: rule (b) ignores E's events.
+    const lateWhite = endOf(t, 0, X, m, { hash: hex(rng), at: NOW + 4 });
+    const lateBlack = endOf(t, 1, X, m, { hash: hex(rng), at: NOW + 5 });
+    const times = new Map(seen).set(lateWhite.id, ROOT_SEEN + 3000).set(lateBlack.id, ROOT_SEEN + 4000);
+    const arrival = feed([...m, rival, att, lateWhite, lateBlack], times);
+    expect(arrival.receive(lateWhite, ROOT_SEEN + 3000).status).toBe('rejected');
+    expect(arrival.view()).toMatchObject({ stood: true, pendingSince: ROOT_SEEN + 1000 });
+    expect(feed([...m, rival, lateWhite, att], times).view().pendingSince).toBe(ROOT_SEEN + 3000);
+    expect(feed([...m, rival, lateBlack, att], times).view().pendingSince).toBe(ROOT_SEEN + 1000);
+  });
+});
+
+describe('stored claims are judged before each event is folded (review of T12, H-1)', () => {
+  it("V2-17 counts a claim already due when the stalled seat's late move arrives: live with no tick, on a refeed in first-seen order, and on any refeed with the saved counted result", () => {
+    const t = chessTable('t12-h1');
+    const m = play(t, [
+      [0, 'e2e4'],
+      [1, 'e7e5'],
+      [0, 'g1f3'],
+    ]);
+    const head = (m[2] as NostrEvent).id;
+    const deadline = t.spectator.view().deadline;
+    const want: ResultId = { kind: 'claim', head, forfeit: [1] };
+    // White's claim reaches this client just before its own deadline; Black (timed out, "Play" chosen on its
+    // returning device) moves just after it.
+    const claim = claimOf(t, 0, head, 1, NOW + deadline);
+    const b4 = actionAt(t, 1, head, 4, mv(1, 'b8c6'));
+    const times = new Map<string, number>([
+      ...m.map((e): [string, number] => [e.id, NOW]),
+      [claim.id, NOW + deadline - 10],
+      [b4.id, NOW + deadline + 5],
+    ]);
+    const all = [...m, claim, b4];
+    const make = (seat: number | null, saved?: ReturnType<GameSessionV2['countedResult']>): GameSessionV2 =>
+      GameSessionV2.create({
+        modules: t.game.modules,
+        table: t.game.table,
+        joins: t.game.joins,
+        root: t.game.root,
+        me: seat === null ? null : (t.game.ids[seat] as Identity),
+        rootSeenAt: ROOT_SEEN,
+        ...(saved === undefined ? {} : { savedCounted: saved }),
+      });
+    const feed = (s: GameSessionV2, order: readonly NostrEvent[]): GameSessionV2 => {
+      for (const ev of order) s.receive(ev, times.get(ev.id) as number);
+      return s;
+    };
+    // Live, with no tick between the deadline and the late move: the claim counts first, the move links past it.
+    const live = feed(make(null), all);
+    expect(live.view()).toMatchObject({ result: want, head: { id: head } });
+    expect(live.chainSeq(b4.id)).toBe(4);
+    // A client that counted the claim on a tick, then reloads and refeeds in first-seen order at saved times.
+    const ticked = make(null);
+    feed(ticked, [...m, claim]);
+    ticked.tick(NOW + deadline);
+    expect(ticked.view().result).toEqual(want);
+    feed(ticked, [b4]);
+    for (const seat of [null, 0, 1]) {
+      const re = feed(make(seat), all);
+      re.tick(NOW + deadline + 100);
+      expect(re.view()).toMatchObject({ phase: 'done', result: want });
+      expect(re.duties().some((d) => d.kind === 'decide')).toBe(false);
+    }
+    // A refeed in another order (the move before the claim) loses the count, unless the counted result is restored.
+    const byKind = feed(make(0), [...m, b4, claim]);
+    byKind.tick(NOW + deadline + 100);
+    expect(byKind.view().result).toBeNull();
+    const saved = ticked.countedResult();
+    expect(saved).toEqual({ kind: 'claim', id: claim.id, head, forfeit: [1] });
+    const restored = feed(make(0, saved), [...m, b4, claim]);
+    expect(restored.view()).toMatchObject({ phase: 'done', result: want });
+    expect(restored.countedResult()).toEqual(saved);
+    // While its events are missing, the saved result waits, and nothing else counts meanwhile.
+    const waiting = feed(make(0, saved), [...m, b4]);
+    waiting.tick(LATE);
+    expect(waiting.view().result).toBeNull();
+    expect(waiting.countedResult()).toEqual(saved);
+  });
+
+  it("V2-17 keeps an honest claimant from forfeiting on a third seat that folds the timed-out seat's late move before its next tick (Bank, 3 seats)", () => {
+    const t = v2Table(bank as AnyModule, 3, 't12-h1-bank');
+    runAuto(t);
+    for (let i = 0; i < 3; i++) {
+      const k = decider(t) as number;
+      send(t, (t.players[k] as GameSessionV2).buildAction(t.players[k]?.legalActions()[0], t.game.rnd, NOW));
+      runAuto(t);
+    }
+    const B = decider(t) as number;
+    const A = (B + 1) % 3;
+    const C = (B + 2) % 3;
+    const head = t.spectator.view().head.id;
+    const deadline = t.spectator.view().deadline;
+    const want: ResultId = { kind: 'claim', head, forfeit: [B] };
+    const claim = claimOf(t, A, head, B, NOW + deadline);
+    const late = (t.players[B] as GameSessionV2).buildAction(
+      t.players[B]?.legalActions()[0],
+      t.game.rnd,
+      NOW + deadline,
+    );
+    // A counts its claim on sending it, its own deadline passed.
+    const a = v2Session(t.game, A);
+    for (const ev of t.log) a.receive(ev, NOW);
+    expect(a.receive(claim, NOW + deadline).status).toBe('accepted');
+    // C saw the head a second later; the claim reaches it just before its own deadline, B's late move just after,
+    // before C's next tick. C counts the claim as A did, so it never times the honest A out.
+    const c = v2Session(t.game, C);
+    for (const ev of t.log) c.receive(ev, NOW + 1);
+    expect(c.receive(claim, NOW + deadline).status).toBe('stored');
+    c.receive(late, NOW + deadline + 6);
+    a.receive(late, NOW + deadline + 6);
+    for (const s of [a, c]) expect(s.view()).toMatchObject({ phase: 'done', result: want });
+    expect(c.timeoutTarget(NOW + 3 * deadline)).toBeNull();
   });
 });

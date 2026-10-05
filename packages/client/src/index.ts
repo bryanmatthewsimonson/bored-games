@@ -26,6 +26,7 @@ export {
   simulateGame,
 } from './sim.ts';
 export type {
+  CountedResult,
   Duty,
   Identity,
   Phase,
