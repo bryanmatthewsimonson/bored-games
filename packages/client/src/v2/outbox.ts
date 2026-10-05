@@ -83,7 +83,8 @@ function kindOf(ev: unknown): number | null {
  * - **A Move**: discarded if another move of its seat on its `prev` is held (one that may still be valid-looking
  *   there: a move of a bad shape or judged invalid at its prev forks nothing, D063), while a fork is held, if its
  *   `prev` is held but not on the chain, or on the chain below the head (unless the move itself is on the chain:
- *   this client folded it in); it waits while its `prev` is not held; otherwise (its `prev` is the head) it is sent,
+ *   this client folded it in); it waits while its `prev` is not held, or is a move still ahead of the head (it
+ *   extends the head and waits for shares or a roll, as v1's controller); otherwise (its `prev` is the head) it is sent,
  *   unless this client judges it invalid there.
  * - **A card Shares event other than the deal** (a prompt release): sent only if its anchor is on the chain, no fork
  *   is held, the game has no result, its shares verify against the final deck, and every position in it is dealt at
@@ -191,9 +192,17 @@ function parseFor(o: OutboxCtx, kind: number | null, ev: unknown): Parsed | stri
   }
 }
 
-/** Whether held move `h` can never be valid-looking at its prev: a bad shape, or judged invalid there by the walk. */
+/**
+ * Whether held move `h` can never be valid-looking at its prev: a bad shape, or judged invalid there (by the walk,
+ * or on its prev's side line when that line is valid). A move whose prev's line is not held or not valid cannot be
+ * judged, so it counts as one that may be valid-looking (the conservative side: the saved move is discarded).
+ */
 function neverLooks(o: OutboxCtx, h: HeldMove): boolean {
-  return h.shape !== null || o.walk.judged.get(h.m.id)?.kind === 'invalid';
+  if (h.shape !== null) return true;
+  const j = o.walk.judged.get(h.m.id);
+  if (j !== undefined) return j.kind === 'invalid';
+  const fold = o.sides().fold(h.m.prevId);
+  return fold !== null && fold.judge(h).kind === 'invalid';
 }
 
 /** The saved Move rule (§9.2): see `vetSaved`. */
@@ -205,7 +214,9 @@ function vetMove(o: OutboxCtx, seat: number, m: ParsedMove): Verdict {
   if (walk.fork !== null) return discard('the game is stopped at a fork');
   if (!store.held(p)) return 'wait';
   const at = o.chainSeq(p);
-  if (at === null) return discard('the game went another way');
+  // A prev that extends the head and waits for something (shares or a roll) may still link: wait, as v1's
+  // controller (D056 fix round 2). Any other prev off the chain: the game went another way.
+  if (at === null) return place(o, p) === 'ahead' ? 'wait' : discard('the game went another way');
   if (m.seq !== at + 1) return discard('it does not follow its parent');
   // Folded in already, on the chain: this client's own chain goes through it.
   if (o.chainSeq(m.id) !== null) return 'send';
