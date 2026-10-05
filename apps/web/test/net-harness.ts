@@ -4,15 +4,17 @@
  * simulate a device's network.
  */
 import { bankV1 } from '@bored-games/bank';
+import { openSession, type Session } from '@bored-games/client';
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
-import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/protocol';
+import { finalizeEvent, getPublicKey, KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { type EoseInfo, type Filter, RelayPool } from '@bored-games/relay';
 import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox } from '../src/game-controller.ts';
 import { localNip44, type Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type ModuleRegistry, type PoolLike } from '../src/net.ts';
-import { type KeyValueStore, memoryStorage } from '../src/storage.ts';
+import { bytesToHex } from '../src/hex.ts';
+import { type KeyValueStore, loadSecrets, memoryStorage } from '../src/storage.ts';
 
 /**
  * The registry of a client from before Bank 0.2.0: its new Bank tables are Bank 0.1.0 at proto 1, so the tests of
@@ -185,6 +187,34 @@ export class Harness {
     const seats = la.table(address).value?.root?.seats.map((s) => s.npub) ?? [];
     const bySeat = seats.map((npub) => ps.find((p) => p.deps.signer.pubkey === npub) as Profile);
     return { rootId, address, bySeat };
+  }
+
+  /**
+   * A session for `p`'s seat outside any controller (a cheater's own tooling, or a test's), fed every game event the
+   * dev relay holds at `now`: the game's root, Table and Joins from the relay, the seat's keys from `p`'s storage.
+   */
+  async outsideSession(rootId: string, address: string, p: Profile, at = now()): Promise<Session> {
+    const rootEv = (await this.query([{ ids: [rootId] }]))[0] as NostrEvent;
+    const root = parseRoot(rootEv);
+    const [, creator, tableId] = root.tableAddress.split(':') as [string, string, string];
+    const table = (await this.query([{ kinds: [KIND.table], authors: [creator], '#d': [tableId] }]))[0];
+    const joins = await this.query([{ ids: [...root.joinIds] }]);
+    const secrets = loadSecrets(p.name, p.deps.storage, address);
+    if (secrets === null || table === undefined) throw new Error(`no game keys or table for ${p.name}`);
+    const seat = root.seats.findIndex((s) => s.npub === p.deps.signer.pubkey);
+    const session = openSession({
+      modules: p.deps.modules,
+      table,
+      joins,
+      root: rootEv,
+      me: { seat, sessionSk: secrets.sessionSk, deckSecret: BigInt(`0x${bytesToHex(secrets.deckSecret)}`) },
+      rootSeenAt: at,
+    });
+    const events = await this.query([{ '#e': [rootId] }]);
+    events.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+    // Twice, so an event that arrived before what it depends on is taken on the second pass.
+    for (let pass = 0; pass < 2; pass++) for (const ev of events) session.receive(ev, at);
+    return session;
   }
 
   /** Every stored event matching `filters` at `url` (the dev relay by default), from a fresh pool. */
