@@ -511,6 +511,8 @@ export class GameController {
   #seen = new Map<string, number>();
   /** First-seen times not saved yet. */
   #seenDirty = false;
+  /** Events the session last answered `rejected` (`#receive`): their saved times go first past `MAX_SEEN`. */
+  readonly #seenRejected = new Set<string>();
   #outbox = new Map<string, OutboxEntry>();
   readonly #inFlight = new Set<string>();
   #gameEose = false;
@@ -779,8 +781,11 @@ export class GameController {
       else this.#refused.delete(ev.id);
     }
     // Protocol 2 saves every event's time, a rejected one too: a Move invalid at its prev, an invalid Shares event or
-    // an end attestation with a bad log hash is still held, and the cutoff and the standing floor read it.
+    // an end attestation with a bad log hash is still held, and the cutoff and the standing floor read it. Rejected
+    // ones are the first to go when the saved times are over their cap (`#saveSeen`).
     if (first === undefined && (r.status !== 'rejected' || this.#v2)) this.#noteSeen(ev.id, now);
+    if (r.status === 'rejected') this.#seenRejected.add(ev.id);
+    else this.#seenRejected.delete(ev.id);
     if (this.#v2) this.#afterReceiveV2(session, ev, r);
     return r;
   }
@@ -867,7 +872,9 @@ export class GameController {
 
   /**
    * Save the first-seen times, merged with what another tab of this profile saved (the earlier time wins), and
-   * keep at most `MAX_SEEN` besides the root's, dropping the oldest.
+   * keep at most `MAX_SEEN` besides the root's, dropping the oldest. Protocol 2 saves rejected events' times too
+   * (`#receive`), so a seat flooding junk could otherwise push real events' times out: events the session rejected go
+   * first, the newest of them first, and only then the oldest of the rest.
    */
   #saveSeen(): void {
     if (!this.#seenDirty || this.#disposed) return;
@@ -877,7 +884,8 @@ export class GameController {
     }
     const others = [...this.#seen].filter(([id]) => id !== this.rootId);
     if (others.length > MAX_SEEN) {
-      others.sort((a, b) => a[1] - b[1]);
+      const junk = (id: string): number => (this.#seenRejected.has(id) ? 0 : 1);
+      others.sort((a, b) => junk(a[0]) - junk(b[0]) || (junk(a[0]) === 0 ? b[1] - a[1] : a[1] - b[1]));
       for (const [id] of others.slice(0, others.length - MAX_SEEN)) this.#seen.delete(id);
     }
     if (writeJson(this.#d.storage, seenKey(this.#d.profile, this.rootId), Object.fromEntries(this.#seen)))
@@ -2194,6 +2202,20 @@ export class GameController {
       // second try reuses the saved event. Signed by the session key with no prompt, saved before it is published
       // (`#commit`), and so are the decisions it rests on (the counted result, the first-seen times).
       const slot = `end:${r.kind}:${r.head}:${r.forfeit.join(',')}`;
+      // The statement is fixed by the identity, so it is built from this seat's deterministic stream and dated from
+      // shared events (`#buildDate`): two devices of the seat sign the same event (a second one would be harmless).
+      if (this.#live(slot) === null) {
+        const plan = this.#buildDate(session, head.id);
+        if (plan !== null && plan.wait > 0) {
+          this.#waitFor(`end@${head.id}`, plan.wait);
+          return 'wait';
+        }
+        this.#saveSeen();
+        this.#saveV2State();
+        const det = plan === null ? rnd : this.#buildRnd(slot);
+        const at = plan?.at ?? now();
+        return this.#single(slot, () => session.buildEndAttest(det, at));
+      }
       this.#saveSeen();
       this.#saveV2State();
       return this.#single(slot, () => session.buildEndAttest(rnd, now()));

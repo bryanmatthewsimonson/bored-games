@@ -172,6 +172,54 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
     expect(later.map((ev) => ev.id).sort()).toEqual(attests.map((ev) => ev.id).sort());
   }, 90_000);
 
+  it('two open devices of one seat, with clocks apart, sign one end attestation: its date and nonces come from the game, not the device', async () => {
+    const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
+    const [white, black] = bySeat;
+    const gw = h.game(rootId, white.deps);
+    const gb = h.game(rootId, black.deps);
+    // The tablet's clock runs half a minute ahead, and its live feed lags on the phone's events, so it builds its own
+    // end attestation: its date comes from shared events, not from the device, and both are one event.
+    const tabletDev = h.secondDevice(black, address);
+    const blackKey = (await seatsOf(rootId))[1]?.session as string;
+    const real = tabletDev.deps.pool;
+    const lag = {
+      published: [] as string[],
+      pool: {
+        subscribe: (filters, onEvent, onEose, opts) =>
+          real.subscribe(
+            filters,
+            (ev, url) => {
+              if (!(ev.pubkey === blackKey && ev.kind === KIND.attest)) onEvent(ev, url);
+            },
+            onEose,
+            opts,
+          ),
+        publish: async (ev: NostrEvent, urls?: readonly string[]) => {
+          lag.published.push(ev.id);
+          return real.publish(ev, urls);
+        },
+        addRelays: (urls: readonly string[]) => real.addRelays?.(urls),
+      } as PoolLike,
+    };
+    const tablet = h.game(rootId, { ...tabletDev.deps, pool: lag.pool, now: () => now() + 30 });
+    await play(gw, 0, 'f2f3', 1);
+    await play(gb, 1, 'e7e5', 2);
+    await play(gw, 0, 'g2g4', 3);
+    await play(gb, 1, 'd8h4', 4);
+    for (const g of [gw, gb, tablet]) {
+      await waitFor('the end', () => g.view.value?.phase === 'done');
+      await waitFor('both end attestations', () => v2view(g)?.endAttested.length === 2);
+    }
+    await waitFor("the tablet's own end attestation", () => lag.published.length > 0);
+    await pause(1500);
+    const seats = await seatsOf(rootId);
+    const ends = (await gameEvents(rootId)).filter(
+      (ev) => ev.kind === KIND.attest && parseAttestV2(ev).variant === 'end',
+    );
+    expect(ends.filter((ev) => ev.pubkey === seats[1]?.session)).toHaveLength(1);
+    expect(ends.filter((ev) => ev.pubkey === seats[0]?.session)).toHaveLength(1);
+  }, 90_000);
+
   it('V2-38 (partial), V2-37 (partial): a stop sends no end or stats attestation and nothing else of the seats; a cancelled game sends no attestation', async () => {
     const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
     const [white, black] = bySeat;
