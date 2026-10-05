@@ -7,6 +7,7 @@ import {
   attestLine,
   awaitingLine,
   cancelledText,
+  EndedBeforeBoard,
   equivocatorsOf,
   forkLine,
   formatDeadline,
@@ -387,6 +388,15 @@ describe('protocol 2 screens (T17)', () => {
     expect(afterStopLines(v2({ ...base, secretWithheld: [1, 2] }), NAMES)).toEqual([
       'Secret withheld: Bo and Cy have not sent their end-of-game secret. Each one missing is recorded against that player.',
     ]);
+  });
+
+  it('a game that ended where it has no board yet shows its ending lines, with no actions', () => {
+    const lines = ['Game ended, waiting for its events.', 'Audit incomplete: x'];
+    const tree = renderTree(EndedBeforeBoard({ title: 'Chess', lines, watching: null, log: [] }));
+    const text = spokenText(tree);
+    expect(text).toMatch(/^Chess Game ended, waiting for its events\. Audit incomplete: x/);
+    expect(findAll(tree, (el) => el.tag === 'button')).toEqual([]);
+    expect(findAll(tree, (el) => el.tag === 'a').map((a) => a.attrs.href)).toEqual(['#/']);
   });
 
   it('a result counted before a reload and waiting for its events: ended, with no actions', () => {

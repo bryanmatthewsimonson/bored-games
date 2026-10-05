@@ -355,6 +355,33 @@ function SetupProgress(props: {
 }
 
 /**
+ * A protocol 2 game that ended where it has no board yet (PROTOCOL-v2 §5.6: a stop at a shuffle step with a game
+ * action past it; D070: a counted result waiting for its events there): its ending lines, and no actions.
+ */
+export function EndedBeforeBoard(props: {
+  title: string;
+  lines: readonly string[];
+  watching: ComponentChildren;
+  log: readonly string[];
+}) {
+  return (
+    <section class="panel" aria-labelledby="game-title">
+      <h1 id="game-title">{props.title}</h1>
+      {props.watching}
+      {props.lines.map((line) => (
+        <p key={line} class="warning" role="status">
+          {line}
+        </p>
+      ))}
+      <SyncNotes lines={props.log} />
+      <p>
+        <a href={homeHref()}>Back to the start</a>
+      </p>
+    </section>
+  );
+}
+
+/**
  * "Resign", then a confirm step that says what resigning does. A resignation cannot be taken back, so it is
  * never sent on the first click.
  */
@@ -585,6 +612,24 @@ export function GameScreen(props: { rootId: string }) {
         };
   const title = gameId === null ? 'Game' : gameTitle(gameId);
   const copy = game?.setupCopy(view !== null && view.shuffleSteps > 0) ?? null;
+  // Protocol 2 endings (PROTOCOL-v2 §5.4–§5.6, §7.3, D070).
+  const stopped = stopLine(view, names);
+  const stood = stoodLine(view, names);
+  const afterStop = afterStopLines(view, names);
+  const awaiting = awaitingLine(view);
+  if (view !== null && view.state === null && (stopped !== null || awaiting !== null))
+    return (
+      <EndedBeforeBoard
+        title={title}
+        lines={[
+          ...(awaiting === null ? [] : [awaiting]),
+          ...(stopped === null ? [] : [stopped]),
+          ...afterStop,
+        ]}
+        watching={watching}
+        log={log}
+      />
+    );
   if (view === null || view.state === null || view.phase === 'shuffle' || view.phase === 'deal')
     return (
       <SetupProgress
@@ -617,10 +662,6 @@ export function GameScreen(props: { rootId: string }) {
   const timedOut = timedOutSeats(view);
   const resigned = resignLine(view, names);
   const forked = forkLine(view, names);
-  const stopped = stopLine(view, names);
-  const stood = stoodLine(view, names);
-  const afterStop = afterStopLines(view, names);
-  const awaiting = awaitingLine(view);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
   const Component = game.Component;
