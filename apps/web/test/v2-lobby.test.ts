@@ -10,7 +10,7 @@ import { finalizeEvent, KIND, type NostrEvent, parseTable, tableTemplate } from 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { joinCheck, OLDER_VERSION_TABLE, olderTable } from '../src/lobby-model.ts';
 import { MODULES } from '../src/net.ts';
-import { Harness, now, OLDER, OLDER_BANK_CLIENT, pause, rnd, waitFor } from './net-harness.ts';
+import { Harness, now, OLDER, OLDER_BANK_CLIENT, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -204,4 +204,60 @@ describe('The protocol 2 lobby (T14)', () => {
     }
     expect(await h.query([{ kinds: [KIND.join], authors: [me.deps.signer.pubkey] }])).toEqual([]);
   }, 60_000);
+});
+
+describe('A v1 game keeps loading and playing under v1 (T14)', () => {
+  it('a protocol 1 Chain Reaction table of an older client, joined by this build: the game shuffles, deals and plays under v1, and a reload picks it up', async () => {
+    const old = h.profile('old', OLDER);
+    const lo = h.lobby(old);
+    const address = await lo.createTable({
+      game: 'chain-reaction',
+      seats: 3,
+      deadline: 259200,
+      invited: [],
+      relays: [h.relay.url],
+    });
+    const ps = [h.profile('b'), h.profile('c')];
+    for (const p of ps) {
+      const l = h.lobby(p);
+      await waitFor('the v1 table listed', () => l.openTables.value.find((t) => t.address === address));
+      await l.join(address);
+    }
+    await waitFor('a full table', () => lo.table(address).value?.full);
+    const rootId = await lo.start(address);
+    const all = [old, ...ps];
+    const games = all.map((p) => h.game(rootId, p.deps));
+    for (let d = 0; d < 2; d++) {
+      const mover = await waitFor(
+        'a decision',
+        () => games.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+        240_000,
+      );
+      await mover.act(mover.legal.value[0]);
+      const id = mover.view.value?.head.id as string;
+      for (const g of games) await waitFor('the move everywhere', () => g.view.value?.head.id === id, 60_000);
+    }
+    for (const g of games) expect((g.view.value as { proto?: number } | null)?.proto).not.toBe(2);
+    const events = await h.query([{ '#e': [rootId] }]);
+    for (const ev of events) expect(ev.tags).not.toContainEqual(['proto', '2']);
+    // A Shares event of this game is a v1 one: no anchor.
+    expect(
+      events.filter((ev) => ev.kind === KIND.shares).every((ev) => !ev.tags.some((t) => t[3] === 'anchor')),
+    ).toBe(true);
+    // One of this build's players reloads: the game loads under v1 at the same head and goes on.
+    const i = 1;
+    const head = games[i]?.view.value?.head.id;
+    games[i]?.dispose();
+    games[i] = h.game(rootId, { ...(all[i] as Profile).deps, pool: h.pool() });
+    await waitFor('the reloaded game', () => games[i]?.view.value?.head.id === head, 120_000);
+    const mover = await waitFor(
+      'the next decision',
+      () => games.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 0),
+      240_000,
+    );
+    await mover.act(mover.legal.value[0]);
+    const id = mover.view.value?.head.id as string;
+    for (const g of games) await waitFor('the move everywhere', () => g.view.value?.head.id === id, 60_000);
+    for (const g of games) expect(g.view.value?.equivocators).toEqual([]);
+  }, 600_000);
 });
