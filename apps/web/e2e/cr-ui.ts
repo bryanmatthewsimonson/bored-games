@@ -70,4 +70,3 @@ export async function decide(p: Player, declare = false): Promise<string> {
   await submit.click();
   return `${legend}: ${label}${detail}`.replace(/\s+/g, ' ');
 }
-

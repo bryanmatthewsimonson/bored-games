@@ -104,7 +104,8 @@ test('a protocol 1 Chain Reaction table opens, starts and plays a few turns', as
   }
   expect(reloaded).toBe(true);
   const target = Math.max(...(await Promise.all(players.map(async (p) => (await stateOf(p)).seq))));
-  for (const p of players) await expect.poll(async () => (await stateOf(p)).seq, { timeout: MOVE_MS }).toBe(target);
+  for (const p of players)
+    await expect.poll(async () => (await stateOf(p)).seq, { timeout: MOVE_MS }).toBe(target);
   for (const p of players) await expect(p.page.getByText(/signed two rival moves/)).toHaveCount(0);
   for (const p of players) await p.page.context().close();
 });

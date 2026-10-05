@@ -22,7 +22,7 @@
  */
 import { BRAND } from '@bored-games/brand';
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
-import { type Browser, type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
+import { type Browser, type BrowserContext, expect, type Locator, test } from '@playwright/test';
 import { decide, game, nextToAct, type Player, stateOf } from './cr-ui.ts';
 
 const RELAY = process.env.E2E_RELAY ?? 'ws://localhost:7777';

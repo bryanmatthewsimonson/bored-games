@@ -19,7 +19,11 @@ import {
 const rnd = (n: number): Uint8Array => new Uint8Array(randomBytes(n));
 
 /** Send one NIP-01 message and collect the relay's replies until `done` returns a value. */
-function exchange<T>(relay: string, message: unknown[], done: (reply: unknown[]) => T | undefined): Promise<T> {
+function exchange<T>(
+  relay: string,
+  message: unknown[],
+  done: (reply: unknown[]) => T | undefined,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(relay);
     const timer = setTimeout(() => {
@@ -43,7 +47,9 @@ function exchange<T>(relay: string, message: unknown[], done: (reply: unknown[])
 
 /** Publish `ev` and wait for the relay's OK. */
 export async function publish(relay: string, ev: NostrEvent): Promise<void> {
-  const reply = await exchange(relay, ['EVENT', ev], (r) => (r[0] === 'OK' && r[1] === ev.id ? r : undefined));
+  const reply = await exchange(relay, ['EVENT', ev], (r) =>
+    r[0] === 'OK' && r[1] === ev.id ? r : undefined,
+  );
   if (reply[2] !== true) throw new Error(`the relay refused the event: ${String(reply[3])}`);
 }
 
@@ -112,7 +118,11 @@ export async function seedV1ChainReactionTable(
   );
   const table = parseTable(tableEv);
   const keys = newGameKeys(rnd);
-  const joinEv = finalizeEvent(buildJoinTemplate(table, creator, keys, [relay], rnd, now + 1), creatorSk, rnd);
+  const joinEv = finalizeEvent(
+    buildJoinTemplate(table, creator, keys, [relay], rnd, now + 1),
+    creatorSk,
+    rnd,
+  );
   await publish(relay, tableEv);
   await publish(relay, joinEv);
   const secrets = JSON.stringify({
