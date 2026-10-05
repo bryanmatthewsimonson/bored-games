@@ -2,6 +2,14 @@
  * Public API of @bored-games/protocol: NOSTR events for the Bored Games protocol (docs/PROTOCOL.md).
  * Signing and verification use @noble/curves `schnorr` directly, not nostr-tools (D026).
  */
+export {
+  encodeKeyBackup,
+  isKeyBackupEvent,
+  type KeyBackup,
+  keyBackupD,
+  keyBackupTemplate,
+  parseKeyBackup,
+} from './backup.ts';
 export { ProtocolError } from './errors.ts';
 export {
   type AttestSpec,
@@ -80,6 +88,7 @@ export {
   validateTable,
   verifyJoin,
 } from './lobby.ts';
+export { getConversationKey, isNip44Payload, nip44Decrypt, nip44Encrypt } from './nip44.ts';
 export {
   type EventTemplate,
   eventBytes,

@@ -11,6 +11,8 @@ export const KIND = {
   resign: 7457,
   /** The Device note, protocol 2 only (PROTOCOL-v2 §4.4). */
   device: 7458,
+  /** The encrypted self-backup of a seat's game keys (NIP-78 app data, PROTOCOL §3, D065). */
+  backup: 30078,
 } as const;
 
 /** Protocol version 1, carried as `["proto","1"]` on every event of a v1 game; the default of every v1 caller. */

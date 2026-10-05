@@ -6,6 +6,7 @@ import { CATALOG } from './games/catalog.ts';
 import { GAME_IDS } from './games/ids.ts';
 import { CopyButton } from './header.tsx';
 import { claimTablesFor, exportNsec, markBackedUp, writeSignerChoice } from './identity.ts';
+import { EXTENSION_DECRYPT_NOTE } from './key-backup.ts';
 import { parseRelayInput } from './settings.ts';
 import { KeyImport, StorageStatus } from './settings-key.tsx';
 import { ProfileSection } from './settings-profile.tsx';
@@ -159,7 +160,14 @@ function IdentitySection() {
         </p>
       )}
       {signer.kind === 'nip07' ? (
-        <p class="muted">Your key is held by the browser extension, so there is nothing to export here.</p>
+        <>
+          <p class="muted">Your key is held by the browser extension, so there is nothing to export here.</p>
+          {signer.nip44 !== undefined && (
+            <p class="warning" role="note">
+              {EXTENSION_DECRYPT_NOTE}
+            </p>
+          )}
+        </>
       ) : (
         <>
           <p class="warning" role="note">

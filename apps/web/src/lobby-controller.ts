@@ -30,6 +30,7 @@ import {
 import type { Filter } from '@bored-games/relay';
 import { type Signal, signal } from '@preact/signals';
 import { bytesToHex, hexToBytes } from './hex.ts';
+import { backupDue, publishKeyBackup } from './key-backup.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
 import {
   addToTableList,
@@ -275,6 +276,7 @@ export class LobbyController {
     this.#ingest(tableEv);
     this.#ingest(joinEv);
     await this.#publishAll([tableEv, joinEv], table.relays);
+    this.#backUp(table);
     return table.address;
   }
 
@@ -306,6 +308,18 @@ export class LobbyController {
     const joinEv = await this.#signJoin(table);
     this.#ingest(joinEv);
     await this.#publishAll([joinEv], table.relays);
+    this.#backUp(table);
+  }
+
+  /**
+   * After a Join: publish the encrypted backup of the seat's game keys (D065), so another device with this player key
+   * can play the seat. In the background: a failure does not undo the join, and the game screen backs up again (or
+   * offers to) while none is recorded.
+   */
+  #backUp(table: ParsedTable): void {
+    const { profile, storage } = this.#d;
+    if (this.#d.signer.nip44 === undefined || !backupDue(profile, storage, table.address)) return;
+    void publishKeyBackup(this.#d, table.address, { tableRelays: table.relays });
   }
 
   /**

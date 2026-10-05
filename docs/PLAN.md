@@ -25,27 +25,20 @@
 
 ## Status
 
-**Known bugs (owner reports, 2026-10-03; not yet fixed):**
-1. **The same player key on a second device only watches.** The owner's desktop browser, using the same nsec as the phone that joined, shows "This browser does not hold your keys for this game, so you are watching it" in a Chain Reaction game during the deal.
-   - **Likely cause:** the seat's game keys (session key and deck secret) live only in the browser that joined. The NIP-78 self-backup that ARCHITECTURE §Backup promises ("so another device can resume") was never built; ARCHITECTURE's status line lists it as missing from Phase 2e.
-   - **Still to do:**
-     - confirm this is not a regression from D056/D057;
-     - build the encrypted backup and restore;
-     - change the message so it tells the player what to do (open the game on the device that joined, or restore the backup).
-   - Two live devices per seat also bring in the multi-device questions of D055/D056: the outbox rule applies.
-2. **"Other keys" in Settings doesn't list a key whose games are in this browser.** On player 3's phone (the D057 incident), Home lists the game "Under another key: switch to it in Settings to play", but Settings shows no Other keys entry, so the player has no way to act on that text.
-   - **Likely cause:** "Other keys" lists only `sk-history`. The race kept the original player key in memory only, so storage holds that seat's game keys (owner A) but never key A itself.
-   - **Still to do:**
-     - from this browser's saved game keys, list every owner whose games are under another key, even when that key is gone;
-     - offer seat recovery (`seatForGameKeys`, D057) from Home and Settings;
-     - fix the Home text, which promises a switch that may be impossible;
-     - check whether player 3's phone ever recovered the seat after the PR #17 deploy.
+**Known bugs (owner reports, 2026-10-03): both fixed (fix-keys, 2026-10-04, D065).** Verified 2026-10-04 after the security review fixes: `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes), with the new `keys.spec.ts`.
+1. **The same player key on a second device only watched.** The owner's desktop, with the phone's nsec, showed "This browser does not hold your keys for this game, so you are watching it" in a Chain Reaction game during the deal.
+   - **Cause (confirmed):** the seat's game keys (session key and deck secret) lived only in the browser that joined; the NIP-78 self-backup that ARCHITECTURE §Backup promised was never built. Not a regression from D056/D057: the controller has watched in that case since its first version (commit 278d57c).
+   - **Fixed:** the encrypted backup and restore (PROTOCOL §3). After a Join, and from the game screen while none is recorded, the app publishes a kind 30078 event (`d` = `bored-games/keys/<table address>`), NIP-44 v2 encrypted to the player's own npub (NIP-44 in `packages/protocol`, ChaCha20 included, official vectors, no new dependency). A device whose npub is seated but holds no game keys fetches it from the root's relays and its own, decrypts it, checks both keys against the seat (`backupSeat`), saves them and plays: "Restoring your game keys from your backup…", then a short note to play on one device at a time. Otherwise it says why and what to do (open the game on the device that joined, which backs the keys up when it opens the game; **Try again**). The joining device's game screen checks the backup on the game's relays and publishes it again when it is missing or wrong (automatically with a local key; **Back up this game's keys** with a NIP-07 extension; **Back up again** always), which also covers games joined before the fix. An extension's ciphertext is checked before signing; the backup gives the npub key (and sites allowed to decrypt with an extension) control of the seat, which PROTOCOL §3 states and the app tells extension users. Security review fixes (M1, L1–L5) are in. An extension without `nip44` is told backups are unavailable with it. A restored device is one more device of the seat: the check before signing and the deterministic builds apply (D063); two devices dealing or deciding at the same moment remain the D063 residual.
+2. **"Other keys" in Settings did not list a key whose games are in this browser.** On player 3's phone (the D057 incident), Home listed the game "Under another key: switch to it in Settings to play", but Settings showed no Other keys entry.
+   - **Cause (confirmed):** "Other keys" listed only `sk-history`, and the race kept key A in memory only, so storage held seat 3's game keys (owner A) but never key A.
+   - **Fixed:** Settings → Other keys lists every key this profile kept or whose tables and saved game keys are here (`otherKeys`), "not kept in this browser" where the key is gone, each with its games in progress and **Open game**, which plays the seat with the saved game keys (`seatForGameKeys`, D057). Home's line (`otherKeyDetail`) offers the switch only for a kept key; otherwise it says the game can be played with this browser's saved game keys (or, before the start, that they will play the seat, or that only the creating key can start it).
+   - **Not checkable from here:** whether player 3's phone recovered the seat after the PR #17 deploy (its game screen would have, since D057's recovery runs on load).
 
 | Phase | State |
 |---|---|
 | 0. Platform docs and scaffolding | **Done** |
 | 1. Game kit plus Chain Reaction engine | **Done, at the checkpoint** |
-| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`, with the session rulings), awaiting owner review (open question 9); **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d done** (`packages/client`: the session engine, the lobby fold, the memory relay and async simulations; rulings D030); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`); the NIP-78 secret backup and the smoke test against the owner's relay are still open |
+| 2. Decentralized protocol | **2a spec written** (`docs/PROTOCOL.md`, with the session rulings), awaiting owner review (open question 9); **2b done** (`packages/deck`); **2c done** (`packages/protocol`); **2d done** (`packages/client`: the session engine, the lobby fold, the memory relay and async simulations; rulings D030); **2e done** for relay transport (`packages/relay` pool, `tools/dev-relay`) and the NIP-78 encrypted backup of game keys (D065); the smoke test against the owner's relay is still open |
 | 3. Web shell plus Chain Reaction UI | **Playable end to end** (Preact + Signals, D031): identity and settings, Home, Table and Game screens, lobby and game controllers (D034), the end-to-end browser test (`pnpm e2e`), CI, and GitHub Pages deployment. Final polish (D035): the game log, confirmed timeout claims, profile names, and `?relays=` limited to local relays. The owner's guide is `docs/TESTING.md`. Remaining: NIP-46 login, a live "your turn" inbox, and the offline PWA shell |
 | 4. Records | Not started |
 | 5. Social | Not started |
@@ -165,6 +158,7 @@
   - A smoke test runs against the owner's relay plus a public relay. **Open** (2e; needs open question 7).
 
 ### Phase v2: Protocol version 2 (outline; spec `docs/PROTOCOL-v2.md`)
+- **Scope after the owner's choice (2026-10-05, "finish v2 with less ceremony").** Adversarial reviews only where protocol logic changes (T13's `vetSaved`/`rebroadcast`, T16, and the T21 final review); one standard review elsewhere. Fix rounds only for findings that can hurt an honest player or that a realistic cheater can exploit; other findings are listed for T21's docs. T13 drops the JSON vector-suite consolidation and the model-trace replays (vectors 5, 8, 9 deferred); T14 and T15 become one controller task; T17, T19 and T20 are trimmed to the essentials. Nothing merges to main before T0c passes.
 Outline only; each task gets its own plan before it starts. Nothing ships until every task's tests pass and `pnpm check` is green.
 - **Build status (branch `v2-build`).** T1, the v1 freeze, is done:
   - the v1 golden corpus: `packages/client/test/golden-v1/` holds 25 signed v1 event sets (whole games of Chain Reaction, Chess, Bank 0.1.0 and Luster, honest and with the test adversaries; the stale-rival, freeze and shuffle-fork-deal sets; Chess noise and deadline claims) with the digest of every fold in three arrival orders; the `golden-v1*.test.ts` files fold them again (valid shuffle proofs verified untrusted for one Chain Reaction and one Luster set), and `scripts/golden-v1.ts` recorded them;

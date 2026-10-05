@@ -5,7 +5,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { npubEncode, shortNpub } from './bech32.ts';
 import { useApp } from './context.ts';
-import { gamesInProgress, importSecretKey, KEY_ERRORS, keptKeys, switchToKeptKey } from './identity.ts';
+import { gameTitle } from './game-names.ts';
+import { gamesInProgress, importSecretKey, KEY_ERRORS, switchToKeptKey } from './identity.ts';
+import { useLobby } from './lobby-hooks.ts';
+import { type OtherKeyGame, otherKeys } from './other-keys.ts';
+import { gameHref, tableHref } from './router.ts';
 import {
   isPersistentStore,
   type PersistState,
@@ -55,6 +59,16 @@ export function gamesLabel(n: number): string {
   return n === 0 ? 'no games in progress' : n === 1 ? '1 game in progress' : `${n} games in progress`;
 }
 
+/**
+ * Under an owner whose key is not kept here (D065): its games can still be played with this browser's saved game keys
+ * (D057), except signing the final result; or nothing here plays them.
+ */
+export function otherKeyNote(playable: boolean): string {
+  return playable
+    ? "This key isn't kept in this browser, but your game keys for these games are: open a game to play your seat with them. Only signing the final result needs the key itself; import it below to sign it too."
+    : "This key isn't kept in this browser. To play its games here, import it below.";
+}
+
 /** What the import form says about the current key's games and where the key goes. */
 export function importNote(games: number, kind: 'local' | 'nip07'): string {
   const stay =
@@ -70,13 +84,25 @@ export function importNote(games: number, kind: 'local' | 'nip07'): string {
 
 /** The keys this profile used before, with "Switch to"; and "Use a key from elsewhere": paste, confirm, reload. */
 export function KeyImport() {
-  const { profile, store, signer, deps } = useApp();
+  const { profile, store, signer, deps, settingsOpen } = useApp();
   const [text, setText] = useState('');
   const [sure, setSure] = useState(false);
   const [error, setError] = useState('');
   const [switchError, setSwitchError] = useState('');
   const games = gamesInProgress(profile, store, signer.pubkey);
-  const kept = keptKeys(profile, store);
+  // Kept keys, and owners of this browser's saved game keys whose key is not kept (D065).
+  const others = otherKeys(profile, store, signer.pubkey);
+  const lobby = useLobby();
+  const tables = lobby.myTables.value;
+  const gameLabel = (address: string): string => {
+    const t = tables.find((x) => x.address === address);
+    return t === undefined ? 'A game' : gameTitle(t.table.game);
+  };
+  const gameLink = (g: OtherKeyGame): string => {
+    if (g.rootId !== null) return gameHref(g.rootId);
+    const [, creator, tableId] = g.address.split(':');
+    return tableHref(creator ?? '', tableId ?? '');
+  };
   const persistent = isPersistentStore(store);
   const ctx = () => ({ current: signer.pubkey, now: deps.now() });
 
@@ -92,31 +118,64 @@ export function KeyImport() {
 
   return (
     <div class="stack key-import">
-      {kept.length > 0 && (
+      {others.length > 0 && (
         <section aria-labelledby="kept-h">
           <h4 id="kept-h">Other keys</h4>
-          <p class="muted">Keys this profile used before. Their games stay with them.</p>
+          <p class="muted">
+            Keys this profile used before, and keys whose games this browser holds. Their games stay with
+            them.
+          </p>
           <ul class="kept-keys">
-            {kept.map((k) => (
-              <li key={k.pubkey} class="row">
-                <span class="grow">
-                  <code class="npub">{shortNpub(npubEncode(k.pubkey))}</code>{' '}
-                  <span class="muted">{gamesLabel(gamesInProgress(profile, store, k.pubkey, false))}</span>
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-small"
-                  aria-label={`Switch to ${shortNpub(npubEncode(k.pubkey))}`}
-                  onClick={() => {
-                    const r = switchToKeptKey(profile, store, k.pubkey, ctx());
-                    if (r.ok) window.location.reload();
-                    else setSwitchError(r.error);
-                  }}
-                >
-                  Switch to
-                </button>
-              </li>
-            ))}
+            {others.map((k) => {
+              const short = shortNpub(npubEncode(k.pubkey));
+              const playable = k.games.filter((g) => g.savedKeys);
+              return (
+                <li key={k.pubkey} class="stack">
+                  <div class="row">
+                    <span class="grow">
+                      <code class="npub">{short}</code>{' '}
+                      <span class="muted">
+                        {k.kept ? '' : 'not kept in this browser · '}
+                        {gamesLabel(
+                          k.kept ? gamesInProgress(profile, store, k.pubkey, false) : k.games.length,
+                        )}
+                      </span>
+                    </span>
+                    {k.kept && (
+                      <button
+                        type="button"
+                        class="btn btn-small"
+                        aria-label={`Switch to ${short}`}
+                        onClick={() => {
+                          const r = switchToKeptKey(profile, store, k.pubkey, ctx());
+                          if (r.ok) window.location.reload();
+                          else setSwitchError(r.error);
+                        }}
+                      >
+                        Switch to
+                      </button>
+                    )}
+                  </div>
+                  {!k.kept && <p class="muted">{otherKeyNote(playable.length > 0)}</p>}
+                  {k.games.length > 0 && (
+                    <ul class="plain other-key-games">
+                      {k.games.map((g) => (
+                        <li key={g.address} class="row">
+                          <span class="grow">{gameLabel(g.address)}</span>
+                          <a
+                            class="btn btn-small"
+                            href={gameLink(g)}
+                            onClick={() => (settingsOpen.value = false)}
+                          >
+                            {g.rootId !== null ? 'Open game' : 'Open table'}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {switchError !== '' && (
             <p class="error" role="alert">

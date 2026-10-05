@@ -260,6 +260,7 @@ describe('helpers and constants', () => {
       attest: 7456,
       resign: 7457,
       device: 7458,
+      backup: 30078,
     });
     expect(PROTO).toBe('1');
     expect(PROTOS).toEqual(['1', '2']);
