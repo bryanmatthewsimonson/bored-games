@@ -148,6 +148,8 @@ Hands one seat's play over from one device to another in a game whose module dec
 
 **Signer:** the seat's session key. Every device of a seat holds that key (it is restored from the backup), so the note does not authenticate a device to other seats; it lets a seat's honest devices agree which one plays (§9.5).
 
+**Bound:** a client keeps at most 8 Device notes per seat, the lowest ids (an order-independent set, §9.1), and refuses the others for good; no rule reads a note before §9.5 applies (amended in the v2 build, D072 fix round 1).
+
 ### 4.5 Subscriptions
 v1 §9's filters, with the new kind and the session-key end attestations:
 - `{"kinds":[7452,7453,7454,7455,7456,7457,7458],"authors":[the seats' session keys],"#e":[rootId]}`
