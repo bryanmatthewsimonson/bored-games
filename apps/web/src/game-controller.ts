@@ -511,8 +511,10 @@ export class GameController {
   #seen = new Map<string, number>();
   /** First-seen times not saved yet. */
   #seenDirty = false;
-  /** Events the session last answered `rejected` (`#receive`): their saved times go first past `MAX_SEEN`. */
-  readonly #seenRejected = new Set<string>();
+  /** The session `#feedHeld` last fed what was saved and held: only its chain protects saved times (`#evictable`). */
+  #refed: Session | null = null;
+  /** What the session last answered for each event (`#receive`): protocol 2 drops saved times by it (`#evictable`). */
+  readonly #seenStatus = new Map<string, ReturnType<Session['receive']>['status']>();
   #outbox = new Map<string, OutboxEntry>();
   readonly #inFlight = new Set<string>();
   #gameEose = false;
@@ -573,12 +575,15 @@ export class GameController {
 
   /** Stored game events asked for per page (`GAME_PAGE`; tests make it small to exercise paging). */
   readonly #page: number;
+  /** First-seen times kept besides the root's (`MAX_SEEN`; tests make it small to exercise the eviction). */
+  readonly #maxSeen: number;
 
-  constructor(rootId: string, deps: ControllerDeps, opts: { gamePage?: number } = {}) {
+  constructor(rootId: string, deps: ControllerDeps, opts: { gamePage?: number; maxSeen?: number } = {}) {
     this.rootId = rootId;
     this.#d = deps;
     this.clock = signal(deps.now());
     this.#page = opts.gamePage ?? GAME_PAGE;
+    this.#maxSeen = opts.maxSeen ?? MAX_SEEN;
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -782,10 +787,9 @@ export class GameController {
     }
     // Protocol 2 saves every event's time, a rejected one too: a Move invalid at its prev, an invalid Shares event or
     // an end attestation with a bad log hash is still held, and the cutoff and the standing floor read it. Rejected
-    // ones are the first to go when the saved times are over their cap (`#saveSeen`).
+    // ones are the first to go when the saved times are over their cap (`#evictable`).
     if (first === undefined && (r.status !== 'rejected' || this.#v2)) this.#noteSeen(ev.id, now);
-    if (r.status === 'rejected') this.#seenRejected.add(ev.id);
-    else this.#seenRejected.delete(ev.id);
+    this.#seenStatus.set(ev.id, r.status);
     if (this.#v2) this.#afterReceiveV2(session, ev, r);
     return r;
   }
@@ -872,9 +876,8 @@ export class GameController {
 
   /**
    * Save the first-seen times, merged with what another tab of this profile saved (the earlier time wins), and
-   * keep at most `MAX_SEEN` besides the root's, dropping the oldest. Protocol 2 saves rejected events' times too
-   * (`#receive`), so a seat flooding junk could otherwise push real events' times out: events the session rejected go
-   * first, the newest of them first, and only then the oldest of the rest.
+   * keep at most `MAX_SEEN` besides the root's, dropping the oldest (protocol 1). Protocol 2 drops by `#evictable`,
+   * never the times the deadlines and results rest on.
    */
   #saveSeen(): void {
     if (!this.#seenDirty || this.#disposed) return;
@@ -883,13 +886,81 @@ export class GameController {
       if (mine === undefined || at < mine) this.#seen.set(id, at);
     }
     const others = [...this.#seen].filter(([id]) => id !== this.rootId);
-    if (others.length > MAX_SEEN) {
-      const junk = (id: string): number => (this.#seenRejected.has(id) ? 0 : 1);
-      others.sort((a, b) => junk(a[0]) - junk(b[0]) || (junk(a[0]) === 0 ? b[1] - a[1] : a[1] - b[1]));
-      for (const [id] of others.slice(0, others.length - MAX_SEEN)) this.#seen.delete(id);
+    if (others.length > this.#maxSeen) {
+      const drop = others.length - this.#maxSeen;
+      if (!this.#v2) {
+        others.sort((a, b) => a[1] - b[1]);
+        for (const [id] of others.slice(0, drop)) this.#seen.delete(id);
+      } else for (const id of this.#evictable(others).slice(0, drop)) this.#seen.delete(id);
     }
     if (writeJson(this.#d.storage, seenKey(this.#d.profile, this.rootId), Object.fromEntries(this.#seen)))
       this.#seenDirty = false;
+  }
+
+  /**
+   * The protocol 2 first-seen times that may be dropped past `MAX_SEEN`, in the order they go (D072 fix round 1, M1).
+   * A seat flooding events the session accepts or answers `duplicate` must not push out the times its own deadline
+   * runs from: on a reload, an event with no saved time is first seen at the reload, and the progress time P would
+   * restart there. So these are never dropped (none while no session is loaded):
+   * - every move on the session's chain (P is the latest of their times), and every move the session accepted;
+   * - the counted claim or Resign, this session's or the one saved (`countedResult`);
+   * - for a result standing against a fork, the moves of its line and each seat's earliest end attestation of it.
+   * The rest go in this order: events the session rejected, then those it answered `duplicate`, then the other events
+   * that are not moves (stored, unknown here, then accepted), each newest first (a flood is what arrived last), then
+   * moves off the chain, oldest first. A protected set can exceed the cap; it is bounded by the game's length.
+   */
+  #evictable(entries: readonly (readonly [string, number])[]): string[] {
+    const session = this.#session;
+    // Not before the session holds what was saved (`#feedHeld`): until then its chain is not the game's.
+    if (!(session instanceof GameSessionV2) || this.#refed !== session) return [];
+    const kept = new Set<string>();
+    const v = session.view();
+    for (const [id] of entries) {
+      const ev = this.#events.get(id) ?? this.#outboxEvent(id);
+      const accepted = ev?.kind === KIND.move && this.#seenStatus.get(id) === 'accepted';
+      if (accepted || session.chainSeq(id) !== null) kept.add(id);
+    }
+    for (const c of [
+      session.countedResult(),
+      loadV2State(this.#d.storage, this.#d.profile, this.rootId).counted,
+    ])
+      if (c !== null) kept.add(c.id);
+    const r = v.result;
+    if (v.stood && r !== null) {
+      for (let at: string | null = r.head, i = 0; at !== null && at !== this.rootId && i < MAX_BUFFER; i++) {
+        kept.add(at);
+        const ev = this.#events.get(at);
+        at = ev === undefined ? null : prevOf(ev);
+      }
+      const earliest = new Map<number, string>();
+      for (const x of session.heldSet()) {
+        if (x.kind !== 'end' || x.at !== r.head || this.#seenStatus.get(x.id) === 'rejected') continue;
+        const best = earliest.get(x.seat);
+        const t = this.#seen.get(x.id) ?? Number.POSITIVE_INFINITY;
+        if (best === undefined || t < (this.#seen.get(best) ?? Number.POSITIVE_INFINITY))
+          earliest.set(x.seat, x.id);
+      }
+      for (const id of earliest.values()) kept.add(id);
+    }
+    const tier = (id: string): number => {
+      const status = this.#seenStatus.get(id);
+      if (status === 'rejected') return 0;
+      if (status === 'duplicate') return 1;
+      const kind = this.#events.get(id)?.kind ?? this.#outboxEvent(id)?.kind;
+      if (kind === KIND.move) return 4;
+      return status === 'accepted' ? 3 : 2;
+    };
+    return entries
+      .filter(([id]) => !kept.has(id))
+      .map(([id, at]) => ({ id, at, tier: tier(id) }))
+      .sort((a, b) => a.tier - b.tier || (a.tier === 4 ? a.at - b.at : b.at - a.at))
+      .map((x) => x.id);
+  }
+
+  /** This seat's saved event with id `id`, if the outbox holds it. */
+  #outboxEvent(id: string): NostrEvent | undefined {
+    for (const e of this.#outbox.values()) if (e.event.id === id) return e.event;
+    return undefined;
   }
 
   /**
@@ -934,6 +1005,7 @@ export class GameController {
       session.tick(this.#d.now());
       this.#applySync();
     }
+    this.#refed = session;
     if (this.#viewFull) this.#vetSaved(false);
   }
 

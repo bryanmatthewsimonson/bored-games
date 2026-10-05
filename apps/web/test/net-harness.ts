@@ -126,8 +126,12 @@ export class Harness {
     return c;
   }
 
-  game(rootId: string, deps: ControllerDeps): GameController {
-    const c = new GameController(rootId, deps);
+  game(
+    rootId: string,
+    deps: ControllerDeps,
+    opts: { gamePage?: number; maxSeen?: number } = {},
+  ): GameController {
+    const c = new GameController(rootId, deps, opts);
     this.#disposers.push(() => c.dispose());
     c.start();
     return c;

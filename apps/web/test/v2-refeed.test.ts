@@ -7,9 +7,16 @@
  */
 import type { ChessState } from '@bored-games/chess';
 import type { SessionViewV2 } from '@bored-games/client';
-import { finalizeEvent, moveTemplate, type NostrEvent } from '@bored-games/protocol';
+import {
+  deviceNoteTemplate,
+  finalizeEvent,
+  KIND,
+  moveTemplate,
+  type NostrEvent,
+} from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type GameController, loadSeen, loadV2State } from '../src/game-controller.ts';
+import { type GameController, loadSeen, loadV2State, MAX_SEEN } from '../src/game-controller.ts';
+import { bytesToHex } from '../src/hex.ts';
 import type { PoolLike } from '../src/net.ts';
 import { loadSecrets } from '../src/storage.ts';
 import { Harness, now, offlinePool, type Profile, pause, rnd, waitFor } from './net-harness.ts';
@@ -340,4 +347,114 @@ describe('The protocol 2 refeed and persistence contract (T15)', () => {
     expect(tablet.view.value?.outcome).toEqual(outcome);
     expect(v2view(tablet)?.ownForfeit).toBeNull();
   }, 60_000);
+
+  // Review of T14+T15, M1 (the probe ported): past the cap on saved first-seen times, a staller's flood must not push
+  // out the times its own deadline runs from, or every reload would restart that deadline.
+  it('a flood of Device notes past MAX_SEEN keeps the chain’s first-seen times: a reload 20 hours later leaves the deadline where it was', async () => {
+    const { rootId, address, white, black, wc } = await chess();
+    let gw = h.game(rootId, white.deps);
+    const gb = h.game(rootId, black.deps);
+    await play(gw, 0, 'e2e4', 1);
+    await waitFor('move 1 at Black', () => history(gb) === 1);
+    const head = gw.view.value?.head.id as string;
+    await waitFor('the head’s time saved', () => loadSeen(white.deps.storage, white.name, rootId).has(head));
+    const p0 = (gw.view.value as SessionViewV2).pendingSince;
+    // Black, the staller, floods Device notes a little later.
+    wc.skew = 100;
+    const secrets = loadSecrets(black.name, black.deps.storage, address);
+    if (secrets === null) throw new Error('no game keys');
+    const pool = h.pool();
+    let batch: Promise<unknown>[] = [];
+    for (let n = 1; n <= MAX_SEEN + 50; n++) {
+      const ev = finalizeEvent(
+        deviceNoteTemplate({ rootId, device: 'ab'.repeat(16), n }, now()),
+        secrets.sessionSk,
+        rnd,
+      );
+      batch.push(pool.publish(ev));
+      if (n % 500 === 0) {
+        await Promise.all(batch);
+        batch = [];
+      }
+    }
+    await Promise.all(batch);
+    // White's saved times reach the cap: the flood went through the eviction.
+    await waitFor(
+      'the cap reached',
+      () => loadSeen(white.deps.storage, white.name, rootId).size > MAX_SEEN,
+      120_000,
+    );
+    await pause(2000);
+    gw.tick();
+    const seen = loadSeen(white.deps.storage, white.name, rootId);
+    expect(seen.has(head)).toBe(true);
+    expect(seen.size).toBeLessThanOrEqual(MAX_SEEN + 1);
+    gw.dispose();
+    // White reopens 20 hours later (the deadline is 24 hours).
+    wc.skew = 72_000;
+    gw = h.game(rootId, white.deps);
+    await waitFor(
+      'the reloaded game',
+      () => gw.view.value !== null && gw.status.value !== 'syncing',
+      120_000,
+    );
+    expect((gw.view.value as SessionViewV2).pendingSince).toBe(p0);
+    expect(gw.timeoutTarget.value).toBeNull();
+  }, 240_000);
+
+  it('past the cap, the controller drops the flood and never the chain’s times, whatever the session answers (a small cap, junk moves it stores)', async () => {
+    const { rootId, address, white, black, wc } = await chess();
+    const cap = { maxSeen: 12 };
+    let gw = h.game(rootId, white.deps, cap);
+    const gb = h.game(rootId, black.deps);
+    await play(gw, 0, 'e2e4', 1);
+    await play(gb, 1, 'e7e5', 2);
+    await play(gw, 0, 'g1f3', 3);
+    await waitFor('move 3 at Black', () => history(gb) === 3);
+    const p0 = (gw.view.value as SessionViewV2).pendingSince;
+    // Black's junk: well-formed moves on parents nobody holds. The session stores them (they wait for their parent),
+    // so they are not rejected; they are moves, newer than the chain.
+    wc.skew = 100;
+    const secrets = loadSecrets(black.name, black.deps.storage, address);
+    if (secrets === null) throw new Error('no game keys');
+    const junk = Array.from({ length: 30 }, (_, i) =>
+      finalizeEvent(
+        moveTemplate(
+          {
+            rootId,
+            prevId: bytesToHex(rnd(32)),
+            seq: 10 + i,
+            content: { type: 'action', action: chessMove(1, 'e7e5'), shares: [], reveals: [] },
+          },
+          now(),
+          '2',
+        ),
+        secrets.sessionSk,
+        rnd,
+      ),
+    );
+    const pool = h.pool();
+    for (const ev of junk) await pool.publish(ev);
+    await waitFor('the junk seen', () =>
+      loadSeen(white.deps.storage, white.name, rootId).has(junk[29]?.id as string),
+    );
+    gw.tick();
+    const seen = loadSeen(white.deps.storage, white.name, rootId);
+    const heads = (await h.query([{ kinds: [KIND.move], '#e': [rootId] }]))
+      .filter((ev) => !junk.some((j) => j.id === ev.id))
+      .map((ev) => ev.id);
+    expect(heads).toHaveLength(3);
+    for (const id of heads) expect(seen.has(id)).toBe(true);
+    expect(seen.size).toBe(12 + 1);
+    gw.dispose();
+    wc.skew = 72_000;
+    gw = h.game(rootId, white.deps, cap);
+    await waitFor(
+      'the reloaded game',
+      () => gw.view.value !== null && gw.status.value !== 'syncing',
+      120_000,
+    );
+    expect(history(gw)).toBe(3);
+    expect((gw.view.value as SessionViewV2).pendingSince).toBe(p0);
+  }, 120_000);
 });
