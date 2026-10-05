@@ -274,6 +274,11 @@ Outline only; each task gets its own plan before it starts. Nothing ships until 
   - The check before signing also fetches the seat's claims, Resigns and attestations and what they name, and runs before a Timeout claim; the session adopts a claim this seat signed on the walk's head and a claim or Resign result this seat end-attested.
   - Tests: `apps/web/test/v2-outbox.test.ts`, `v2-two-devices.test.ts`.
   - Covered: V2-44, V2-45, V2-46, V2-47.
+- **T17, trimmed (the owner's scope choice), is done** (`apps/web/src/screens/game.tsx`, `waiting-model.ts`, `games/registry.ts`, `components/table-lists.tsx`; the controller unchanged; readings in D074):
+  - The stop line (the forker last, every equivocator, "unrated for the others" with 3+ seats; a stop before play as cancelled; a stop at a shuffle step on a board-less panel), "Result stood despite a fork by X", "secret withheld" and "audit incomplete", "Game ended, waiting for its events", and the own-forfeit dialog ("You were timed out: accept?", Play first, this device's deadline, keyed on `view.ownForfeit.head`, accepting through `confirmOwnForfeit()`).
+  - Roll contributions owed (`owedReveal` on a pending beacon, Bank's `owedWords`), with the deadline, on the game screen and Home.
+  - Tests: `game-screen.test.ts`, `waiting-model.test.ts`, `lobby-model.test.ts`, `v2-screens.test.ts`.
+  - Covered: V2-49, V2-52, V2-55.
 - **0. Before the build (D059 item 8).**
   - Finish the unproven model scopes (prompt-reveal.md §6.7): 4 seats, 8 moves, public, adversary at seat 3; two honest seats on two devices each with a resign; viewers mode at 4 seats and 8 moves. Re-run on a bigger machine if needed.
   - Align `tools/protocol-model` with the spec's choices and re-run the battery: a resign's identity at its named head with S cut at the first fork past it (§5.3, §8.3; review M3: the model now attests at the counting head, the stricter variant); a claim forfeiting several seats (§5.3); unresolved anchors (§5.4); the Secret phase after a stop (§7.3); unordered roll contributions (§6.2); a public reveal that blocks the next decision (Luster refills). **Add a cancel case** (review H1): `stop3` scores every stop as E's loss and has no cancel, so the model must check that a fork cancels only when no game action is held at or past it, and that a late fork at the root or a shuffle step is E's loss.
