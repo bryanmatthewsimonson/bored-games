@@ -116,8 +116,11 @@ export function LusterRulesContent() {
           spectators see them face down, with their tier and count. A card taken from the market can still be
           remembered from the earlier public move. The desktop sidebar shows scores and resources; on smaller
           screens the player panels sit below the board. Moves can take time to arrive; controls unlock when
-          it is your decision and the game has synced. A failed send can be retried. The table's deadline
-          applies to turns. Resigning is currently unavailable for this game.
+          it is your decision and the game has synced. A failed send can be retried. When a market card is
+          refilled or a card is reserved unseen, each player's open app sends its part of that card by itself;
+          the game waits for every app, and the screen says who it waits for. The table's deadline applies to
+          turns and to these card reveals: a player whose reveal is still missing at the deadline can be timed
+          out, even when it is not their turn. Resigning is currently unavailable for this game.
         </p>
       </section>
     </article>

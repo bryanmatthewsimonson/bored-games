@@ -33,7 +33,7 @@ Inspection and a failed NOSTR simulation showed that GameSession supports only o
 
 The opt-in packet is `glass`, 100 cards, with groups 40/30/20/10 at offsets 0/40/70/90. The Luster transport adapter converts public reveals, private learns, dealt positions, identity claims and full audit orders between global and per-tier coordinates. Cross-group input/proof substitution is rejected. Decks with no partitions keep their existing domain and one shuffle per seat; deckless games have no shuffle or share duty.
 
-A new automatic `share` duty, gated by Luster's explicit `DeckSpec.promptShares` opt-in, supplies pending public reveals during play and newly assigned non-owner layers, so a blind reservation can be learned before the next player acts. Partitions alone do not enable that duty. Every shared position is assigned by the module; a seat never publishes its own private layer. Its persisted outbox key is the position list; it does not replace the one-time setup deal or publish an owner's private share. The existing rival-deck safeguard blocks this duty after a seat dealt on another shuffle branch. No cryptographic algorithms, wire events, dice helpers, dependencies or Bank files change.
+Under protocol 1 (games started before protocol 2, which stay on it for good), a new automatic `share` duty, gated by Luster's explicit `DeckSpec.promptShares` opt-in, supplies pending public reveals during play and newly assigned non-owner layers, so a blind reservation can be learned before the next player acts. Partitions alone do not enable that duty. Every shared position is assigned by the module; a seat never publishes its own private layer. Its persisted outbox key is the position list; it does not replace the one-time setup deal or publish an owner's private share. The existing rival-deck safeguard blocks this duty after a seat dealt on another shuffle branch. No cryptographic algorithms, wire events, dice helpers, dependencies or Bank files change.
 
 This is a necessary exception to the initial registration-only integration plan. Shared edits are additive and kept out of Bank's game-specific implementation. The combined release preserves both games' registration entries and their separate client duties.
 
@@ -47,9 +47,25 @@ The existing protocol's selective-abort, shuffle-fork and timeout limitations st
 
 Version 0.2.0 pins the changed starting-player and round semantics. Previously created 0.1.0 roots require their original engine version; they must not be silently reinterpreted with the new rules.
 
+## Protocol 2 (v2 build T18)
+
+New Luster tables are protocol 2 (docs/PROTOCOL-v2.md §6.3). The engine is unchanged (0.2.0, `protocols: [1, 2]`); everything below comes from the generic v2 session and controller.
+
+- **Prompt release replaces the `share` duty.** A v2 session ignores `DeckSpec.promptShares` and never owes `share`. After a buy or a reserve from the display, every seat's open app, the actor's included, releases its share of the refilled position in a card Shares event anchored on the move (§6.1); after a blind reservation, every other seat's app releases the card and its owner never does. Moves wait while a refill's reveal is pending. The slow path stays: a game action still carries every share its seat owes.
+- **Forks stop the game (audit F1).** A seat that reserves blind, reads the card from the automatic releases and signs a rival on the same prev holds a fork at every client that sees both: the game stops at that prev, the forker is last (rated; unrated for the others with 3 or more seats), no release, decision or claim follows, and only the after-stop Secret reveal is owed. A move signed past the fork on either side is not played and nobody releases for it, so the card read on one side is worth nothing on the other.
+- **Two devices (audit F2).** The check before signing finds the other device's move before the seat signs a rival; a move saved offline on the other device is discarded by the outbox rule (§9.2) and a fork made only by it is never acted on (D073 H1). A seat never releases a card dealt to itself, on any device.
+- **Stale releases (audit F3).** A saved release is published only after the outbox rule's verdict `send`: its anchor on the chain, no fork held, the game live, and every position still drawn and dealt to another seat or to nobody with no share of this seat out yet. A release saved on a side that loses is discarded, and the controller refuses to publish any release holding the seat's own card.
+- **Owed reveals keep their timeout (D060).** A seat whose share of a refill is missing is stalled whether or not it is its turn, and is timed out at the deadline; the game screen and Home name it with the deadline.
+- **Resign stays disabled** (`resignAllowed` false at every seat count; a v2 session refuses to build one and rejects one received).
+- **v1 games in progress** keep folding under protocol 1 with its `share` duty and the D063 share vetting (`share-vet.ts`). New Luster tables at protocol 1 are neither created nor joined (T14).
+
+Tests: `packages/client/test/v2/luster.test.ts` (refills and blind reservations at 3 seats, F1 in split arrival orders, F2, F3, the owed-reveal timeout, a whole game with the audit passing, Resign refused, a v1 game through `openSession`), vector 6's Luster cases in `test/vectors/prompt-release-v2.json`, and `apps/web/test/v2-luster.test.ts` (the same through the controllers and the dev relay).
+
 ## Authorized release exception
 
 After the explicit D050 release-blocker assessment, the owner instructed: "For this game only, merge and deploy anyway." This authorizes Luster's current beta integration and deployment with the documented unresolved fork/rollback, Resign and legal/name review limits. The exception does not apply to other games or approve Phase K. Immediate shares require `DeckSpec.promptShares: true`; Luster alone sets it in the production registry. Neither an ordinary deck nor opting into deck partitions enables immediate shares by itself. Bank's dice contributions and the existing turn-piggybacked card games retain their prior duties.
+
+Protocol 2 (above) supersedes this exception for new tables: prompt release, the fork stop and the outbox rule apply to every deck game, and `promptShares` is read only by protocol 1 sessions. The exception still covers Luster games started under protocol 1.
 
 Bank was merged into main as PR #23 during this development. Integration preserves its package, dice beacon, manual contribution path, rules and UI. Shared registry conflicts retain both games, and the release is checked on that combined base.
 

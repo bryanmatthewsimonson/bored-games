@@ -94,6 +94,7 @@ describe('Luster public presentation', () => {
       'at least four',
       'fewer purchased developments',
       'Resigning is currently unavailable',
+      'even when it is not their turn',
       'A starting player is chosen at random',
       'player immediately before the starting player',
     ])
