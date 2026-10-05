@@ -28,6 +28,7 @@ function sim(seed: string, name: AdversaryName | null, vanishAt = SEATS, seats =
     seed,
     modules: MODULES,
     game: chainReaction.id,
+    proto: 1,
     policy: quickPolicy,
     ...(name === null ? {} : { adversary: adversary(name, CHEAT, seats, vanishAt) }),
   });
@@ -281,6 +282,7 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
         seed: 'cancel-2#1',
         modules: MODULES,
         game: chainReaction.id,
+        proto: 1,
         policy: quickPolicy,
         adversary: adversary('resign', 2, 3, 3),
         fullSync: true,
@@ -300,6 +302,7 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
         seed: 'sim-resign-4-full',
         modules: MODULES,
         game: chainReaction.id,
+        proto: 1,
         policy: quickPolicy,
         adversary: adversary('resign', 2, 4, 4 + 8),
         fullSync: true,

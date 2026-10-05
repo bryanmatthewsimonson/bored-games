@@ -192,22 +192,136 @@ export function resignAt(seat: number, atSeq: number): Adversary {
   };
 }
 
-export const ADVERSARIES = [
-  'badShare',
-  'forgedSkip',
-  'equivocate',
-  'vanish',
-  'badShuffle',
-  'resign',
-] as const;
+/* ------------------------------------------------------------------------------------------ protocol 2 */
+
+/**
+ * `equivocateStop` (protocol 2, PROTOCOL-v2 §5): at its first decision the seat signs two distinct valid moves on the
+ * same prev (two legal actions when it has a choice; the second dated a second later, so the two events differ even
+ * in a game whose moves carry no randomness) and publishes both. Every client holds the fork and stops the game at
+ * its prev, the seat last. The seat then plays on honestly: in a deck game, its Secret reveal after the stop.
+ */
+export function equivocateStop(seat: number): Adversary {
+  let done = false;
+  return {
+    name: 'equivocateStop',
+    seat,
+    turn(t) {
+      if (done || !decides(t.session)) return 'honest';
+      done = true;
+      const legal = t.session.legalActions();
+      const first = t.choose();
+      const other = legal.find((a) => JSON.stringify(a) !== JSON.stringify(first)) ?? first;
+      const a = t.session.buildAction(first, t.rnd, t.now);
+      const b = t.session.buildAction(other, t.rnd, t.now + 1);
+      t.publish(a, 'equivocate');
+      t.publish(b, 'equivocate');
+      return 'pass';
+    },
+  };
+}
+
+/** Relay events a stale tablet waits for (times the seat count, plus a few) before it comes back. */
+const AWAY_EVENTS = 3;
+/** The fewest turns, and the most, a stale tablet stays away. */
+const AWAY_MIN_TURNS = 4;
+const AWAY_MAX_TURNS = 60;
+
+/**
+ * `staleOutbox` (protocol 2, PROTOCOL-v2 §9.2, D056's stale outbox): an honest seat on a phone (device 0) and a tablet
+ * (device 1). Both play until the chain reaches `atSeq` moves; at the tablet's next decision after that, its
+ * connection drops as it acts: it saves that decision (and whatever follows it at once) unsent, then stays away
+ * while the game goes on, the phone playing that turn its own way. Much later the tablet reloads (a fresh session
+ * fed what it saved, its unsent events held back), syncs, and republishes its saved events through the outbox rule:
+ * the stale move is discarded, a move built on it with it, and nothing of the seat ever forks the game. The seat is
+ * honest: every honest-seat check covers it.
+ */
+export function staleOutbox(seat: number, atSeq: number): Adversary {
+  let state: 'with' | 'away' | 'back' = 'with';
+  let relayEvents = 0;
+  let left = 0;
+  let idle = 0;
+  return {
+    name: 'staleOutbox',
+    seat,
+    honest: true,
+    devices: 2,
+    connect(t) {
+      relayEvents = t.relayEvents;
+      if (t.device === 0 || state !== 'away') return 'online';
+      idle++;
+      const waited = t.relayEvents >= left + AWAY_EVENTS * (t.session.view().seats + 1);
+      if (idle < AWAY_MAX_TURNS && (idle < AWAY_MIN_TURNS || !waited)) return 'idle';
+      state = 'back';
+      return 'reload';
+    },
+    turn(t) {
+      if (t.device === 0 || state !== 'with') return 'honest';
+      if (t.session.view().head.seq < atSeq || !decides(t.session)) return 'honest';
+      state = 'away';
+      left = relayEvents;
+      return 'offline';
+    },
+    done: () => state !== 'away',
+  };
+}
+
+/** The chance a device of `twoDevices` goes offline, or reloads, at the start of a turn. */
+const OFFLINE_RATE = 0.15;
+const RELOAD_RATE = 0.05;
+
+/**
+ * `twoDevices` (protocol 2, PROTOCOL-v2 §9.2, §9.3): an honest seat played on two devices, both picked in rounds like
+ * any client. At the start of a turn a device may go offline for 1 to 3 more of its turns, playing on its last
+ * view and saving what it builds unsent, or reload. Back online (half the time by a reload) it syncs and vets its
+ * saved events before it does anything else. Whatever the two devices built for the same turn, the seat never forks
+ * itself and the game ends as an honest one.
+ */
+export function twoDevices(seat: number): Adversary {
+  const away = [0, 0];
+  return {
+    name: 'twoDevices',
+    seat,
+    honest: true,
+    devices: 2,
+    connect(t) {
+      const left = away[t.device] ?? 0;
+      if (left > 0) {
+        away[t.device] = left - 1;
+        if (left > 1) return 'offline';
+        return t.rng.float() < 0.5 ? 'reload' : 'online';
+      }
+      const r = t.rng.float();
+      if (r < OFFLINE_RATE) {
+        away[t.device] = 1 + t.rng.int(3);
+        return 'offline';
+      }
+      return r < OFFLINE_RATE + RELOAD_RATE ? 'reload' : 'online';
+    },
+    turn: () => 'honest',
+    done: () => away.every((n) => n === 0),
+  };
+}
+
+/** The protocol 1 adversaries (each needs a protocol 1 table; `badShare` and `forgedSkip` Chain Reaction's). */
+export const ADVERSARIES_V1 = ['badShare', 'forgedSkip', 'equivocate', 'vanish', 'badShuffle', 'resign'] as const;
+/** The protocol 2 adversaries. */
+export const ADVERSARIES_V2 = ['equivocateStop', 'staleOutbox', 'twoDevices'] as const;
+export const ADVERSARIES = [...ADVERSARIES_V1, ...ADVERSARIES_V2] as const;
 export type AdversaryName = (typeof ADVERSARIES)[number];
 
 /**
  * The named adversary at `seat`. `vanish` vanishes, and `resign` resigns, before the first game action unless
- * `vanishAt` (a chain length) says otherwise.
+ * `vanishAt` (a chain length) says otherwise; `staleOutbox`'s tablet leaves at its first decision once the chain
+ * holds `vanishAt` moves.
  */
 export function adversary(name: AdversaryName, seat: number, seats: number, vanishAt = seats): Adversary {
   switch (name) {
+    case 'equivocateStop':
+      return equivocateStop(seat);
+    case 'staleOutbox':
+      return staleOutbox(seat, vanishAt);
+    case 'twoDevices':
+      return twoDevices(seat);
     case 'badShare':
       return badShare(seat);
     case 'forgedSkip':
@@ -267,12 +381,48 @@ export function unexpected(report: SimReport, seat: number): string[] {
   const places = report.outcome?.places ?? [];
   const failed = typeof report.audit === 'object' ? report.audit.fail : [];
   const audit = canonicalJson(report.audit);
+  const all = Array.from({ length: report.seats }, (_, k) => k);
   switch (report.adversary) {
     case null:
+    case 'staleOutbox':
+    case 'twoDevices':
       want(report.phase === 'done', `phase ${report.phase}, not done`);
       want(report.audit === 'pass', `audit ${audit}`);
       want(report.forfeits.length === 0, `forfeits ${report.forfeits}`);
+      want(report.equivocators.length === 0, `equivocators ${report.equivocators}`);
+      if (report.proto === 2) {
+        want(report.stop === null && report.fork === null, `a fork by seat ${report.fork}`);
+        want(report.record?.ending === 'over', `record ending ${report.record?.ending}`);
+        want(same(report.endAttested, all), `end attested by ${report.endAttested}`);
+      }
+      if (report.adversary === 'staleOutbox') {
+        want(report.devices.saved > 0, 'the tablet saved nothing offline');
+        want(report.devices.sent + report.devices.discarded > 0, 'the tablet never vetted its outbox');
+      }
       break;
+    case 'equivocateStop': {
+      const rated = Array.from({ length: report.seats }, (_, k) => report.seats === 2 || k === seat);
+      want(report.cheats.length === 2, 'it did not publish two moves');
+      want(report.fork === seat, `fork by ${report.fork}`);
+      want(report.stop?.seat === seat && !report.stop.cancelled, `stop ${canonicalJson(report.stop)}`);
+      want(report.result === null, `result ${canonicalJson(report.result)}`);
+      want(report.phase === 'done', `phase ${report.phase}, not done`);
+      want(same(report.equivocators, [seat]), `equivocators ${report.equivocators}`);
+      want(same(report.forfeits, [seat]), `forfeits ${report.forfeits}`);
+      want(
+        report.audit === 'pass' || same(report.audit, { fail: [seat], reason: 'stop' }),
+        `audit ${audit}`,
+      );
+      want(lastAlone(places, seat), `places ${places}`);
+      want(report.record?.ending === 'stop', `record ending ${report.record?.ending}`);
+      want(report.record?.endedBy === seat, `record endedBy ${report.record?.endedBy}`);
+      want(same(report.record?.rated, rated), `rated ${report.record?.rated}`);
+      want(same(report.record?.secretWithheld, []), `secret withheld ${report.record?.secretWithheld}`);
+      want(report.record?.auditIncomplete === false, 'audit incomplete');
+      // A stop is never attested (PROTOCOL-v2 §5.6).
+      want(report.endAttested.length === 0 && report.attested.length === 0, 'a stop was attested');
+      break;
+    }
     case 'badShare':
       want(report.cheats.length === 1, 'it never cheated');
       want(rejected, `cheat received as ${cheatStatuses}`);

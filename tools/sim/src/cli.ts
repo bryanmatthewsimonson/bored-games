@@ -1,26 +1,31 @@
 /**
- * pnpm sim [--game chain-reaction|chess] [--games 4] [--seats 3-6] [--seed sim] [--adversary name]
- *          [--adversary-seat 1] [--vanish-at n]
+ * pnpm sim [--game chain-reaction|chess|bank|luster|bank@0.1.0] [--proto 1|2] [--games 4] [--seats 3-6] [--seed sim]
+ *          [--adversary name] [--adversary-seat 1] [--vanish-at n]
  *          [--policy quick|<fuzz policy>] [--deadline 86400] [--max-rounds 20000] [--full-sync]
  *          [--workers n] [--json]
  *
  * Plays whole games between independent clients over an in-memory relay (`simulateGame` in @bored-games/client):
  * the lobby, the shuffle, the deal, play, the audit and attestations, with events delivered out of order and
  * twice, a simulated clock and timeout claims. Game i uses seed "<seed>#<i>", seat count seats[i % n] and, unless
- * --policy names one, the fuzz policy i % (policy count). With --adversary one seat cheats, and each game is also
- * checked for that adversary's expected result. --game picks the game (any fuzz target); --seats defaults to its
- * seat counts (3-6 for Chain Reaction, 2 for Chess). Prints one line per game and the totals; exits 1 on any
- * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns.
+ * --policy names one, the fuzz policy i % (policy count). With --adversary one seat cheats (or, for a device
+ * scenario, plays on two devices), and each game is also checked for that adversary's expected result. --game picks
+ * the game (any fuzz target); --seats defaults to its seat counts (3-6 for Chain Reaction, 2 for Chess). --proto is the
+ * table's protocol: 2 by default, or the game's only one (1 for Bank 0.1.0); the protocol 1 adversaries need
+ * --proto 1, the protocol 2 ones (equivocateStop, staleOutbox, twoDevices) protocol 2. Prints one line per game and
+ * the totals; exits 1 on any failure. `--vanish-at n` is also the chain length at which `--adversary resign`
+ * resigns, and after which `--adversary staleOutbox`'s tablet leaves.
  */
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 import { type Adversary, type SimPolicy, type SimReport, simulateGame } from '@bored-games/client';
 import { TARGETS } from '@bored-games/fuzz';
-import { gameSeed } from '@bored-games/game-kit';
+import { gameSeed, moduleProtocols } from '@bored-games/game-kit';
 // Cheating seats are test tooling; they live with the client's tests, never in its src.
 import {
   ADVERSARIES,
+  ADVERSARIES_V1,
+  ADVERSARIES_V2,
   type AdversaryName,
   adversary as makeAdversary,
   quickPolicy,
@@ -31,6 +36,7 @@ const DEFAULT_GAME = 'chain-reaction';
 
 interface Job {
   game: string;
+  proto: 1 | 2;
   seed: string;
   games: number;
   seatCounts: number[];
@@ -81,6 +87,7 @@ function runOne(job: Job, index: number): Result {
     seed: gameSeed(job.seed, index),
     modules: new Map([[target.module.id, target.module]]),
     game: target.module.id,
+    proto: job.proto,
     policy: policy.choose,
     deadline: job.deadline,
     maxRounds: job.maxRounds,
@@ -120,12 +127,19 @@ function line(r: Result): string {
   const audit = typeof g.audit === 'string' ? g.audit : `fail ${g.audit.fail.join(',')} (${g.audit.reason})`;
   const places = g.outcome === null ? '-' : g.outcome.places.join(',');
   const problems = [...g.failures, ...r.unexpected];
+  const ending = g.record === null ? [] : [`${g.record.ending}${g.stop === null ? '' : ` by ${g.stop.seat}`}`];
+  const devices =
+    g.devices.saved === 0
+      ? []
+      : [`saved ${g.devices.saved} sent ${g.devices.sent} discarded ${g.devices.discarded} rebuilt ${g.devices.rebuilds}`];
   return [
     g.seed.padEnd(10),
     `${g.seats} seats`,
+    `v${g.proto}`,
     r.policy.padEnd(12),
     (g.adversary ?? '-').padEnd(10),
     g.phase.padEnd(9),
+    ...ending,
     `audit ${audit}`,
     `places ${places}`,
     `forfeits ${g.forfeits.join(',') || '-'}`,
@@ -134,6 +148,7 @@ function line(r: Result): string {
     `rounds ${g.rounds}`,
     `sim ${days(g.duration)}`,
     `claims ${g.claims}`,
+    ...devices,
     `${r.seconds.toFixed(1)}s`,
     problems.length === 0 ? 'ok' : `FAIL: ${problems.join('; ')}`,
   ].join('  ');
@@ -143,6 +158,7 @@ async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
       game: { type: 'string', default: DEFAULT_GAME },
+      proto: { type: 'string' },
       games: { type: 'string', default: '4' },
       seats: { type: 'string' },
       seed: { type: 'string', default: 'sim' },
@@ -168,10 +184,26 @@ async function main(): Promise<void> {
     console.error(`unknown game "${game}"; known: ${Object.keys(TARGETS).join(', ')}`);
     process.exit(2);
   }
+  const supported = moduleProtocols(target.module);
+  const proto = values.proto === undefined ? Math.max(...supported) : Number(values.proto);
+  if (proto !== 1 && proto !== 2) {
+    console.error(`unknown protocol "${values.proto}"; known: 1, 2`);
+    process.exit(2);
+  }
+  if (!supported.includes(proto)) {
+    console.error(`${game} ${target.module.version} does not run under protocol ${proto} (only ${supported.join(', ')})`);
+    process.exit(2);
+  }
+  const forProto: readonly string[] = proto === 2 ? ADVERSARIES_V2 : ADVERSARIES_V1;
+  if (name !== null && !forProto.includes(name)) {
+    console.error(`adversary "${name}" needs protocol ${proto === 2 ? 1 : 2}; under ${proto}: ${forProto.join(', ')}`);
+    process.exit(2);
+  }
   const games = Number(values.games);
   const workers = Math.max(1, Math.min(Number(values.workers ?? availableParallelism()), games));
   const base: Omit<Job, 'worker' | 'workers'> = {
     game,
+    proto,
     seed: values.seed as string,
     games,
     seatCounts: values.seats === undefined ? [...target.defaultSeatCounts] : parseSeats(values.seats),
@@ -213,7 +245,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ games: results.length, seconds, results }, null, 2));
   } else {
     console.log(
-      `\n${results.length} ${game} games (seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}): ` +
+      `\n${results.length} ${game} games (protocol ${proto}, seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}): ` +
         `${results.length - failed.length} ok, ${failed.length} failed; ${count('done')} done, ${count('cancelled')} cancelled; ` +
         `${actions} actions, ${events} events in ${seconds.toFixed(1)}s (${workers} workers)`,
     );
