@@ -69,7 +69,8 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the claim and Resign caps in every order of their units (packages/client/test/v2/caps.test.ts, D069)',
   },
   'V2-52': {
-    until: 'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
+    until:
+      'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
     partial:
       'the session half: no claim forfeiting only this seat counts before its own deadline without the ' +
       "player's confirmation (confirmOwnForfeit, confirmedForfeits after a reload), view.ownForfeit asks only on a " +

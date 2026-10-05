@@ -1340,8 +1340,9 @@ export class GameSessionV2 implements Session {
   private decideCounted(): void {
     if (this.counted !== null || this.current.fork !== null) return;
     if (ownResult(this.ctx, this.current) !== null) return;
+    const onChain = new Set<Hex>([this.root.id, ...this.current.chain.map((h) => h.m.id)]);
     const resign = [...this.store.resigns.values()]
-      .filter((x) => this.chainSeq(x.ev.headId) !== null)
+      .filter((x) => onChain.has(x.ev.headId))
       .sort((a, b) => (a.ev.id < b.ev.id ? -1 : 1))[0];
     if (resign !== undefined) {
       this.counted = { kind: 'resign', id: resign.ev.id, head: resign.ev.headId, seat: resign.seat };
