@@ -207,4 +207,169 @@ describe('Luster under protocol 2 through the controllers (T18)', () => {
     expect(v2view(gj)?.result).toMatchObject({ kind: 'claim', forfeit: [k] });
     expect(gj.view.value?.outcome?.places).toEqual(j === 0 ? [1, 2] : [2, 1]);
   }, 900_000);
+
+  it('audit F2: an honest seat on two devices never forks itself and never releases its own card, whether the tablet lags or saved its move offline', async () => {
+    const { rootId, address, bySeat } = await h.start2('luster', h.profile('a'), h.profile('b'));
+    const keys = await sessionKeys(rootId);
+    const games = bySeat.map((p) => h.game(rootId, p.deps));
+    const phone = await waitFor('the first decision', () => games.find(deciding), 300_000);
+    const k = games.indexOf(phone);
+    const player = bySeat[k] as Profile;
+    const other = games[1 - k] as GameController;
+
+    // 1. A lagging tablet: its live feed has not delivered the phone's moves yet.
+    const tabletDev = h.secondDevice(player, address);
+    const lag = laggingOwn(tabletDev.deps.pool, () => keys[k] as string);
+    const tablet = h.game(rootId, { ...tabletDev.deps, pool: lag.pool });
+    await waitFor('the tablet decision', () => deciding(tablet), 300_000);
+    const top = stateOf(phone).decks['tier-1'].next;
+    const p = physical('tier-1', top);
+    await phone.act(blindOf(phone, 'tier-1'));
+    const blind = phone.view.value?.head.id as Hex;
+    await waitFor('the other seat holds the reservation', () => other.view.value?.head.id === blind);
+    // The tablet tries a take on the same turn: the check before signing finds the phone's move instead.
+    await expect(tablet.act(takeOf(tablet))).rejects.toThrow(ALREADY_MOVED);
+    expect(tablet.view.value?.head.id).toBe(blind);
+    expect(lag.built()).toEqual([]);
+    // The other seat's app releases p; both devices read the card, and neither releases it.
+    const cardAt = (c: GameController) =>
+      stateOf(c).players[k]?.reserved.find((r) => r.deck === 'tier-1' && r.pos === top)?.card;
+    await waitFor('the phone reads its card', () => typeof cardAt(phone) === 'number', 60_000);
+    await waitFor('the tablet reads its card', () => cardAt(tablet) === cardAt(phone), 60_000);
+    expect(cardAt(other)).toBeNull();
+    tablet.dispose();
+
+    // 2. A tablet whose publishing is down signs a take on the seat's next turn; the phone reserves blind instead.
+    const g = other;
+    await waitFor('the other seat to decide', () => deciding(g));
+    await g.act(takeOf(g));
+    const offDev = h.secondDevice(player, address);
+    const off = offlinePool(offDev.deps.pool);
+    const t2 = h.game(rootId, { ...offDev.deps, pool: off.pool });
+    await waitFor('the second tablet decision', () => deciding(t2), 300_000);
+    await waitFor('the phone decision', () => deciding(phone));
+    await t2.act(takeOf(t2));
+    const stale = [...loadOutbox(offDev.deps.storage, offDev.name, rootId)].find(
+      ([slot, e]) => slot.startsWith('move:') && !e.confirmed,
+    )?.[1].event as NostrEvent;
+    const top2 = stateOf(phone).decks['tier-2'].next;
+    const q = physical('tier-2', top2);
+    off.offline = false;
+    await phone.act(blindOf(phone, 'tier-2'));
+    // The tablet discards its stale move at once and rebuilds with no fork; nothing of the seat is revealed.
+    await waitFor(
+      'the discard',
+      () =>
+        logged(t2, /A move saved on this device was never sent, and it was discarded: another move of yours/),
+      60_000,
+    );
+    await waitFor(
+      'no fork at the tablet',
+      () => v2view(t2)?.fork === null && t2.view.value?.phase === 'play',
+      60_000,
+    );
+    await waitFor(
+      'the tablet reads the second card',
+      () =>
+        typeof stateOf(t2).players[k]?.reserved.find((r) => r.deck === 'tier-2' && r.pos === top2)?.card ===
+        'number',
+      60_000,
+    );
+    await pause(2000);
+    expect(off.published).not.toContain(stale.id);
+    expect(await h.query([{ kinds: [KIND.reveal], authors: [keys[k] as string], '#e': [rootId] }])).toEqual(
+      [],
+    );
+    const own = (await releasesBy(rootId, keys[k] as Hex)).filter(
+      (r) => r.positions.includes(p) || r.positions.includes(q),
+    );
+    expect(own).toEqual([]);
+    for (const c of [phone, other, t2]) {
+      expect(c.view.value?.equivocators).toEqual([]);
+      expect(v2view(c)?.fork).toBeNull();
+    }
+  }, 900_000);
+
+  it('audit F3: a release saved on the side of a fork its seat never saw played is discarded, never sent, though its card is now that seat’s own; the game stops on the forker', async () => {
+    const { rootId, address, bySeat } = await h.start2('luster', h.profile('a'), h.profile('b'));
+    const keys = await sessionKeys(rootId);
+    const games = bySeat.map((p) => h.game(rootId, p.deps));
+    const first = await waitFor('the first decision', () => games.find(deciding), 300_000);
+    const e = games.indexOf(first);
+    const hs = 1 - e;
+    const H = bySeat[hs] as Profile;
+    const E = bySeat[e] as Profile;
+    const head = first.view.value?.head as { id: Hex; seq: number };
+    // Both deals at the relay before E's app closes (an app folds its own deal before publishing it).
+    await eventually(
+      'both deals',
+      async () =>
+        new Set((await h.query([{ kinds: [KIND.shares], '#e': [rootId] }])).map((ev) => ev.pubkey)).size ===
+        2,
+    );
+    for (const c of games) c.dispose();
+
+    // E's own tooling signs two rival moves on the head: A reserves from the display (the market refills from the
+    // top of tier 1, p, a public reveal), B takes gems.
+    const es = await h.outsideSession(rootId, address, E);
+    expect(es.view().head.id).toBe(head.id);
+    const st = es.view().state as LusterState;
+    const legal = es.legalActions() as Action[];
+    const top = st.decks['tier-1'].next;
+    const p = physical('tier-1', top);
+    const A = es.buildAction(
+      legal.find((a) => a.type === 'reserve' && a.deck === 'tier-1' && a.pos !== top),
+      rnd,
+      now(),
+    );
+    const B = es.buildAction(
+      legal.find((a) => a.type === 'take'),
+      rnd,
+      now(),
+    );
+
+    // H's tablet, whose publishing is down, holds A: it saves its release of p, which no relay confirms.
+    const tabletDev = h.secondDevice(H, address);
+    const off = offlinePool(tabletDev.deps.pool);
+    let tablet = h.game(rootId, { ...tabletDev.deps, pool: off.pool });
+    await waitFor(
+      'the tablet at the head',
+      () => tablet.view.value?.head.id === head.id && tablet.status.value !== 'syncing',
+      300_000,
+    );
+    // H's phone never receives A (E sent it where the phone does not read).
+    const hidden = new Set<string>([A.id]);
+    const net = hiding(H.deps.pool, hidden);
+    await h.pool().publish(A);
+    const slot = `release:${A.id}`;
+    await waitFor('the saved release', () => outboxSlots(tabletDev, rootId).includes(slot), 60_000);
+    tablet.dispose();
+
+    // B arrives; on B it is H's turn, and H's phone reserves the top of tier 1 blind: p is H's own card there.
+    await h.pool().publish(B);
+    const phone = h.game(rootId, { ...H.deps, pool: net.pool });
+    await waitFor('H to move on B', () => phone.view.value?.head.id === B.id && deciding(phone), 300_000);
+    expect(blindOf(phone, 'tier-1').pos).toBe(top);
+    await phone.act(blindOf(phone, 'tier-1'));
+    const mine = phone.view.value?.head.id as Hex;
+
+    // The tablet comes back online: it holds A, B and the phone's move, so the fork at the head stops the game on E;
+    // its saved release of p is vetted and discarded, never sent.
+    off.offline = false;
+    tablet = h.game(rootId, { ...tabletDev.deps, pool: off.pool });
+    await waitFor(
+      'the discard',
+      () => logged(tablet, /A card reveal saved on this device was never sent, and it was discarded/),
+      60_000,
+    );
+    expect(outboxSlots(tabletDev, rootId)).not.toContain(slot);
+    await waitFor('the stop on E', () => v2view(tablet)?.stop?.seat === e, 60_000);
+    expect(v2view(tablet)?.stop).toEqual({ at: head.id, seat: e, cancelled: false });
+    expect(v2view(tablet)?.fork?.certificate).toEqual([A.id, B.id].sort());
+    expect(tablet.view.value?.outcome?.places[e]).toBe(2);
+    expect(mine).not.toBe(head.id);
+    await pause(2000);
+    const sharesOfP = (await releasesBy(rootId, keys[hs] as Hex)).filter((r) => r.positions.includes(p));
+    expect(sharesOfP).toEqual([]);
+  }, 900_000);
 });

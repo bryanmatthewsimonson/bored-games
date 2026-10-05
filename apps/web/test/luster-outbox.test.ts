@@ -106,6 +106,8 @@ describe('Luster: saved card reveals are vetted before they are published (D056,
     const t1 = h.game(rootId, { ...t1Dev.deps, pool: n1.pool });
     let t2: GameController = h.game(rootId, { ...t2Dev.deps, pool: n2.pool });
     for (const t of [t1, t2]) await waitFor('a tablet at the head', () => t.view.value?.head.id === x.id);
+    // Protocol 1 to the end (PROTOCOL-v2 §2, §6.3): a v1 view (no `proto` field), v1 fork choice, v1 share vetting.
+    for (const t of [t1, t2]) expect(t.view.value).not.toHaveProperty('proto');
 
     // A arrives: both tablets owe their share of p at once, and save it unsent.
     await h.pool().publish(A);
