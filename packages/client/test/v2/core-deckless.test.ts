@@ -755,7 +755,7 @@ describe('GameSessionV2: review follow-ups after T7 (L1, I4, V2-56)', () => {
     expect(t.spectator.receive(bad, NOW)).toEqual(first);
   });
 
-  it('V2-56 (partial) holds every Shares event and end attestation with a seated signer, whatever its validity, in any arrival order', () => {
+  it('V2-56 holds every Shares event and end attestation with a seated signer, whatever its validity, in any arrival order', () => {
     const t = table('v2-56');
     const moves = FOOLS_MATE.map(([seat, uci]) => play(t, seat, uci));
     const head = (moves[3] as NostrEvent).id;

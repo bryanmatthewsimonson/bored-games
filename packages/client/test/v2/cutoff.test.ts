@@ -222,7 +222,7 @@ describe('a standing over result (Chess)', () => {
     expectStood(r, X, P(), 1);
   });
 
-  it('V2-20 (partial) gives every session the same standing result, or stop, in every arrival order: eight orders with anchors that resolve late', () => {
+  it('V2-20 gives every session the same standing result, or stop, in every arrival order: eight orders with anchors that resolve late', () => {
     // An anchor and a head naming a move past the end that arrives in any order, a blocker on the rival in one set
     // and not the other: the stand or the stop is a function of the held set alone.
     const junk = actionAt(t, 0, X.head, 5, mv(0, 'c2c4'), NOW + 6);
@@ -358,7 +358,7 @@ describe('two results, claims and Resigns (Chess; proposal §6.7)', () => {
     expectStop(inOrders(t, [m1, early, ...rivals, atRoot], 'cut-claim-root', 2), m1.id, 1);
   });
 
-  it('V2-56 (partial): an end attestation naming a non-seat counts for no result, but is held and counts for (b) by its head (T8 review)', () => {
+  it('V2-56: an end attestation naming a non-seat counts for no result, but is held and counts for (b) by its head (T8 review)', () => {
     const t = v2Table(chess as AnyModule, 2, 'cut-nonseat');
     const m1 = actionAt(t, 0, t.game.rootId, 1, mv(0, 'e2e4'));
     const claim = claimOf(t, 0, m1.id, 1);

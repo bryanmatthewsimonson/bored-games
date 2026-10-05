@@ -152,7 +152,7 @@ describe('H1: the claim cap keeps an order-independent set (Chess)', { timeout: 
     return { t, m, X, att, rival };
   };
 
-  it("V2-20 (partial): the review's trace: a claim result stands in every arrival order, whatever unknown-head claims its claimant sent first", () => {
+  it("V2-20: the review's trace: a claim result stands in every arrival order, whatever unknown-head claims its claimant sent first", () => {
     const { t, m, X, att, rival } = setup('rev-h1');
     const real = claimOf(t, 0, X.head, 1, NOW + 1);
     const rng = createRng('rev-h1');
@@ -164,7 +164,7 @@ describe('H1: the claim cap keeps an order-independent set (Chess)', { timeout: 
     expect(a.outcome).toEqual(b.outcome);
   });
 
-  it('V2-20 (partial): junk claims above the real one: every order of claims, moves, attestation and rival gives the same views, claims before moves included', () => {
+  it('V2-20: junk claims above the real one: every order of claims, moves, attestation and rival gives the same views, claims before moves included', () => {
     const { t, m, X, att, rival } = setup('caps-h1-above');
     // The real claim has a low id, every junk claim a higher one: the waiting cap never lets the real one go.
     const [real] = grind(
@@ -206,7 +206,7 @@ describe('H1: the claim cap keeps an order-independent set (Chess)', { timeout: 
       expect(seenBy(t, order), `shuffle ${i}`).toBe(want);
   });
 
-  it('V2-20 (partial): junk claims below the real one: a claim the waiting cap lets go is not refused for good, and after a rebroadcast every order agrees', () => {
+  it('V2-20: junk claims below the real one: a claim the waiting cap lets go is not refused for good, and after a rebroadcast every order agrees', () => {
     const { t, m, X, att, rival } = setup('caps-h1-below');
     const [real] = grind(
       1,

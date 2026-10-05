@@ -377,7 +377,7 @@ describe('GameSessionV2 with a deck: card Shares events against the final deck (
     expect(t.spectator.heldSet().map((x) => x.id)).toContain(roll.id);
   });
 
-  it('V2-56 (partial) holds card Shares events whose shares fail against the final deck or lie outside it; a seat that released on another deck never deals here (§6.1 condition 4)', () => {
+  it('V2-56 holds card Shares events whose shares fail against the final deck or lie outside it; a seat that released on another deck never deals here (§6.1 condition 4)', () => {
     const t = replay(base, shuffled);
     const last = (shuffled[2] as NostrEvent).id;
     // Seat 1's deal made against step 2's deck (a rival deck, as after a shuffle fork): every share fails.

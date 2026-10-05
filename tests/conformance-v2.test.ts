@@ -52,22 +52,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'session refuses such a root (packages/protocol/test/lobby.test.ts, packages/client/test/bank-versions.test.ts); ' +
       'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
   },
-  'V2-56': {
-    until: 'T13 (the rebroadcast reads the held set)',
-    partial:
-      'the session holds every Shares event and end attestation with a seated signer whatever its validity, in ' +
-      'any arrival order, and keeps validity apart (packages/client/test/v2/core-deckless.test.ts); card Shares ' +
-      'events that fail against the final deck or lie outside it stay held (packages/client/test/v2/deck.test.ts); ' +
-      'rule (b) of the cutoff reads every held event, an inapplicable Shares variant and an end attestation naming ' +
-      'a non-seat included (packages/client/test/v2/cutoff.test.ts)',
-  },
-  'V2-20': {
-    until: 'T13 (the order harness: incremental against from-scratch on random arrival orders)',
-    partial:
-      'every cutoff and standing-result scenario replayed in several arrival orders with duplicates, into every ' +
-      'seat and a spectator (packages/client/test/v2/cutoff.test.ts, packages/client/test/v2/standing.test.ts); ' +
-      'the claim and Resign caps in every order of their units (packages/client/test/v2/caps.test.ts, D069)',
-  },
   'V2-52': {
     until:
       'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
@@ -113,8 +97,22 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the session view and the stats record (gameRecord) carry "audit incomplete" and each "secret withheld" ' +
       'seat after a stop (packages/client/test/v2/after-stop.test.ts, packages/client/test/v2/record.test.ts)',
   },
-  'V2-44': { until: 'T13, T16' },
-  'V2-45': { until: 'T13, T16' },
+  'V2-44': {
+    until:
+      'T16 (the controller publishes the rebroadcast set to the root relays and its own, once after first holding ' +
+      'and after each sync to the relays that lack it)',
+    partial:
+      "the session half: `rebroadcast()` lists the fork certificate, the chain, this seat's Shares events and end " +
+      'attestations, and every other held event within the §9.1 bounds, valid-looking moves first, named moves ' +
+      'regardless of the cap (packages/client/test/v2/outbox.test.ts)',
+  },
+  'V2-45': {
+    until:
+      'T16 (the controller vets every saved event through `vetSaved` after a full answer, and acts on it)',
+    partial:
+      'the session half: `vetSaved` decides send, wait or discard for saved Moves, the deal, releases, roll ' +
+      'Shares events, end attestations, Resigns and Secret reveals (packages/client/test/v2/outbox.test.ts)',
+  },
   'V2-46': { until: 'T16' },
   'V2-47': { until: 'T16' },
   'V2-48': {
@@ -132,6 +130,17 @@ const ALLOWLIST: Record<string, Allowed> = {
       '0.1.0 fixtures (packages/games/bank/test/golden-v1.test.ts); the app ships Bank 0.1.0 under bank@0.1.0 ' +
       'beside Bank 0.2.0 and a v1 Bank root resolves to it (apps/web/test/module-contract.test.ts, T5)',
   },
+};
+
+/**
+ * Test vectors of PROTOCOL-v2 §12.2 deferred by the owner's scope choice (PLAN, Phase v2, 2026-10-05: "finish v2 with
+ * less ceremony"; D071). Their scenarios are session tests already; only the JSON files are not written. Vectors 1–4,
+ * 6 and 7 exist (packages/deck, packages/protocol, packages/client test/vectors).
+ */
+const DEFERRED_VECTORS: Record<number, string> = {
+  5: 'fold scenarios as JSON: the T10–T12 session tests hold every scenario, each in several arrival orders',
+  8: 'outbox scenarios as JSON: packages/client/test/v2/outbox.test.ts holds the three cases',
+  9: 'model traces as session tests: the T11 cutoff traces were checked against tools/protocol-model (PLAN T11)',
 };
 
 /** The ids §12.1 requires, in order. */
@@ -239,6 +248,11 @@ describe('protocol v2 conformance traceability (PROTOCOL-v2 §12.1)', () => {
     const deferred = Object.entries(ALLOWLIST).filter(([, a]) => a.deferred === true);
     expect(deferred.map(([id]) => id)).toEqual(['V2-48']);
     expect(ALLOWLIST['V2-48']?.until).toMatch(/audit `none`/);
+  });
+
+  it('the deferred §12.2 vectors are exactly 5, 8 and 9, each with its note (D071)', () => {
+    expect(Object.keys(DEFERRED_VECTORS).map(Number)).toEqual([5, 8, 9]);
+    for (const note of Object.values(DEFERRED_VECTORS)) expect(note.length).toBeGreaterThan(20);
   });
 
   it('test titles name only §12.1 ids, and only in the counted form', () => {
