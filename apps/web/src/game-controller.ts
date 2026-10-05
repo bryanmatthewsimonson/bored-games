@@ -1149,9 +1149,13 @@ export class GameController {
     );
   }
 
-  /** The ids of every event of this seat in the outbox that no relay has confirmed (`vetSaved`'s `unconfirmed`). */
+  /**
+   * `vetSaved`'s `unconfirmed` (D071): the ids of every event of this seat still in the outbox that no relay has
+   * confirmed. An orphan (an event the session refused, kept only so its slot is never signed again) is left out: it
+   * is never published, so a Shares event anchored on it must not wait for it.
+   */
   #unconfirmedIds(): string[] {
-    return [...this.#outbox.values()].filter((e) => !e.confirmed).map((e) => e.event.id);
+    return [...this.#outbox.values()].filter((e) => !e.confirmed && !e.orphan).map((e) => e.event.id);
   }
 
   /** Add a line to `log` and show it as the notice. */
