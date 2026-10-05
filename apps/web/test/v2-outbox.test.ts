@@ -382,3 +382,66 @@ describe('The protocol 2 outbox rule on card reveals and the Secret reveal (T16,
     expect(t.view.value?.phase).toBe('play');
   }, 600_000);
 });
+
+/**
+ * Seat j's tablet plays its turn while its publishing is down; the phone plays that turn otherwise. The tablet then
+ * holds a fork of its own seat that exists on this device only (its move was never public): it must not act on that
+ * stop, above all not publish its Secret reveal while every other client plays on (review of T16, H1).
+ */
+async function ownUnsentFork(game: 'chain-reaction' | 'luster'): Promise<void> {
+  const ps = [h.profile('a'), h.profile('b'), h.profile('c')] as [Profile, Profile, Profile];
+  const { rootId, address, bySeat } =
+    game === 'chain-reaction' ? await h.start3(game, ps) : await h.start2(game, ps[0], ps[1]);
+  const games = bySeat.map((p) => h.game(rootId, p.deps));
+  const phone = await waitFor(
+    'a decision',
+    () => games.find((g) => g.status.value === 'your-turn' && g.legal.value.length > 1),
+    240_000,
+  );
+  const j = games.indexOf(phone);
+  const player = bySeat[j] as Profile;
+  const key = parseRoot((await h.query([{ ids: [rootId] }]))[0] as NostrEvent).seats[j]?.session as string;
+  const tablet = h.secondDevice(player, address);
+  const off = offlinePool(tablet.deps.pool);
+  const t = h.game(rootId, { ...tablet.deps, pool: off.pool });
+  await waitFor(
+    'the tablet decision',
+    () => t.status.value === 'your-turn' && t.legal.value.length > 1,
+    240_000,
+  );
+  await t.act(t.legal.value[0]);
+  const mine = [...loadOutbox(tablet.deps.storage, tablet.name, rootId)].find(
+    ([slot, e]) => slot.startsWith('move:') && !e.confirmed,
+  )?.[1].event as NostrEvent;
+  off.offline = false;
+  await phone.act(phone.legal.value[phone.legal.value.length - 1]);
+  // The tablet discards its stale move at once and rebuilds with no fork.
+  await waitFor(
+    'the discard',
+    () =>
+      logged(t, /A move saved on this device was never sent, and it was discarded: another move of yours/),
+    60_000,
+  );
+  await waitFor(
+    'no fork at the tablet',
+    () => v2view(t)?.fork === null && t.view.value?.phase === 'play',
+    60_000,
+  );
+  await pause(3000);
+  expect(await signed(rootId, key, KIND.reveal)).toEqual([]);
+  expect(off.published).not.toContain(mine.id);
+  for (const g of [...games, t]) {
+    expect(v2view(g)?.fork).toBeNull();
+    expect(g.view.value?.phase).toBe('play');
+  }
+}
+
+describe('A fork made only by an own unsent move is never acted on (T16 fix round 1, H1)', () => {
+  it('V2-45: Chain Reaction, 3 seats: the tablet publishes no Secret reveal, discards its move and rebuilds with no fork', async () => {
+    await ownUnsentFork('chain-reaction');
+  }, 900_000);
+
+  it('V2-45: Luster, 2 seats: the same', async () => {
+    await ownUnsentFork('luster');
+  }, 900_000);
+});

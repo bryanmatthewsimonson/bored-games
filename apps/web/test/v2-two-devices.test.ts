@@ -234,19 +234,16 @@ describe('Two devices of one seat under protocol 2 (T16)', () => {
     const mine = loadOutbox(tablet.deps.storage, tablet.name, rootId).get(`move:1:${rootId}`)
       ?.event as NostrEvent;
     off.offline = false;
-    // The phone plays that turn otherwise; the tablet now holds a fork of its own seat (its unsent move and the
-    // phone's), and rebroadcasts what it holds: never its own unsent move, so no certificate goes out.
+    // The phone plays that turn otherwise; the tablet then holds a fork of its own seat (its unsent move and the
+    // phone's). It rebroadcasts what it holds, never its own unsent move, so no certificate goes out; and it vets at
+    // once (fix round 1, H1): the saved move is discarded and the session rebuilt without it.
     const phone = h.game(rootId, white.deps);
     await play(phone, 0, 'e2e4', 1);
-    await waitFor('the tablet holds the fork', () => v2view(t)?.fork != null);
-    await pause(500);
+    await waitFor('the tablet discards its move', () => t.log.value.length > 0);
+    expect(t.log.value[0]).toMatch(/A move saved on this device was never sent, and it was discarded/);
     expect(off.published).not.toContain(mine.id);
     // Only the outbox ever tried to send it (once, when it was built), never the rebroadcast.
     expect(off.attempted.filter((id) => id === mine.id)).toHaveLength(1);
-    // Its next tick vets the saved move against the relays: discarded, and the session rebuilt without it.
-    t.tick();
-    await waitFor('the tablet discards its move', () => t.log.value.length > 0);
-    expect(t.log.value[0]).toMatch(/A move saved on this device was never sent, and it was discarded/);
     await waitFor('no fork at the tablet', () => v2view(t)?.fork === null);
     await play(gb, 1, 'e7e5', 2);
     await waitFor('the tablet follows', () => history(t) === 2);
@@ -301,5 +298,41 @@ describe('Two devices of one seat under protocol 2 (T16)', () => {
       (await signed(rootId, qKey, KIND.move, own.url)).some((ev) => ev.id === m2.id),
     );
     await waitFor('the spectator converges', () => spectator.view.value?.head.id === m2.id);
+  }, 90_000);
+
+  it('V2-46: a stale claim made on a device that missed the stalled seat’s on-time move is not adopted by the device that held that move: it plays on (T16 fix round 1, M1)', async () => {
+    const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
+    const [white, black] = bySeat;
+    const bKey = await sessionKey(rootId, 1);
+    const gb = h.game(rootId, black.deps);
+    const phone = h.game(rootId, white.deps);
+    await play(phone, 0, 'e2e4', 1);
+    await waitFor('Black sees it', () => history(gb) === 1);
+    // The tablet never hears Black's moves (offline for them, or a lagging feed), and a day passes on its clock.
+    const tc = clock();
+    const tab = h.secondDevice(white, address);
+    const net = hidingBy(tab.deps.pool, (ev) => ev.pubkey === bKey && ev.kind === KIND.move);
+    const t = h.game(rootId, { ...tab.deps, pool: net.pool, now: tc.now });
+    await waitFor('the tablet loaded', () => history(t) === 1);
+    // Black answers on time; the phone holds it.
+    await play(gb, 1, 'e7e5', 2);
+    await waitFor('the phone sees it', () => history(phone) === 2);
+    tc.skew = 86400 + 60;
+    t.tick();
+    await waitFor('the tablet offers the claim', () => t.timeoutTarget.value === 1);
+    await t.claimTimeout();
+    await waitFor('the tablet counted it', () => t.view.value?.outcome?.reason === 'forfeit');
+    await eventually(
+      'the tablet end-attested it',
+      async () => (await h.query([{ kinds: [KIND.attest], '#e': [rootId] }])).length > 0,
+    );
+    await pause(3000);
+    // The phone saw Black's move in time: it plays on, as Black's client does.
+    expect(v2view(phone)?.awaitingCounted ?? null).toBeNull();
+    expect(phone.view.value?.outcome).toBeNull();
+    expect(phone.status.value).toBe('your-turn');
+    expect(gb.view.value?.phase).toBe('play');
+    await play(phone, 0, 'g1f3', 3);
+    await waitFor('Black sees it', () => history(gb) === 3);
   }, 90_000);
 });

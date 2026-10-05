@@ -43,6 +43,7 @@ import {
   type Session,
   type SessionInput,
   type SessionView,
+  type SessionViewV2,
   seatForGameKeys,
   v1Session,
 } from '@bored-games/client';
@@ -2037,6 +2038,9 @@ export class GameController {
     this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
+    // A fork held only because of this seat's own unsent event: vet at once (review of T16, H1), so the stale event is
+    // discarded and the session rebuilt with no fork before anything else happens.
+    if (this.#synced && this.#forkState(v)?.ownUnsent === true) this.#startVet();
     this.#gossipNew();
     this.#cacheStatus(v.head.seq, this.status.value, now, owed);
     this.#maybePrune(v, duties);
@@ -2230,6 +2234,12 @@ export class GameController {
    * deal of this seat is out), whether or not a relay confirmed it: a seat never deals twice.
    */
   #blocked(kind: Duty['kind'], v: SessionView): boolean {
+    // Protocol 2 (review of T16, H1): a fork held only because of this seat's own unsent event is not the game's
+    // stop: nothing is built until vetting discards that event and rebuilds; and the Secret reveal waits until every
+    // event of the fork certificate came from a relay.
+    const fork = this.#forkState(v);
+    if (fork?.ownUnsent === true) return true;
+    if (kind === 'secret' && fork !== null && !fork.delivered) return true;
     if (kind === 'shuffle' || kind === 'beacon') {
       return this.#unvetted.has(moveSlot(v.head.seq + 1, v.head.id));
     }
@@ -2494,6 +2504,9 @@ export class GameController {
         authors: npub === null ? [me] : [me, npub],
         '#e': [this.rootId],
       });
+    // Before a Timeout claim, also the moves on the head by any seat: the stalled seat may have moved already, and a
+    // lagging live feed missed it (review of T16, L5 with M1).
+    if (v2 && slot.startsWith('timeout@')) filters.push({ kinds: [KIND.move], '#e': [head] });
     // Step 2: what those events name (a claim's or Resign's head, an end attestation's head and the claims or
     // Resigns of its result), asked for once the first answer is in.
     const named = new Set<string>();
@@ -2770,11 +2783,35 @@ export class GameController {
     }
   }
 
+  /**
+   * The fork a protocol 2 session holds (`v`, its view), or null: whether this seat's own never-confirmed events are
+   * among it (one in its certificate, or an unsent saved move of this seat on its fork point), and whether every event
+   * of its certificate was delivered by a relay. A fork made by an own unsent event exists on this device only: the
+   * game everyone else sees is live, so its stop must never be acted on (review of T16, H1).
+   */
+  #forkState(v: SessionView): { ownUnsent: boolean; delivered: boolean } | null {
+    if (!this.#v2) return null;
+    const fork = (v as SessionViewV2).fork;
+    if (fork === null || fork === undefined) return null;
+    const pending = new Set(this.#unconfirmedAll());
+    const ownUnsent =
+      fork.certificate.some((id) => pending.has(id)) ||
+      [...this.#outbox].some(
+        ([slot, e]) => slot.startsWith('move:') && !e.confirmed && !e.orphan && prevOf(e.event) === fork.at,
+      );
+    return { ownUnsent, delivered: fork.certificate.every((id) => this.#events.has(id)) };
+  }
+
   /** Whether a protocol 2 game lets this seat publish the slot's event now (`#publish`). */
   #sendableNow(session: GameSessionV2, slot: string, ev: NostrEvent): boolean {
     const v = session.view();
     if (v.fork === null) return true;
-    if (slot === 'secret') return true;
+    // The Secret reveal only under a public fork: none of its events this seat's unsent ones, every one delivered by
+    // a relay (review of T16, H1).
+    if (slot === 'secret') {
+      const fork = this.#forkState(v);
+      return fork !== null && !fork.ownUnsent && fork.delivered;
+    }
     if (slot.startsWith('move:')) return session.chainSeq(ev.id) !== null;
     if (slot.startsWith('timeout:')) return v.stood;
     return false;

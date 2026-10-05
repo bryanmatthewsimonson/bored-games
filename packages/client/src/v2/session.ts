@@ -92,7 +92,7 @@ import {
 } from './stop.ts';
 import { EventStoreV2, type Kept, MAX_DEVICE_NOTES, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
-import { type Walk, walk } from './walk.ts';
+import { looksValid, type Walk, walk } from './walk.ts';
 
 /*
  * GameSessionV2: the protocol 2 fold over one game's signed events (PROTOCOL-v2; build plan D-E). Events may arrive
@@ -1445,7 +1445,9 @@ export class GameSessionV2 implements Session {
    * A claim or Resign result this seat end-attested (PROTOCOL-v2 §9.3: another device of it counted it), to adopt:
    * from this seat's valid end attestations (`endCounts`) of a `claim` or `resign` identity, the lowest result key.
    * Its id is the lowest held claim or Resign supporting it, or the attestation's own id while none is held
-   * (`restoreCounted` then takes the lowest supporting id). Null for a spectator or when there is none.
+   * (`restoreCounted` then takes the lowest supporting id). Null for a spectator or when there is none. A `claim`
+   * identity is not adopted while this client holds a move of a forfeiting seat on its head that it saw in time
+   * (`movedInTime`): the other device's claim is stale here (review of T16, M1).
    */
   private attestedByMe(): CountedResult | null {
     if (this.me === null) return null;
@@ -1455,11 +1457,34 @@ export class GameSessionV2 implements Session {
       if (!endCounts(this.store, this.ctx.seats, x.ev)) continue;
       const r = attestedResult(x.ev);
       if (r.forfeit.length === 0 || (r.kind === 'resign' && r.forfeit.length !== 1)) continue;
+      if (r.kind === 'claim' && this.movedInTime(r)) continue;
       const key = resultKey(r);
       if (best !== null && best.key <= key) continue;
       best = { key, r: { kind: r.kind as 'claim' | 'resign', id, head: r.head, forfeit: [...r.forfeit] } };
     }
     return best?.r ?? null;
+  }
+
+  /**
+   * Whether this client holds a valid-looking move on claim result `r`'s head, signed by one of its forfeiting seats,
+   * that it first saw before its own deadline for that head (review of T16, M1): the stalled seat did move in time
+   * here, so another device's claim on that head is stale for this one. The deadline runs from the latest first-seen
+   * time of the root and the chain's moves up to the head (`progress()` without the stall progress: an earlier
+   * deadline, the side that adopts). A head not on the walk is not judged here (`restoreCounted` waits for it).
+   */
+  private movedInTime(r: ResultId): boolean {
+    const chain = this.current.chain;
+    const at = chain.findIndex((h) => h.m.id === r.head);
+    if (r.head !== this.root.id && at < 0) return false;
+    let p = this.rootSeenAt;
+    for (const h of chain.slice(0, at + 1)) p = Math.max(p, this.seenAt.get(h.m.id) ?? this.clock);
+    const due = p + this.root.deadline;
+    return this.store.kidsOf(r.head).some((h) => {
+      if (!r.forfeit.includes(h.seat) || h.shape !== null) return false;
+      const j = this.current.judged.get(h.m.id);
+      if (j !== undefined && !looksValid(j)) return false;
+      return (this.seenAt.get(h.m.id) ?? Number.POSITIVE_INFINITY) < due;
+    });
   }
 
   /**
