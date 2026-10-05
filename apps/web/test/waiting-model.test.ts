@@ -1,11 +1,15 @@
 import type { Pending } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
+import { shareWordsOf, webGame } from '../src/games/registry.ts';
 import { playerNames } from '../src/screens/game.tsx';
 import {
   listNames,
+  NEUTRAL_SHARE,
   owedReveal,
+  owedWords,
   ownRevealLine,
+  ROLL_WORDS,
   type WaitingInput,
   waitingLine,
 } from '../src/waiting-model.ts';
@@ -142,5 +146,64 @@ describe('a card reveal owed out of turn (D060)', () => {
     expect(ownRevealLine(owed, 1, 1000)).toBeNull();
     expect(ownRevealLine(owed, null, 1000)).toBeNull();
     expect(ownRevealLine(null, 0, 1000)).toBeNull();
+  });
+});
+
+describe('a roll contribution owed (PROTOCOL-v2 §6.4)', () => {
+  const base = { pendingSince: 1000, deadline: 86400 };
+  const beacon: Pending = { type: 'beacon', id: 3 };
+  it('is every seat whose contribution to the pending roll is not in, roller included', () => {
+    expect(owedReveal({ ...base, phase: 'play', pending: beacon, waiting: [0, 2] })).toEqual({
+      seats: [0, 2],
+      until: 87400,
+      kind: 'roll',
+    });
+    expect(owedReveal({ ...base, phase: 'play', pending: beacon, waiting: [] })).toBeNull();
+    // A stop or a result: the session waits on nobody, and nothing is owed.
+    expect(owedReveal({ ...base, phase: 'done', pending: beacon, waiting: [1] })).toBeNull();
+  });
+
+  it('is worded as a contribution to the roll, a card reveal in the game’s own words', () => {
+    const roll = owedReveal({ ...base, phase: 'play', pending: beacon, waiting: [1] });
+    const refill = owedReveal({
+      ...base,
+      phase: 'play',
+      pending: { type: 'reveal', deck: 'glass', positions: [7] },
+      waiting: [1],
+    });
+    const luster = { act: 'reveal a card', owed: 'a card reveal' };
+    expect(owedWords(roll, luster)).toEqual(ROLL_WORDS);
+    expect(owedWords(refill, luster)).toEqual(luster);
+    expect(owedWords(refill, undefined)).toEqual(NEUTRAL_SHARE);
+    expect(owedWords(null, undefined)).toEqual(NEUTRAL_SHARE);
+    // The registry: Bank names contributions; the deck games their shares; Chess none.
+    expect(shareWordsOf(webGame('bank'))).toEqual(ROLL_WORDS);
+    expect(shareWordsOf(webGame('luster'))).toEqual(luster);
+    expect(shareWordsOf(webGame('chain-reaction'))?.owed).toBe('a share of a tile');
+    expect(shareWordsOf(webGame('chess'))).toBeUndefined();
+  });
+
+  it('names who owes a contribution and when the deadline passes, for the game screen', () => {
+    const owed = owedReveal({ ...base, phase: 'play', pending: beacon, waiting: [1, 2] });
+    const words = owedWords(owed, undefined);
+    // Another seat's line, seen by seat 1 (its own contribution is the next line).
+    expect(
+      waitingLine(
+        input({
+          phase: 'play',
+          pending: beacon,
+          waiting: [1, 2],
+          mySeat: 1,
+          secondsLeft: (owed?.until ?? 0) - 1000,
+          share: words,
+        }),
+      ),
+    ).toBe(
+      `Waiting for ${NAMES[2]} to send their contribution to the roll. Their app must be open on this game. If it is not sent within 1d 0h, ${NAMES[2]} can be timed out.`,
+    );
+    expect(ownRevealLine(owed, 1, 1000 + 3600, words)).toBe(
+      'You owe a contribution to the roll: keep this game open until it is sent. If it is not sent within 23h 0m, you can be timed out.',
+    );
+    expect(ownRevealLine(owed, 0, 1000, words)).toBeNull();
   });
 });

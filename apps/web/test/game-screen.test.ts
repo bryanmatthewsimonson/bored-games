@@ -1,12 +1,17 @@
-import type { SessionView } from '@bored-games/client';
+import type { SessionView, SessionViewV2 } from '@bored-games/client';
 import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
 import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
+  afterStopLines,
   attestLine,
+  awaitingLine,
+  cancelledText,
   equivocatorsOf,
   forkLine,
   formatDeadline,
+  OwnForfeitDialog,
+  ownForfeitAsk,
   placesText,
   playerNames,
   resignExplanation,
@@ -16,8 +21,11 @@ import {
   SyncNotes,
   setupStep,
   statusNotice,
+  stoodLine,
+  stopLine,
   timedOutSeats,
   timeoutExplanation,
+  v2Of,
 } from '../src/screens/game.tsx';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
@@ -237,5 +245,205 @@ describe('player names', () => {
     expect(short).toMatch(/^npub1.{5}….{6}$/);
     expect(playerNames([pk, pk], ['Ann', null])).toEqual([`Ann (${short})`, short]);
     expect(playerNames([pk], [])).toEqual([short]);
+  });
+});
+
+/** A protocol 2 view: a stopped or finished game unless `v` says otherwise. */
+const v2 = (v: Partial<SessionViewV2>): SessionViewV2 =>
+  ({
+    proto: 2,
+    phase: 'done',
+    seats: 3,
+    shuffleSteps: 0,
+    head: { id: 'h', seq: 5 },
+    pendingSince: 1000,
+    deadline: 86400,
+    outcome: null,
+    forfeits: [],
+    resigned: [],
+    attested: [],
+    equivocators: [],
+    fork: null,
+    result: null,
+    stood: false,
+    stop: null,
+    secretWithheld: [],
+    auditIncomplete: false,
+    ownForfeit: null,
+    awaitingCounted: null,
+    ...v,
+  }) as SessionViewV2;
+
+const NAMES = ['Ann', 'Bo', 'Cy', 'Di'];
+const fork = (seat: number) => ({ at: 'p', seat, certificate: ['m1', 'm2'] });
+const stopAt = (seat: number, cancelled = false) => ({ at: 'p', seat, cancelled });
+
+describe('protocol 2 screens (T17)', () => {
+  it('tells a protocol 2 view from a protocol 1 one', () => {
+    expect(v2Of(null)).toBeNull();
+    expect(v2Of(viewOf({ phase: 'play' }))).toBeNull();
+    expect(v2Of(v2({}))?.proto).toBe(2);
+    // None of the protocol 2 lines for a protocol 1 view.
+    const v1 = viewOf({ phase: 'done', outcome: { places: [1, 2, 3], reason: 'stop', scores: [0, 0, 0] } });
+    expect(stopLine(v1, NAMES)).toBeNull();
+    expect(stoodLine(v1, NAMES)).toBeNull();
+    expect(afterStopLines(v1, NAMES)).toEqual([]);
+    expect(awaitingLine(v1)).toBeNull();
+    expect(ownForfeitAsk(v1, null)).toBeNull();
+  });
+
+  it('a stop with 3 or more seats: the forker last, every equivocator named, unrated for the others', () => {
+    // Ann (seat 0) forked; Cy (seat 2) also equivocated: both share the last places, Ann after Cy.
+    const view = v2({
+      seats: 4,
+      fork: fork(0),
+      stop: stopAt(0),
+      equivocators: [0, 2],
+      forfeits: [0, 2],
+      outcome: { places: [3, 1, 3, 2], reason: 'stop', scores: [0, 0, 0, 0] },
+      audit: { fail: [0, 2], reason: 'stop' },
+    });
+    expect(stopLine(view, NAMES)).toBe(
+      'Stopped: Ann signed two rival moves for the same turn, so the game ended there. Cy also signed two rival moves. Final places: 1. Bo, 2. Di, 3. Cy, 3. Ann. Rated only for Ann and Cy, ranked last; unrated for the others.',
+    );
+    // The forker last among the seats sharing its place, whatever its seat number.
+    const late = v2({
+      fork: fork(2),
+      stop: stopAt(2),
+      equivocators: [0, 2],
+      outcome: { places: [2, 1, 2], reason: 'stop', scores: [0, 0, 0] },
+    });
+    expect(stopLine(late, NAMES)).toBe(
+      'Stopped: Cy signed two rival moves for the same turn, so the game ended there. Ann also signed two rival moves. Final places: 1. Bo, 2. Ann, 2. Cy. Rated only for Ann and Cy, ranked last; unrated for the others.',
+    );
+    // A seat a proven audit failure demoted shares the rated last places (D067).
+    const demoted = v2({
+      fork: fork(0),
+      stop: stopAt(0),
+      equivocators: [0],
+      forfeits: [0, 1],
+      outcome: { places: [2, 2, 1], reason: 'stop', scores: [0, 0, 0] },
+    });
+    expect(stopLine(demoted, NAMES)).toMatch(
+      /Final places: 1\. Cy, 2\. Bo, 2\. Ann\. Rated only for Ann and Bo, ranked last; unrated for the others\.$/,
+    );
+    // Nothing is attested for a stop, so no "signed by" count.
+    expect(attestLine(view)).toBeNull();
+  });
+
+  it('a 2-seat stop is rated for both: the forker loses', () => {
+    const view = v2({
+      seats: 2,
+      fork: fork(1),
+      stop: stopAt(1),
+      equivocators: [1],
+      outcome: { places: [1, 2], reason: 'stop', scores: [0, 0] },
+    });
+    expect(stopLine(view, NAMES)).toBe(
+      'Stopped: Bo signed two rival moves for the same turn, so the game ended there. Final places: 1. Ann, 2. Bo.',
+    );
+  });
+
+  it('a stop before the first game action shows as cancelled, naming the forker and every equivocator', () => {
+    const view = v2({ phase: 'cancelled', fork: fork(1), stop: stopAt(1, true), equivocators: [1, 2] });
+    expect(stopLine(view, NAMES)).toBeNull();
+    expect(cancelledText(view, NAMES)).toBe(
+      'Bo signed two rival moves before the first move, so this game was cancelled without a result. Cy also signed two rival moves.',
+    );
+    // The protocol 1 cancels, unchanged.
+    expect(cancelledText(viewOf({ phase: 'cancelled', resigned: [2] }), NAMES)).toBe(
+      'Cy resigned before the first move, so this game ended without a result.',
+    );
+    expect(cancelledText(viewOf({ phase: 'cancelled' }), NAMES)).toMatch(/^A player stalled/);
+  });
+
+  it('a result that stood against a fork names the forker', () => {
+    const outcome = { places: [1, 2, 3], reason: 'score', scores: [3, 2, 1] };
+    const view = v2({
+      fork: fork(2),
+      result: { kind: 'over', head: 'x', forfeit: [] },
+      stood: true,
+      equivocators: [2],
+      outcome,
+    });
+    expect(stoodLine(view, NAMES)).toBe('Result stood despite a fork by Cy.');
+    expect(stopLine(view, NAMES)).toBeNull();
+    // A standing result is not attested while the fork is held (V2-38).
+    expect(attestLine(view)).toBeNull();
+    expect(stoodLine(v2({ result: { kind: 'over', head: 'x', forfeit: [] }, outcome }), NAMES)).toBeNull();
+    expect(
+      attestLine(v2({ result: { kind: 'over', head: 'x', forfeit: [] }, outcome, attested: [0, 1, 2] })),
+    ).toBe('Result confirmed: signed by all 3 players.');
+  });
+
+  it('V2-55: after a stop the game screen shows each "secret withheld" seat and "audit incomplete"', () => {
+    const outcome = { places: [1, 1, 3], reason: 'stop', scores: [0, 0, 0] };
+    const base = { fork: fork(2), stop: stopAt(2), equivocators: [2], outcome };
+    expect(afterStopLines(v2(base), NAMES)).toEqual([]);
+    expect(afterStopLines(v2({ ...base, secretWithheld: [1], auditIncomplete: true }), NAMES)).toEqual([
+      'Secret withheld: Bo has not sent their end-of-game secret. Each one missing is recorded against that player.',
+      'Audit incomplete: the game cannot be checked without every end-of-game secret, so these places may still change.',
+    ]);
+    expect(afterStopLines(v2({ ...base, secretWithheld: [1, 2] }), NAMES)).toEqual([
+      'Secret withheld: Bo and Cy have not sent their end-of-game secret. Each one missing is recorded against that player.',
+    ]);
+  });
+
+  it('a result counted before a reload and waiting for its events: ended, with no actions', () => {
+    const view = v2({
+      phase: 'end',
+      awaitingCounted: { kind: 'claim', head: 'x', forfeit: [1], id: 'c' } as never,
+    });
+    expect(awaitingLine(view)).toBe('Game ended, waiting for its events.');
+    expect(awaitingLine(v2({ phase: 'play' }))).toBeNull();
+    // Nothing to claim or resign: the claim explanation and Resign are offered only in play, by the controller.
+    expect(attestLine(view)).toBeNull();
+  });
+
+  it('V2-52: "You were timed out: accept?", Play first and the default, the local deadline shown, keyed on the head', () => {
+    const asked = (claim: string, head: string) =>
+      v2({ phase: 'play', head: { id: head, seq: 5 }, ownForfeit: { claim, head } });
+    expect(ownForfeitAsk(v2({ phase: 'play' }), null)).toBeNull();
+    expect(ownForfeitAsk(asked('c2', 'h5'), null)).toEqual({ head: 'h5' });
+    // Answered "Play" at h5: a lower-id claim at the same head (an opponent fishing for a misclick) does not ask
+    // again; a claim at a new head does.
+    expect(ownForfeitAsk(asked('c2', 'h5'), 'h5')).toBeNull();
+    expect(ownForfeitAsk(asked('c1', 'h5'), 'h5')).toBeNull();
+    expect(ownForfeitAsk(asked('c3', 'h6'), 'h5')).toEqual({ head: 'h6' });
+
+    let played = 0;
+    let accepted = 0;
+    const tree = renderTree(
+      OwnForfeitDialog({
+        left: formatDeadline(4 * 3600 + 600),
+        started: true,
+        busy: false,
+        onPlay: () => played++,
+        onAccept: () => accepted++,
+      }),
+    );
+    const text = spokenText(tree);
+    expect(text).toMatch(/^You were timed out: accept\?/);
+    expect(text).toContain("by this device's clock you still have time (4h 10m left)");
+    expect(text).toContain('If you accept, you forfeit: the game ends now and you are ranked last.');
+    expect(findAll(tree, (el) => el.attrs.role === 'alertdialog')).toHaveLength(1);
+    const buttons = findAll(tree, (el) => el.tag === 'button');
+    // Play comes first and is the primary button: not answering, or answering Play, accepts nothing.
+    expect(buttons.map((b) => spokenText([b]))).toEqual(['Play', 'Accept the timeout']);
+    expect(String(buttons[0]?.attrs.class)).toContain('btn-primary');
+    expect(String(buttons[1]?.attrs.class)).not.toContain('btn-primary');
+    expect(played + accepted).toBe(0);
+    const click = (i: number) => (buttons[i]?.attrs.onClick as () => void)?.();
+    click(0);
+    expect([played, accepted]).toEqual([1, 0]);
+    click(1);
+    expect([played, accepted]).toEqual([1, 1]);
+    // Before the first game action, accepting cancels the game; accepting is disabled while busy.
+    const early = renderTree(
+      OwnForfeitDialog({ left: '1m left', started: false, busy: true, onPlay: () => {}, onAccept: () => {} }),
+    );
+    expect(spokenText(early)).toContain('If you accept, the game is cancelled without a result.');
+    const [, accept] = findAll(early, (el) => el.tag === 'button');
+    expect(accept?.attrs.disabled).toBe(true);
   });
 });

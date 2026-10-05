@@ -25,6 +25,7 @@ import {
   splitInvitees,
   tableChip,
 } from '../src/lobby-model.ts';
+import { ROLL_WORDS } from '../src/waiting-model.ts';
 
 const key = (n: number): Hex => n.toString(16).padStart(64, '0') as Hex;
 const [ME, B, C, D, E] = [1, 2, 3, 4, 5].map(key) as [Hex, Hex, Hex, Hex, Hex];
@@ -216,6 +217,13 @@ describe('a game status saved by the game screen, on a Home card', () => {
     // Neutral words for a game that names none.
     expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(false) }, at)).toBe(
       `Waiting for ${shortNpub(npubEncode(owner as Hex))} to send their share (2d 4h left).`,
+    );
+    // A roll contribution (PROTOCOL-v2 §6.4), in Bank's words.
+    expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(true) }, at, ROLL_WORDS)).toBe(
+      'Your app must be open: you owe a contribution to the roll (2d 4h left).',
+    );
+    expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(false) }, at, ROLL_WORDS)).toBe(
+      `Waiting for ${shortNpub(npubEncode(owner as Hex))} to send their contribution to the roll (2d 4h left).`,
     );
     expect(revealDetail({ ...entry('waiting', STATUS_FRESH_S + 1), reveal: reveal(false) }, at)).toBeNull();
     expect(revealDetail({ ...entry('done', 5), reveal: reveal(true) }, at)).toBeNull();
