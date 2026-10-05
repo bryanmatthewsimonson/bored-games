@@ -154,7 +154,7 @@ describe('Luster under protocol 2, 3 seats (T18)', () => {
       expect(x.legalActions()).toEqual([]);
       // 3 seats: E last and rated; the others unrated, by `standings` at P.
       expect(v.outcome?.places[e]).toBe(3);
-      expect((gameRecord(v).rated ?? []).map((r, k) => (r ? k : -1)).filter((k) => k >= 0)).toEqual([e]);
+      expect((gameRecord(v)?.rated ?? []).map((r, k) => (r ? k : -1)).filter((k) => k >= 0)).toEqual([e]);
     }
     // Stopped: no seat owes a release, a decision or a roll; only the after-stop Secret reveal (§7.3).
     for (const x of t.players) {
