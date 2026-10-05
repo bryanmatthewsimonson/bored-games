@@ -83,22 +83,24 @@ function kindOf(ev: unknown): number | null {
  * every counted relay (PROTOCOL-v2 §9.2; the controller runs it in that order: moves first, in seq order, then the
  * deal, then the other events, since a saved move that is sent can change the head the rest are judged on):
  * - **A Move**: discarded if another move of its seat on its `prev` is held (one that may still be valid-looking
- *   there: a move of a bad shape or judged invalid at its prev forks nothing, D063), while a fork is held, if its
- *   `prev` is held but not on the chain, or on the chain below the head (unless the move itself is on the chain:
- *   this client folded it in); it waits while its `prev` is not held, or is a move still ahead of the head (it
+ *   there: a move of a bad shape or judged invalid at its prev forks nothing, D063); otherwise sent if it is already
+ *   on the chain (this client folded it in), even while a fork is held (review of T13, M-1); otherwise discarded
+ *   while a fork is held, if its `prev` is held but not on the chain, or on the chain below the head; it waits while its `prev` is not held, or is a move still ahead of the head (it
  *   extends the head and waits for shares or a roll, as v1's controller); otherwise (its `prev` is the head) it is sent,
  *   unless this client judges it invalid there.
  * - **A card Shares event other than the deal** (a prompt release): sent only if its anchor is on the chain, no fork
  *   is held, the game has no result, its shares verify against the final deck, and every position in it is dealt at
  *   the head to another seat or to nobody with no other verified share by this seat held (a saved share of a
- *   position now dealt to its own seat is never sent: the Luster audit's F3); it waits while its anchor is not held
- *   or is a move still ahead of the head; otherwise it is discarded.
+ *   position now dealt to its own seat is never sent: the Luster audit's F3); it waits while its anchor is a move still
+ *   ahead of the head, or is not held but is one of this seat's events in the outbox (`unconfirmed`); otherwise it is
+ *   discarded (an anchor neither held nor in the outbox is gone).
  * - **The deal** (a card Shares event anchored on a move at the last shuffle step): sent only if its anchor is on the
  *   chain, no fork is held, no other deal of its seat is held, and it verifies against the final deck; otherwise it
- *   waits: it is kept and never discarded (v1 §6.1, §9: a seat deals once).
+ *   waits: it is kept (v1 §6.1, §9: a seat deals once), and discarded only when its anchor is gone (neither held nor
+ *   in the outbox: a deck that never became public here).
  * - **A roll Shares event**: sent only if its requesting move and anchor are on the chain, no fork is held, the game
- *   has no result and the session would accept it; it waits while either is not held or still ahead of the head;
- *   otherwise it is discarded.
+ *   has no result and the session would accept it; it waits while either is ahead of the head, or is not held
+ *   but in the outbox (`unconfirmed`); otherwise it is discarded.
  * - **An end attestation**: sent only while no fork is held and this client still computes that result (identity
  *   and log hash); it waits while a saved counted result of that identity waits for its events; otherwise discarded.
  * - **A Resign** (as v1 §9): discarded if another Resign of its seat is held, or the game is no longer live (unless
