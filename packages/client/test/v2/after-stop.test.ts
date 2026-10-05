@@ -155,7 +155,7 @@ describe('after a stop in Chain Reaction (3 seats)', () => {
     }
   });
 
-  it('V2-55 (partial) records each "secret withheld" seat and "audit incomplete" in the stats record (the screens are T17)', () => {
+  it('V2-55 records each "secret withheld" seat and "audit incomplete" in the stats record (the screens: apps/web/test/game-screen.test.ts)', () => {
     const missing = [0, 1, 2].find((k) => k !== E) as number;
     const t = replay(base, [...stopped, ...secrets.filter((_, k) => k !== missing)]);
     expect(gameRecord(t.spectator.view())).toEqual({

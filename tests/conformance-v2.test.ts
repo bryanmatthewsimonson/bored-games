@@ -35,21 +35,6 @@ interface Allowed {
 
 /** Every id not yet covered. Each task removes the ids it covers; nothing is ever added back. */
 const ALLOWLIST: Record<string, Allowed> = {
-  'V2-52': {
-    until:
-      'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
-    partial:
-      'the session half: no claim forfeiting only this seat counts before its own deadline without the ' +
-      "player's confirmation (confirmOwnForfeit, confirmedForfeits after a reload), view.ownForfeit asks only on a " +
-      "device that was not watching the head, and otherwise v1's own-clock rule (the N2 Chess trace and the " +
-      'returning client: packages/client/test/v2/claims-resign.test.ts)',
-  },
-  'V2-55': {
-    until: 'T17 (the game screen and the list of games show "audit incomplete" and "secret withheld")',
-    partial:
-      'the session view and the stats record (gameRecord) carry "audit incomplete" and each "secret withheld" ' +
-      'seat after a stop (packages/client/test/v2/after-stop.test.ts, packages/client/test/v2/record.test.ts)',
-  },
   'V2-48': {
     until:
       'deferred to the first module that declares audit `none` (PROTOCOL-v2 §9.5, PLAN): no current module does, ' +
@@ -57,7 +42,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'declares it, and §9.5 is built with that module',
     deferred: true,
   },
-  'V2-49': { until: 'T17' },
 };
 
 /**

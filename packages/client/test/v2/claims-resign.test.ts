@@ -459,7 +459,7 @@ describe('S stops at the first held fork past the named head (Chess)', () => {
 });
 
 describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () => {
-  it('V2-52 (partial) N2: a claim published right after a move does not end the game on the online seat; its move makes the claim fail everywhere', () => {
+  it('V2-52 N2: a claim published right after a move does not end the game on the online seat; its move makes the claim fail everywhere', () => {
     const t = chessTable('t12-n2');
     // H (seat 1) has been watching since its sync, before the game's moves arrived.
     const h = t.players[1] as GameSessionV2;
@@ -490,7 +490,7 @@ describe('the own-forfeit question (PROTOCOL-v2 §8.1, review N2; Chess)', () =>
     }
   });
 
-  it('V2-52 (partial) a returning client asks about a claim forfeiting only its seat, accepts and end-attests it only on confirmation, and otherwise only once its own deadline passes', () => {
+  it('V2-52 a returning client asks about a claim forfeiting only its seat, accepts and end-attests it only on confirmation, and otherwise only once its own deadline passes', () => {
     const t = chessTable('t12-return');
     const m = play(t, [
       [0, 'e2e4'],
