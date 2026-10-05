@@ -505,7 +505,7 @@ describe.skipIf(!SIM)('simulated protocol 2 games with a deck, and a longer Bank
     [chainReaction.id, 3, 12],
     [luster.id, 2, 12],
   ])(
-    '%s, %i seats: a stale tablet discards its saved decision and its releases, and nothing forks',
+    '%s, %i seats: a stale tablet discards what it saved for a turn played on the phone, and nothing forks',
     (game, seats, atSeq) => {
       const r = simV2(game, `v2-stale-${game}-${seats}`, 'staleOutbox', seats, atSeq);
       expectClean(r);

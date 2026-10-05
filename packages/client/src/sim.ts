@@ -305,6 +305,29 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message : Stri
 const prevOf = (ev: NostrEvent): Hex | null =>
   (ev.tags.find((t) => t[0] === 'e' && t[3] === 'prev')?.[1] as Hex | undefined) ?? null;
 
+/** The crypto verdicts a protocol 2 session caches, each a function of its event (and deck) alone (build plan D-E). */
+interface Verdicts {
+  shuffleOk: Map<Hex, boolean>;
+  sharesOk: Map<string, string | null>;
+  moveProofs: Map<Hex, string | null>;
+  moveReveals: Map<string, string | null>;
+  rolls: { proofs: Map<Hex, string | null> };
+}
+
+/**
+ * Give a rebuilt protocol 2 session its device's earlier crypto verdicts (shuffle, share, move and roll proofs, by
+ * event), as the order harness shares them (T13): each is a function of its key alone, so the fold is the same and
+ * a device that rebuilds often does not verify the whole game again. Only time is saved; nothing else is carried.
+ */
+function keepVerdicts(from: Session, to: Session): void {
+  if (!(from instanceof GameSessionV2) || !(to instanceof GameSessionV2)) return;
+  const a = (from as unknown as { caches: Verdicts }).caches;
+  const b = (to as unknown as { caches: Verdicts }).caches;
+  for (const key of ['shuffleOk', 'sharesOk', 'moveProofs', 'moveReveals'] as const)
+    for (const [k, v] of a[key] as Map<string, unknown>) (b[key] as Map<string, unknown>).set(k, v);
+  for (const [k, v] of a.rolls.proofs) b.rolls.proofs.set(k, v);
+}
+
 /**
  * Simulate one game from the lobby to its end. A game that goes wrong is reported in `failures`; it throws only
  * for an unknown game, a lobby that cannot start one, or devices asked of a protocol 1 game.
@@ -564,6 +587,7 @@ export function simulateGame(opts: SimOptions): SimReport {
           }
         : {};
     c.session = openSession({ ...c.input, ...kept });
+    keepVerdicts(old, c.session);
     const at = (id: Hex): number => c.seen.get(id) ?? Number.POSITIVE_INFINITY;
     c.heldBack.clear();
     const held: NostrEvent[] = [];
