@@ -5,11 +5,13 @@
  */
 import { randomBytes } from 'node:crypto';
 import { chainReaction } from '@bored-games/chain-reaction';
+import { buildJoinTemplate, newGameKeys } from '@bored-games/client';
 import {
   DEFAULT_DEADLINE,
   finalizeEvent,
   getPublicKey,
   type NostrEvent,
+  parseTable,
   tableAddress,
   tableTemplate,
 } from '@bored-games/protocol';
@@ -72,31 +74,59 @@ export const rootsOf = (relay: string, creator: string, address: string): Promis
 
 /**
  * Publish an open protocol 1 Chain Reaction table (3 seats, two open besides the creator) signed by `creatorSk`, and
- * return its share path (`#/t/<creator>/<id>`) and address. The creator joins it from a browser holding the same key
- * (the Join carries game keys only that browser can make).
+ * the creator's own Join (the lobby has no button for the creator to join her own table). Returns the share hash
+ * (`#/t/<creator>/<id>`), the address, and `storage(profile)`: the localStorage entries of the creator's browser (her
+ * key and the game secrets behind the Join), to be set before the app first loads, as after an import.
  */
 export async function seedV1ChainReactionTable(
   relay: string,
   creatorSk: Uint8Array,
-): Promise<{ hash: string; address: string; creator: string }> {
+): Promise<{
+  hash: string;
+  address: string;
+  creator: string;
+  storage: (profile: string) => Array<[string, string]>;
+}> {
   const creator = getPublicKey(creatorSk);
   const tableId = randomBytes(8).toString('hex');
-  const template = tableTemplate(
-    {
-      proto: '1',
-      tableId,
-      game: 'chain-reaction',
-      version: chainReaction.version,
-      seats: 3,
-      deadline: DEFAULT_DEADLINE,
-      invited: [],
-      open: 2,
-      relays: [relay],
-      status: 'open',
-      rules: chainReaction.defaultRules(),
-    },
-    Math.floor(Date.now() / 1000),
+  const now = Math.floor(Date.now() / 1000);
+  const tableEv = finalizeEvent(
+    tableTemplate(
+      {
+        proto: '1',
+        tableId,
+        game: 'chain-reaction',
+        version: chainReaction.version,
+        seats: 3,
+        deadline: DEFAULT_DEADLINE,
+        invited: [],
+        open: 2,
+        relays: [relay],
+        status: 'open',
+        rules: chainReaction.defaultRules(),
+      },
+      now,
+    ),
+    creatorSk,
+    rnd,
   );
-  await publish(relay, finalizeEvent(template, creatorSk, rnd));
-  return { hash: `#/t/${creator}/${tableId}`, address: tableAddress(creator, tableId), creator };
+  const table = parseTable(tableEv);
+  const keys = newGameKeys(rnd);
+  const joinEv = finalizeEvent(buildJoinTemplate(table, creator, keys, [relay], rnd, now + 1), creatorSk, rnd);
+  await publish(relay, tableEv);
+  await publish(relay, joinEv);
+  const secrets = JSON.stringify({
+    sessionSk: Buffer.from(keys.sessionSk).toString('hex'),
+    deckSecret: keys.deckSecret.toString(16).padStart(64, '0'),
+    owner: creator,
+  });
+  return {
+    hash: `#/t/${creator}/${tableId}`,
+    address: tableAddress(creator, tableId),
+    creator,
+    storage: (profile) => [
+      [`bg:${profile}:sk`, Buffer.from(creatorSk).toString('hex')],
+      [`bg:${profile}:secrets:${table.address}`, secrets],
+    ],
+  };
 }

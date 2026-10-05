@@ -11,6 +11,7 @@ import { COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 import { LUSTER_POLICIES } from '../../../tools/fuzz/src/luster.ts';
+import { latestTable, rootsOf, tagOf } from './relay-node.ts';
 
 const url = (profile: string, from?: string) => {
   const u = new URL(from ?? process.env.E2E_BASE_URL ?? 'http://localhost:4173/');
@@ -18,6 +19,7 @@ const url = (profile: string, from?: string) => {
   u.searchParams.set('relays', process.env.E2E_RELAY ?? 'ws://localhost:7777');
   return u.toString();
 };
+const relay = process.env.E2E_RELAY ?? 'ws://localhost:7777';
 const board = (page: Page) => page.getByTestId('luster-game');
 const goldPaymentsChecked = new Set<number>();
 async function open(browser: Browser, profile: string, from?: string) {
@@ -189,6 +191,13 @@ for (const seats of [2, 3, 4]) {
     await a.getByRole('button', { name: 'Start game', exact: true }).click();
     await a.getByRole('button', { name: 'Yes, start the game', exact: true }).click();
     for (const p of pages) await expect(board(p)).toBeVisible({ timeout: 120_000 });
+    // Luster is a protocol 2 game only (v1 Luster tables are never made or joined): the Table and the Root say so.
+    const tableHash = new URL(share).hash.split('/');
+    const address = `37450:${tableHash[2]}:${tableHash[3]}`;
+    const startedTable = await latestTable(relay, address);
+    expect(startedTable === null ? null : tagOf(startedTable, 'proto')).toBe('2');
+    const roots = await rootsOf(relay, tableHash[2] ?? '', address);
+    expect(roots.map((r) => tagOf(r, 'proto'))).toEqual(['2']);
     const assigned = await Promise.all(
       pages.map(async (page) => ({
         page,
@@ -314,7 +323,21 @@ for (const seats of [2, 3, 4]) {
               action.pay[5] === 1,
           );
           if (!purchase) throw new Error('No optional gold payment');
+          // The refill under protocol 2: the bought development's place is taken by the deck's next card, which
+          // every viewer sees face up (the others' contributions reveal it), and the row is full again.
+          const row = `.luster-market .luster-card[data-deck="${goal.deck}"]`;
+          const rowSize = await page.locator(row).count();
           await act(page, purchase);
+          for (const viewer of [...pages, spectator]) {
+            await expect(
+              viewer.locator(`${row}[data-pos="${goal.pos}"]`),
+              'the bought card has left the market',
+            ).toHaveCount(0, { timeout: 120_000 });
+            await expect(viewer.locator(row), 'its place was refilled').toHaveCount(rowSize, {
+              timeout: 120_000,
+            });
+            await expect(viewer.locator(`${row}[data-card="hidden"]`)).toHaveCount(0, { timeout: 120_000 });
+          }
           break;
         }
         const take = actions

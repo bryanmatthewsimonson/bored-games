@@ -32,11 +32,18 @@ const appUrl = (profile: string, hash: string): string => {
   return u.toString();
 };
 
-async function open(browser: Browser, name: string, url: string, sk?: string): Promise<Player> {
+async function open(
+  browser: Browser,
+  name: string,
+  url: string,
+  storage: Array<[string, string]> = [],
+): Promise<Player> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
-  // The creator's key is in this browser before the app first loads, as after an import.
-  if (sk !== undefined)
-    await context.addInitScript(([k, v]) => localStorage.setItem(k as string, v as string), [`bg:${name}:sk`, sk]);
+  // The creator's key and game secrets are in this browser before the app first loads, as after an import.
+  if (storage.length > 0)
+    await context.addInitScript((entries) => {
+      for (const [k, v] of entries) localStorage.setItem(k as string, v as string);
+    }, storage);
   const page: Page = await context.newPage();
   page.on('pageerror', (e) => console.log(`[${name}] page error: ${e.message}`));
   await page.goto(url);
@@ -57,12 +64,13 @@ test('a protocol 1 Chain Reaction table opens, starts and plays a few turns', as
   expect(seeded === null ? null : tagOf(seeded, 'proto')).toBe('1');
 
   const [name0, name1, name2] = NAMES as [string, string, string];
-  const a = await open(browser, name0, appUrl(name0, table.hash), sk.toString('hex'));
+  const a = await open(browser, name0, appUrl(name0, table.hash), table.storage(name0));
   const b = await open(browser, name1, appUrl(name1, table.hash));
   const c = await open(browser, name2, appUrl(name2, table.hash));
   const players = [a, b, c];
-  // The creator takes the first seat of her own table; the others join.
-  for (const p of players) await join(p);
+  // The creator's Join is already on the relay (the seeding made it); the others join from the link.
+  await expect(a.page.getByText('Waiting for 2 more players.')).toBeVisible({ timeout: MOVE_MS });
+  for (const p of [b, c]) await join(p);
   await expect(a.page.getByText('Every seat is taken.')).toBeVisible({ timeout: MOVE_MS });
   await a.page.getByRole('button', { name: 'Start game' }).click();
   await a.page.getByRole('button', { name: 'Yes, start the game' }).click();
