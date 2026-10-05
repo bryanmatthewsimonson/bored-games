@@ -100,7 +100,7 @@ const everything = (r: ReturnType<GameSessionV2['rebroadcast']>): Set<Hex> =>
   new Set([...r.certificate, ...r.chain, ...r.own, ...r.other, ...r.rootOnly]);
 
 describe('vetSaved: saved Moves (Chess)', () => {
-  it('V2-45 (partial) discards a stale move: its seat played that turn on another device, whose move is now held', () => {
+  it('V2-45 discards a stale move: its seat played that turn on another device, whose move is now held', () => {
     const t = chessTable('outbox-stale');
     const [m1, m2] = play(t, [
       [0, 'e2e4'],
@@ -124,7 +124,7 @@ describe('vetSaved: saved Moves (Chess)', () => {
     expect(tablet.view().fork).toMatchObject({ at: m2.id, seat: 0 });
   });
 
-  it('V2-45 (partial) waits while its prev is not held, sends once its prev is the head, and discards once its prev is below the head or off the chain', () => {
+  it('V2-45 waits while its prev is not held, sends once its prev is the head, and discards once its prev is below the head or off the chain', () => {
     const t = chessTable('outbox-boundaries');
     const [m1, m2, m3, m4] = play(t, [
       [0, 'e2e4'],
@@ -159,7 +159,7 @@ describe('vetSaved: saved Moves (Chess)', () => {
     );
   });
 
-  it('V2-45 (partial) discards every saved move while a fork is held, and a move this client judges invalid at the head; never acts for a spectator or another seat', () => {
+  it('V2-45 discards every saved move while a fork is held, and a move this client judges invalid at the head; never acts for a spectator or another seat', () => {
     const t = chessTable('outbox-fork');
     const [m1, m2] = play(t, [
       [0, 'e2e4'],
@@ -188,7 +188,7 @@ describe('vetSaved: saved Moves (Chess)', () => {
 });
 
 describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
-  it('V2-45 (partial) discards a saved end attestation once a fork is held, and one of a result this client does not compute', () => {
+  it('V2-45 discards a saved end attestation once a fork is held, and one of a result this client does not compute', () => {
     const t = chessTable('outbox-end');
     const moves = play(t, FOOLS_MATE);
     const [m1, , , m4] = moves as [NostrEvent, NostrEvent, NostrEvent, NostrEvent];
@@ -214,7 +214,7 @@ describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
     expect(white.vetSaved(saved, NONE)).toEqual(discarded(/a fork is held/));
   });
 
-  it('V2-45 (partial) keeps a saved end attestation of a counted claim waiting while that claim is restored from a save, and sends it once restored', () => {
+  it('V2-45 keeps a saved end attestation of a counted claim waiting while that claim is restored from a save, and sends it once restored', () => {
     const t = chessTable('outbox-awaiting');
     const m = play(t, [
       [0, 'e2e4'],
@@ -243,7 +243,7 @@ describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
     expect(w.vetSaved(end, NONE)).toBe('send');
   });
 
-  it('V2-45 (partial) vets a saved Resign as v1 does: discarded once another Resign of its seat is held or the game is over, otherwise sent', () => {
+  it('V2-45 vets a saved Resign as v1 does: discarded once another Resign of its seat is held or the game is over, otherwise sent', () => {
     const t = chessTable('outbox-resign');
     const [m1] = play(t, [[0, 'e2e4']]) as [NostrEvent];
     const white = t.players[0] as GameSessionV2;
@@ -320,7 +320,7 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     );
   }
 
-  it('V2-45 (partial) keeps the deal and never discards it: sent when it fits the deck on the chain, otherwise it waits', () => {
+  it('V2-45 keeps the deal and never discards it: sent when it fits the deck on the chain, otherwise it waits', () => {
     const { seat, ev: deal0 } = deals[0] as { seat: number; ev: NostrEvent };
     // Before any deal is held, on the deck of the chain: sent.
     const fresh = replay(base, steps);
@@ -345,7 +345,7 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     expect(forked.players[seat]?.vetSaved(deal0, NONE)).toBe('wait');
   });
 
-  it('V2-45 (partial) sends a saved release while it fits; discards it once its position is its own seat’s, undrawn or already released, or the game is over, and lets it wait for its anchor', () => {
+  it('V2-45 sends a saved release while it fits; discards it once its position is its own seat’s, undrawn or already released, or the game is over, and lets it wait for its anchor', () => {
     const t = replay(base);
     const draw = playToDraw(t, 'outbox-draw');
     const j = (draw.actor + 1) % 3;
@@ -377,7 +377,7 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     expect(over.players[j]?.vetSaved(again, NONE)).toEqual(discarded(/the game is over/));
   });
 
-  it('V2-45 (partial) discards a saved release whose anchor left the chain: the drawer forked at the draw’s prev', () => {
+  it('V2-45 discards a saved release whose anchor left the chain: the drawer forked at the draw’s prev', () => {
     const t = replay(base);
     const draw = playToDraw(t, 'outbox-draw-fork');
     const j = (draw.actor + 1) % 3;
@@ -408,7 +408,7 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
     rolls = t.players.map((p) => p.buildRoll(M.id, t.game.rnd, NOW));
   });
 
-  it('V2-45 (partial) lets a saved roll wait until its requesting move is on the chain, then sends it', () => {
+  it('V2-45 lets a saved roll wait until its requesting move is on the chain, then sends it', () => {
     const k = (roller + 1) % 3;
     const empty = replay(t, []);
     // The roller's own contribution, its Roll still a saved event in its outbox: it waits. Another seat's, its
@@ -439,7 +439,7 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
     expect(empty.players[k]?.vetSaved(wrong, NONE)).toEqual(discarded(/the game refuses it/));
   });
 
-  it('V2-45 (partial) discards a saved roll once a fork is held or the game is over', () => {
+  it('V2-45 discards a saved roll once a fork is held or the game is over', () => {
     const k = (roller + 1) % 3;
     // The roller's rival Roll at the root (the same action, dated otherwise): a fork at the root.
     const forked = replay(t);
@@ -454,7 +454,7 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
     expect(resigned.players[k]?.vetSaved(rolls[k], NONE)).toEqual(discarded(/the game is over/));
   });
 
-  it('V2-45 (partial) lets a saved move wait while its prev extends the head and waits for a roll (ahead), as v1', () => {
+  it('V2-45 lets a saved move wait while its prev extends the head and waits for a roll (ahead), as v1', () => {
     const done = replay(t, [...t.log, ...rolls]);
     const p = done.spectator.view().pending as { type: string; seat: number };
     const action = done.players[p.seat]?.legalActions()[0];
@@ -471,7 +471,7 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
 });
 
 describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
-  it('V2-44 (partial) lists the fork certificate, the chain, this seat’s end attestations and every other held event; junk past the cap only when a held event names it', () => {
+  it('V2-44 lists the fork certificate, the chain, this seat’s end attestations and every other held event; junk past the cap only when a held event names it', () => {
     const t = chessTable('rebroadcast-fork');
     const moves = play(t, FOOLS_MATE);
     const [m1, m2, m3, m4] = moves as [NostrEvent, NostrEvent, NostrEvent, NostrEvent];
@@ -505,7 +505,7 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
     expect(t.spectator.rebroadcast(NONE)).toEqual({ ...r2, own: [], other: [...r2.other, endW.id].sort() });
   });
 
-  it('V2-44 (partial) keeps a valid-looking pair off the walk ahead of junk, so a client fed only the rebroadcast reaches the same equivocators (M1)', () => {
+  it('V2-44 keeps a valid-looking pair off the walk ahead of junk, so a client fed only the rebroadcast reaches the same equivocators (M1)', () => {
     const t = chessTable('rebroadcast-m1');
     const [, m2, m3] = play(t, [
       [0, 'e2e4'],
@@ -590,7 +590,7 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
 });
 
 describe('fix round 1 (review of T13): own unconfirmed events, a chain move under a fork, waits that clear', () => {
-  it('V2-44 (partial) H-1: never rebroadcasts an own event still in the outbox, so a folded-in move the outbox rule discards (the phone played that turn) never goes out as a fork certificate', () => {
+  it('V2-44 H-1: never rebroadcasts an own event still in the outbox, so a folded-in move the outbox rule discards (the phone played that turn) never goes out as a fork certificate', () => {
     const t = chessTable('outbox-h1');
     const [m1, m2] = play(t, [
       [0, 'e2e4'],
@@ -615,7 +615,7 @@ describe('fix round 1 (review of T13): own unconfirmed events, a chain move unde
     expect(tablet.rebroadcast(NONE).certificate).toContain(saved.id);
   });
 
-  it('V2-45 (partial) M-1: sends an own move already on its chain while a fork is held above it, so the session keeps it and asks for no second move', () => {
+  it('V2-45 M-1: sends an own move already on its chain while a fork is held above it, so the session keeps it and asks for no second move', () => {
     const t = chessTable('outbox-m1');
     const [, , m3] = play(t, [
       [0, 'e2e4'],
@@ -640,7 +640,7 @@ describe('fix round 1 (review of T13): own unconfirmed events, a chain move unde
 });
 
 describe('fix round 1: a saved Shares event built on an own move the outbox discarded (Bank 0.2.0, 3 seats)', () => {
-  it('V2-45 (partial) L-3: the roller’s saved contribution waits while its Roll is in the outbox, and is discarded with the Roll once the phone’s rival is held', () => {
+  it('V2-45 L-3: the roller’s saved contribution waits while its Roll is in the outbox, and is discarded with the Roll once the phone’s rival is held', () => {
     const t = v2Table(bank as AnyModule, 3, 'outbox-gone');
     const roller = decider(t) as number;
     const action = t.players[roller]?.legalActions()[0];

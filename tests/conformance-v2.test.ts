@@ -50,24 +50,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       'the session view and the stats record (gameRecord) carry "audit incomplete" and each "secret withheld" ' +
       'seat after a stop (packages/client/test/v2/after-stop.test.ts, packages/client/test/v2/record.test.ts)',
   },
-  'V2-44': {
-    until:
-      'T16 (the controller publishes the rebroadcast set to the root relays and its own, once after first holding ' +
-      'and after each sync to the relays that lack it)',
-    partial:
-      "the session half: `rebroadcast()` lists the fork certificate, the chain, this seat's Shares events and end " +
-      'attestations, and every other held event within the §9.1 bounds, valid-looking moves first, named moves ' +
-      'regardless of the cap (packages/client/test/v2/outbox.test.ts)',
-  },
-  'V2-45': {
-    until:
-      'T16 (the controller vets every saved event through `vetSaved` after a full answer, and acts on it)',
-    partial:
-      'the session half: `vetSaved` decides send, wait or discard for saved Moves, the deal, releases, roll ' +
-      'Shares events, end attestations, Resigns and Secret reveals (packages/client/test/v2/outbox.test.ts)',
-  },
-  'V2-46': { until: 'T16' },
-  'V2-47': { until: 'T16' },
   'V2-48': {
     until:
       'deferred to the first module that declares audit `none` (PROTOCOL-v2 §9.5, PLAN): no current module does, ' +

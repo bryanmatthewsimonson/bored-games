@@ -137,12 +137,15 @@ describe('Two devices of one seat under protocol 2 (T16)', () => {
     const gb = h.game(rootId, black.deps);
     const phone = h.game(rootId, { ...white.deps, now: pc.now });
     // Tablet 1 is on time and watches live. Tablet 2's clock is also past the deadline, but its live feed drops the
-    // seat's own Timeout claims and attestations (it lags); a targeted query gets them.
-    const t1 = h.game(rootId, h.secondDevice(white, address).deps);
+    // seat's own Timeout claims (it lags; a targeted query gets them). Neither ever gets the seat's end attestations,
+    // so only the claim itself can end the game there.
+    const ownEnd = (ev: NostrEvent): boolean => ev.pubkey === wKey && ev.kind === KIND.attest;
+    const first = h.secondDevice(white, address);
+    const t1 = h.game(rootId, { ...first.deps, pool: hidingBy(first.deps.pool, ownEnd).pool });
     const second = h.secondDevice(white, address);
     const lag = hidingBy(
-      second.deps.pool,
-      (ev) => ev.pubkey === wKey && (ev.kind === KIND.timeout || ev.kind === KIND.attest),
+      hidingBy(second.deps.pool, ownEnd).pool,
+      (ev) => ev.pubkey === wKey && ev.kind === KIND.timeout,
       true,
     );
     const t2 = h.game(rootId, { ...second.deps, now: pc.now, pool: lag.pool });
