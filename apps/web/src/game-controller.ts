@@ -243,6 +243,15 @@ export const CHECK_TIMEOUT_MS = 15_000;
 const SIGN_AHEAD_S = 60;
 const MAX_WAIT_S = 86_400;
 
+/**
+ * What the game screen says while the session holds a fork made only by this seat's own unsent move (T21 web fixes,
+ * F1): the other device's move for that turn is being checked, and the stale one will be discarded.
+ */
+export const CHECKING_OWN_MOVE = "Checking your other device's move for this turn…";
+
+/** How often (s) a fork made only by an own unsent event starts vetting from a refresh (T21 web fixes, F1). */
+const OWN_FORK_VET_S = 5;
+
 /** Why `act` refuses a move this seat already made on another device (D059 item 2). */
 export const ALREADY_MOVED = 'you already played this turn on another device';
 
@@ -534,6 +543,19 @@ export class GameController {
   #forced = false;
   /** A vetting query is in flight. */
   #vetting = false;
+  /**
+   * Protocol 2 (T21 web fixes, F3, F1): whether the last vetting round ended on a partial answer, so its saved events
+   * are held (`#trackHold`: the hold cap and Send anyway), and when an own-fork vet was last started from `#refresh`.
+   */
+  #vetPartial = false;
+  #ownForkVetAt: number | null = null;
+  /**
+   * Protocol 2 (T21 web fixes, F2): this seat's events whose every publish so far failed at every relay, and the
+   * first-seen times raised to their first confirmation (kept over another tab's earlier saved time by `#saveSeen`).
+   */
+  readonly #unsent = new Set<string>();
+  readonly #raised = new Map<string, number>();
+  #raiseRebuild = false;
   /** Protocol 2: this seat's saved moves discarded by `#vetSaved` (this load), so saved moves built on them go too. */
   readonly #droppedMoves = new Set<string>();
   /** Shuffle steps republished with this seat's deal (D056). */
@@ -941,6 +963,8 @@ export class GameController {
       const mine = this.#seen.get(id);
       if (mine === undefined || at < mine) this.#seen.set(id, at);
     }
+    // An own event's time raised to its first confirmation (F2) is not lowered back to its commit time.
+    for (const [id, at] of this.#raised) if (this.#seen.has(id)) this.#seen.set(id, at);
     const others = [...this.#seen].filter(([id]) => id !== this.rootId);
     if (others.length > this.#maxSeen) {
       const drop = others.length - this.#maxSeen;
@@ -1011,6 +1035,33 @@ export class GameController {
       .map(([id, at]) => ({ id, at, tier: tier(id) }))
       .sort((a, b) => a.tier - b.tier || (a.tier === 4 ? a.at - b.at : b.at - a.at))
       .map((x) => x.id);
+  }
+
+  /**
+   * Protocol 2 (T21 web fixes, F2): this seat's event `id` became public only now (its first relay confirmation after
+   * failed publishes, or a saved event fed unsent from storage), so its first-seen time is now: the progress time P
+   * and every deadline it starts run from when the other seats could hold it, never from when it was built. A raise
+   * of more than a minute over a time the session already holds rebuilds the session (`rebuild`), once per batch.
+   * Never lowers a time. A staller gains nothing: its deadline here starts when the event reached a relay, which is
+   * no later than it could have seen the event.
+   */
+  #raiseSeen(id: string, rebuild: boolean): void {
+    const now = this.#d.now();
+    const was = this.#seen.get(id);
+    if (was !== undefined && now - was <= 60) return;
+    this.#seen.set(id, now);
+    this.#raised.set(id, now);
+    this.#seenDirty = true;
+    this.#saveSeen();
+    if (!rebuild || was === undefined || this.#raiseRebuild) return;
+    this.#raiseRebuild = true;
+    queueMicrotask(() => {
+      this.#raiseRebuild = false;
+      if (this.#disposed) return;
+      this.#rebuild();
+      this.#refresh();
+      this.#queueDuties();
+    });
   }
 
   /** This seat's saved event with id `id`, if the outbox holds it. */
@@ -1103,7 +1154,7 @@ export class GameController {
    * in (built in this tab while offline) leaves the session holding an event nobody else will, so the session is
    * rebuilt without it. An event the session now refuses outright is an orphan, as in `#retryUndelivered`.
    */
-  #vetSaved(forced: boolean): void {
+  #vetSaved(forced: boolean, only: (slot: string) => boolean = () => true): void {
     const session = this.#session;
     if (session === null || this.#disposed) return;
     if (!forced && this.#behind(session)) {
@@ -1120,7 +1171,9 @@ export class GameController {
           : slot.startsWith('share:')
             ? 1.5e12
             : 2e12;
-    const slots = this.#toVet().sort((a, b) => rank(a) - rank(b));
+    const slots = this.#toVet()
+      .filter(only)
+      .sort((a, b) => rank(a) - rank(b));
     const v2 = session instanceof GameSessionV2 ? session : null;
     let rebuild = false;
     // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
@@ -1172,6 +1225,9 @@ export class GameController {
       if (verdict === 'send' && !fed) {
         this.#fed.add(ev.id);
         fedNow = true;
+        // Protocol 2 (T21 web fixes, F2): an own event loaded unsent from storage was never public, so it is first
+        // seen now, not when it was built: a deadline it starts runs from when the other seats can hold it.
+        if (v2 !== null) this.#raiseSeen(ev.id, false);
         const r = this.#receive(session, ev);
         if (r.status === 'rejected') verdict = `the game refuses it (${r.reason})`;
       }
@@ -1480,8 +1536,16 @@ export class GameController {
         stop();
         this.#vetting = false;
         if (this.#disposed) return;
-        if (this.#fullAnswer(info)) {
-          if (whole) {
+        const full = this.#fullAnswer(info);
+        // Protocol 2 (T21 web fixes, F3): an event of this seat's that this tab built (or already vetted once) went
+        // through the check before signing; its re-send needs only what that check needs, every live counted relay
+        // (`#liveAnswer`: dead ones left out). Saved events loaded from storage and not vetted yet keep the full
+        // answer and D056's hold cap.
+        const live =
+          this.#v2 && !whole && saved.every((slot) => !this.#unvetted.has(slot)) && this.#liveAnswer(info);
+        this.#vetPartial = this.#v2 && !full && !live;
+        if (full || live) {
+          if (full && whole) {
             this.#viewFull = true;
             this.#onFullSync(from);
           }
@@ -2026,6 +2090,13 @@ export class GameController {
     this.#saveV2State();
     if (session === null) return;
     const v = session.view();
+    // Protocol 2 (T21 web fixes, F1): a fork made only by this seat's own unsent event is not the game's. The screen
+    // keeps the last view and says the device is checking; nothing is offered or saved for Home meanwhile.
+    if (this.#synced && this.#forkState(v)?.ownUnsent === true) {
+      this.#ownForkRefresh(now);
+      return;
+    }
+    if (this.notice.value === CHECKING_OWN_MOVE) this.notice.value = null;
     const duties = session.duties();
     this.view.value = v;
     const waiting = session.waitingFor();
@@ -2038,12 +2109,33 @@ export class GameController {
     this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
-    // A fork held only because of this seat's own unsent event: vet at once (review of T16, H1), so the stale event is
-    // discarded and the session rebuilt with no fork before anything else happens.
-    if (this.#synced && this.#forkState(v)?.ownUnsent === true) this.#startVet();
     this.#gossipNew();
     this.#cacheStatus(v.head.seq, this.status.value, now, owed);
     this.#maybePrune(v, duties);
+  }
+
+  /**
+   * `#refresh` while the session holds a fork made only by this seat's own unsent event (review of T16, H1; T21 web
+   * fixes, F1). That fork exists on this device alone, so no stop or loss is shown: the view stays as it was, the
+   * status is `syncing` with `CHECKING_OWN_MOVE` as the notice, nothing is offered, and Home's saved status is not
+   * touched. Vetting, which discards the stale event and rebuilds with no fork, starts at once, but at most once per
+   * `OWN_FORK_VET_S` and not again after a round that ended on a partial answer (ticks retry then; the hold cap and
+   * Send anyway apply, `#trackHold`).
+   */
+  #ownForkRefresh(now: number): void {
+    this.legal.value = [];
+    this.timeoutTarget.value = null;
+    this.canResign.value = false;
+    this.#trackHold(now);
+    this.status.value = 'syncing';
+    const shown = this.notice.value;
+    if (shown === null || !this.log.value.includes(shown)) this.notice.value = CHECKING_OWN_MOVE;
+    const last = this.#ownForkVetAt;
+    if (!this.#vetPartial && (last === null || now - last >= OWN_FORK_VET_S)) {
+      this.#ownForkVetAt = now;
+      this.#startVet();
+    }
+    this.#gossipNew();
   }
 
   /**
@@ -2057,11 +2149,27 @@ export class GameController {
       secretDue && !this.#forced && !(this.#viewFull && session !== null && !this.#behind(session));
     if (this.#synced && secretWaits) this.#secretSince ??= now;
     else this.#secretSince = null;
-    const held = this.#synced && this.#unvetted.size > 0;
+    // Protocol 2 (T21 web fixes, F3, F1): also an event this tab built whose re-send waits on a partial answer, and
+    // a fork made only by this seat's own unsent event, so the hold cap and Send anyway apply to them too.
+    const v2Held =
+      this.#v2 &&
+      session !== null &&
+      ((this.#vetPartial && this.#toVet().length > 0) || this.#forkState(session.view())?.ownUnsent === true);
+    const held = this.#synced && (this.#unvetted.size > 0 || v2Held);
     if (held) this.#holdSince ??= now;
     else this.#holdSince = null;
     const capped = (since: number | null): boolean => since !== null && now - since >= HOLD_CAP_S;
     this.canSendAnyway.value = capped(this.#holdSince) || (secretWaits && capped(this.#secretSince));
+    // Protocol 2: past the cap, a saved Secret reveal is vetted on the answers held without waiting for the player, as
+    // protocol 1 lets a held Secret go (D056); `vetSaved` still keeps it while the game is live here.
+    if (
+      this.#v2 &&
+      capped(this.#holdSince) &&
+      this.#toVet().includes('secret') &&
+      !this.#forced &&
+      session !== null
+    )
+      this.#vetSaved(true, (slot) => slot === 'secret');
   }
 
   /**
@@ -2723,6 +2831,8 @@ export class GameController {
     if (entry === undefined || entry.confirmed) return;
     entry.confirmed = true;
     this.#persist(slot);
+    // Protocol 2 (T21 web fixes, F2): an own event whose every earlier publish failed became public only now.
+    if (this.#unsent.delete(entry.event.id)) this.#raiseSeen(entry.event.id, true);
     // A delivery notice goes once everything is delivered; a log line (a discarded or kept event) stays.
     const shown = this.notice.value;
     if (shown !== null && this.log.value.includes(shown)) return;
@@ -2777,7 +2887,10 @@ export class GameController {
       const results = await this.#d.pool.publish(entry.event, unionRelays(root.relays, this.#d.relays()));
       if (this.#disposed) return;
       if (results.some((r) => r.ok)) this.#confirm(slot);
-      else this.notice.value = 'Not delivered to any relay yet; retrying.';
+      else {
+        if (this.#v2) this.#unsent.add(entry.event.id);
+        this.notice.value = 'Not delivered to any relay yet; retrying.';
+      }
     } finally {
       this.#inFlight.delete(slot);
     }
