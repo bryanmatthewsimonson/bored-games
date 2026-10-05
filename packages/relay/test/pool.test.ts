@@ -457,6 +457,38 @@ describe('RelayPool', () => {
     p.close();
   });
 
+  it('asks only the relays a subscription names, and waits for and counts only them (urls)', async () => {
+    const p = pool([A, B]);
+    latest(A).open();
+    latest(B).open();
+    const got: string[] = [];
+    const onEose = vi.fn();
+    const stop = p.subscribe([{ ids: ['x'] }], (ev, url) => got.push(`${url}:${ev.id}`), onEose, { urls: [B] });
+    expect(latest(A).frames()).toEqual([]);
+    expect(latest(B).frames()).toEqual([['REQ', 'bg-1', { ids: ['x'] }]]);
+    // A relay not asked cannot answer for it.
+    const ev = makeEvent('only b');
+    latest(A).receive(['EVENT', 'bg-1', ev]);
+    latest(A).receive(['EOSE', 'bg-1']);
+    await flush();
+    expect(got).toEqual([]);
+    expect(onEose).not.toHaveBeenCalled();
+    latest(B).receive(['EVENT', 'bg-1', ev]);
+    latest(B).receive(['EOSE', 'bg-1']);
+    await flush();
+    expect(got).toEqual([`${B}:${ev.id}`]);
+    expect(onEose).toHaveBeenCalledWith(expect.objectContaining({ eose: 1, relays: 1, eosedUrls: [B] }));
+    // A reconnect of a relay not asked does not get the REQ; unsubscribing closes it on B only.
+    latest(A).drop();
+    await vi.advanceTimersByTimeAsync(1000);
+    latest(A).open();
+    expect(latest(A).frames()).toEqual([]);
+    stop();
+    expect(latest(A).frames()).toEqual([]);
+    expect(latest(B).frames().at(-1)).toEqual(['CLOSE', 'bg-1']);
+    p.close();
+  });
+
   it('resubscribes after a reconnect and does not repeat delivered events', async () => {
     const p = pool([A], [50, 100]);
     latest(A).open();

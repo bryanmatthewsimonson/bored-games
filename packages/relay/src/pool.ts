@@ -49,6 +49,11 @@ export interface RelayPoolOptions {
 export interface SubscribeOptions {
   /** Fire `onEose` after this many ms even if some relay has not answered. Default: the pool's (8000). */
   eoseTimeoutMs?: number;
+  /**
+   * Ask only these of the pool's relays (for example to learn which events one relay lacks); `onEose` then waits for
+   * and counts only them. Default: every relay. A URL the pool does not hold is ignored.
+   */
+  urls?: readonly string[];
 }
 
 export type PublishResult = { url: string; ok: boolean; message: string };
@@ -101,6 +106,8 @@ interface Subscription {
   filters: Filter[];
   onEvent: (ev: NostrEvent, url: string) => void;
   onEose: ((info: EoseInfo) => void) | undefined;
+  /** The relays it is sent to, or null for every relay (`SubscribeOptions.urls`). */
+  only: ReadonlySet<string> | null;
   seen: Set<string>;
   /** Relays that sent EOSE for this subscription. */
   eosed: Set<string>;
@@ -220,6 +227,7 @@ export class RelayPool {
       filters,
       onEvent,
       onEose,
+      only: opts.urls === undefined ? null : new Set(opts.urls),
       seen: new Set(),
       eosed: new Set(),
       answered: new Set(),
@@ -231,7 +239,7 @@ export class RelayPool {
       sub.eoseTimer = null;
       this.#fireEose(sub, true);
     }, opts.eoseTimeoutMs ?? this.#eoseTimeout);
-    for (const r of this.#relays) if (this.#isOpen(r)) this.#sendReq(r, sub);
+    for (const r of this.#relays) if (this.#isOpen(r) && this.#asks(sub, r)) this.#sendReq(r, sub);
     // A relay already known to be down does not hold the end-of-stored-events signal back.
     for (const r of this.#relays) if (r.state === 'closed') sub.answered.add(r.url);
     this.#checkEose(sub);
@@ -239,7 +247,8 @@ export class RelayPool {
       if (this.#subs.get(sub.id) !== sub) return;
       this.#subs.delete(sub.id);
       this.#clearEoseTimer(sub);
-      for (const r of this.#relays) if (this.#isOpen(r)) this.#send(r, JSON.stringify(['CLOSE', sub.id]));
+      for (const r of this.#relays)
+        if (this.#isOpen(r) && this.#asks(sub, r)) this.#send(r, JSON.stringify(['CLOSE', sub.id]));
     };
   }
 
@@ -293,6 +302,7 @@ export class RelayPool {
       r.attempt = 0;
       r.downSince = null;
       for (const sub of this.#subs.values()) {
+        if (!this.#asks(sub, r)) continue;
         sub.answered.delete(r.url);
         this.#sendReq(r, sub);
       }
@@ -350,9 +360,14 @@ export class RelayPool {
     }
   }
 
+  /** Whether subscription `sub` is sent to relay `r` (`SubscribeOptions.urls`). */
+  #asks(sub: Subscription, r: Relay): boolean {
+    return sub.only === null || sub.only.has(r.url);
+  }
+
   #checkEose(sub: Subscription): void {
     if (sub.eoseFired || !this.#subs.has(sub.id)) return;
-    if (!this.#relays.every((r) => sub.answered.has(r.url))) return;
+    if (!this.#relays.every((r) => !this.#asks(sub, r) || sub.answered.has(r.url))) return;
     this.#fireEose(sub);
   }
 
@@ -366,7 +381,7 @@ export class RelayPool {
     const now = Date.now();
     const info: EoseInfo = {
       eose: sub.eosed.size,
-      relays: this.#relays.length,
+      relays: this.#relays.filter((r) => this.#asks(sub, r)).length,
       timedOut,
       eosedUrls: [...sub.eosed],
       deadUrls: this.#relays
@@ -400,7 +415,7 @@ export class RelayPool {
     switch (msg[0]) {
       case 'EVENT': {
         const sub = typeof msg[1] === 'string' ? this.#subs.get(msg[1]) : undefined;
-        if (!sub) return;
+        if (!sub || !this.#asks(sub, r)) return;
         const ev: unknown = msg[2];
         if (typeof ev !== 'object' || ev === null) return;
         // Size first, so an oversized event is dropped before it is hashed (PROTOCOL §11).
@@ -417,7 +432,7 @@ export class RelayPool {
       case 'EOSE':
       case 'CLOSED': {
         const sub = typeof msg[1] === 'string' ? this.#subs.get(msg[1]) : undefined;
-        if (!sub) return;
+        if (!sub || !this.#asks(sub, r)) return;
         sub.answered.add(r.url);
         if (msg[0] === 'EOSE') sub.eosed.add(r.url);
         this.#checkEose(sub);
