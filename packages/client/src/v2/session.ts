@@ -65,6 +65,7 @@ import type {
 import { standingResult } from './cutoff.ts';
 import type { LineFold } from './line.ts';
 import { moveShape, nextShuffler, pendingAt } from './line.ts';
+import { type OutboxCtx, type Rebroadcast, rebroadcast, type Verdict, vetSaved } from './outbox.ts';
 import {
   attestedResult,
   endAttestedSeats,
@@ -120,7 +121,8 @@ import { type Walk, walk } from './walk.ts';
  * or before the first game action a cancel; a Resign once its named head is on the chain, scored at S along that
  * head's line), moves past it still link unscored so a fork past it is found, and a held fork replaces it unless it
  * stands; a claim forfeiting only this seat counts early only on its player's confirmation (N2,
- * `confirmOwnForfeit`). Not yet: the outbox rule and the rebroadcast set (T13).
+ * `confirmOwnForfeit`). The client rules on saved events and gossip (T13, §9.1, §9.2, `outbox.ts`): `vetSaved` and
+ * `rebroadcast`.
  */
 
 /** The module events `view().events` keeps (as v1). */
@@ -2274,6 +2276,51 @@ export class GameSessionV2 implements Session {
       out.push({ id, kind: 'roll', seat: x.seat, at: x.ev.anchorId });
     for (const [id, x] of this.store.ends) out.push({ id, kind: 'end', seat: x.seat, at: x.ev.headId });
     return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
+  /* ---------------------------------------------------------------------------------------------- outbox */
+
+  /** What the outbox rules read (`outbox.ts`): the held events, the walk and this client's decisions. */
+  private outboxCtx(): OutboxCtx {
+    const me = this.me;
+    const seat = me === null ? undefined : this.root.seats[me.seat];
+    return {
+      ctx: this.ctx,
+      store: this.store,
+      walk: this.current,
+      caches: this.caches,
+      me:
+        me === null || seat === undefined ? null : { seat: me.seat, session: seat.session, npub: seat.npub },
+      sides: () => this.sides(),
+      ended: () => this.ended(),
+      result: () => this.result(),
+      counted: () => this.countedResult(),
+      awaiting: () => (this.awaitingSaved() ? this.countedResult() : null),
+      canResign: () => this.canResign(),
+      chainSeq: (id) => this.chainSeq(id),
+      branchOf: (id) => this.branchOf(id),
+      sharesProblem: (id) => this.sharesProblem(id),
+    };
+  }
+
+  /**
+   * The outbox rule (PROTOCOL-v2 §9.2, `outbox.ts` `vetSaved`): what to do with saved event `ev`, signed by this
+   * seat and confirmed by no relay, once this client has synced with every counted relay: `send` it, let it `wait`,
+   * or `discard` it (remove it from storage and log why). Read only: the session is unchanged, and a sent event must
+   * still be fed to it. Vet saved moves first, in seq order, then the deal, then the rest. Never throws.
+   */
+  vetSaved(ev: unknown): Verdict {
+    return vetSaved(this.outboxCtx(), ev);
+  }
+
+  /**
+   * The events this client must rebroadcast (PROTOCOL-v2 §9.1, `outbox.ts` `rebroadcast`): the fork certificate,
+   * the chain, this seat's Shares events and end attestations, every other held event the fold, the cutoff or the
+   * audit reads (within §9.1's bounds), and, for the root's relays only, the stats attestations and Device notes.
+   * A function of the held events alone.
+   */
+  rebroadcast(): Rebroadcast {
+    return rebroadcast(this.outboxCtx());
   }
 
   /** The certificate of a held fork between shuffle steps (none in a deckless game), for its rebroadcast. */
