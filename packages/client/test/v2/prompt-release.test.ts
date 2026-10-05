@@ -16,6 +16,7 @@ import {
   type Checkpoint,
   type PromptReleaseVectors,
   promptReleaseFile,
+  type ReleaseGame,
 } from '../../scripts/prompt-release-v2.ts';
 import type { Duty, Identity } from '../../src/types.ts';
 import { GameSessionV2 } from '../../src/v2/session.ts';
@@ -41,6 +42,54 @@ import {
  */
 
 const FILE = new URL('../vectors/prompt-release-v2.json', import.meta.url);
+
+/**
+ * Fold a game of the vector file from its own signed events: a verifier checks every proof, the seats trust the
+ * steps it accepted (shuffle proofs are slow to check), and each checkpoint's duties and built events must be as
+ * listed. The `released` checkpoint's built Shares events, never delivered (Chain Reaction's `draw`), must then verify
+ * too; Luster delivers every event it builds.
+ */
+function foldVectors(
+  v: ReleaseGame,
+  modules: ReadonlyMap<string, AnyModule>,
+  released: Checkpoint['label'] | null,
+): void {
+  const ids: Identity[] = v.identities.map((x) => ({
+    seat: x.seat,
+    sessionSk: Uint8Array.from(Buffer.from(x.sessionSk, 'hex')),
+    deckSecret: BigInt(`0x${x.deckSecret}`),
+  }));
+  const make = (me: Identity | null): GameSessionV2 =>
+    GameSessionV2.create({
+      modules,
+      table: v.table,
+      joins: v.joins,
+      root: v.root,
+      me,
+      rootSeenAt: ROOT_SEEN,
+    });
+  const verifier = make(null);
+  const seats = ids.map(make);
+  let i = 0;
+  for (const c of v.checkpoints) {
+    for (; i < c.delivered; i++) {
+      const ev = v.events[i] as NostrEvent;
+      expect(verifier.receive(ev, NOW), `event ${i}`).toEqual({ status: 'accepted' });
+      if ((JSON.parse(ev.content) as { type?: string }).type === 'shuffle') trustSteps(seats, [ev]);
+      for (const s of seats) expect(s.receive(ev, NOW).status).toBe('accepted');
+    }
+    expect(verifier.view().head).toEqual(c.head);
+    expect(seats.map((s) => s.duties())).toEqual(c.seats.map((x) => x.duty));
+    for (const x of c.seats) {
+      if (x.signed === null) continue;
+      const parsed = parseSharesV2(x.signed);
+      expect({ anchor: parsed.anchorId, positions: parsed.shares.map((y) => y.pos) }).toEqual(x.event);
+    }
+  }
+  expect(i).toBe(v.events.length);
+  for (const x of v.checkpoints.find((c) => c.label === released)?.seats ?? [])
+    if (x.signed !== null) expect(verifier.receive(x.signed, NOW)).toEqual({ status: 'accepted' });
+}
 const anchorOf = (ev: NostrEvent): string | undefined =>
   ev.tags.find((t) => t[0] === 'e' && t[3] === 'anchor')?.[1];
 const positionsOf = (ev: NostrEvent): number[] =>
@@ -61,45 +110,7 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
   }, 120_000);
 
   it("folds the file's own signed events from the root, every shuffle proof verified, and owes exactly what each checkpoint lists (review of T8, L4)", () => {
-    const v = JSON.parse(file) as PromptReleaseVectors;
-    const ids: Identity[] = v.identities.map((x) => ({
-      seat: x.seat,
-      sessionSk: Uint8Array.from(Buffer.from(x.sessionSk, 'hex')),
-      deckSecret: BigInt(`0x${x.deckSecret}`),
-    }));
-    const make = (me: Identity | null): GameSessionV2 =>
-      GameSessionV2.create({
-        modules: MODULES,
-        table: v.table,
-        joins: v.joins,
-        root: v.root,
-        me,
-        rootSeenAt: ROOT_SEEN,
-      });
-    // The verifier checks every proof; the seats trust the steps it accepted (shuffle proofs are slow to check).
-    const verifier = make(null);
-    const seats = ids.map(make);
-    let i = 0;
-    for (const c of v.checkpoints) {
-      for (; i < c.delivered; i++) {
-        const ev = v.events[i] as NostrEvent;
-        expect(verifier.receive(ev, NOW), `event ${i}`).toEqual({ status: 'accepted' });
-        if ((JSON.parse(ev.content) as { type?: string }).type === 'shuffle') trustSteps(seats, [ev]);
-        for (const s of seats) expect(s.receive(ev, NOW).status).toBe('accepted');
-      }
-      expect(verifier.view().head).toEqual(c.head);
-      expect(seats.map((s) => s.duties())).toEqual(c.seats.map((x) => x.duty));
-      for (const x of c.seats) {
-        if (x.signed === null) continue;
-        const parsed = parseSharesV2(x.signed);
-        expect({ anchor: parsed.anchorId, positions: parsed.shares.map((y) => y.pos) }).toEqual(x.event);
-      }
-    }
-    expect(i).toBe(v.events.length);
-    // Every built Shares event verifies against the final deck: the deals were delivered, the draw's releases are not
-    // in `events`, and the verifier accepts them now.
-    for (const x of at('draw').seats)
-      if (x.signed !== null) expect(verifier.receive(x.signed, NOW)).toEqual({ status: 'accepted' });
+    foldVectors(JSON.parse(file) as PromptReleaseVectors, MODULES, 'draw');
   }, 120_000);
 
   it('V2-26 never releases a position dealt to its own seat, nor an undealt one: the deal and a draw', () => {
@@ -151,6 +162,60 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
     expect(fork.head).toEqual(at('draw').head);
     // Stopped (§5.6): no release, the owed one included; only the after-stop Secret reveal (§7.3).
     for (const s of fork.seats) expect(s.duty).toEqual([{ kind: 'secret' }]);
+  });
+});
+
+describe('vector 6: prompt release in Luster (PROTOCOL-v2 §12.2 item 6, §6.3; T18)', () => {
+  const v = (JSON.parse(readFileSync(FILE, 'utf8')) as PromptReleaseVectors).luster;
+  const at = (label: Checkpoint['label']): Checkpoint =>
+    v.checkpoints.find((c) => c.label === label) as Checkpoint;
+  const registry = new Map([...MODULES, [luster.id, luster as AnyModule]]);
+
+  it("folds the Luster game's own signed events from the root, every shuffle proof verified, and owes exactly what each checkpoint lists", () => {
+    expect({ game: v.game, engine: v.engine, seats: v.seats }).toEqual({
+      game: luster.id,
+      engine: luster.version,
+      seats: 2,
+    });
+    // 4 groups shuffled by each seat, then the deal.
+    expect(at('deal').head.seq).toBe(8);
+    foldVectors(v, registry, null);
+  }, 120_000);
+
+  it('V2-26 a refill: every seat releases the refilled position, the actor included, anchored on the reservation', () => {
+    const c = at('refill');
+    expect(c.dealt).toHaveLength(1);
+    const refill = c.dealt[0] as { pos: number; to: number | null };
+    expect(refill.to).toBeNull();
+    for (const s of c.seats) {
+      expect(releaseOf(s.duty)).toEqual({ kind: 'release', positions: [refill.pos], anchor: c.head.id });
+      expect(s.event).toEqual({ positions: [refill.pos], anchor: c.head.id });
+    }
+  });
+
+  it('V2-26 a blind reservation: the other seat releases it; its owner releases nothing, never its own card', () => {
+    const c = at('blind');
+    expect(c.dealt).toHaveLength(1);
+    const card = c.dealt[0] as { pos: number; to: number };
+    expect(card.to).not.toBeNull();
+    for (const s of c.seats) {
+      if (s.seat === card.to) {
+        expect(releaseOf(s.duty)).toBeUndefined();
+        expect(s.event).toBeNull();
+      } else {
+        expect(releaseOf(s.duty)).toEqual({ kind: 'release', positions: [card.pos], anchor: c.head.id });
+        expect(s.event).toEqual({ positions: [card.pos], anchor: c.head.id });
+      }
+    }
+  });
+
+  it('V2-25 releases nothing while a fork is held, though one rival is a reservation from the display (a new refill)', () => {
+    const c = at('fork');
+    // The seat after the blind reservation's owner (2 seats) signed both rivals on its head.
+    const owner = (at('blind').dealt[0] as { to: number }).to;
+    expect(c.fork).toEqual({ at: at('blind').head.id, seat: 1 - owner });
+    expect(c.head).toEqual(at('blind').head);
+    for (const s of c.seats) expect(s.duty).toEqual([{ kind: 'secret' }]);
   });
 });
 
