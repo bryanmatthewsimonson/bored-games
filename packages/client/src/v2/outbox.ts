@@ -65,6 +65,8 @@ export interface OutboxCtx {
 
 const discard = (why: string): Verdict => ({ discard: why });
 
+const GONE = 'what it was built on is gone: not held after the sync, and not one of your saved events';
+
 /** The `kind` of an untrusted value, or null. Never throws. */
 function kindOf(ev: unknown): number | null {
   try {
@@ -106,9 +108,17 @@ function kindOf(ev: unknown): number | null {
  *   attestation or Device note** is sent (republished as in v1).
  * Anything that does not parse at proto 2 for this game, or is not signed by this seat, is discarded. Never throws:
  * an internal error answers `wait` (nothing is sent, nothing is lost).
+ *
+ * `unconfirmed` (required, the contract with the controller): the ids of every event of this seat still in the outbox,
+ * saved and confirmed by no relay, `ev` included or not, with no id of an event the controller already discarded. A
+ * Shares event whose anchor or requesting move is not held waits only while that id is in `unconfirmed` (this seat's
+ * own saved move, not vetted or not fed yet); otherwise, after the full sync this rule runs after, the move is gone
+ * (a saved move of this seat that was discarded, or one no relay holds) and the event is discarded with it, the deal
+ * included (it was built on a deck that never became public here; review of T13, L-3).
  */
-export function vetSaved(o: OutboxCtx, ev: unknown): Verdict {
+export function vetSaved(o: OutboxCtx, ev: unknown, unconfirmed: Iterable<Hex>): Verdict {
   try {
+    const pending = new Set(unconfirmed);
     const me = o.me;
     if (me === null) return discard('a spectator has no saved events');
     const kind = kindOf(ev);
@@ -123,9 +133,9 @@ export function vetSaved(o: OutboxCtx, ev: unknown): Verdict {
       case 'move':
         return vetMove(o, me.seat, parsed.ev);
       case 'shares':
-        return vetCardShares(o, me.seat, parsed.ev);
+        return vetCardShares(o, me.seat, parsed.ev, pending);
       case 'roll':
-        return vetRoll(o, me.seat, parsed.ev);
+        return vetRoll(o, me.seat, parsed.ev, pending);
       case 'end':
         return vetEnd(o, parsed.ev);
       case 'resign':
@@ -211,6 +221,10 @@ function vetMove(o: OutboxCtx, seat: number, m: ParsedMove): Verdict {
   const p = m.prevId;
   if (store.kidsOf(p).some((h) => h.seat === seat && h.m.id !== m.id && !neverLooks(o, h)))
     return discard('another move of yours on that position is held');
+  // Already on this client's chain (folded in): sent, also while a fork is held. A fork lies at or above a chain
+  // move, never below it, so sending adds nothing new, and §9.1 republishes every chain move anyway; discarding it
+  // would let a rebuild without it ask this seat to move again there, a fork of its own (review of T13, M-1).
+  if (o.chainSeq(m.id) !== null) return 'send';
   if (walk.fork !== null) return discard('the game is stopped at a fork');
   if (!store.held(p)) return 'wait';
   const at = o.chainSeq(p);
@@ -218,8 +232,6 @@ function vetMove(o: OutboxCtx, seat: number, m: ParsedMove): Verdict {
   // controller (D056 fix round 2). Any other prev off the chain: the game went another way.
   if (at === null) return place(o, p) === 'ahead' ? 'wait' : discard('the game went another way');
   if (m.seq !== at + 1) return discard('it does not follow its parent');
-  // Folded in already, on the chain: this client's own chain goes through it.
-  if (o.chainSeq(m.id) !== null) return 'send';
   if (at !== walk.chain.length) return discard('the game has moved on');
   const held = store.moves.get(m.id);
   if (held !== undefined && neverLooks(o, held)) {
@@ -250,12 +262,12 @@ function dealAnchor(o: OutboxCtx, id: Hex): boolean {
 }
 
 /** The saved card Shares rule (§9.2): the deal, or a prompt release. See `vetSaved`. */
-function vetCardShares(o: OutboxCtx, seat: number, s: ParsedCardShares): Verdict {
+function vetCardShares(o: OutboxCtx, seat: number, s: ParsedCardShares, pending: ReadonlySet<Hex>): Verdict {
   const { ctx, store, walk } = o;
   if (ctx.deckId === null) return discard('a card Shares event in a game without a deck');
-  // Its anchor not held: the deal (never discarded) cannot be told from a release, and the anchor may be this seat's
-  // own saved move still waiting, so it waits as a move whose prev is not held.
-  if (!store.held(s.anchorId)) return 'wait';
+  // Its anchor not held: it waits while the anchor is this seat's own saved move still in the outbox (the deal cannot
+  // be told from a release then); otherwise the anchor is gone after the sync, and the event goes with it.
+  if (!store.held(s.anchorId)) return pending.has(s.anchorId) ? 'wait' : discard(GONE);
   if (dealAnchor(o, s.anchorId)) return vetDeal(o, seat, s);
   const anchor = place(o, s.anchorId);
   if (anchor === 'ahead') return 'wait';
@@ -321,11 +333,16 @@ function vetDeal(o: OutboxCtx, seat: number, s: ParsedCardShares): Verdict {
 }
 
 /** The saved roll Shares rule (§9.2): see `vetSaved`. */
-function vetRoll(o: OutboxCtx, seat: number, s: ParsedRollShares): Verdict {
+function vetRoll(o: OutboxCtx, seat: number, s: ParsedRollShares, pending: ReadonlySet<Hex>): Verdict {
   if (typeof o.ctx.module.rolls !== 'function')
     return discard('a roll Shares event in a game that does not roll');
   const move = place(o, s.moveId);
   const anchor = place(o, s.anchorId);
+  for (const [id, at] of [
+    [s.moveId, move],
+    [s.anchorId, anchor],
+  ] as const)
+    if (at === 'missing' && !pending.has(id)) return discard(GONE);
   if (move === 'missing' || anchor === 'missing') return 'wait';
   if (o.walk.fork !== null) return discard('the game is stopped at a fork');
   if (o.ended()) return discard('the game is over');
@@ -392,9 +409,19 @@ export interface Rebroadcast {
 
 const sortIds = (ids: Iterable<Hex>): Hex[] => [...ids].sort();
 
-/** The §9.1 rebroadcast set (see `Rebroadcast`): a function of the held events and the walk alone. */
-export function rebroadcast(o: OutboxCtx): Rebroadcast {
+/**
+ * The §9.1 rebroadcast set (see `Rebroadcast`): a function of the held events and the walk, less `unconfirmed`.
+ * `unconfirmed` (required, the same contract as `vetSaved`'s): the ids of every event of this seat still in the
+ * outbox, confirmed by no relay. None of them is ever listed, wherever it would sit (the certificate, the chain, a
+ * named move): this seat's own unconfirmed events follow the outbox rule (§9.2) alone, since a folded-in move the
+ * rule would discard (another device's rival is now held) would otherwise go out as a fork certificate and fork the
+ * seat (review of T13, H-1). Vet the outbox, and rebuild after any discard, before rebroadcasting after a sync.
+ */
+export function rebroadcast(o: OutboxCtx, unconfirmed: Iterable<Hex>): Rebroadcast {
   const { store, walk } = o;
+  // This seat's own events still in the outbox go out only through the outbox rule (§9.1, review of T13, H-1).
+  const pending = new Set(unconfirmed);
+  const out = (ids: Iterable<Hex>): Hex[] => [...ids].filter((id) => !pending.has(id));
   const mySeat = o.me?.seat ?? null;
   const chain = walk.chain.map((h) => h.m.id);
   const certificate = walk.fork === null ? [] : sortIds(walk.fork.successors).slice(0, 2);
@@ -455,7 +482,13 @@ export function rebroadcast(o: OutboxCtx): Rebroadcast {
     else if (x.ev.n === at.n) at.ids.push(id);
   }
   for (const { ids } of notes.values()) for (const id of sortIds(ids).slice(0, 2)) rootOnly.add(id);
-  return { certificate, chain, own: sortIds(own), other: sortIds(other), rootOnly: sortIds(rootOnly) };
+  return {
+    certificate: out(certificate),
+    chain: out(chain),
+    own: out(sortIds(own)),
+    other: out(sortIds(other)),
+    rootOnly: out(sortIds(rootOnly)),
+  };
 }
 
 /**

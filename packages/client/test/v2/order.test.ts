@@ -56,7 +56,7 @@ const fold = (t: V2Table): string =>
     held: t.all.map((s) => s.heldSet()),
     counted: t.all.map((s) => s.countedResult()),
     records: t.all.map((s) => gameRecord(s.view())),
-    rebroadcast: t.all.map((s) => s.rebroadcast()),
+    rebroadcast: t.all.map((s) => s.rebroadcast([])),
     steps: t.all.map((s) => s.deckSteps()),
   });
 

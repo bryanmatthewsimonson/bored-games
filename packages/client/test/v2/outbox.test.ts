@@ -54,6 +54,9 @@ const mv = (seat: number, uci: string) => ({ type: 'move', actor: seat, uci });
 const walkOf = (s: GameSessionV2): Walk => (s as unknown as { current: Walk }).current;
 const discarded = (why: RegExp) => ({ discard: expect.stringMatching(why) });
 
+/** No saved event of this seat is still in the outbox (`vetSaved` and `rebroadcast`'s `unconfirmed`). */
+const NONE: readonly Hex[] = [];
+
 const chessTable = (seed: string): V2Table => v2Table(chess as AnyModule, 2, seed);
 
 function play(t: V2Table, moves: [number, string][]): NostrEvent[] {
@@ -107,15 +110,15 @@ describe('vetSaved: saved Moves (Chess)', () => {
     const tablet = v2Session(t.game, 0);
     for (const ev of [m1, m2]) tablet.receive(ev, NOW);
     const saved = tablet.buildAction(mv(0, 'b1c3'), t.game.rnd, NOW);
-    expect(tablet.vetSaved(saved)).toBe('send');
+    expect(tablet.vetSaved(saved, NONE)).toBe('send');
     const [phone] = play(t, [[0, 'g1f3']]) as [NostrEvent];
     tablet.receive(phone, NOW);
-    expect(tablet.vetSaved(saved)).toEqual(discarded(/another move of yours on that position is held/));
+    expect(tablet.vetSaved(saved, NONE)).toEqual(discarded(/another move of yours on that position is held/));
     // Black answered on the phone's move: still discarded, and the phone's own move (folded in) is sent.
     const [m4] = play(t, [[1, 'b8c6']]) as [NostrEvent];
     tablet.receive(m4, NOW);
-    expect(tablet.vetSaved(saved)).toEqual(discarded(/another move of yours/));
-    expect(t.players[0]?.vetSaved(phone)).toBe('send');
+    expect(tablet.vetSaved(saved, NONE)).toEqual(discarded(/another move of yours/));
+    expect(t.players[0]?.vetSaved(phone, NONE)).toBe('send');
     // Sending it would have forked White: the session confirms it is a rival on m2.
     expect(tablet.receive(saved, NOW).status).toBe('accepted');
     expect(tablet.view().fork).toMatchObject({ at: m2.id, seat: 0 });
@@ -133,25 +136,25 @@ describe('vetSaved: saved Moves (Chess)', () => {
     const saved = actionAt(t, 0, m4.id, 5, mv(0, 'f1c4'));
     const late = v2Session(t.game, 0);
     late.receive(m1, NOW);
-    expect(late.vetSaved(saved)).toBe('wait');
+    expect(late.vetSaved(saved, NONE)).toBe('wait');
     // m4 arrives but not m2 and m3: m4 is held, off the chain and above a gap (not ahead of the head): discarded.
     late.receive(m4, NOW);
-    expect(late.vetSaved(saved)).toEqual(discarded(/the game went another way/));
+    expect(late.vetSaved(saved, NONE)).toEqual(discarded(/the game went another way/));
     for (const ev of [m2, m3]) late.receive(ev, NOW);
-    expect(late.vetSaved(saved)).toBe('send');
+    expect(late.vetSaved(saved, NONE)).toBe('send');
     // A White move saved on m1, where the chain went on past it (a move of another seat at seq 2).
     const old = actionAt(t, 0, m1.id, 2, mv(0, 'd2d4'));
-    expect(late.vetSaved(old)).toEqual(discarded(/the game has moved on/));
+    expect(late.vetSaved(old, NONE)).toEqual(discarded(/the game has moved on/));
     // A White move on Black's junk move at m2 (held, never valid): off the chain.
     const junk = actionAt(t, 1, m2.id, 3, mv(1, 'a7a2'));
     late.receive(junk, NOW);
     const onJunk = actionAt(t, 0, junk.id, 4, mv(0, 'd2d4'));
-    expect(late.vetSaved(onJunk)).toEqual(discarded(/the game went another way/));
+    expect(late.vetSaved(onJunk, NONE)).toEqual(discarded(/the game went another way/));
     // Black's junk does not count as "another move of its seat" for a Black move on m2 (it can never fork), but
     // m2 is below the head, so that one is discarded as moved on.
     send(t, junk);
     const black = t.players[1] as GameSessionV2;
-    expect(black.vetSaved(actionAt(t, 1, m2.id, 3, mv(1, 'd7d6')))).toEqual(
+    expect(black.vetSaved(actionAt(t, 1, m2.id, 3, mv(1, 'd7d6')), NONE)).toEqual(
       discarded(/the game has moved on/),
     );
   });
@@ -164,21 +167,23 @@ describe('vetSaved: saved Moves (Chess)', () => {
     ]) as [NostrEvent, NostrEvent];
     const saved = actionAt(t, 0, m2.id, 3, mv(0, 'g1f3'));
     const white = t.players[0] as GameSessionV2;
-    expect(white.vetSaved(saved)).toBe('send');
+    expect(white.vetSaved(saved, NONE)).toBe('send');
     // An illegal White move on the head, folded in: the game refuses it, so it is discarded.
     const illegal = actionAt(t, 0, m2.id, 3, mv(0, 'e1e3'));
     expect(white.receive(illegal, NOW).status).toBe('rejected');
-    expect(white.vetSaved(illegal)).toEqual(discarded(/the game refuses it/));
+    expect(white.vetSaved(illegal, NONE)).toEqual(discarded(/the game refuses it/));
     // The illegal move forks nothing, so the good one is still sent.
-    expect(white.vetSaved(saved)).toBe('send');
-    expect(t.spectator.vetSaved(saved)).toEqual(discarded(/spectator/));
-    expect((t.players[1] as GameSessionV2).vetSaved(saved)).toEqual(discarded(/not signed by your seat/));
-    expect(white.vetSaved({ kind: 7452, id: 'x' })).toEqual(discarded(/does not parse/));
+    expect(white.vetSaved(saved, NONE)).toBe('send');
+    expect(t.spectator.vetSaved(saved, NONE)).toEqual(discarded(/spectator/));
+    expect((t.players[1] as GameSessionV2).vetSaved(saved, NONE)).toEqual(
+      discarded(/not signed by your seat/),
+    );
+    expect(white.vetSaved({ kind: 7452, id: 'x' }, NONE)).toEqual(discarded(/does not parse/));
     // Black forks at m1: the game is stopped, and no saved move goes out.
     const rival = actionAt(t, 1, m1.id, 2, mv(1, 'c7c5'));
     send(t, rival);
     expect(white.view().stop).toMatchObject({ at: m1.id, seat: 1 });
-    expect(white.vetSaved(saved)).toEqual(discarded(/stopped at a fork/));
+    expect(white.vetSaved(saved, NONE)).toEqual(discarded(/stopped at a fork/));
   });
 });
 
@@ -190,23 +195,23 @@ describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
     const white = t.players[0] as GameSessionV2;
     expect(white.view().result).toEqual({ kind: 'over', head: m4.id, forfeit: [] });
     const saved = white.buildEndAttest(t.game.rnd, NOW);
-    expect(white.vetSaved(saved)).toBe('send');
+    expect(white.vetSaved(saved, NONE)).toBe('send');
     // The same result signed by the npub (it may sign end attestations too): sent.
     const hash = logHash(moves.map((m) => m.id));
     const byNpub = endOf(t, 0, { kind: 'over', head: m4.id, forfeit: [] }, hash, t.game.npubSks[0]);
-    expect(white.vetSaved(byNpub)).toBe('send');
+    expect(white.vetSaved(byNpub, NONE)).toBe('send');
     // Another identity, or the right one with a wrong log hash: discarded.
-    expect(white.vetSaved(endOf(t, 0, { kind: 'claim', head: m4.id, forfeit: [1] }, hash))).toEqual(
+    expect(white.vetSaved(endOf(t, 0, { kind: 'claim', head: m4.id, forfeit: [1] }, hash), NONE)).toEqual(
       discarded(/no longer computes that result/),
     );
-    expect(white.vetSaved(endOf(t, 0, { kind: 'over', head: m4.id, forfeit: [] }, logHash([])))).toEqual(
-      discarded(/log hash/),
-    );
+    expect(
+      white.vetSaved(endOf(t, 0, { kind: 'over', head: m4.id, forfeit: [] }, logHash([])), NONE),
+    ).toEqual(discarded(/log hash/));
     // Black, who mated, signs a rival move 2 on m1 before White's attestation is out: a fork is held, the end
     // does not stand (White never attested), and the saved attestation is discarded.
     send(t, actionAt(t, 1, m1.id, 2, mv(1, 'c7c5')));
     expect(white.view()).toMatchObject({ result: null, stop: { at: m1.id, seat: 1 } });
-    expect(white.vetSaved(saved)).toEqual(discarded(/a fork is held/));
+    expect(white.vetSaved(saved, NONE)).toEqual(discarded(/a fork is held/));
   });
 
   it('V2-45 (partial) keeps a saved end attestation of a counted claim waiting while that claim is restored from a save, and sends it once restored', () => {
@@ -232,10 +237,10 @@ describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
     });
     for (const ev of m) w.receive(ev, NOW);
     expect(w.view().awaitingCounted).toEqual(saved);
-    expect(w.vetSaved(end)).toBe('wait');
+    expect(w.vetSaved(end, NONE)).toBe('wait');
     w.receive(claim, NOW + deadline + 1);
     expect(w.view().result).toEqual({ kind: 'claim', head, forfeit: [1] });
-    expect(w.vetSaved(end)).toBe('send');
+    expect(w.vetSaved(end, NONE)).toBe('send');
   });
 
   it('V2-45 (partial) vets a saved Resign as v1 does: discarded once another Resign of its seat is held or the game is over, otherwise sent', () => {
@@ -243,24 +248,24 @@ describe('vetSaved: end attestations, Resigns, claims (Chess)', () => {
     const [m1] = play(t, [[0, 'e2e4']]) as [NostrEvent];
     const white = t.players[0] as GameSessionV2;
     const saved = resignOf(t, 0, m1.id);
-    expect(white.vetSaved(saved)).toBe('send');
+    expect(white.vetSaved(saved, NONE)).toBe('send');
     // Folded in and counted: still sent (it is this seat's counted Resign).
     const u = replay(t);
     send(u, saved);
     expect(u.players[0]?.view().result).toEqual({ kind: 'resign', head: m1.id, forfeit: [0] });
-    expect(u.players[0]?.vetSaved(saved)).toBe('send');
+    expect(u.players[0]?.vetSaved(saved, NONE)).toBe('send');
     // Another Resign of White's (another device) is held: discarded.
     const other = replay(t);
     send(other, resignOf(t, 0, m1.id, NOW + 1));
-    expect(other.players[0]?.vetSaved(saved)).toEqual(discarded(/another resignation of yours/));
+    expect(other.players[0]?.vetSaved(saved, NONE)).toEqual(discarded(/another resignation of yours/));
     // The game is over (mate): discarded.
     const mate = chessTable('outbox-resign-mate');
     const moves = play(mate, FOOLS_MATE);
-    expect(mate.players[0]?.vetSaved(resignOf(mate, 0, (moves[3] as NostrEvent).id))).toEqual(
+    expect(mate.players[0]?.vetSaved(resignOf(mate, 0, (moves[3] as NostrEvent).id), NONE)).toEqual(
       discarded(/the game is over/),
     );
     // A saved Timeout claim is republished as in v1.
-    expect(white.vetSaved(claimOf(t, 0, m1.id, 1))).toBe('send');
+    expect(white.vetSaved(claimOf(t, 0, m1.id, 1), NONE)).toBe('send');
   });
 });
 
@@ -319,15 +324,17 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     const { seat, ev: deal0 } = deals[0] as { seat: number; ev: NostrEvent };
     // Before any deal is held, on the deck of the chain: sent.
     const fresh = replay(base, steps);
-    expect(fresh.players[seat]?.vetSaved(deal0)).toBe('send');
-    // Its anchor (the last shuffle step) not held yet: it waits.
+    expect(fresh.players[seat]?.vetSaved(deal0, NONE)).toBe('send');
+    // Its anchor (the last shuffle step) not held: it waits while that step is a saved event of this seat's still in
+    // the outbox; otherwise the step is gone after the sync, and the deal (on a deck never public here) goes with it.
     const partial = replay(base, steps.slice(0, 2));
-    expect(partial.players[seat]?.vetSaved(deal0)).toBe('wait');
+    expect(partial.players[seat]?.vetSaved(deal0, [(steps[2] as NostrEvent).id])).toBe('wait');
+    expect(partial.players[seat]?.vetSaved(deal0, NONE)).toEqual(discarded(/what it was built on is gone/));
     // A second deal by the same seat (another device), while the first is held: kept, never sent, never discarded.
     const second = fresh.players[seat]?.buildDeal(base.game.rnd, NOW) as NostrEvent;
     const full = replay(base);
-    expect(full.players[seat]?.vetSaved(second)).toBe('wait');
-    expect(full.players[seat]?.vetSaved(deal0)).toBe('send');
+    expect(full.players[seat]?.vetSaved(second, NONE)).toBe('wait');
+    expect(full.players[seat]?.vetSaved(deal0, NONE)).toBe('send');
     // A rival last shuffle step (the last shuffler's second well-formed step): a fork, so the deal waits.
     const last = steps[2] as NostrEvent;
     const content = parseMove(last, 108, '2').content;
@@ -335,7 +342,7 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     const rival = signedMove(base, 2, steps[1]?.id as Hex, 3, content, NOW + 7);
     const forked = replay(base, [...steps, rival]);
     expect(forked.spectator.view().fork).not.toBeNull();
-    expect(forked.players[seat]?.vetSaved(deal0)).toBe('wait');
+    expect(forked.players[seat]?.vetSaved(deal0, NONE)).toBe('wait');
   });
 
   it('V2-45 (partial) sends a saved release while it fits; discards it once its position is its own seat’s, undrawn or already released, or the game is over, and lets it wait for its anchor', () => {
@@ -344,29 +351,30 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
     const j = (draw.actor + 1) % 3;
     const s = t.players[j] as GameSessionV2;
     const release = s.buildRelease(base.game.rnd, NOW);
-    expect(s.vetSaved(release)).toBe('send');
-    // Its anchor (the draw) not held yet: it waits.
+    expect(s.vetSaved(release, NONE)).toBe('send');
+    // Its anchor (the draw) not held: it waits only while the anchor is in the outbox (`unconfirmed`), else it is gone.
     const before = replay(base, t.log.slice(0, t.log.indexOf(draw.move)));
-    expect(before.players[j]?.vetSaved(release)).toBe('wait');
+    expect(before.players[j]?.vetSaved(release, [draw.move.id])).toBe('wait');
+    expect(before.players[j]?.vetSaved(release, NONE)).toEqual(discarded(/what it was built on is gone/));
     // A share of a position dealt to its own seat is never sent (the Luster audit's F3), nor one of an undrawn card.
     const own = sharesBy(t, s, draw.actor, [draw.pos], draw.move.id);
-    expect(t.players[draw.actor]?.vetSaved(own)).toEqual(discarded(/would reveal your own card/));
+    expect(t.players[draw.actor]?.vetSaved(own, NONE)).toEqual(discarded(/would reveal your own card/));
     const dealt = new Set(
       chainReaction.dealt(t.spectator.view().state as ChainReactionState).map((d) => d.pos),
     );
     const undrawn = [...Array(108).keys()].find((p) => !dealt.has(p)) as number;
-    expect(s.vetSaved(sharesBy(t, s, j, [undrawn], draw.move.id))).toEqual(discarded(/not drawn/));
+    expect(s.vetSaved(sharesBy(t, s, j, [undrawn], draw.move.id), NONE)).toEqual(discarded(/not drawn/));
     // Another device of seat j released the same position first: the saved one is discarded; the held one is sent.
     const again = s.buildRelease(base.game.rnd, NOW);
     send(t, release);
-    expect(s.vetSaved(again)).toEqual(discarded(/already released/));
-    expect(s.vetSaved(release)).toBe('send');
+    expect(s.vetSaved(again, NONE)).toEqual(discarded(/already released/));
+    expect(s.vetSaved(release, NONE)).toBe('send');
     // The game is over (another seat resigned on the draw): discarded.
     const over = replay(base, t.log.slice(0, t.log.indexOf(release)));
     const k = (draw.actor + 2) % 3;
     send(over, over.players[k]?.buildResign(base.game.rnd, NOW) as NostrEvent);
     expect(over.spectator.view().result).toMatchObject({ kind: 'resign', forfeit: [k] });
-    expect(over.players[j]?.vetSaved(again)).toEqual(discarded(/the game is over/));
+    expect(over.players[j]?.vetSaved(again, NONE)).toEqual(discarded(/the game is over/));
   });
 
   it('V2-45 (partial) discards a saved release whose anchor left the chain: the drawer forked at the draw’s prev', () => {
@@ -384,7 +392,7 @@ describe('vetSaved: card Shares events (Chain Reaction, 3 seats)', () => {
       .find((ev) => JSON.stringify(parseMove(ev, 108, '2').content) !== wanted) as NostrEvent;
     send(t, other);
     expect(t.players[j]?.view().fork).toMatchObject({ seat: draw.actor });
-    expect(t.players[j]?.vetSaved(release)).toEqual(discarded(/went another way|stopped at a fork/));
+    expect(t.players[j]?.vetSaved(release, NONE)).toEqual(discarded(/went another way|stopped at a fork/));
   });
 });
 
@@ -403,12 +411,16 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
   it('V2-45 (partial) lets a saved roll wait until its requesting move is on the chain, then sends it', () => {
     const k = (roller + 1) % 3;
     const empty = replay(t, []);
-    expect(empty.players[k]?.vetSaved(rolls[k])).toBe('wait');
+    // The roller's own contribution, its Roll still a saved event in its outbox: it waits. Another seat's, its
+    // requesting move not held after the sync: gone.
+    expect(empty.players[roller]?.vetSaved(rolls[roller], [M.id])).toBe('wait');
+    expect(empty.players[k]?.vetSaved(rolls[k], NONE)).toEqual(discarded(/what it was built on is gone/));
     send(empty, M);
-    expect(empty.players[k]?.vetSaved(rolls[k])).toBe('send');
+    expect(empty.players[roller]?.vetSaved(rolls[roller], [M.id])).toBe('send');
+    expect(empty.players[k]?.vetSaved(rolls[k], NONE)).toBe('send');
     // Another device of the seat contributed already (the same D): sending is harmless, never a fork.
     send(empty, t.players[k]?.buildRoll(M.id, t.game.rnd, NOW + 1) as NostrEvent);
-    expect(empty.players[k]?.vetSaved(rolls[k])).toBe('send');
+    expect(empty.players[k]?.vetSaved(rolls[k], NONE)).toBe('send');
     // A contribution to a roll M never requested: the game refuses it.
     const id = t.game.ids[k] as Identity;
     const wrong = finalizeEvent(
@@ -424,7 +436,7 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
       id.sessionSk,
       t.game.rnd,
     );
-    expect(empty.players[k]?.vetSaved(wrong)).toEqual(discarded(/the game refuses it/));
+    expect(empty.players[k]?.vetSaved(wrong, NONE)).toEqual(discarded(/the game refuses it/));
   });
 
   it('V2-45 (partial) discards a saved roll once a fork is held or the game is over', () => {
@@ -434,12 +446,12 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
     const action = replay(t, []).players[roller]?.legalActions()[0];
     send(forked, actionAt(forked, roller, t.game.rootId, 1, action, NOW + 9));
     expect(forked.spectator.view().fork).toMatchObject({ seat: roller });
-    expect(forked.players[k]?.vetSaved(rolls[k])).toEqual(discarded(/stopped at a fork/));
+    expect(forked.players[k]?.vetSaved(rolls[k], NONE)).toEqual(discarded(/stopped at a fork/));
     const resigned = replay(t);
     const r = (roller + 2) % 3;
     send(resigned, resignOf(resigned, r, M.id));
     expect(resigned.spectator.view().result).toMatchObject({ kind: 'resign', forfeit: [r] });
-    expect(resigned.players[k]?.vetSaved(rolls[k])).toEqual(discarded(/the game is over/));
+    expect(resigned.players[k]?.vetSaved(rolls[k], NONE)).toEqual(discarded(/the game is over/));
   });
 
   it('V2-45 (partial) lets a saved move wait while its prev extends the head and waits for a roll (ahead), as v1', () => {
@@ -451,10 +463,10 @@ describe('vetSaved: roll Shares events and moves ahead of the head (Bank 0.2.0, 
     const a = replay(t, [...t.log, early]);
     expect(a.spectator.branchOf(early.id)).toBe('ahead');
     // The seat's own saved move: sent (its prev is the head); a move saved on top of it waits.
-    expect(a.players[p.seat]?.vetSaved(early)).toBe('send');
+    expect(a.players[p.seat]?.vetSaved(early, NONE)).toBe('send');
     const next = (p.seat + 1) % 3;
     const onEarly = actionAt(t, next, early.id, 3, { type: 'stay', actor: next });
-    expect(a.players[next]?.vetSaved(onEarly)).toBe('wait');
+    expect(a.players[next]?.vetSaved(onEarly, NONE)).toBe('wait');
   });
 });
 
@@ -476,7 +488,7 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
     const unknown = claimOf(t, 0, 'ab'.repeat(32), 1);
     send(t, unknown);
     const white = t.players[0] as GameSessionV2;
-    const r = white.rebroadcast();
+    const r = white.rebroadcast(NONE);
     expect(r.certificate).toEqual([m2.id, rival.id].sort());
     expect(r.chain).toEqual([m1.id]);
     expect(r.own).toEqual([endW.id]);
@@ -485,12 +497,12 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
     for (const ev of junk) expect(everything(r).has(ev.id)).toBe(false);
     const naming = claimOf(t, 0, (junk[0] as NostrEvent).id, 1);
     send(t, naming);
-    const r2 = white.rebroadcast();
+    const r2 = white.rebroadcast(NONE);
     expect(r2.other).toEqual(
       [m3.id, m4.id, endB.id, unknown.id, naming.id, (junk[0] as NostrEvent).id].sort(),
     );
     // The same set on every client holding the same events: a function of the held events.
-    expect(t.spectator.rebroadcast()).toEqual({ ...r2, own: [], other: [...r2.other, endW.id].sort() });
+    expect(t.spectator.rebroadcast(NONE)).toEqual({ ...r2, own: [], other: [...r2.other, endW.id].sort() });
   });
 
   it('V2-44 (partial) keeps a valid-looking pair off the walk ahead of junk, so a client fed only the rebroadcast reaches the same equivocators (M1)', () => {
@@ -508,14 +520,14 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
     for (const ev of [black, white, ...junk]) send(t, ev);
     const v = t.spectator.view();
     expect(v.equivocators).toEqual([0, 1]);
-    const r = t.spectator.rebroadcast();
+    const r = t.spectator.rebroadcast(NONE);
     expect(r.other).toContain(black.id);
     for (const ev of junk) expect(everything(r).has(ev.id)).toBe(false);
     const byId = new Map(t.log.map((ev) => [ev.id, ev]));
     const copy = v2Session(t.game, null);
     for (const id of everything(r)) copy.receive(byId.get(id), NOW);
     expect(copy.view()).toEqual(v);
-    expect(copy.rebroadcast()).toEqual(r);
+    expect(copy.rebroadcast(NONE)).toEqual(r);
   });
 
   it('V2-56 rebroadcasts every held Shares event and end attestation whatever its validity, its own seat’s apart', () => {
@@ -571,8 +583,81 @@ describe('rebroadcast (PROTOCOL-v2 §9.1)', () => {
     const white = t.players[0] as GameSessionV2;
     const held = white.heldSet();
     expect(held.map((x) => x.id).sort()).toEqual(events.map((ev) => ev.id).sort());
-    const r = white.rebroadcast();
+    const r = white.rebroadcast(NONE);
     expect(r.own).toEqual(held.filter((x) => x.seat === 0).map((x) => x.id));
     for (const x of held.filter((y) => y.seat !== 0)) expect(r.other).toContain(x.id);
+  });
+});
+
+describe('fix round 1 (review of T13): own unconfirmed events, a chain move under a fork, waits that clear', () => {
+  it('V2-44 (partial) H-1: never rebroadcasts an own event still in the outbox, so a folded-in move the outbox rule discards (the phone played that turn) never goes out as a fork certificate', () => {
+    const t = chessTable('outbox-h1');
+    const [m1, m2] = play(t, [
+      [0, 'e2e4'],
+      [1, 'e7e5'],
+    ]) as [NostrEvent, NostrEvent];
+    // The tablet builds Nc3 and folds it in (build, save, feed, publish), but no relay confirms it: it is offline.
+    const tablet = t.players[0] as GameSessionV2;
+    const saved = tablet.buildAction(mv(0, 'b1c3'), t.game.rnd, NOW);
+    expect(tablet.receive(saved, NOW).status).toBe('accepted');
+    // The phone, the same seat, plays Nf3 on m2; the tablet syncs and holds it: its seat's own fork.
+    const phone = v2Session(t.game, 0);
+    for (const ev of [m1, m2]) phone.receive(ev, NOW);
+    const other = phone.buildAction(mv(0, 'g1f3'), t.game.rnd, NOW);
+    tablet.receive(other, NOW);
+    expect(tablet.view().fork).toMatchObject({ at: m2.id, seat: 0 });
+    const outbox = [saved.id];
+    expect(tablet.vetSaved(saved, outbox)).toEqual(discarded(/another move of yours/));
+    const r = tablet.rebroadcast(outbox);
+    expect(r.certificate).toEqual([other.id]);
+    expect(everything(r).has(saved.id)).toBe(false);
+    // Without the outbox's ids the set would list it as the certificate: why `unconfirmed` is required.
+    expect(tablet.rebroadcast(NONE).certificate).toContain(saved.id);
+  });
+
+  it('V2-45 (partial) M-1: sends an own move already on its chain while a fork is held above it, so the session keeps it and asks for no second move', () => {
+    const t = chessTable('outbox-m1');
+    const [, , m3] = play(t, [
+      [0, 'e2e4'],
+      [1, 'e7e5'],
+      [0, 'g1f3'],
+      [1, 'b8c6'],
+    ]) as [NostrEvent, NostrEvent, NostrEvent, NostrEvent];
+    // Black equivocates on m3: the fork is at m3, and White's m3 (still in White's outbox) is on White's chain.
+    send(t, actionAt(t, 1, m3.id, 4, mv(1, 'd7d6')));
+    const white = t.players[0] as GameSessionV2;
+    expect(white.view().fork).toMatchObject({ at: m3.id, seat: 1 });
+    expect(white.vetSaved(m3, [m3.id])).toBe('send');
+    // Sent, not discarded: no rebuild, so the session still holds White's move, the stop at m3 and no decision.
+    expect(white.chainSeq(m3.id)).toBe(3);
+    expect(white.view().stop).toMatchObject({ at: m3.id, seat: 1 });
+    expect(white.duties().map((d) => d.kind)).not.toContain('decide');
+    // A move of White's not on the chain is still discarded while the fork is held.
+    expect(white.vetSaved(actionAt(t, 0, m3.id, 4, mv(0, 'd2d4')), NONE)).toEqual(
+      discarded(/fork|another move/),
+    );
+  });
+});
+
+describe('fix round 1: a saved Shares event built on an own move the outbox discarded (Bank 0.2.0, 3 seats)', () => {
+  it('V2-45 (partial) L-3: the roller’s saved contribution waits while its Roll is in the outbox, and is discarded with the Roll once the phone’s rival is held', () => {
+    const t = v2Table(bank as AnyModule, 3, 'outbox-gone');
+    const roller = decider(t) as number;
+    const action = t.players[roller]?.legalActions()[0];
+    // The roller's tablet, offline: its Roll M and its own contribution to it, both saved, neither confirmed.
+    const tablet = t.players[roller] as GameSessionV2;
+    const M = tablet.buildAction(action, t.game.rnd, NOW);
+    const probe = replay(t, [M]);
+    const contribution = probe.players[roller]?.buildRoll(M.id, t.game.rnd, NOW) as NostrEvent;
+    // Meanwhile the phone rolled (the same action, another event) and the tablet synced it.
+    const rival = actionAt(t, roller, t.game.rootId, 1, action, NOW + 9);
+    send(t, rival);
+    // Moves first: M has a rival of its own seat, so it is discarded (and removed from the outbox).
+    expect(tablet.vetSaved(M, [M.id, contribution.id])).toEqual(discarded(/another move of yours/));
+    // While M was still in the outbox the contribution waited; once M is gone it is discarded with it.
+    expect(tablet.vetSaved(contribution, [M.id, contribution.id])).toBe('wait');
+    expect(tablet.vetSaved(contribution, [contribution.id])).toEqual(
+      discarded(/what it was built on is gone/),
+    );
   });
 });

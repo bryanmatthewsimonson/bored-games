@@ -2308,19 +2308,22 @@ export class GameSessionV2 implements Session {
    * seat and confirmed by no relay, once this client has synced with every counted relay: `send` it, let it `wait`,
    * or `discard` it (remove it from storage and log why). Read only: the session is unchanged, and a sent event must
    * still be fed to it. Vet saved moves first, in seq order, then the deal, then the rest. Never throws.
+   * `unconfirmed`: the ids of every event of this seat still in the outbox (saved, confirmed by no relay), never one
+   * already discarded; a Shares event built on a move neither held nor in it is discarded.
    */
-  vetSaved(ev: unknown): Verdict {
-    return vetSaved(this.outboxCtx(), ev);
+  vetSaved(ev: unknown, unconfirmed: Iterable<Hex>): Verdict {
+    return vetSaved(this.outboxCtx(), ev, unconfirmed);
   }
 
   /**
    * The events this client must rebroadcast (PROTOCOL-v2 §9.1, `outbox.ts` `rebroadcast`): the fork certificate,
    * the chain, this seat's Shares events and end attestations, every other held event the fold, the cutoff or the
    * audit reads (within §9.1's bounds), and, for the root's relays only, the stats attestations and Device notes.
-   * A function of the held events alone.
+   * A function of the held events, less `unconfirmed`: the ids of every event of this seat still in the outbox, which
+   * are never listed (they go out through `vetSaved` alone, review of T13, H-1).
    */
-  rebroadcast(): Rebroadcast {
-    return rebroadcast(this.outboxCtx());
+  rebroadcast(unconfirmed: Iterable<Hex>): Rebroadcast {
+    return rebroadcast(this.outboxCtx(), unconfirmed);
   }
 
   /** The certificate of a held fork between shuffle steps (none in a deckless game), for its rebroadcast. */
