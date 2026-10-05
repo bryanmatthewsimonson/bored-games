@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type GameController, loadSeen, loadV2State } from '../src/game-controller.ts';
 import type { PoolLike } from '../src/net.ts';
 import { loadSecrets } from '../src/storage.ts';
-import { Harness, now, type Profile, pause, rnd, waitFor } from './net-harness.ts';
+import { Harness, now, offlinePool, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
 beforeEach(() => h.setup());
@@ -195,6 +195,38 @@ describe('The protocol 2 refeed and persistence contract (T15)', () => {
     await waitFor('the claim fetched again', () => gw.view.value?.phase === 'done');
     expect(v2view(gw)?.awaitingCounted).toBeNull();
     expect(gw.view.value?.outcome).toEqual(outcome);
+  }, 60_000);
+
+  it('a Resign saved offline, counted on that device before its reload, is published once back online though the head moved on', async () => {
+    const { rootId, address, white, black } = await chess();
+    const gw = h.game(rootId, white.deps);
+    const gb = h.game(rootId, black.deps);
+    await play(gw, 0, 'e2e4', 1);
+    await play(gb, 1, 'e7e5', 2);
+    await waitFor('move 2 at White', () => history(gw) === 2);
+    // Black's tablet, offline, resigns while White is to move: the Resign names move 2 and counts there.
+    const tabletDev = h.secondDevice(black, address);
+    const net = offlinePool(tabletDev.deps.pool);
+    let tablet = h.game(rootId, { ...tabletDev.deps, pool: net.pool });
+    await waitFor('the resign button', () => tablet.canResign.value);
+    await tablet.resign();
+    await waitFor('the Resign counted on the tablet', () => tablet.view.value?.phase === 'done');
+    expect(loadV2State(tabletDev.deps.storage, tabletDev.name, rootId).counted?.kind).toBe('resign');
+    tablet.dispose();
+    // White plays on meanwhile.
+    await pause(1100);
+    await play(gw, 0, 'g1f3', 3);
+    // Back online, the tablet's saved Resign goes out (PROTOCOL-v2 §9.2: this seat's counted Resign), and ends the
+    // game everywhere, though the head it names is no longer the head.
+    net.offline = false;
+    tablet = h.game(rootId, { ...tabletDev.deps, pool: net.pool });
+    for (const g of [gw, gb, tablet]) {
+      await waitFor('the Resign everywhere', () => g.view.value?.resigned.includes(1));
+      await waitFor('the result', () => g.view.value?.phase === 'done');
+      expect(g.view.value?.outcome?.places).toEqual([1, 2]);
+    }
+    expect(net.published.length).toBeGreaterThan(0);
+    expect(tablet.log.value).toEqual([]);
   }, 60_000);
 
   it('a reload with a standing result keeps it, and sends nothing more', async () => {

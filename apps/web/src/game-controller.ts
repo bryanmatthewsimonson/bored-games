@@ -1008,10 +1008,11 @@ export class GameController {
         this.#discard(slot, 'it follows a saved move that was discarded');
         continue;
       }
-      // Protocol 2: the session's outbox rule first (PROTOCOL-v2 §9.2, D071), with every unconfirmed event of this
-      // seat as `unconfirmed`. `send` still goes through the checks below (the conservative side: they only send
-      // less); `wait` keeps it; a discard is final. A deal it holds back because another deal of this seat is out
-      // is kept as an orphan by `#vetDeal`, as in protocol 1 (a seat deals once).
+      // Protocol 2: the session's outbox rule decides (PROTOCOL-v2 §9.2, D071), with every unconfirmed event of this
+      // seat as `unconfirmed`: `send` is fed and published, `wait` keeps it, a discard is final. v1's own checks
+      // (`#verdict`) are not applied on top: they read v1's rules (a saved Resign is "over" once the session counted it
+      // before the reload, D070), so they would discard what §9.2 sends. The deal still goes through `#vetDeal`, so a
+      // deal held back because another deal of this seat is out is kept as an orphan, as in protocol 1.
       if (v2 !== null) {
         const verdict = v2.vetSaved(ev, this.#unconfirmedIds());
         if (verdict === 'wait' && !(slot === 'deal' && this.#otherMine('shares', ev))) continue;
@@ -1033,7 +1034,7 @@ export class GameController {
         this.#persist(slot);
         continue;
       }
-      let verdict = this.#verdict(session, slot, ev, fed);
+      let verdict = v2 !== null ? 'send' : this.#verdict(session, slot, ev, fed);
       if (verdict === 'wait') continue;
       if (verdict === 'send' && !fed) {
         this.#fed.add(ev.id);
@@ -1053,13 +1054,11 @@ export class GameController {
   }
 
   /**
-   * What to do with a saved move or Resign (`#vetSaved`): `send` it, let it `wait` (a move whose parent this client
-   * does not hold on its chain yet), or the reason to discard it.
+   * What to do with a saved move or Resign of a protocol 1 game (`#vetSaved`; protocol 2 asks `vetSaved`): `send` it,
+   * let it `wait` (a move whose parent this client does not hold on its chain yet), or the reason to discard it.
    */
   #verdict(session: Session, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
     if (slot === 'deal') return 'it is not signed by your key in this game';
-    // Protocol 2 only, already vetted by the session's outbox rule (`#vetSaved`).
-    if (slot.startsWith('release:') || slot.startsWith('roll:') || slot.startsWith('end:')) return 'send';
     if (slot.startsWith('share:')) return this.#shareVerdict(session, ev, fed);
     if (slot.startsWith('move:')) {
       const prev = prevOf(ev);
