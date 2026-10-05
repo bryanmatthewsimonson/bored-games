@@ -309,7 +309,14 @@ export function twoDevices(seat: number): Adversary {
 }
 
 /** The protocol 1 adversaries (each needs a protocol 1 table; `badShare` and `forgedSkip` Chain Reaction's). */
-export const ADVERSARIES_V1 = ['badShare', 'forgedSkip', 'equivocate', 'vanish', 'badShuffle', 'resign'] as const;
+export const ADVERSARIES_V1 = [
+  'badShare',
+  'forgedSkip',
+  'equivocate',
+  'vanish',
+  'badShuffle',
+  'resign',
+] as const;
 /** The protocol 2 adversaries. */
 export const ADVERSARIES_V2 = ['equivocateStop', 'staleOutbox', 'twoDevices'] as const;
 export const ADVERSARIES = [...ADVERSARIES_V1, ...ADVERSARIES_V2] as const;
@@ -418,7 +425,10 @@ export function unexpected(report: SimReport, seat: number): string[] {
       // A deck game audits up to the fork once every secret is in; the seat may withhold its own (it is not
       // obliged to come back), and the stop is then "audit incomplete" with its secret withheld (§7.3).
       const withheld = same(report.record?.secretWithheld, [seat]);
-      want(withheld || same(report.record?.secretWithheld, []), `secret withheld ${report.record?.secretWithheld}`);
+      want(
+        withheld || same(report.record?.secretWithheld, []),
+        `secret withheld ${report.record?.secretWithheld}`,
+      );
       want(report.record?.auditIncomplete === withheld, `audit incomplete ${report.record?.auditIncomplete}`);
       want(
         report.audit === 'pass' ||

@@ -127,11 +127,14 @@ function line(r: Result): string {
   const audit = typeof g.audit === 'string' ? g.audit : `fail ${g.audit.fail.join(',')} (${g.audit.reason})`;
   const places = g.outcome === null ? '-' : g.outcome.places.join(',');
   const problems = [...g.failures, ...r.unexpected];
-  const ending = g.record === null ? [] : [`${g.record.ending}${g.stop === null ? '' : ` by ${g.stop.seat}`}`];
+  const ending =
+    g.record === null ? [] : [`${g.record.ending}${g.stop === null ? '' : ` by ${g.stop.seat}`}`];
   const devices =
     g.devices.saved === 0
       ? []
-      : [`saved ${g.devices.saved} sent ${g.devices.sent} discarded ${g.devices.discarded} rebuilt ${g.devices.rebuilds}`];
+      : [
+          `saved ${g.devices.saved} sent ${g.devices.sent} discarded ${g.devices.discarded} rebuilt ${g.devices.rebuilds}`,
+        ];
   return [
     g.seed.padEnd(10),
     `${g.seats} seats`,
@@ -191,12 +194,16 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   if (!supported.includes(proto)) {
-    console.error(`${game} ${target.module.version} does not run under protocol ${proto} (only ${supported.join(', ')})`);
+    console.error(
+      `${game} ${target.module.version} does not run under protocol ${proto} (only ${supported.join(', ')})`,
+    );
     process.exit(2);
   }
   const forProto: readonly string[] = proto === 2 ? ADVERSARIES_V2 : ADVERSARIES_V1;
   if (name !== null && !forProto.includes(name)) {
-    console.error(`adversary "${name}" needs protocol ${proto === 2 ? 1 : 2}; under ${proto}: ${forProto.join(', ')}`);
+    console.error(
+      `adversary "${name}" needs protocol ${proto === 2 ? 1 : 2}; under ${proto}: ${forProto.join(', ')}`,
+    );
     process.exit(2);
   }
   const games = Number(values.games);

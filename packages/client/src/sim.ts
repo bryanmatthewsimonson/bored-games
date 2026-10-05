@@ -476,7 +476,12 @@ export function simulateGame(opts: SimOptions): SimReport {
       me: null,
       rootSeenAt: clock,
     };
-    return newClient(label, null, 0, input, { identity: null, npubSk: null, rng: r, rnd: rngBytes(r.fork('bytes')) });
+    return newClient(label, null, 0, input, {
+      identity: null,
+      npubSk: null,
+      rng: r,
+      rnd: rngBytes(r.fork('bytes')),
+    });
   };
   const spectator = spectatorOf('spectator');
   // The observer receives every event as it is published: the game as a client holding everything public.
@@ -484,10 +489,12 @@ export function simulateGame(opts: SimOptions): SimReport {
   const everyone = [...clients, spectator];
   const rootId = spectator.input.root.id;
   const sessionKeys = new Map<Hex, number>();
-  for (const c of clients) sessionKeys.set(getPublicKey((c.identity as Identity).sessionSk), c.seat as number);
+  for (const c of clients)
+    sessionKeys.set(getPublicKey((c.identity as Identity).sessionSk), c.seat as number);
   const npubs = new Map<Hex, number>();
   for (const c of clients) npubs.set(getPublicKey(c.npubSk as Uint8Array), c.seat as number);
-  const honest = (seat: number): boolean => adversary === null || seat !== adversary.seat || adversary.honest === true;
+  const honest = (seat: number): boolean =>
+    adversary === null || seat !== adversary.seat || adversary.honest === true;
 
   /* ------------------------------------------------------------------------------------------- the game */
 
@@ -547,7 +554,9 @@ export function simulateGame(opts: SimOptions): SimReport {
       observer.session.tick(clock);
       const phase = observer.session.view().phase;
       if (LIVE.includes(phase))
-        fail(`${c.label}: published its Secret reveal while the game is live (phase ${phase} for the observer)`);
+        fail(
+          `${c.label}: published its Secret reveal while the game is live (phase ${phase} for the observer)`,
+        );
     }
     if (relay.publish(ev)) deliver(observer, ev);
   };
@@ -876,7 +885,8 @@ export function simulateGame(opts: SimOptions): SimReport {
   // Honest seats never fork themselves.
   for (const seat of final.equivocators)
     if (honest(seat)) fail(`honest seat ${seat} is recorded as an equivocator`);
-  if (finalV2?.fork != null && honest(finalV2.fork.seat)) fail(`honest seat ${finalV2.fork.seat} forked the game`);
+  if (finalV2?.fork != null && honest(finalV2.fork.seat))
+    fail(`honest seat ${finalV2.fork.seat} forked the game`);
   const byPrev = new Map<string, Set<Hex>>();
   for (const ev of relay.query({ kinds: [KIND.move], '#e': [rootId] })) {
     const seat = sessionKeys.get(ev.pubkey);
@@ -905,7 +915,8 @@ export function simulateGame(opts: SimOptions): SimReport {
       }
       if (parsed.type !== 'shares' || spectator.session.chainSeq(parsed.anchorId) === null) continue;
       for (const x of parsed.shares)
-        if (owner.get(x.pos) === seat) fail(`honest seat ${seat} published a share of its own card (position ${x.pos})`);
+        if (owner.get(x.pos) === seat)
+          fail(`honest seat ${seat} published a share of its own card (position ${x.pos})`);
     }
   }
 
