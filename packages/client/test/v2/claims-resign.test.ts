@@ -870,11 +870,102 @@ describe('stored claims are judged before each event is folded (review of T12, H
     const restored = feed(make(0, saved), [...m, b4, claim]);
     expect(restored.view()).toMatchObject({ phase: 'done', result: want });
     expect(restored.countedResult()).toEqual(saved);
-    // While its events are missing, the saved result waits, and nothing else counts meanwhile.
+    // While its events are missing, the saved result waits (the game ended here, its outcome pending), and nothing
+    // else counts meanwhile.
     const waiting = feed(make(0, saved), [...m, b4]);
     waiting.tick(LATE);
-    expect(waiting.view().result).toBeNull();
+    expect(waiting.view()).toMatchObject({
+      phase: 'end',
+      result: null,
+      outcome: null,
+      awaitingCounted: saved,
+    });
     expect(waiting.countedResult()).toEqual(saved);
+  });
+
+  it('V2-17 restores a saved claim whose event never comes back by any held claim of its identity, and owes nothing meanwhile: no move, no claim past its own end attestation (T12 fix round 2, M-1)', () => {
+    const t = chessTable('t12-m1-trap');
+    const m = play(t, [
+      [0, 'e2e4'],
+      [1, 'e7e5'],
+      [0, 'g1f3'],
+    ]);
+    const head = (m[2] as NostrEvent).id;
+    const deadline = t.spectator.view().deadline;
+    const want: ResultId = { kind: 'claim', head, forfeit: [1] };
+    const claim = claimOf(t, 0, head, 1, NOW + deadline);
+    const saved = { kind: 'claim' as const, id: claim.id, head, forfeit: [1] };
+    const b4 = actionAt(t, 1, head, 4, mv(1, 'b8c6'));
+    // White's client counted its claim and saved it; after a reload the relays send Black's late move, not the claim.
+    const w = GameSessionV2.create({
+      modules: t.game.modules,
+      table: t.game.table,
+      joins: t.game.joins,
+      root: t.game.root,
+      me: t.game.ids[0] as Identity,
+      rootSeenAt: ROOT_SEEN,
+      savedCounted: saved,
+    });
+    for (const ev of m) w.receive(ev, NOW);
+    w.receive(b4, NOW + deadline + 5);
+    w.tick(NOW + deadline + 100);
+    expect(w.view()).toMatchObject({ phase: 'end', result: null, awaitingCounted: saved, forfeits: [1] });
+    // It owes no decision and never plays past the result it attested, nor claims against Black, nor resigns.
+    expect(w.duties()).toEqual([]);
+    expect(w.legalActions()).toEqual([]);
+    expect(() => w.buildAction(mv(0, 'f1c4'), t.game.rnd, NOW + deadline + 100)).toThrow(/no decide duty/);
+    expect(w.timeoutTarget(NOW + 5 * deadline)).toBeNull();
+    expect(w.canResign()).toBe(false);
+    expect(w.countedResult()).toEqual(saved);
+    // Another claim of the same identity (here a fresh one by White at that head) restores it: the scoring never
+    // reads the event id.
+    const other = claimOf(t, 0, head, 1, NOW + deadline + 7);
+    w.receive(other, NOW + 5 * deadline);
+    expect(w.view()).toMatchObject({ phase: 'done', result: want, awaitingCounted: null });
+    expect(w.countedResult()).toEqual({ ...saved, id: other.id });
+    expect(w.duties()).toEqual([{ kind: 'end' }]);
+  });
+
+  it('V2-17 restores a saved claim the cap evicted on a refeed in another order, by a lower-id claim of the same identity (T12 fix round 2, M-1)', () => {
+    const t = chessTable('t12-m1-evict');
+    const m = play(t, [
+      [0, 'e2e4'],
+      [1, 'e7e5'],
+      [0, 'g1f3'],
+    ]);
+    const head = (m[2] as NostrEvent).id;
+    const deadline = t.spectator.view().deadline;
+    const claims = [0, 1, 2, 3, 4]
+      .map((i) => claimOf(t, 0, head, 1, NOW + deadline + i))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const top = claims[4] as NostrEvent;
+    // The original client counted `top` (it came first) and saved it; four lower ids later evicted it from the cap.
+    const o = v2Session(t.game, null);
+    for (const ev of m) o.receive(ev, NOW);
+    o.receive(top, NOW + deadline + 1);
+    for (const c of claims.slice(0, 4)) o.receive(c, NOW + deadline + 2);
+    const saved = o.countedResult();
+    expect(saved?.id).toBe(top.id);
+    // A refeed with the lower ids first: `top` is refused for good, and a lower id of the same identity restores it.
+    const r = GameSessionV2.create({
+      modules: t.game.modules,
+      table: t.game.table,
+      joins: t.game.joins,
+      root: t.game.root,
+      me: null,
+      rootSeenAt: ROOT_SEEN,
+      savedCounted: saved,
+    });
+    for (const ev of m) r.receive(ev, NOW);
+    for (const c of claims.slice(0, 4)) r.receive(c, NOW + deadline + 2);
+    expect(r.receive(top, NOW + deadline + 2)).toEqual({ status: 'rejected', reason: 'claim limit' });
+    expect(r.view()).toMatchObject({ phase: 'done', result: { kind: 'claim', head, forfeit: [1] } });
+    expect(r.countedResult()).toEqual({
+      kind: 'claim',
+      id: (claims[0] as NostrEvent).id,
+      head,
+      forfeit: [1],
+    });
   });
 
   it("V2-17 keeps an honest claimant from forfeiting on a third seat that folds the timed-out seat's late move before its next tick (Bank, 3 seats)", () => {

@@ -220,7 +220,6 @@ export class GameSessionV2 implements Session {
    */
   private readonly heldSeen: number[];
   /** Events refused for good, by id, with the reason: they are not held. */
-  /** Events refused for good, by id, with the reason: they are not held. */
   private readonly rejected = new Map<Hex, string>();
   /** Judgements that never change, by move id and the log length at its prev (`walk`, deckless games only). */
   private readonly judgements = new Map<string, Judgement>();
@@ -940,7 +939,7 @@ export class GameSessionV2 implements Session {
    * cancelled it (no result: v1 §8.2, §8.3). Nothing is owed or released then but the End phase's duties.
    */
   private ended(): boolean {
-    return this.result() !== null || this.counted !== null;
+    return this.result() !== null || this.counted !== null || this.awaitingSaved();
   }
 
   /**
@@ -1152,6 +1151,10 @@ export class GameSessionV2 implements Session {
       const forfeits = cancel.by === 'claim' ? ascending(cancel.seats) : [cancel.seat];
       return { phase: 'cancelled', outcome: null, audit: 'pending', forfeits };
     }
+    // A result restored from a save that waits for its events: ended, its outcome pending (`awaitingCounted`).
+    const saved = this.awaitingSaved() ? this.savedCounted : null;
+    if (saved !== null)
+      return { phase: 'end', outcome: null, audit: 'pending', forfeits: [...saved.forfeit] };
     const e = this.ending();
     if (e === null) return { phase: this.head().phase, outcome: null, audit: 'pending', forfeits: [] };
     if (e.r.kind === 'claim') return this.claimStatus(e);
@@ -1338,7 +1341,7 @@ export class GameSessionV2 implements Session {
   private stalled(): number[] {
     const e = this.ending();
     if (e !== null) return this.endStalled(e);
-    if (this.current.fork !== null || this.counted !== null) return [];
+    if (this.current.fork !== null || this.counted !== null || this.awaitingSaved()) return [];
     const all = Array.from({ length: this.ctx.seats }, (_, k) => k);
     const head = this.head();
     const shares = this.current.shares;
@@ -1422,17 +1425,41 @@ export class GameSessionV2 implements Session {
     const seats = saved.forfeit;
     if (seats.length === 0 || seats.some((k) => !Number.isSafeInteger(k) || k < 0 || k >= this.ctx.seats))
       return;
+    // Any held event that supports the saved identity restores it (fix round 2, M-1): the scoring never reads the
+    // event id, and the cap may have kept other claims of the same identity in place of the saved one. The saved id
+    // is kept when it is held, else the lowest supporting id.
+    const pick = (ids: Hex[]): Hex | undefined => (ids.includes(saved.id) ? saved.id : ids.sort()[0]);
     if (saved.kind === 'claim') {
-      const c = this.store.claims.get(saved.id);
-      if (c === undefined || c.ev.headId !== saved.head || seats.includes(c.seat)) return;
-      this.counted = { kind: 'claim', id: saved.id, head: saved.head, seats: ascending(seats) };
+      const id = pick(
+        [...this.store.claims.values()]
+          .filter((c) => c.ev.headId === saved.head && !seats.includes(c.seat))
+          .map((c) => c.ev.id),
+      );
+      if (id === undefined) return;
+      this.counted = { kind: 'claim', id, head: saved.head, seats: ascending(seats) };
     } else {
-      const r = this.store.resigns.get(saved.id);
-      if (r === undefined || r.ev.headId !== saved.head || seats.length !== 1 || r.seat !== seats[0]) return;
-      this.counted = { kind: 'resign', id: saved.id, head: saved.head, seat: r.seat };
+      const k = seats[0] as number;
+      if (seats.length !== 1) return;
+      const id = pick(
+        [...this.store.resigns.values()]
+          .filter((r) => r.seat === k && r.ev.headId === saved.head)
+          .map((r) => r.ev.id),
+      );
+      if (id === undefined) return;
+      this.counted = { kind: 'resign', id, head: saved.head, seat: k };
     }
     this.savedCounted = null;
     this.cutoffChanged();
+  }
+
+  /**
+   * Whether a result restored from `SessionInput.savedCounted` still waits for its support (its head on the walk and
+   * a held claim or Resign of its identity), with no fork held: the game is ended on this client meanwhile (fix round
+   * 2, M-1). It owes no decision, release or roll, builds no claim and may not resign, so it never plays past a
+   * result it already end-attested; a Resign's End phase in a game with a deck still owes its Secret reveal.
+   */
+  private awaitingSaved(): boolean {
+    return this.savedCounted !== null && this.counted === null && this.current.fork === null;
   }
 
   /**
@@ -1669,6 +1696,7 @@ export class GameSessionV2 implements Session {
       endAttested: r === null ? [] : endAttestedSeats(this.store, this.ctx.seats, r),
       owed: { reveal: this.owedReveal(), roll: this.owedRoll() },
       ownForfeit: this.ownForfeit(),
+      awaitingCounted: this.awaitingSaved() ? this.countedResult() : null,
     };
   }
 
@@ -1759,6 +1787,13 @@ export class GameSessionV2 implements Session {
     // which changes nothing (v1 §8.3 "Cancelled", unchanged by PROTOCOL-v2 §8.3).
     if (cancel !== null)
       return cancel.by === 'resign' && this.ctx.deckId !== null && this.secretOf(me.seat) === null
+        ? [{ kind: 'secret' }]
+        : [];
+    // A saved result waiting for its events: nothing, but a Resign's Secret reveal in a game with a deck (owed
+    // whether the Resign ends or cancels the game, and needing nothing from the missing event).
+    const saved = this.awaitingSaved() ? this.savedCounted : null;
+    if (saved !== null)
+      return saved.kind === 'resign' && this.ctx.deckId !== null && this.secretOf(me.seat) === null
         ? [{ kind: 'secret' }]
         : [];
     const e = this.ending();
@@ -2125,7 +2160,7 @@ export class GameSessionV2 implements Session {
   private claimable(): number[] | null {
     const e = this.ending();
     if (e === null) {
-      if (this.current.fork !== null || this.counted !== null) return null;
+      if (this.current.fork !== null || this.counted !== null || this.awaitingSaved()) return null;
       return this.stalled();
     }
     if (!this.needsSecrets(e) || this.endClaims.has(e.key)) return null;

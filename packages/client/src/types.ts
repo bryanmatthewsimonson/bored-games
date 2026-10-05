@@ -233,4 +233,10 @@ export interface SessionViewV2 extends SessionView {
    * Confirming any claim at that head has the same effect.
    */
   ownForfeit: { claim: Hex; head: Hex } | null;
+  /**
+   * A claim or Resign this client counted before a reload (`SessionInput.savedCounted`) that still waits for its
+   * support: its head on the walk and a held claim or Resign of its identity. Meanwhile the game is ended here
+   * (phase `end`, no outcome yet, no decision owed); null otherwise (D070, T12 fix round 2).
+   */
+  awaitingCounted: CountedResult | null;
 }
