@@ -23,6 +23,7 @@
 import { BRAND } from '@bored-games/brand';
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { type Browser, type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test';
+import { decide, game, nextToAct, type Player, stateOf } from './cr-ui.ts';
 
 const RELAY = process.env.E2E_RELAY ?? 'ws://localhost:7777';
 const ONE_CONTEXT = process.env.E2E_ONE_CONTEXT === '1';
@@ -40,11 +41,6 @@ const SETUP_MS = (5 * 60_000 * SEATS) / 3;
 const MOVE_MS = 60_000;
 const SHOTS = process.env.E2E_SCREENSHOTS;
 const FINISH = process.env.E2E_FINISH === '1';
-
-interface Player {
-  name: string;
-  page: Page;
-}
 
 /** The app URL for a profile, pointed at the test relay; `from` keeps another URL's hash (a share link). */
 function appUrl(profile: string, from?: string): string {
@@ -69,17 +65,6 @@ async function open(browser: Browser, name: string, url: string): Promise<Player
   return { name, page };
 }
 
-const game = (p: Player): Locator => p.page.getByTestId('cr-game');
-
-async function stateOf(p: Player): Promise<{ seq: number; turn: number; phase: string }> {
-  const g = game(p);
-  return {
-    seq: Number(await g.getAttribute('data-seq')),
-    turn: Number(await g.getAttribute('data-turn')),
-    phase: (await g.getAttribute('data-phase')) ?? '',
-  };
-}
-
 /** The public board, cell by cell: its kind and its label (chain letter or cell id). */
 function boardOf(p: Player): Promise<string[]> {
   return p.page
@@ -92,54 +77,6 @@ function boardOf(p: Player): Promise<string[]> {
         return `${kind}:${label}`;
       }),
     );
-}
-
-/** The player's enabled decision form, if it is their decision now. */
-const openDecision = (p: Player): Locator => p.page.locator('.cr-decision fieldset:not([disabled])');
-
-/** Wait until one of the players holds a decision; returns that player. */
-async function nextToAct(players: readonly Player[]): Promise<Player> {
-  const ac = players.map((p) =>
-    openDecision(p)
-      .first()
-      .waitFor({ state: 'visible', timeout: MOVE_MS })
-      .then(() => p),
-  );
-  return Promise.any(ac);
-}
-
-/**
- * Answer the open decision with its first legal option: the first radio (tile, chain, order) when nothing is
- * picked yet, keep all shares in a disposal, and at the end of a turn buy one share of the first chain on
- * offer when that is allowed (otherwise none). With `declare`, end the game when that is allowed. Returns a
- * description of what was done.
- */
-async function decide(p: Player, declare = false): Promise<string> {
-  const form = openDecision(p).first();
-  const legend = (await form.locator('legend').first().innerText()).trim();
-  const submit = form.locator('button[type="submit"]');
-  const radios = form.getByRole('radio');
-  if ((await radios.count()) > 0 && (await form.getByRole('radio', { checked: true }).count()) === 0)
-    await radios.first().check();
-  let detail = '';
-  if (legend.startsWith('Buy shares')) {
-    const buy = form.locator('input[type="number"]:enabled');
-    if ((await buy.count()) > 0) {
-      await buy.first().fill('1');
-      if (await submit.isDisabled()) await buy.first().fill('0');
-      else
-        detail = ` (${(await buy.first().getAttribute('aria-label'))?.replace(' to buy', '') ?? 'shares'}: 1)`;
-    }
-    const end = form.getByRole('checkbox', { name: /Declare the end of the game/ });
-    if (declare && (await end.count()) > 0) {
-      await end.check();
-      detail += ', declaring the end';
-    }
-  }
-  const label = (await submit.innerText()).trim();
-  await expect(submit).toBeEnabled();
-  await submit.click();
-  return `${legend}: ${label}${detail}`.replace(/\s+/g, ' ');
 }
 
 test(`${SEATS} players set up a game and play it through the UI`, async ({ browser }) => {
