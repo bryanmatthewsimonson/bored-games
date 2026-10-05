@@ -32,6 +32,12 @@ export const MAX_CLAIMS = 4;
 export const MAX_UNKNOWN_CLAIMS = 8;
 /** The Resigns waiting per seat for a head this client does not hold yet, the lowest ids (as v1 §8.3). */
 export const MAX_RESIGNS = 8;
+/**
+ * The Device notes kept per seat, the lowest ids (PROTOCOL-v2 §4.4, D072 fix round 1): an order-independent set, so
+ * a refusal is final. No rule reads them yet (§9.5 waits for an audit-`'none'` module); the cap stops a seat from
+ * flooding accepted events.
+ */
+export const MAX_DEVICE_NOTES = 8;
 
 export interface Seated<T> {
   readonly ev: T;

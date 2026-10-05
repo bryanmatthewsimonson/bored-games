@@ -89,7 +89,7 @@ import {
   stopAt,
   stopOutcome,
 } from './stop.ts';
-import { EventStoreV2, type Kept, resultKey } from './store.ts';
+import { EventStoreV2, type Kept, MAX_DEVICE_NOTES, resultKey } from './store.ts';
 import type { AnyModule, GameCtx, HeldMove, Judgement, LinePoint } from './types.ts';
 import { type Walk, walk } from './walk.ts';
 
@@ -887,6 +887,16 @@ export class GameSessionV2 implements Session {
     }
     const seat = this.sessionSeat(d);
     if (typeof seat !== 'number') return seat;
+    // At most `MAX_DEVICE_NOTES` per seat, the lowest ids: the kept set is the same in every arrival order (§9.1), so
+    // a note this cap refuses or evicts is refused for good.
+    const mine = [...this.store.devices].filter(([, x]) => x.seat === seat).map(([id]) => id);
+    if (mine.length >= MAX_DEVICE_NOTES) {
+      const highest = mine.reduce((a, b) => (a > b ? a : b));
+      if (d.id > highest) return this.reject(d.id, 'too many Device notes from this seat');
+      this.store.devices.delete(highest);
+      this.seenAt.delete(highest);
+      this.rejected.set(highest, 'too many Device notes from this seat');
+    }
     this.see(d.id, now);
     this.store.devices.set(d.id, { ev: d, seat });
     return { status: 'accepted' };

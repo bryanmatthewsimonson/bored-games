@@ -24,6 +24,7 @@ import { GameSession } from '../../src/session.ts';
 import { openSession } from '../../src/session-api.ts';
 import type { Identity, ReceiveResult } from '../../src/types.ts';
 import { GameSessionV2 } from '../../src/v2/session.ts';
+import { MAX_DEVICE_NOTES } from '../../src/v2/store.ts';
 import { MODULES, makeModuleGame, NOW, ROOT_SEEN, T0, type TestGame } from '../helpers.ts';
 
 /*
@@ -669,6 +670,51 @@ describe('GameSessionV2: the walk', () => {
 
 describe('GameSessionV2: review follow-ups after T7 (L1, I4, V2-56)', () => {
   /** A card Shares event by `seat`, anchored on `anchorId`, with one well-formed share of position 0 of a dummy card. */
+  it('keeps at most MAX_DEVICE_NOTES Device notes per seat, the lowest ids, in any arrival order; the rest are refused for good', () => {
+    const t = table('v2-device-cap');
+    const id1 = t.game.ids[1] as Identity;
+    const notes = Array.from({ length: MAX_DEVICE_NOTES + 12 }, (_, i) =>
+      finalizeEvent(
+        deviceNoteTemplate({ rootId: t.game.rootId, device: 'ab'.repeat(16), n: i + 1 }, NOW),
+        id1.sessionSk,
+        t.game.rnd,
+      ),
+    );
+    const lowest = notes
+      .map((ev) => ev.id)
+      .sort()
+      .slice(0, MAX_DEVICE_NOTES);
+    const orders = [
+      [...notes],
+      [...notes].sort((a, b) => (a.id < b.id ? 1 : -1)),
+      [...notes].sort((a, b) => (a.id < b.id ? -1 : 1)),
+      shuffle(notes, createRng('device-cap')),
+    ];
+    for (const order of orders) {
+      const s = session(t.game, null);
+      for (const ev of order) s.receive(ev, NOW);
+      // Delivered again: the kept ones are duplicates, every other one is refused.
+      const again = notes.map((ev) => [ev.id, s.receive(ev, NOW).status] as const);
+      expect(
+        again
+          .filter(([, st]) => st === 'duplicate')
+          .map(([id]) => id)
+          .sort(),
+      ).toEqual(lowest);
+      expect(again.filter(([, st]) => st === 'rejected')).toHaveLength(12);
+    }
+    // Another seat's notes have a cap of their own.
+    const id0 = t.game.ids[0] as Identity;
+    const s = session(t.game, null);
+    for (const ev of notes) s.receive(ev, NOW);
+    const other = finalizeEvent(
+      deviceNoteTemplate({ rootId: t.game.rootId, device: 'cd'.repeat(16), n: 1 }, NOW),
+      id0.sessionSk,
+      t.game.rnd,
+    );
+    expect(s.receive(other, NOW)).toEqual({ status: 'accepted' });
+  });
+
   function cardVariant(t: Table, seat: number, anchorId: Hex): NostrEvent {
     const id = t.game.ids[seat] as Identity;
     const ct = shuffleDeck(initialDeck('dummy', 1), G.multiply(id.deckSecret), t.game.rnd).out[0];
