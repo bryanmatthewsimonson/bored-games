@@ -35,23 +35,6 @@ interface Allowed {
 
 /** Every id not yet covered. Each task removes the ids it covers; nothing is ever added back. */
 const ALLOWLIST: Record<string, Allowed> = {
-  'V2-01': {
-    until: 'T14 (the controller creates tables and joins at proto 2)',
-    partial:
-      'protocol templates at proto 2 (packages/protocol/test/game-v2.test.ts), the lobby helpers carrying ' +
-      "the table's proto (packages/client/test/lobby.test.ts), and the v2 session's move, end attestation and " +
-      'stats attestation (packages/client/test/v2/core-deckless.test.ts), shuffle step, deal, release and Secret ' +
-      'reveal (packages/client/test/v2/deck.test.ts), roll Shares event (packages/client/test/v2/dice.test.ts), ' +
-      'Resign and Timeout claim (packages/client/test/v2/claims-resign.test.ts)',
-  },
-  'V2-04': { until: 'T14' },
-  'V2-05': {
-    until: 'T14: the lobby filters tables with validateTable',
-    partial:
-      'validateTable and validateRoot reject a (module, engine version) that does not support the proto, and the ' +
-      'session refuses such a root (packages/protocol/test/lobby.test.ts, packages/client/test/bank-versions.test.ts); ' +
-      'createTable refuses to publish one (apps/web/test/controllers.test.ts)',
-  },
   'V2-52': {
     until:
       'T17 (the own-forfeit dialog: "You were timed out: accept?", Play by default, the local deadline shown)',
@@ -60,36 +43,6 @@ const ALLOWLIST: Record<string, Allowed> = {
       "player's confirmation (confirmOwnForfeit, confirmedForfeits after a reload), view.ownForfeit asks only on a " +
       "device that was not watching the head, and otherwise v1's own-clock rule (the N2 Chess trace and the " +
       'returning client: packages/client/test/v2/claims-resign.test.ts)',
-  },
-  'V2-25': {
-    until: 'T15 (the controller publishes only what the session owes)',
-    partial:
-      'the session owes and builds no card Shares event while it holds a fork, after its result, or before the ' +
-      'final deck (packages/client/test/v2/prompt-release.test.ts)',
-  },
-  'V2-29': {
-    until: 'T15 (the controller publishes the release at once)',
-    partial:
-      'the session owes one release of every granted position as soon as it links the granting move ' +
-      '(packages/client/test/v2/prompt-release.test.ts)',
-  },
-  'V2-34': {
-    until: 'T15 (the controller publishes the contribution at once, only what the session owes)',
-    partial:
-      'the session owes and builds a contribution only once the requesting move is on its chain, never while it ' +
-      'holds a fork, the requester after its own move (packages/client/test/v2/dice.test.ts)',
-  },
-  'V2-37': {
-    until: 'T15 (the controller publishes the end attestation at once, with no prompt)',
-    partial:
-      'the session owes and builds an end attestation of its own result only, signed by the session key, and ' +
-      'none while it holds a fork (packages/client/test/v2/core-deckless.test.ts)',
-  },
-  'V2-38': {
-    until: 'T15 (the controller publishes only what the session owes)',
-    partial:
-      'the session owes and builds no end or stats attestation for a stop or a cancelled game ' +
-      '(packages/client/test/v2/fork-stop.test.ts, packages/client/test/v2/after-stop.test.ts)',
   },
   'V2-55': {
     until: 'T17 (the game screen and the list of games show "audit incomplete" and "secret withheld")',
@@ -123,13 +76,6 @@ const ALLOWLIST: Record<string, Allowed> = {
     deferred: true,
   },
   'V2-49': { until: 'T17' },
-  'V2-53': {
-    until: 'T14 (the lobby never creates or joins a proto-1 Luster or Bank table)',
-    partial:
-      'proto-1 games in progress keep folding, Bank 0.1.0 and Luster included: the golden corpus and the Bank ' +
-      '0.1.0 fixtures (packages/games/bank/test/golden-v1.test.ts); the app ships Bank 0.1.0 under bank@0.1.0 ' +
-      'beside Bank 0.2.0 and a v1 Bank root resolves to it (apps/web/test/module-contract.test.ts, T5)',
-  },
 };
 
 /**

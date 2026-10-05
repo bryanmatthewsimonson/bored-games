@@ -30,7 +30,7 @@ describe('Bank 0.1.0 golden fixtures', () => {
   });
 
   for (const g of fixture.games) {
-    it(`V2-53 (v1 half) Bank 0.1.0 replays ${g.seed} (${g.seats} seats, ${g.rules.rounds} rounds, ${g.rules.banking}) step for step`, () => {
+    it(`V2-53 Bank 0.1.0 replays ${g.seed} (${g.seats} seats, ${g.rules.rounds} rounds, ${g.rules.banking}) step for step`, () => {
       const got = hashGame(ENGINE, g.seats, g.rules, g.actions);
       expect(got.setup).toBe(g.setup);
       expect(got.steps.length).toBe(g.steps.length);

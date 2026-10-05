@@ -1088,7 +1088,7 @@ describe('protocol versions in the lobby (PROTOCOL-v2 §2, §10)', () => {
     expect(bareProblems.join('; ')).not.toContain('undefined');
   });
 
-  it('V2-05 (partial) validateRoot and validateTable reject a module version that does not support the proto (with Bank, packages/client/test/bank-versions.test.ts)', () => {
+  it('V2-05 validateRoot and validateTable reject a module version that does not support the proto (with Bank, packages/client/test/bank-versions.test.ts)', () => {
     const r1 = root;
     const r2 = rootAt(table2, [kA, kB, kC]);
     const v1 = byId(jA, jB, jC);

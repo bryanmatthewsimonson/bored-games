@@ -145,7 +145,7 @@ describe('vector 6: prompt release in Chain Reaction (PROTOCOL-v2 §12.2 item 6)
     expect(at('deal').head.seq).toBe(vectors.seats);
   });
 
-  it('V2-25 (partial) releases nothing while a fork is held, the owed release included', () => {
+  it('V2-25 releases nothing while a fork is held, the owed release included', () => {
     const fork = at('fork');
     expect(fork.fork).not.toBeNull();
     expect(fork.head).toEqual(at('draw').head);
@@ -196,7 +196,7 @@ describe('the release duty in Chain Reaction (3 seats)', () => {
     throw new Error('no draw');
   }
 
-  it('V2-25 (partial) publishes no card Shares event before the final deck is complete: no deal or release duty during the shuffle', () => {
+  it('V2-25 publishes no card Shares event before the final deck is complete: no deal or release duty during the shuffle', () => {
     const t = replay(base, base.log.slice(0, 2));
     expect(t.spectator.view().phase).toBe('shuffle');
     expect(t.players.map((s) => s.duties())).toEqual([[], [], [{ kind: 'shuffle' }]]);
@@ -206,7 +206,7 @@ describe('the release duty in Chain Reaction (3 seats)', () => {
     }
   });
 
-  it('V2-29 (partial) owes one release of every granted position as soon as it links the granting move, before its own decision', () => {
+  it('V2-29 owes one release of every granted position as soon as it links the granting move, before its own decision', () => {
     const t = replay(base);
     const draw = playToDraw(t, 'v2-29');
     for (const [seat, s] of t.players.entries()) {
@@ -273,7 +273,7 @@ describe('the release duty in Chain Reaction (3 seats)', () => {
     expect(send(u, full)).toEqual(['accepted', 'accepted', 'accepted', 'accepted']);
   });
 
-  it('V2-25 (partial) releases nothing once it has a result, though positions are still owed', () => {
+  it('V2-25 releases nothing once it has a result, though positions are still owed', () => {
     const registry = new Map([...MODULES, [chainReaction.id, shortGame]]);
     const t = v2Table(shortGame, 3, 'v2-release-over', chainReaction.defaultRules(), registry);
     shuffleAll(t);

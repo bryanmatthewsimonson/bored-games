@@ -279,7 +279,7 @@ describe("v1's Resign refusals are unchanged (v1 §8.3, PROTOCOL-v2 §8.3)", () 
 });
 
 describe('the Resign and Timeout claim builders', () => {
-  it('V2-01 (partial) builds the Resign and the Timeout claim with exactly one ["proto","2"] tag', () => {
+  it('V2-01 builds the Resign and the Timeout claim with exactly one ["proto","2"] tag', () => {
     const t = chessTable('t12-proto');
     act(t, 0, mv(0, 'e2e4'));
     const r = (t.players[1] as GameSessionV2).buildResign(t.game.rnd, NOW);

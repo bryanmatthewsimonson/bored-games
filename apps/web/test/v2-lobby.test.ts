@@ -4,7 +4,7 @@
  * Chain Reaction and Chess tables stay joinable under v1; a table no engine here can play is not listed. Real lobby
  * controllers against the dev relay; "an older client" is a build from before protocol 2 (`ControllerDeps.olderClient`).
  */
-import { BANK_V1_VERSION, BANK_VERSION, DEFAULT_RULES as BANK_RULES } from '@bored-games/bank';
+import { DEFAULT_RULES as BANK_RULES, BANK_V1_VERSION, BANK_VERSION } from '@bored-games/bank';
 import { DEFAULT_RULES as LUSTER_RULES } from '@bored-games/luster';
 import { finalizeEvent, KIND, type NostrEvent, parseTable, tableTemplate } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -29,7 +29,7 @@ async function lobbyEvents(address: string): Promise<NostrEvent[]> {
 }
 
 describe('The protocol 2 lobby (T14)', () => {
-  it('V2-04, V2-01 (partial): new tables, their Joins, the root and the started Table carry exactly one ["proto","2"]; Bank 0.2.0 is creatable', async () => {
+  it('V2-04: new tables, their Joins, the root and the started Table carry exactly one ["proto","2"]; Bank 0.2.0 is creatable', async () => {
     const a = h.profile('a');
     const b = h.profile('b');
     const { rootId, address } = await h.start2('chess', a, b);

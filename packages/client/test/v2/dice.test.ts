@@ -280,7 +280,7 @@ describe('Bank 0.2.0 under protocol 2: the first roll (3 seats)', () => {
       expect(p.duties()).toEqual([{ kind: 'roll', move: M.id, indices: [0], anchor: M.id }]);
   });
 
-  it('V2-27 anchors every roll Shares event on the head it was built on (card Shares events: prompt-release.test.ts); V2-01 (partial) at proto 2', () => {
+  it('V2-27 anchors every roll Shares event on the head it was built on (card Shares events: prompt-release.test.ts); V2-01 at proto 2', () => {
     for (const ev of contributionsOf) {
       expect(anchorOf(ev)).toBe(M.id);
       expect(ev.tags.filter((tag) => tag[0] === 'proto')).toEqual([['proto', '2']]);
@@ -445,7 +445,7 @@ describe('Bank 0.2.0 under protocol 2: the first roll (3 seats)', () => {
     for (const [i, s] of a.all.entries()) expect(snapshot(s)).toBe(snapshot(b.all[i] as GameSessionV2));
   });
 
-  it('V2-34 (partial) owes its contribution only once the requesting move is on its chain, never while a fork is held; the requester contributes after its own move', () => {
+  it('V2-34 owes its contribution only once the requesting move is on its chain, never while a fork is held; the requester contributes after its own move', () => {
     // Before M is held, no seat owes anything, the requester included, and buildRoll refuses.
     const before = replay(t, t.log.slice(0, -1));
     for (const p of before.players) {

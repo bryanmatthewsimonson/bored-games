@@ -214,7 +214,7 @@ describe('the stop in a deckless 2-seat game (Chess)', () => {
     }
   });
 
-  it('V2-38 (partial) publishes no end or stats attestation for a stop: none is owed, and neither can be built', () => {
+  it('V2-38 publishes no end or stats attestation for a stop: none is owed, and neither can be built', () => {
     const { t, moves } = chessGame('stop-attest', opening);
     send(t, actionAt(t, 0, (moves[1] as NostrEvent).id, 3, mv(0, 'd2d4')));
     for (const p of t.players) {

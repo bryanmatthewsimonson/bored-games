@@ -186,7 +186,7 @@ describe('GameSessionV2: deckless play (Chess)', () => {
     expect(v.result).toMatchObject({ kind: 'over', forfeit: [] });
   });
 
-  it('V2-11 counts end attestations by the session key and by the npub for their seat; V2-01 (partial) the builders tag proto 2', () => {
+  it('V2-11 counts end attestations by the session key and by the npub for their seat; V2-01 the builders tag proto 2', () => {
     const t = table('v2-end-keys');
     const moves = FOOLS_MATE.map(([seat, uci]) => play(t, seat, uci));
     const head = (moves[3] as NostrEvent).id;
@@ -589,7 +589,7 @@ describe('GameSessionV2: the walk', () => {
     expect(late.receive(m2, NOW)).toEqual({ status: 'duplicate' });
   });
 
-  it('V2-37 (partial) owes an end attestation only for a result it computes, never while it holds a fork', () => {
+  it('V2-37 owes an end attestation only for a result it computes, never while it holds a fork', () => {
     const t = table('v2-end-fork');
     const moves = FOOLS_MATE.map(([seat, uci]) => play(t, seat, uci));
     expect(t.players[0]?.duties()).toEqual([{ kind: 'end' }]);

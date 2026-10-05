@@ -84,7 +84,7 @@ beforeAll(() => {
 }, 120_000);
 
 describe('GameSessionV2 with a deck: shuffle and deal (Chain Reaction)', () => {
-  it('V2-01 (partial) shuffles in seat order, then deals: each seat one card Shares event anchored on the last step, all at proto 2', () => {
+  it('V2-01 shuffles in seat order, then deals: each seat one card Shares event anchored on the last step, all at proto 2', () => {
     // Before each step, the next shuffler is pending and owes the step; nobody else owes anything.
     for (let k = 0; k < 3; k++) {
       expect(trace[k]).toMatchObject({

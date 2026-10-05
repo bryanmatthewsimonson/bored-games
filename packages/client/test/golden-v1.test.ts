@@ -86,7 +86,7 @@ describe('the v1 golden corpus: shuffle proofs verified, nothing trusted', () =>
 describe('the v1 golden corpus: Chess and Bank 0.1.0', () => {
   for (const c of goldenCases(GOLDEN_GROUPS.deckless)) {
     if (c.v253) {
-      it(`V2-53 (v1 half): ${c.what} (V2-03: by v1 rules)`, c.run);
+      it(`V2-53: ${c.what} (V2-03: by v1 rules)`, c.run);
     } else {
       it(`V2-03 v1 rules: ${c.what}`, c.run);
     }

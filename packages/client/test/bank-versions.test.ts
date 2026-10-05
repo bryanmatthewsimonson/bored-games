@@ -33,7 +33,7 @@ function create(g: TestGame, seat: number | null): GameSession {
 }
 
 describe('Bank 0.2.0 and Bank 0.1.0 in one registry', () => {
-  it('V2-05 (partial) a Bank table or root is rejected unless its engine version supports its proto', () => {
+  it('V2-05 a Bank table or root is rejected unless its engine version supports its proto', () => {
     // Bank 0.2.0 at proto 1, and Bank 0.1.0 at proto 2: rejected, table and root alike.
     const newAtV1 = makeModuleGame(bank, 2, 'bank-0.2.0-proto-1', bank.defaultRules(), '1');
     expect(problems(newAtV1)).toEqual({

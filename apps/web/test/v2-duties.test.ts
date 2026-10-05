@@ -220,7 +220,7 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
     expect(ends.filter((ev) => ev.pubkey === seats[0]?.session)).toHaveLength(1);
   }, 90_000);
 
-  it('V2-38 (partial), V2-37 (partial): a stop sends no end or stats attestation and nothing else of the seats; a cancelled game sends no attestation', async () => {
+  it('V2-38, V2-37: a stop sends no end or stats attestation and nothing else of the seats; a cancelled game sends no attestation', async () => {
     const { rootId, address, bySeat } = await h.start2('chess', h.profile('a'), h.profile('b'));
     const [white, black] = bySeat;
     const wNet = recording(white.deps.pool);
@@ -270,6 +270,7 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
       await pause(300);
     }
     const evs = await gameEvents(started.rootId);
+    expectProto2(evs);
     expect(evs.filter((ev) => ev.kind === KIND.attest)).toEqual([]);
     expect(evs.filter((ev) => ev.kind === KIND.timeout)).toHaveLength(1);
   }, 90_000);
@@ -417,6 +418,9 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
     const p = mover.view.value?.head.id as string;
     expect(outside.view().head.id).toBe(p);
     const rival = outside.buildAction(outside.legalActions()[1], rnd, now());
+    const sharesBefore = new Set(
+      (await gameEvents(rootId)).filter((ev) => ev.kind === KIND.shares).map((ev) => ev.id),
+    );
     await mover.act(mover.legal.value[0]);
     const m = mover.view.value?.head.id as string;
     await h.pool().publish(rival);
@@ -428,12 +432,11 @@ describe('Protocol 2 automatic duties in the game controller (T15)', () => {
     const secrets = after.filter((ev) => ev.kind === KIND.reveal);
     expect(secrets.map((ev) => seatOfKey.get(ev.pubkey)).sort()).toEqual([0, 1, 2]);
     expect(after.filter((ev) => ev.kind === KIND.attest)).toEqual([]);
-    const late = after.filter((ev) => {
-      if (ev.kind !== KIND.shares) return false;
-      const parsed = parseSharesV2(ev);
-      return parsed.anchorId === m || parsed.anchorId === rival.id;
-    });
+    expectProto2(after);
+    // No Shares event at all since the fork: none on either side of it, none anywhere after the stop.
+    const late = after.filter((ev) => ev.kind === KIND.shares && !sharesBefore.has(ev.id));
     expect(late).toEqual([]);
+    expect(after.some((ev) => ev.id === m) && after.some((ev) => ev.id === rival.id)).toBe(true);
     for (const g of games) {
       expect(v2view(g)?.fork?.seat).toBe(e);
       expect(v2view(g)?.fork?.at).toBe(p);

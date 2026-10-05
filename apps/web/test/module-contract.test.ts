@@ -54,7 +54,7 @@ describe('the protocol 2 module contract over every registered module (PROTOCOL-
     for (const m of MODULES.values()) expect(m.audit, `${m.id} ${m.version}`).toBeUndefined();
   });
 
-  it('V2-53 (partial) the app ships Bank 0.1.0 under bank@0.1.0 beside Bank 0.2.0, for v1 games in progress', () => {
+  it('V2-53 the app ships Bank 0.1.0 under bank@0.1.0 beside Bank 0.2.0, for v1 games in progress', () => {
     // Keys: each current module under its id, each kept version under `id@version` (build plan D-B).
     for (const [key, m] of MODULES)
       expect(key, `${m.id} ${m.version}`).toBe(key.includes('@') ? `${m.id}@${m.version}` : m.id);

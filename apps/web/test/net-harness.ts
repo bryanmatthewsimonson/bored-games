@@ -10,10 +10,10 @@ import { finalizeEvent, getPublicKey, KIND, type NostrEvent, parseRoot } from '@
 import { type EoseInfo, type Filter, RelayPool } from '@bored-games/relay';
 import { platformTimers } from '../src/clock.ts';
 import { GameController, loadOutbox } from '../src/game-controller.ts';
+import { bytesToHex } from '../src/hex.ts';
 import { localNip44, type Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type ModuleRegistry, type PoolLike } from '../src/net.ts';
-import { bytesToHex } from '../src/hex.ts';
 import { type KeyValueStore, loadSecrets, memoryStorage } from '../src/storage.ts';
 
 /**

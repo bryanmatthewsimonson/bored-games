@@ -93,7 +93,7 @@ const note = deviceNoteTemplate({ rootId: ROOT, device: DEVICE, n: 1 }, T0);
 const ACTION = { type: 'action' as const, action: { type: 'pass', actor: 0 }, reveals: [], shares: [] };
 
 describe('templates and the proto tag', () => {
-  it('V2-01 (partial) every protocol template at proto 2 carries exactly one ["proto","2"] tag', () => {
+  it('V2-01 every protocol template at proto 2 carries exactly one ["proto","2"] tag', () => {
     const lobby = {
       tableId: 't1',
       game: 'chess',
