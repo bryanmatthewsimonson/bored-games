@@ -20,7 +20,14 @@ import type { EoseInfo, Filter } from '@bored-games/relay';
 import { RelayPool } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers } from '../src/clock.ts';
-import { GameController, HOLD_CAP_S, loadOutbox, loadSeen, loadTable } from '../src/game-controller.ts';
+import {
+  CHECKING_OWN_MOVE,
+  GameController,
+  HOLD_CAP_S,
+  loadOutbox,
+  loadSeen,
+  loadTable,
+} from '../src/game-controller.ts';
 import { handTiles } from '../src/games/chain-reaction/model.ts';
 import { bytesToHex } from '../src/hex.ts';
 import type { Signer } from '../src/identity.ts';
@@ -976,10 +983,15 @@ describe('GameController', () => {
     expect(t.view.value?.head.id).toBe(saved?.event.id);
 
     // The phone plays the same decision a second later (another event, even for a move with no shares); the open
-    // tablet receives that move and, holding both, flags its own seat.
+    // tablet receives that move and holds both. A protocol 2 tablet never shows that fork of its own unsent move (T21
+    // web fixes, F1): it says it is checking, and vets at once.
     await new Promise((r) => setTimeout(r, 1100));
     await phone.act(phone.legal.value[0]);
-    await waitFor('the local flag', () => t.view.value?.equivocators.includes(seat));
+    await waitFor(
+      'the tablet checks',
+      () => t.notice.value === CHECKING_OWN_MOVE || t.log.value.length === 1,
+    );
+    expect(t.view.value?.equivocators).toEqual([]);
 
     // The network comes back. Before republishing, the tablet asks the relays, finds the phone's move on the same
     // parent, discards its own, and rebuilds its session without it.
