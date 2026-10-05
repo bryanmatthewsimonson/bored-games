@@ -265,19 +265,20 @@ export function staleOutbox(seat: number, atSeq: number): Adversary {
   };
 }
 
-/** The chance a device of `twoDevices` goes offline, or reloads, at the start of a turn. */
+/** The chance a device of `twoDevices` loses its connection, or reloads, at the start of a turn. */
 const OFFLINE_RATE = 0.15;
 const RELOAD_RATE = 0.05;
 
 /**
  * `twoDevices` (protocol 2, PROTOCOL-v2 §9.2, §9.3): an honest seat played on two devices, both picked in rounds like
- * any client. At the start of a turn a device may go offline for 1 to 3 more of its turns, playing on its last
- * view and saving what it builds unsent, or reload. Back online (half the time by a reload) it syncs and vets its
- * saved events before it does anything else. Whatever the two devices built for the same turn, the seat never forks
- * itself and the game ends as an honest one.
+ * any client. At the start of a turn a device may lose its connection right after it synced: it plays that turn
+ * saving what it builds unsent, then 1 to 3 more of its turns offline on that view. Back online (half the time by a
+ * reload) it syncs and vets its saved events before it does anything else. A device may also just reload. Whatever
+ * the two devices built for the same turn, the seat never forks itself and the game ends as an honest one.
  */
 export function twoDevices(seat: number): Adversary {
   const away = [0, 0];
+  const dropping = [false, false];
   return {
     name: 'twoDevices',
     seat,
@@ -293,11 +294,16 @@ export function twoDevices(seat: number): Adversary {
       const r = t.rng.float();
       if (r < OFFLINE_RATE) {
         away[t.device] = 1 + t.rng.int(3);
-        return 'offline';
+        dropping[t.device] = true;
+        return 'online';
       }
       return r < OFFLINE_RATE + RELOAD_RATE ? 'reload' : 'online';
     },
-    turn: () => 'honest',
+    turn(t) {
+      if (!dropping[t.device]) return 'honest';
+      dropping[t.device] = false;
+      return 'offline';
+    },
     done: () => away.every((n) => n === 0),
   };
 }
@@ -409,16 +415,21 @@ export function unexpected(report: SimReport, seat: number): string[] {
       want(report.phase === 'done', `phase ${report.phase}, not done`);
       want(same(report.equivocators, [seat]), `equivocators ${report.equivocators}`);
       want(same(report.forfeits, [seat]), `forfeits ${report.forfeits}`);
+      // A deck game audits up to the fork once every secret is in; the seat may withhold its own (it is not
+      // obliged to come back), and the stop is then "audit incomplete" with its secret withheld (§7.3).
+      const withheld = same(report.record?.secretWithheld, [seat]);
+      want(withheld || same(report.record?.secretWithheld, []), `secret withheld ${report.record?.secretWithheld}`);
+      want(report.record?.auditIncomplete === withheld, `audit incomplete ${report.record?.auditIncomplete}`);
       want(
-        report.audit === 'pass' || same(report.audit, { fail: [seat], reason: 'stop' }),
+        report.audit === 'pass' ||
+          same(report.audit, { fail: [seat], reason: 'stop' }) ||
+          (withheld && report.audit === 'pending'),
         `audit ${audit}`,
       );
       want(lastAlone(places, seat), `places ${places}`);
       want(report.record?.ending === 'stop', `record ending ${report.record?.ending}`);
       want(report.record?.endedBy === seat, `record endedBy ${report.record?.endedBy}`);
       want(same(report.record?.rated, rated), `rated ${report.record?.rated}`);
-      want(same(report.record?.secretWithheld, []), `secret withheld ${report.record?.secretWithheld}`);
-      want(report.record?.auditIncomplete === false, 'audit incomplete');
       // A stop is never attested (PROTOCOL-v2 §5.6).
       want(report.endAttested.length === 0 && report.attested.length === 0, 'a stop was attested');
       break;

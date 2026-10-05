@@ -1,9 +1,12 @@
+import { bank, bankV1 } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
+import { chess } from '@bored-games/chess';
 import { createRng } from '@bored-games/game-kit';
+import { luster } from '@bored-games/luster';
 import { finalizeEvent, KIND, type NostrEvent, tableTemplate } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { MemoryRelay } from '../src/memory-relay.ts';
-import { type SimReport, simulateGame } from '../src/sim.ts';
+import { type SimPolicy, type SimReport, simulateGame } from '../src/sim.ts';
 import { type AdversaryName, adversary, lastAlone, quickPolicy, unexpected } from './adversaries.ts';
 import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
 
@@ -13,6 +16,11 @@ import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
  * during the shuffle and the deal run by default; `pnpm test:sim` (SIM=1) runs them all, and `pnpm sim` plays more.
  * The seat count is a parameter: the 3-seat games are the full set, 4 and 6 seats add an honest whole game each
  * (about 100 s and 227 s of CPU) under SIM=1, and one cheap 6-seat game that ends in the shuffle runs by default.
+ *
+ * Protocol 2 (build plan T19): the deckless games (Chess, Bank 0.2.0) play whole games by default, honest and with
+ * each protocol 2 adversary (a fork that stops the game, a stale outbox, an honest seat on two devices); Chain
+ * Reaction and Luster play the same under SIM=1. The protocol 1 games above keep running at protocol 1, and Bank
+ * 0.1.0 still plays a protocol 1 game.
  */
 
 const SIM = process.env.SIM !== undefined && process.env.SIM !== '';
@@ -21,6 +29,44 @@ const SEATS = 3;
 /** The cheating seat. */
 const CHEAT = 1;
 const LONG = 900_000;
+
+/** Every game the sims play: the tests' registry plus Luster. */
+const ALL = new Map([...MODULES, [luster.id, luster]]);
+
+/**
+ * The quick policy, but accepting a standing draw offer one time in twenty: the random Chess games end sooner (the
+ * quick policy offers a draw with half of its moves, the legal list holding each move with and without an offer).
+ */
+const shortPolicy: SimPolicy = (state, seat, legal, rng) => {
+  const accept = (legal as readonly { type?: string }[]).find((a) => a.type === 'acceptDraw');
+  if (accept !== undefined && rng.float() < 0.05) return accept;
+  return quickPolicy(state, seat, legal, rng);
+};
+
+/** A protocol 2 game of `game` with `name` at seat `CHEAT` (none for null). */
+function simV2(
+  game: string,
+  seed: string,
+  name: AdversaryName | null,
+  seats: number,
+  vanishAt = seats,
+): SimReport {
+  return simulateGame({
+    seats,
+    seed,
+    modules: ALL,
+    game,
+    proto: 2,
+    policy: shortPolicy,
+    ...(name === null ? {} : { adversary: adversary(name, CHEAT, seats, vanishAt) }),
+  });
+}
+
+/** `r` is what its adversary (or an honest game) should give, with no failure. */
+function expectClean(r: SimReport): void {
+  expect(r.failures).toEqual([]);
+  expect(unexpected(r, CHEAT)).toEqual([]);
+}
 
 function sim(seed: string, name: AdversaryName | null, vanishAt = SEATS, seats = SEATS): SimReport {
   return simulateGame({
@@ -328,6 +374,156 @@ describe.skipIf(!SIM)('simulated whole games (SIM=1)', () => {
       expect(lastAlone(r.outcome?.places ?? [], CHEAT)).toBe(true);
       // A forfeit ending records the forfeit as the audit (Ruling 7): only the vanished seat fails.
       expect(r.audit).toEqual({ fail: [CHEAT], reason: 'timeout' });
+    },
+    LONG,
+  );
+});
+
+describe('simulated protocol 2 games of the deckless games', () => {
+  it(
+    'an honest Chess game ends over: every seat end-attests and attests, and every client agrees',
+    () => {
+      const r = simV2(chess.id, 'v2-chess-honest', null, 2);
+      expectClean(r);
+      expect(r).toMatchObject({ proto: 2, phase: 'done', audit: 'pass', stop: null, claims: 0 });
+      expect(r.record).toMatchObject({ ending: 'over', rated: [true, true], endedBy: null });
+      expect(r.endAttested).toEqual([0, 1]);
+      expect(r.attested).toEqual([0, 1]);
+      expect(r.actions).toBeGreaterThan(0);
+    },
+    LONG,
+  );
+
+  it.each([
+    [chess.id, 2],
+    [bank.id, 3],
+  ])(
+    '%s, %i seats: two moves on one prev stop the game for every client, the forker last and rated',
+    (game, seats) => {
+      const r = simV2(game, `v2-stop-${game}`, 'equivocateStop', seats);
+      expectClean(r);
+      expect(r.stop).toEqual({ at: expect.any(String), seat: CHEAT, cancelled: false });
+      expect(r.record).toMatchObject({ ending: 'stop', endedBy: CHEAT, equivocators: [CHEAT] });
+      // 2 seats: a rated loss for the forker; 3 or more: only its last place is rated (PROTOCOL-v2 §5.6).
+      expect(r.record?.rated).toEqual(Array.from({ length: seats }, (_, k) => seats === 2 || k === CHEAT));
+      expect(r.endAttested).toEqual([]);
+    },
+    LONG,
+  );
+
+  it.each([
+    [chess.id, 2, 6],
+    [bank.id, 2, 8],
+  ])(
+    '%s, %i seats: a tablet that saved a move offline and reloads much later discards it, and nothing forks',
+    (game, seats, atSeq) => {
+      const r = simV2(game, `v2-stale-${game}`, 'staleOutbox', seats, atSeq);
+      expectClean(r);
+      expect(r.devices.saved).toBeGreaterThan(0);
+      expect(r.devices.discarded).toBeGreaterThan(0);
+      expect(r.devices.reasons).toContain('another move of yours on that position is held');
+      expect(r.record?.ending).toBe('over');
+    },
+    LONG,
+  );
+
+  it.each([
+    [chess.id, 2],
+    [bank.id, 2],
+  ])(
+    '%s, %i seats: an honest seat on two devices that drop offline and reload: no fork, an honest result',
+    (game, seats) => {
+      const r = simV2(game, `v2-devices-${game}`, 'twoDevices', seats);
+      expectClean(r);
+      // Both paths of the outbox rule ran: saved events sent once back online, and stale ones discarded.
+      expect(r.devices.sent).toBeGreaterThan(0);
+      expect(r.devices.discarded).toBeGreaterThan(0);
+      expect(r.record?.ending).toBe('over');
+    },
+    LONG,
+  );
+
+  it(
+    'Bank 0.1.0 still plays a protocol 1 game',
+    () => {
+      const r = simulateGame({
+        seats: 2,
+        seed: 'v1-bank',
+        modules: new Map([[bankV1.id, bankV1]]),
+        game: bankV1.id,
+        proto: 1,
+        policy: quickPolicy,
+      });
+      expectClean(r);
+      expect(r).toMatchObject({ proto: 1, phase: 'done', audit: 'pass', record: null, fork: null });
+    },
+    LONG,
+  );
+});
+
+describe.skipIf(!SIM)('simulated protocol 2 games with a deck, and a longer Bank game (SIM=1)', () => {
+  it(
+    'an honest Bank 0.2.0 game: every roll gets its contributions, and every client agrees',
+    () => {
+      const r = simV2(bank.id, 'v2-bank-honest', null, 3);
+      expectClean(r);
+      expect(r).toMatchObject({ proto: 2, phase: 'done', audit: 'pass', stop: null, claims: 0 });
+      expect(r.endAttested).toEqual([0, 1, 2]);
+    },
+    LONG,
+  );
+
+  it.each([
+    [chainReaction.id, 3],
+    [luster.id, 2],
+    [luster.id, 3],
+  ])(
+    'an honest %s game of %i seats ends over: the audit passes, every client agrees',
+    (game, seats) => {
+      const r = simV2(game, `v2-honest-${game}-${seats}`, null, seats);
+      expectClean(r);
+      expect(r.record).toMatchObject({ ending: 'over', endedBy: null });
+      expect(r.endAttested).toEqual(Array.from({ length: seats }, (_, k) => k));
+    },
+    LONG,
+  );
+
+  it.each([
+    [chainReaction.id, 3],
+    [luster.id, 2],
+  ])(
+    '%s, %i seats: a fork stops the game; every seat but the forker publishes its secret, and the stop is scored',
+    (game, seats) => {
+      const r = simV2(game, `v2-stop-${game}-${seats}`, 'equivocateStop', seats);
+      expectClean(r);
+      expect(r.record).toMatchObject({ ending: 'stop', endedBy: CHEAT });
+    },
+    LONG,
+  );
+
+  it.each([
+    [chainReaction.id, 3, 12],
+    [luster.id, 2, 12],
+  ])(
+    '%s, %i seats: a stale tablet discards its saved decision and its releases, and nothing forks',
+    (game, seats, atSeq) => {
+      const r = simV2(game, `v2-stale-${game}-${seats}`, 'staleOutbox', seats, atSeq);
+      expectClean(r);
+      expect(r.devices.saved).toBeGreaterThan(0);
+      expect(r.devices.discarded).toBeGreaterThan(0);
+    },
+    LONG,
+  );
+
+  it.each([
+    [chainReaction.id, 3],
+    [luster.id, 2],
+  ])(
+    '%s, %i seats: an honest seat on two devices never forks itself nor shares its own card',
+    (game, seats) => {
+      const r = simV2(game, `v2-devices-${game}-${seats}`, 'twoDevices', seats);
+      expectClean(r);
+      expect(r.devices.saved).toBeGreaterThan(0);
     },
     LONG,
   );
