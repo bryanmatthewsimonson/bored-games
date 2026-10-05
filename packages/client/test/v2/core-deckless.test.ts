@@ -607,7 +607,7 @@ describe('GameSessionV2: the walk', () => {
     expect(moves).toHaveLength(4);
   });
 
-  it('stores Timeout claims and Resigns (counted from T12) and Device notes; refuses secrets in a deckless game', () => {
+  it('stores a Timeout claim until its deadline, counts a Resign naming a held head (here a cancel), stores Device notes; refuses secrets in a deckless game', () => {
     const t = table('v2-stored');
     const id1 = t.game.ids[1] as Identity;
     const claim = finalizeEvent(
@@ -631,7 +631,8 @@ describe('GameSessionV2: the walk', () => {
       id1.sessionSk,
       t.game.rnd,
     );
-    expect(t.spectator.receive(resign, NOW)).toEqual({ status: 'stored' });
+    // Before the first game action, by a seat with no game action: the Resign cancels the game (v1 §8.3, T12).
+    expect(t.spectator.receive(resign, NOW)).toEqual({ status: 'accepted' });
     const secret = finalizeEvent(
       secretTemplate({ rootId: t.game.rootId, deckSecret: id1.deckSecret }, NOW, '2'),
       id1.sessionSk,
@@ -641,7 +642,14 @@ describe('GameSessionV2: the walk', () => {
       status: 'rejected',
       reason: 'a deckless game has no deck secrets',
     });
-    expect(t.spectator.view()).toMatchObject({ phase: 'play', result: null, head: { seq: 0 } });
+    expect(t.spectator.view()).toMatchObject({
+      phase: 'cancelled',
+      result: null,
+      head: { seq: 0 },
+      resigned: [1],
+      forfeits: [1],
+      resignId: resign.id,
+    });
     const note = finalizeEvent(
       deviceNoteTemplate({ rootId: t.game.rootId, device: 'ab'.repeat(16), n: 1 }, NOW),
       id1.sessionSk,
@@ -649,8 +657,13 @@ describe('GameSessionV2: the walk', () => {
     );
     expect(t.spectator.receive(note, NOW)).toEqual({ status: 'accepted' });
     expect(t.spectator.receive(note, NOW)).toEqual({ status: 'duplicate' });
+    expect(t.players[1]?.canResign()).toBe(true);
+    expect(t.players[0]?.timeoutTarget(NOW + 10_000_000)).toBeNull();
+    expect(t.players[1]?.timeoutTarget(NOW + 10_000_000)).toBe(0);
+    for (const p of t.players) p.receive(resign, NOW);
     expect(t.players[1]?.canResign()).toBe(false);
     expect(t.players[1]?.timeoutTarget(NOW + 10_000_000)).toBeNull();
+    expect(t.players.map((p) => p.duties())).toEqual([[], []]);
   });
 });
 

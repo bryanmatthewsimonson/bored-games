@@ -27,6 +27,12 @@ export interface SessionInput {
    * forfeit before its own deadline, by id, so a reload keeps the confirmation. Ignored by the v1 session.
    */
   confirmedForfeits?: readonly Hex[];
+  /**
+   * Protocol 2 only (PROTOCOL-v2 §5.4 N1, §8.1, D068, D070): when each result first stood against a held fork on this
+   * client, by result key, as `GameSessionV2.standingTimes()` returned it before a reload. A saved time wins over one
+   * recomputed while the events are fed again, so a reload keeps the End-phase deadline exactly. Ignored by v1.
+   */
+  savedStanding?: Readonly<Record<string, number>>;
 }
 
 /** `cancelled`: a timeout claim was accepted before the first game action (D030 R5); there is no result. */

@@ -235,22 +235,22 @@ export class EventStoreV2 {
 
   /**
    * Move `id` was just held: the claims and Resigns waiting for it are kept now (they fit: the waiting pool's
-   * per-head claim cap is the kept one's, and no claim on a head is kept while it is not held). Returns whether any
-   * moved, so the cutoff is recomputed.
+   * per-head claim cap is the kept one's, and no claim on a head is kept while it is not held). Returns the ids that
+   * moved, so the cutoff is recomputed (and their first-seen times count toward when a result first stood).
    */
-  promote(id: Hex): boolean {
-    let moved = false;
+  promote(id: Hex): Hex[] {
+    const moved: Hex[] = [];
     for (const [k, c] of this.waitingClaims)
       if (c.ev.headId === id) {
         this.waitingClaims.delete(k);
         this.claims.set(k, c);
-        moved = true;
+        moved.push(k);
       }
     for (const [k, x] of this.waitingResigns)
       if (x.ev.headId === id) {
         this.waitingResigns.delete(k);
         this.resigns.set(k, x);
-        moved = true;
+        moved.push(k);
       }
     return moved;
   }
