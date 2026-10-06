@@ -209,6 +209,85 @@ describe('branding', () => {
     expect(findRestricted('Right of Way: a ticket, a ride, days of play', [])).toEqual([]);
   });
 
+  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D068)", () => {
+    for (const text of [
+      'Cluedo',
+      'CLUEDO',
+      'cluedo-rules',
+      'ClueDoBoard',
+      'Hasbro',
+      'by hasbro games',
+      'Parker Brothers',
+      'parker-brothers',
+      'ParkerBrothers',
+      'parker_brothers',
+      'Waddingtons',
+      'waddington',
+      'Anthony Pratt',
+      'AnthonyPratt',
+      'Anthony E. Pratt',
+      'anthony-e-pratt',
+      'Tudor Mansion',
+      'tudor_mansion',
+      'Mr. Boddy',
+      'boddy',
+      'Colonel Mustard',
+      'COLONEL MUSTARD',
+      'colonel_mustard',
+      'ColonelMustard',
+      'Miss Scarlett',
+      'Miss Scarlet',
+      'miss-scarlett',
+      'Professor Plum',
+      'professorPlum',
+      'Mrs. Peacock',
+      'Mrs Peacock',
+      'MrsPeacock',
+      'Mrs. White',
+      'Mrs White',
+      'mrs_white',
+      'Mr. Green',
+      'Mr Green',
+      'MrGreen',
+      'Reverend Green',
+      'reverend-green',
+      'Dr. Orchid',
+      'dr_orchid',
+    ])
+      expect(findRestricted(text, []), text).not.toEqual([]);
+  });
+
+  it('restricts the bare title only as an exact-case whole word (D068)', () => {
+    for (const [text, found] of [
+      ['Clue', 'Clue'],
+      ['CLUE', 'CLUE'],
+      ['a Clue board', 'Clue'],
+      ['"Clue"', 'Clue'],
+      ['Clue.', 'Clue'],
+      ['Clue-style', 'Clue'],
+      ['Clue’s', 'Clue'],
+    ] as const)
+      expect(findRestricted(text, []), text).toEqual([found]);
+    for (const text of [
+      'clue',
+      'clues',
+      'a clue to the bug',
+      'ClueAction',
+      'HintClue',
+      'clue_token',
+      'unclued',
+      'Clues',
+      'CLUES',
+    ])
+      expect(findRestricted(text, []), text).toEqual([]);
+  });
+
+  it('leaves ordinary colour words and other games alone (D068)', () => {
+    expect(
+      findRestricted('plum, green, white, black, peacock, mustard, scarlet; Plum cargo; Right of Way', []),
+    ).toEqual([]);
+  });
+
   describe('the allowed phrases (D053, D060)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
