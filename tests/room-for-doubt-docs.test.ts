@@ -71,11 +71,12 @@ it('records the design once, as D072: no decision number is used twice', () => {
   expect(decisions).toMatch(/^## D072: Room for Doubt/m);
 });
 
-it('counts every game allowed prompt shares on build path A: Luster, Right of Way and Driftwrights', () => {
+it('relies on the standing prompt-share exception (D073), not a per-game one', () => {
   const pathA = rules.match(/^- \*\*A\. Beta on today's pieces,\*\*.*$/m)?.[0] ?? '';
-  expect(pathA).toMatch(/Luster, Right of Way and Driftwrights/);
-  expect(pathA).toMatch(/fourth owner exception/);
-  expect(decision).toMatch(/fourth `promptShares` exception/);
+  expect(pathA).toMatch(/standing exception \(D073\)/);
+  expect(pathA).not.toMatch(/(third|fourth) owner exception/);
+  expect(decision).toMatch(/standing exception \(D073\)/);
+  expect(decision).not.toMatch(/fourth `promptShares` exception/);
 });
 
 it('says the game both deals and rolls, and what the platform offers for that (PROTOCOL 6.3a, 13)', () => {

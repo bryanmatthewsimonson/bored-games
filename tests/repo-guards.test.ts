@@ -93,24 +93,19 @@ describe('engine purity', () => {
   }
 });
 
-describe('promptShares (D050, D059 item 8, D066)', () => {
-  // The automatic share duty in play is an owner-authorized exception for Luster and Right of Way only. Outside
-  // the type that declares the flag and the session that reads it, only their deck specs may name it, so no other
-  // game can switch it on, registered in the web app or not (apps/web/test/prompt-shares.test.ts checks the modules).
-  const ALLOWED = [
-    'packages/game-kit/src/types.ts',
-    'packages/client/src/session.ts',
-    'packages/games/luster/src/transport.ts',
-    'packages/games/right-of-way/src/module.ts',
-    'packages/games/driftwrights/src/module.ts',
-  ];
-  it('is named only by the type, the session, Luster and Right of Way in any package source', () => {
+describe('promptShares (D050, D073)', () => {
+  // Any game may switch on the automatic share and seal duties in play: a standing exception to D050 (D073). Outside
+  // the type that declares the flag and the session that reads it, only game modules may name it, so no shared code
+  // can switch it on for every game (apps/web/test/prompt-shares.test.ts records which registered games set it).
+  const CORE = ['packages/game-kit/src/types.ts', 'packages/client/src/session.ts'];
+  const GAME_SOURCE = /^packages\/games\/[^/]+\/src\//;
+  it('is named only by the type, the session and game modules in any package source', () => {
     const named = srcDirs()
       .flatMap((d) => files(d, /\.(ts|tsx)$/))
       .filter((f) => /\bpromptShares\b/.test(stripComments(readFileSync(f, 'utf8'))))
-      .map((f) => relative(root, f))
-      .sort();
-    expect(named).toEqual([...ALLOWED].sort());
+      .map((f) => relative(root, f));
+    for (const f of CORE) expect(named, f).toContain(f);
+    expect(named.filter((f) => !CORE.includes(f) && !GAME_SOURCE.test(f))).toEqual([]);
   });
 });
 
