@@ -55,7 +55,7 @@ import {
 } from './key-backup.ts';
 import { type ControllerDeps, unionRelays } from './net.ts';
 import type { RandomBytes } from './random.ts';
-import { ownCardReason, sharePositions, shareVerdict } from './share-vet.ts';
+import { ownCardReason, sealedItems, sealVerdict, sharePositions, shareVerdict } from './share-vet.ts';
 import {
   type GameStatusName,
   loadSecrets,
@@ -108,10 +108,25 @@ export type BackupState = 'checking' | 'due' | 'sending' | 'done' | 'unavailable
 export const TICK_MS = 30_000;
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
-export const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
+export const GAME_KINDS = [
+  KIND.move,
+  KIND.shares,
+  KIND.sealed,
+  KIND.timeout,
+  KIND.reveal,
+  KIND.attest,
+  KIND.resign,
+];
 
 /** The game event kinds signed by a seat's session key; attestations (`KIND.attest`) are signed by its npub. */
-const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.resign];
+const SESSION_KINDS: readonly number[] = [
+  KIND.move,
+  KIND.shares,
+  KIND.sealed,
+  KIND.timeout,
+  KIND.reveal,
+  KIND.resign,
+];
 
 /**
  * Stored game events asked for per page. A page that brings any event not seen before is followed by an older
@@ -120,7 +135,7 @@ const SESSION_KINDS: readonly number[] = [KIND.move, KIND.shares, KIND.timeout, 
 export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
-const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'beacon', 'secret', 'attest'];
+const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beacon', 'secret', 'attest'];
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -135,7 +150,11 @@ export interface OutboxEntry {
  * head and could otherwise reveal a card that is this seat's own on the branch fork choice settled on.
  */
 const vetted = (slot: string): boolean =>
-  slot.startsWith('move:') || slot.startsWith('share:') || slot === 'deal' || slot === 'resign';
+  slot.startsWith('move:') ||
+  slot.startsWith('share:') ||
+  slot.startsWith('seal:') ||
+  slot === 'deal' ||
+  slot === 'resign';
 
 /**
  * The longest wait (ms) for a check-before-signing query's answer (D059 item 2), beyond the pool's own EOSE
@@ -636,9 +655,11 @@ export class GameController {
         ? [`move:${prevOf(ev)}`]
         : ev.kind === KIND.shares
           ? ['shares', ...(sharePositions(ev) ?? []).map((pos) => `share:${pos}`)]
-          : ev.kind === KIND.resign
-            ? ['resign']
-            : [];
+          : ev.kind === KIND.sealed
+            ? ['sealed', ...(sealedItems(ev) ?? []).map((x) => `seal:${x.pos}>${x.to}`)]
+            : ev.kind === KIND.resign
+              ? ['resign']
+              : [];
     for (const key of keys) {
       let ids = this.#mine.get(key);
       if (ids === undefined) {
@@ -775,7 +796,9 @@ export class GameController {
           ? 1e12
           : slot.startsWith('share:')
             ? 1.5e12
-            : 2e12;
+            : slot.startsWith('seal:')
+              ? 1.6e12
+              : 2e12;
     const slots = this.#toVet().sort((a, b) => rank(a) - rank(b));
     let rebuild = false;
     // Moves discarded in this pass: a saved move built on one of them is discarded with it (fix round 2), rather
@@ -830,6 +853,7 @@ export class GameController {
   #verdict(session: GameSession, slot: string, ev: NostrEvent, fed: boolean): 'send' | 'wait' | string {
     if (slot === 'deal') return 'it is not signed by your key in this game';
     if (slot.startsWith('share:')) return this.#shareVerdict(session, ev, fed);
+    if (slot.startsWith('seal:')) return this.#sealVerdict(session, ev, fed);
     if (slot.startsWith('move:')) {
       const prev = prevOf(ev);
       if (prev === null) return 'it names no parent';
@@ -865,6 +889,23 @@ export class GameController {
       dealt: this.#dealt(session),
       owed: fed ? null : duty?.kind === 'share' ? duty.positions : [],
       sentElsewhere: (pos) => this.#otherMine(`share:${pos}`, ev),
+    });
+  }
+
+  /**
+   * What to do with a saved Sealed event (D066): `send` it only if every pair it carries is a re-dealt card this
+   * seat first held, dealt to that recipient on the current head, and still owed (`sealVerdict`).
+   */
+  #sealVerdict(session: GameSession, ev: NostrEvent, fed: boolean): 'send' | string {
+    const items = sealedItems(ev);
+    if (items === null) return 'it is not a valid sealed share';
+    const duty = fed ? undefined : session.duties().find((d) => d.kind === 'seal');
+    return sealVerdict({
+      items,
+      mySeat: session.view().mySeat,
+      dealt: this.#dealt(session),
+      owed: fed ? null : duty?.kind === 'seal' ? duty.items : [],
+      sentElsewhere: (pos, to) => this.#otherMine(`seal:${pos}>${to}`, ev),
     });
   }
 
@@ -952,7 +993,9 @@ export class GameController {
           ? 'resignation'
           : slot.startsWith('share:')
             ? 'card reveal'
-            : 'move';
+            : slot.startsWith('seal:')
+              ? 'sealed card share'
+              : 'move';
     this.#note(`A ${what} saved on this device was never sent, and it was discarded: ${why}.`);
   }
 
@@ -1072,7 +1115,9 @@ export class GameController {
       const prev = ev?.kind === KIND.move ? prevOf(ev) : null;
       if (prev !== null) prevs.add(prev);
     }
-    const filters: Filter[] = [{ kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] }];
+    const filters: Filter[] = [
+      { kinds: [KIND.shares, KIND.sealed, KIND.resign], authors: [me], '#e': [this.rootId] },
+    ];
     if (prevs.size > 0) filters.push({ kinds: [KIND.move], authors: [me], '#e': [...prevs] });
     const whole = secret || saved.some((slot) => this.#unvetted.has(slot));
     if (whole)
@@ -1596,7 +1641,7 @@ export class GameController {
     });
     const me = v.mySeat;
     const undelivered = [...this.#outbox].some(
-      ([slot, e]) => slot.startsWith('share:') && !e.confirmed && !e.orphan,
+      ([slot, e]) => (slot.startsWith('share:') || slot.startsWith('seal:')) && !e.confirmed && !e.orphan,
     );
     if (me === null || !undelivered || v.phase !== 'play' || owed?.seats.includes(me)) return owed;
     return {
@@ -1674,6 +1719,18 @@ export class GameController {
             .slice('share:'.length)
             .split(',')
             .some((pos) => due.has(Number(pos))),
+      );
+    }
+    if (kind === 'seal') {
+      const duty = this.#session?.duties().find((d) => d.kind === 'seal');
+      const due = new Set(duty?.kind === 'seal' ? duty.items.map((x) => `${x.pos}>${x.to}`) : []);
+      return [...this.#unvetted].some(
+        (slot) =>
+          slot.startsWith('seal:') &&
+          slot
+            .slice('seal:'.length)
+            .split(',')
+            .some((pair) => due.has(pair)),
       );
     }
     if (kind !== 'deal') return false;
@@ -1777,7 +1834,10 @@ export class GameController {
         (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
       return this.#commit(slot, built);
     }
-    if ((kind === 'deal' || kind === 'share') && this.#live(this.#dutySlot(session, kind)) === null) {
+    if (
+      (kind === 'deal' || kind === 'share' || kind === 'seal') &&
+      this.#live(this.#dutySlot(session, kind)) === null
+    ) {
       // The check before signing, for Shares events: another device's deal or reveal is adopted instead.
       if (!(await this.#clearToSign(session, kind, null))) return 'held';
       if (!session.duties().some((d) => d.kind === kind)) return;
@@ -1793,6 +1853,8 @@ export class GameController {
       // Per-position slots persist/reuse public shares without replacing the one-time setup deal.
       return this.#single(this.#dutySlot(session, 'share'), () => session.buildShares(rnd, now()));
     }
+    if (kind === 'seal')
+      return this.#single(this.#dutySlot(session, 'seal'), () => session.buildSealed(rnd, now()));
     if (kind === 'secret') return this.#single('secret', () => session.buildSecret(rnd, now()));
     if (kind === 'attest') {
       // A new attestation must be later than the refused one, or it would not replace it (latest wins).
@@ -1801,9 +1863,16 @@ export class GameController {
     }
   }
 
-  /** The outbox slot of a Shares duty: `deal`, or `share:<positions>` for the positions the share duty lists. */
-  #dutySlot(session: GameSession, kind: 'deal' | 'share'): string {
+  /**
+   * The outbox slot of a Shares or Sealed duty: `deal`, `share:<positions>` for the positions the share duty lists,
+   * or `seal:<pos>><to>,…` for the pairs the seal duty lists.
+   */
+  #dutySlot(session: GameSession, kind: 'deal' | 'share' | 'seal'): string {
     if (kind === 'deal') return 'deal';
+    if (kind === 'seal') {
+      const duty = session.duties().find((d) => d.kind === 'seal');
+      return `seal:${duty?.kind === 'seal' ? duty.items.map((x) => `${x.pos}>${x.to}`).join(',') : ''}`;
+    }
     const duty = session.duties().find((d) => d.kind === 'share');
     return `share:${duty?.kind === 'share' ? duty.positions.join(',') : ''}`;
   }
@@ -1837,7 +1906,7 @@ export class GameController {
     const head = session.view().head.id;
     const filters: Filter[] = [
       { kinds: [KIND.move], authors: [me], '#e': [head] },
-      { kinds: [KIND.shares, KIND.resign], authors: [me], '#e': [this.rootId] },
+      { kinds: [KIND.shares, KIND.sealed, KIND.resign], authors: [me], '#e': [this.rootId] },
     ];
     const info = await new Promise<EoseInfo | null>((resolve) => {
       let settled = false;

@@ -88,6 +88,7 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 | 7455 | Secret reveal | regular | session key |
 | 7456 | Result attestation | regular | player npub |
 | 7457 | Resign | regular | session key |
+| 7458 | Sealed shares (§4.10) | regular | session key |
 | 30078 | Key backup (NIP-78, §3) | addressable | player npub |
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
@@ -257,6 +258,15 @@ A Resign that lacks the secret in a game with a deck, carries one in a deckless 
 
 A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
 
+### 4.10 Sealed shares (7458)
+Decryption shares of **re-dealt private positions** (§6.2), each encrypted to one seat (D066). A position is re-dealt when `dealt` assigns it privately to one seat (its **first holder**) and later privately to another seat, and never to the public: Right of Way's charter returned to the bottom and drawn by another player. Every other seat published its share when the first holder got the card, so the first holder's share is the only one not public. The first holder never publishes it while the position stays private; it seals it to each later holder instead, and only that holder can open it.
+
+**Tags:** `["e", <rootId>, "", "root"]`.
+
+**Content:** `{"sealed":[<sealed share>, ...],"type":"sealed"}`, at least one, strictly ascending by position, then recipient. A sealed share is `{"a","b","pos","proof":{"c","s1","s2"},"to"}`, the wire form of `docs/proposals/prompt-reveal.md` §7.1: the signer's decryption share `x_k·R` of position `pos`, ElGamal-encrypted to seat `to`'s deck key, with a proof of knowledge bound to the root, the deck, the position, the whole ciphertext and both keys. `to` is another seat.
+
+**Folding.** Clients check the signer is a seat, each `to` another seat and each `pos` in the deck, and, once the final deck is known, that every proof verifies; otherwise they reject the event. A kept sealed share counts only for its recipient's private learn (§6.4: the recipient opens it with `openAndVerify` and decrypts with the other seats' public shares and its own layer) and for stall attribution (§8.1: the first holder is stalled while a later holder waits for its sealed share). It never affects the move chain or fork choice. A Sealed event that removes its signer from the stall set is progress, like a Shares event.
+
 ## 5. Deck cryptography
 
 **Context strings.** The shuffle and share transcripts hash these identifiers as the UTF-8 of their NOSTR text (D025):
@@ -394,14 +404,14 @@ A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before t
 Dealing order has no effect on fairness: positions are uniformly shuffled. RULES.md C03 states it.
 
 ### 6.2 Owed shares (liveness rule)
-- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position). A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
+- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position), **except** a re-dealt private position whose first holder is `k` (§4.10): there `k` owes a sealed share to each later holder instead, and no public share until the position is dealt to `null`. A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
 - **The rule (monotone).** A game-action move by seat `k` on parent state `S` is acceptable only if, counting `k`'s verified shares the client already holds plus those in the move, `k` has a share for every position it owes at `S`. The rule counts only what is held, never what is absent.
 - **Buffering.** A move that fails only this rule MUST be buffered, not rejected. The missing shares may still arrive, for example in a Shares event published earlier that reaches this client later. The move links once they are held. Clients therefore converge whatever order events arrive in.
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
 ### 6.2a The Luster share duty (shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster only, under the owner's exception (D050, D059, D060). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only Luster's production module sets it.
+**Status.** Shipped in v1 for Luster and, since D066, Right of Way, under the owner's exceptions (D050, D059, D060, D066). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only Luster's and Right of Way's production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
 
 **The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
 - no timeout claim was accepted and no Resign ended the game;

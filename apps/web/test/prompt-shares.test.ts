@@ -1,6 +1,6 @@
 /*
  * `DeckSpec.promptShares` (game-kit types.ts) switches on the session's automatic share duty in play, an
- * owner-authorized exception to D050 for Luster only (D059 item 8). Every other game keeps turn-piggybacked
+ * owner-authorized exception to D050 for Luster (D059 item 8) and Right of Way (D066). Every other game keeps turn-piggybacked
  * shares (PROTOCOL §6.2) until protocol v2. This fails if any other registered module's deck sets the flag; the
  * repo guard (tests/repo-guards.test.ts) checks the sources too, for modules the app does not register.
  */
@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { MODULES } from '../src/net.ts';
 
 /** The modules allowed to set `promptShares` (owner-approved). Adding one needs an owner decision. */
-const PROMPT_SHARES_ALLOWED: readonly string[] = ['luster'];
+const PROMPT_SHARES_ALLOWED: readonly string[] = ['luster', 'right-of-way'];
 
 describe('promptShares allowlist', () => {
   for (const [id, module] of MODULES) {

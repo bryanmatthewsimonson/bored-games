@@ -1,22 +1,28 @@
 import {
   type Ciphertext,
+  cardOf,
   cardTable,
+  combine,
   decryptPosition,
   G,
   initialDeck,
   jointKey,
   makeRollShare,
   makeShare,
+  openAndVerify,
   ownShare,
   type Point,
   proveShuffle,
   type RandomBytes,
   rollSeed,
+  type SealedShare,
   type Share,
   type ShareCtx,
   type ShuffleCtx,
+  sealShare,
   shuffleDeck,
   verifyRollShare,
+  verifySealedShare,
   verifyShare,
   verifyShuffle,
 } from '@bored-games/deck';
@@ -45,6 +51,7 @@ import {
   type ParsedMove,
   type ParsedResign,
   type ParsedRoot,
+  type ParsedSealed,
   type ParsedSecret,
   type ParsedShares,
   type ParsedTimeout,
@@ -54,11 +61,13 @@ import {
   parseJoin,
   parseResign,
   parseRoot,
+  parseSealed,
   parseSecret,
   parseShares,
   parseTable,
   parseTimeout,
   resignTemplate,
+  sealedTemplate,
   secretTemplate,
   sharesTemplate,
   timeoutTemplate,
@@ -73,7 +82,7 @@ import {
   shuffleStepGroup,
   shuffleStepSeat,
 } from './partitioned-deck.ts';
-import { ShareStore } from './shares.ts';
+import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
   Duty,
   Identity,
@@ -368,6 +377,13 @@ export class GameSession {
   private shares: ShareStore;
   /** Shares events folded in, by id (including those that added nothing new), every share verified. */
   private readonly sharesSeen = new Map<Hex, ParsedShares>();
+  /**
+   * Sealed events (kind 7458, D066), well formed and signed by a seat, by id. They never touch the chain or fork
+   * choice: a sealed share only lets its recipient read a re-dealt card, and names who withholds one. Each is
+   * verified when used, against the final deck of the moment (`sealedChecked` caches the answers).
+   */
+  private readonly sealedEvents = new Map<Hex, ParsedSealed>();
+  private readonly sealedChecked = new Map<string, boolean>();
   /** Shares events that failed against the current final deck; they are tried again if that deck changes. */
   private readonly badShares = new Map<Hex, ParsedShares>();
   /**
@@ -660,6 +676,7 @@ export class GameSession {
     if (kind === KIND.resign) return this.intakeResign(ev, now);
     if (kind === KIND.reveal) return this.intakeSecret(ev, now);
     if (kind === KIND.attest) return this.intakeAttest(ev);
+    if (kind === KIND.sealed) return this.intakeSealed(ev, now);
     let parsed: { kind: 'move'; m: ParsedMove } | { kind: 'shares'; s: ParsedShares };
     try {
       // A deckless game parses with a 1-card deck so that a shuffle step gets moveShape's clear rejection.
@@ -881,6 +898,93 @@ export class GameSession {
   private dropMove(m: ParsedMove, reason: string): void {
     this.unpool(m);
     this.rejected.set(m.id, reason);
+  }
+
+  /**
+   * Fold a Sealed event (PROTOCOL §4.10, D066): signed by a seated session key; each sealed share names another seat
+   * and a deck position, and, once there is a final deck, verifies. It is kept and used when its recipient reads
+   * the card (`learnPrivate`) and when the stall set is judged; a share that removes its signer from the stall set
+   * is progress, like a Shares event.
+   */
+  private intakeSealed(ev: unknown, now: number): ReceiveResult {
+    let s: ParsedSealed;
+    try {
+      s = parseSealed(ev);
+    } catch (e) {
+      return { status: 'rejected', reason: message(e) };
+    }
+    if (s.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
+    const seat = this.seatOf.get(s.pubkey);
+    if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
+    this.see(s.id, now);
+    if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no sealed shares');
+    for (const x of s.sealed) {
+      if (x.pos >= this.deckSize) return this.rejectEvent(s.id, `position ${x.pos} is outside the deck`);
+      if (x.to >= this.seats || x.to === seat)
+        return this.rejectEvent(s.id, `seat ${x.to} cannot receive it`);
+    }
+    const deck = this.finalDeck();
+    if (deck !== null && s.sealed.some((x) => !this.sealedVerifies(s, seat, x.pos, x.to))) {
+      return this.rejectEvent(s.id, 'a sealed share does not verify');
+    }
+    const before = this.stallMark();
+    this.sealedEvents.set(s.id, s);
+    this.sharesVersion++;
+    this.settle();
+    this.noteProgress(before, s.id);
+    this.decideTimeouts();
+    return { status: deck === null ? 'stored' : 'accepted' };
+  }
+
+  /** Whether event `s` (signed by `from`) holds a verified sealed share of `pos` to `to` for the final deck. */
+  private sealedVerifies(s: ParsedSealed, from: number, pos: number, to: number): boolean {
+    const deck = this.finalDeck();
+    const x = s.sealed.find((y) => y.pos === pos && y.to === to);
+    if (deck === null || x === undefined) return false;
+    const key = `${s.id}|${pos}|${to}|${this.deckSteps().at(-1) ?? ''}`;
+    let ok = this.sealedChecked.get(key);
+    if (ok === undefined) {
+      ok = verifySealedShare(
+        this.keys[from] as Point,
+        deck[pos] as Ciphertext,
+        this.keys[to] as Point,
+        x.sealed,
+        this.shareCtx(pos),
+      );
+      this.sealedChecked.set(key, ok);
+    }
+    return ok;
+  }
+
+  /** A verified sealed share of `pos` from seat `from` to seat `to`, or null. */
+  private sealedShare(pos: number, from: number, to: number): SealedShare | null {
+    for (const s of this.sealedEvents.values()) {
+      if (this.seatOf.get(s.pubkey) !== from || !this.sealedVerifies(s, from, pos, to)) continue;
+      const x = s.sealed.find((y) => y.pos === pos && y.to === to);
+      if (x !== undefined) return x.sealed;
+    }
+    return null;
+  }
+
+  /**
+   * Whether every share `seat` needs to read `pos` is in: every other seat's public share, or, for a sealed
+   * position (D066), every other seat's but the first holder's, whose share must be sealed to `seat`.
+   */
+  private readable(pos: number, seat: number): boolean {
+    if (this.shares.covered(pos, seat)) return true;
+    const first = sealedPositions(this.module.dealt(this.state)).get(pos);
+    if (first === undefined || first === seat) return false;
+    for (let k = 0; k < this.seats; k++)
+      if (k !== seat && k !== first && !this.shares.has(k, pos)) return false;
+    return this.sealedShare(pos, first, seat) !== null;
+  }
+
+  /** Whether seat `k` still owes what `seat` needs to read `pos` (`readable`). */
+  private withholds(k: number, pos: number, seat: number): boolean {
+    const first = sealedPositions(this.module.dealt(this.state)).get(pos);
+    if (first !== undefined && first !== seat && k === first)
+      return this.sealedShare(pos, first, seat) === null;
+    return !this.shares.has(k, pos);
   }
 
   private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
@@ -2331,14 +2435,25 @@ export class GameSession {
     const deck = this.finalDeck();
     if (me === null || deck === null || this.phase === 'shuffle' || this.phase === 'deal') return false;
     let progressed = false;
+    const sealed = sealedPositions(this.module.dealt(this.state));
     for (const d of this.module.dealt(this.state)) {
       if (d.to !== me.seat || d.deck !== this.deckId || this.learned.has(d.pos)) continue;
-      if (!this.shares.covered(d.pos, me.seat)) continue;
+      if (!this.readable(d.pos, me.seat)) continue;
       this.learned.add(d.pos);
       const ct = deck[d.pos] as Ciphertext;
       const own = { seat: me.seat, D: ownShare(me.deckSecret, ct) };
-      const slots = this.shares.slots(d.pos, me.seat);
-      const card = decryptPosition(ct, this.shareCtx(d.pos), this.keys, slots, this.cards, own);
+      const first = sealed.get(d.pos);
+      const card =
+        this.shares.covered(d.pos, me.seat) || first === undefined
+          ? decryptPosition(
+              ct,
+              this.shareCtx(d.pos),
+              this.keys,
+              this.shares.slots(d.pos, me.seat),
+              this.cards,
+              own,
+            )
+          : this.openSealed(d.pos, first, me, ct, own.D);
       if (card === null) continue;
       const r = this.module.learn(this.state, { deck: this.deckId, pos: d.pos, card });
       if (!r.ok) continue;
@@ -2347,6 +2462,25 @@ export class GameSession {
       progressed = true;
     }
     return progressed;
+  }
+
+  /**
+   * Read a sealed position (D066): every other seat's verified public share, the first holder's sealed share opened
+   * and verified with this seat's deck secret (`openAndVerify`), and this seat's own layer. Null if any is wrong.
+   */
+  private openSealed(pos: number, first: number, me: Identity, ct: Ciphertext, own: Point): number | null {
+    const sealed = this.sealedShare(pos, first, me.seat);
+    if (sealed === null) return null;
+    const D = openAndVerify(me.deckSecret, this.keys[first] as Point, ct, sealed, this.shareCtx(pos));
+    if (D === null) return null;
+    const Ds: Point[] = [own, D];
+    for (let k = 0; k < this.seats; k++) {
+      if (k === me.seat || k === first) continue;
+      const share = this.shares.slots(pos)[k];
+      if (share === null || share === undefined) return null;
+      Ds.push(share.D);
+    }
+    return cardOf(this.cards, combine(ct, Ds));
   }
 
   /**
@@ -2442,11 +2576,11 @@ export class GameSession {
     const seat = p.seat;
     const needed = this.module
       .dealt(this.state)
-      .filter((d) => d.to === seat && d.deck === this.deckId && !this.shares.covered(d.pos, seat))
+      .filter((d) => d.to === seat && d.deck === this.deckId && !this.readable(d.pos, seat))
       .map((d) => d.pos);
     if (needed.length === 0) return [seat];
     if (this.module.legalActions(this.module.view(this.state, null), seat).length > 0) return [seat];
-    return all.filter((k) => k !== seat && needed.some((pos) => !this.shares.has(k, pos)));
+    return all.filter((k) => k !== seat && needed.some((pos) => this.withholds(k, pos, seat)));
   }
 
   /* -------------------------------------------------------------------------------------------- views */
@@ -2683,6 +2817,8 @@ export class GameSession {
     if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
       const positions = this.sharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
+      const items = this.sealedDue(me.seat);
+      if (items.length > 0) return [{ kind: 'seal', items }];
     }
     // A public dice roll is the same for every seat (D058). The open app publishes this seat's share. Card
     // shares stay on `share`, and only when the module opts in (D050).
@@ -2810,6 +2946,34 @@ export class GameSession {
     return p.positions
       .filter((pos) => publicPositions.has(pos) && !this.shares.has(seat, pos))
       .sort((a, b) => a - b);
+  }
+
+  /** The sealed shares `seat` owes and has not published (D066), by position then recipient. */
+  private sealedDue(seat: number): { pos: number; to: number }[] {
+    return sealedOwed(this.module.dealt(this.state), seat).filter(
+      ({ pos, to }) => this.sealedShare(pos, seat, to) === null,
+    );
+  }
+
+  /**
+   * This seat's sealed shares (PROTOCOL §4.10, D066): for each re-dealt position it first held, its share sealed to
+   * the seat now holding the card. Only that seat can open it; the card stays hidden from everyone else.
+   */
+  buildSealed(rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('seal');
+    const deck = this.finalDeck() as Ciphertext[];
+    const sealed = this.sealedDue(me.seat).map(({ pos, to }) => ({
+      pos,
+      to,
+      sealed: sealShare(
+        me.deckSecret,
+        deck[pos] as Ciphertext,
+        this.keys[to] as Point,
+        this.shareCtx(pos),
+        rnd,
+      ),
+    }));
+    return finalizeEvent(sealedTemplate({ rootId: this.root.id, sealed }, createdAt), me.sessionSk, rnd);
   }
 
   /** Share newly assigned positions after setup, in the existing Shares wire format. */

@@ -51,8 +51,8 @@ describe('catalog filters', () => {
 
   it('filters by player count, 6 meaning 6 or more', () => {
     expect(ids({ players: 1 })).toEqual([]);
-    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster']);
-    expect(ids({ players: 3 })).toEqual(['chain-reaction', 'bank', 'luster']);
+    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster', 'right-of-way']);
+    expect(ids({ players: 3 })).toEqual(['chain-reaction', 'bank', 'luster', 'right-of-way']);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 6)).toBe(true);
@@ -65,16 +65,22 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'abstract' })).toEqual(['chess']);
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
-    expect(ids({ genre: 'family' })).toEqual(['luster']);
-    expect(ids({ mode: 'competitive' })).toEqual(['chain-reaction', 'chess', 'bank', 'luster']);
+    expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way']);
+    expect(ids({ mode: 'competitive' })).toEqual([
+      'chain-reaction',
+      'chess',
+      'bank',
+      'luster',
+      'right-of-way',
+    ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
     expect(ids({ length: 'under-30' })).toEqual(['chess', 'bank']);
-    expect(ids({ length: '60-120' })).toEqual(['chain-reaction', 'chess']);
+    expect(ids({ length: '60-120' })).toEqual(['chain-reaction', 'chess', 'right-of-way']);
     expect(ids({ length: 'over-120' })).toEqual([]);
     expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction']);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
-    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster']);
+    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster', 'right-of-way']);
     expect(ids({ players: 2, genre: 'economic' })).toEqual([]);
     expect(activeFilters({ ...NO_FILTERS, players: 2, mode: 'team' })).toBe(2);
   });

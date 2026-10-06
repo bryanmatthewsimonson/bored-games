@@ -42,6 +42,8 @@ export type ReceiveResult =
  * What this seat must publish next:
  * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
  * - `share`: `buildShares` supplies public reveals during play and new non-owner layers in grouped decks; it never shares an owner's private layer.
+ * - `seal`: `buildSealed` seals this seat's share of a re-dealt private position it first held to each later holder
+ *   (D066); only that holder can open it.
  * - `beacon`: `buildBeacon` publishes this seat's share of a public dice roll. Every seat decides on the same
  *   faces, so an open app sends the share with no decision. It is not a card share and not a sealed choice.
  * - `secret`: the game is over and my deck secret is not in yet; `buildSecret`.
@@ -55,6 +57,8 @@ export type Duty =
   | { kind: 'shuffle' }
   | { kind: 'deal' }
   | { kind: 'share'; readonly positions: readonly number[] }
+  /** Sealed shares of re-dealt private positions this seat first held, one per later holder (D066). */
+  | { kind: 'seal'; readonly items: readonly { readonly pos: number; readonly to: number }[] }
   | { kind: 'beacon' }
   | { kind: 'decide' }
   | { kind: 'secret' }

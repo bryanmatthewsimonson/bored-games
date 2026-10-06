@@ -9,6 +9,8 @@ export const KIND = {
   reveal: 7455,
   attest: 7456,
   resign: 7457,
+  /** Sealed shares: a seat's decryption share encrypted to one other seat (PROTOCOL §4.10, D066). */
+  sealed: 7458,
   /** The encrypted self-backup of a seat's game keys (NIP-78 app data, PROTOCOL §3, D065). */
   backup: 30078,
 } as const;

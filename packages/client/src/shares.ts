@@ -54,9 +54,47 @@ export class ShareStore {
   }
 }
 
-/** Every position `dealt` assigns to a seat other than `seat`, or to nobody (public), ascending and unique. */
+/**
+ * Every position `dealt` assigns to a seat other than `seat`, or to nobody (public), ascending and unique, except a
+ * sealed position whose first holder is `seat` (`sealedPositions`): that seat seals its share instead (D066).
+ */
 export function owedPositions(dealt: readonly DealtPosition[], seat: number): number[] {
+  const sealed = sealedPositions(dealt);
   const out = new Set<number>();
-  for (const d of dealt) if (d.to !== seat) out.add(d.pos);
+  for (const d of dealt) if (d.to !== seat && sealed.get(d.pos) !== seat) out.add(d.pos);
   return [...out].sort((a, b) => a - b);
+}
+
+/**
+ * The re-dealt private positions (D066, PROTOCOL §6.1): a position first dealt privately to one seat, then dealt
+ * privately to another, and never to the public. Every other seat published its share when the first holder got the
+ * card, so only the first holder's share is not public; it seals that share to each later holder (`sealedOwed`)
+ * and never publishes it while the card stays private. Maps each such position to its first holder.
+ */
+export function sealedPositions(dealt: readonly DealtPosition[]): Map<number, number> {
+  const first = new Map<number, number | null>();
+  const shown = new Set<number>();
+  const redealt = new Set<number>();
+  for (const d of dealt) {
+    if (!first.has(d.pos)) first.set(d.pos, d.to);
+    else if (d.to !== null && d.to !== first.get(d.pos)) redealt.add(d.pos);
+    if (d.to === null) shown.add(d.pos);
+  }
+  const out = new Map<number, number>();
+  for (const pos of redealt) {
+    const holder = first.get(pos);
+    if (holder !== null && holder !== undefined && !shown.has(pos)) out.set(pos, holder);
+  }
+  return out;
+}
+
+/** The sealed shares `seat` owes (D066): for each sealed position it first held, one to every later holder. */
+export function sealedOwed(dealt: readonly DealtPosition[], seat: number): { pos: number; to: number }[] {
+  const sealed = sealedPositions(dealt);
+  const out = new Map<string, { pos: number; to: number }>();
+  for (const d of dealt) {
+    if (d.to === null || d.to === seat || sealed.get(d.pos) !== seat) continue;
+    out.set(`${d.pos}:${d.to}`, { pos: d.pos, to: d.to });
+  }
+  return [...out.values()].sort((a, b) => a.pos - b.pos || a.to - b.to);
 }

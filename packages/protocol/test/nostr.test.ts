@@ -259,6 +259,7 @@ describe('helpers and constants', () => {
       reveal: 7455,
       attest: 7456,
       resign: 7457,
+      sealed: 7458,
       backup: 30078,
     });
     expect(PROTO).toBe('1');

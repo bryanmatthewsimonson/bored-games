@@ -1,18 +1,18 @@
 # CLAUDE.md
 
-Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use a reference game's name, its company or designer names, or Chain Reaction's reference chain names, in any case, outside `licensed/` directories (licensed brand packs, loaded only by builds made with `VITE_LICENSED_BRANDS=1` and never deployed until licensed) and `docs/`, with two exceptions: the exact phrases "Compare to <reference title>" for Chain Reaction (D053) and for Luster (D060), each stored once in its game's `src/compare.ts`. The repo guard (every package file) and the build scans (`pnpm check`, and `pnpm scan:dist` before every Pages upload) enforce this (D046).
+Bored Games (working name) is a decentralized platform for online, human-only, multiplayer board games over NOSTR. It is asynchronous first, with no trusted server, referee or bots. The first game is **Chain Reaction**, an implementation of *Acquire*'s mechanics. Never use a reference game's name, its company or designer names, or Chain Reaction's reference chain names, in any case, outside `licensed/` directories (licensed brand packs, loaded only by builds made with `VITE_LICENSED_BRANDS=1` and never deployed until licensed) and `docs/`, with one exception: the exact phrases "Compare to <reference title>" for Chain Reaction (D053), Luster (D060) and Right of Way (D066), each stored once in its game's `src/compare.ts`. The repo guard (every package file) and the build scans (`pnpm check`, and `pnpm scan:dist` before every Pages upload) enforce this (D046).
 
 ## Commands
 - `pnpm install`: install (Node ≥ 22.18, pnpm 10)
-- `pnpm test`: all Vitest projects (kit, chain-reaction, chess, bank, dice, deck, protocol, client, relay, dev-relay, web, brand, fuzz smoke, repo guards)
+- `pnpm test`: all Vitest projects (kit, chain-reaction, chess, bank, luster, right-of-way, dice, deck, protocol, client, relay, dev-relay, web, brand, fuzz smoke, repo guards)
 - `pnpm vitest run --project <name>`: one project (for example `web` or `client`)
 - `pnpm typecheck`, `pnpm lint`, `pnpm format`
 - `pnpm check`: typecheck + lint + test (including the public build scan, `pnpm scan:build`). Run it before every commit.
-- `pnpm fuzz --games 10000 [--game chain-reaction|chess|bank] [--seed S] [--players 3-6] [--no-views]`: invariant fuzzing across workers. The default game is Chain Reaction; Bank's seat counts are 2–6
+- `pnpm fuzz --games 10000 [--game chain-reaction|chess|bank|luster|right-of-way] [--seed S] [--players 3-6] [--no-views]`: invariant fuzzing across workers. The default game is Chain Reaction; Bank's seat counts are 2–6, Right of Way's 2–5
 - `pnpm fuzz --one "<seed#i>" --players N`: reproduce one failing game
 - `pnpm dev`: the dev relay (`ws://localhost:7777`) and the Vite dev server (`http://localhost:5173`, `strictPort`); open `?profile=a&relays=ws://localhost:7777` per player (`docs/TESTING.md`). `VITE_LICENSED_BRANDS=1 pnpm dev` adds the licensed names (Settings → Game names)
 - `pnpm relay`: the in-memory dev relay alone, on port 7777
-- `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, Chess, Bank) on free ports (not part of `check`)
+- `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, Chess, Bank, Luster, Right of Way) on free ports (not part of `check`)
 - `pnpm sim --game <id>`: whole games between independent clients over an in-memory relay
 - `pnpm build:web`: static build of `apps/web` into `apps/web/dist` (GitHub Pages deploys it once CI passes on `main`)
 
@@ -26,13 +26,14 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - `packages/games/chain-reaction/`: the Chain Reaction rules engine (pure). `src/theme.ts` is the only `src` file with user-facing game names (the trademark-safe brand pack); `licensed/` holds the licensed pack.
 - `packages/games/chess/`: the Chess rules engine (pure, deckless)
 - `packages/games/bank/`: the Bank rules engine (pure, deckless, dice beacon). `src/theme.ts` holds the display names
+- `packages/games/right-of-way/`: the Right of Way rules engine (pure; one 580-card packet in groups: freight, four spare index decks for reshuffles, charters; D066). `src/theme.ts` holds the display names
 - `packages/brand/`: platform display name
 - `apps/web/`: the Preact + Signals web app: lobby and game controllers, screens, the game registry (`games/registry.ts`), `games/<id>/` components, `e2e/`
 - `tools/fuzz/`: fuzz CLI, plus per-game policies and deck orders (test tooling only)
 - `tools/dev-relay/`: in-memory NIP-01 relay for development and tests
 - `scripts/dev.ts`: runs `pnpm relay` and the Vite dev server together
 - `tests/`: repo-wide guards (purity, branding, the public build scan for restricted names)
-- `docs/`: ARCHITECTURE, PROTOCOL, PLAN (status and open questions), DECISIONS (log), TESTING (owner's guide), `games/<id>/RULES.md` (source of truth; Chain Reaction, Chess, Bank; Hanabi is spec only)
+- `docs/`: ARCHITECTURE, PROTOCOL, PLAN (status and open questions), DECISIONS (log), TESTING (owner's guide), `games/<id>/RULES.md` (source of truth; Chain Reaction, Chess, Bank, Luster, Right of Way; Hanabi is spec only)
 
 ## Conventions
 - **Pure packages** (game-kit, dice, deck `src/`, games/*): no `Math.random`, `Date`, timers, I/O, `node:` imports, `Intl` or locale APIs. State is plain JSON, money is integers, absent values are `null`.

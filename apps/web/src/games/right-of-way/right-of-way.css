@@ -1,0 +1,276 @@
+main:has(.row-game) {
+  max-width: 1320px;
+}
+.row-game {
+  --row-ink: #1f2a44;
+  --row-paper: #f3ead7;
+  --row-accent: #9a2f2a;
+  display: grid;
+  gap: 1rem;
+  color: var(--row-ink);
+}
+.row-head {
+  display: grid;
+  gap: 0.25rem;
+}
+.row-status {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.row-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: #55607a;
+}
+.row-final {
+  margin: 0;
+  justify-self: start;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--row-accent);
+  color: #fff;
+  font-weight: 700;
+}
+.row-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 1rem;
+  align-items: start;
+}
+.row-main {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.row-board-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #c9bfa6;
+  background: #b9d3d0;
+}
+.row-board {
+  display: block;
+  width: 100%;
+  min-width: 720px;
+  height: auto;
+}
+.row-side-claimable {
+  cursor: pointer;
+  animation: row-pulse 1.6s ease-in-out infinite;
+}
+.row-side-claimable:hover rect,
+.row-side-claimable:focus-visible rect {
+  stroke: #e0218a;
+  stroke-width: 3;
+}
+.row-side-claimable:focus-visible {
+  outline: none;
+}
+@keyframes row-pulse {
+  50% {
+    opacity: 0.72;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-side-claimable {
+    animation: none;
+  }
+}
+.row-panel {
+  padding: 1rem;
+  background: #fffaf0;
+  border: 1px solid #ddd2b8;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.6rem;
+}
+.row-panel h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.row-claim {
+  border-color: #e0218a;
+}
+.row-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.row-primary {
+  background: var(--row-ink);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 700;
+}
+.row-primary:disabled {
+  opacity: 0.45;
+}
+.row-yard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.row-yard-card,
+.row-pile {
+  padding: 0.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: none;
+  display: grid;
+  justify-items: center;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+.row-yard-card:not(:disabled):hover,
+.row-pile:not(:disabled):hover {
+  border-color: #e0218a;
+}
+.row-yard-card:disabled,
+.row-pile:disabled {
+  opacity: 0.75;
+}
+.row-card {
+  width: 60px;
+  height: 84px;
+}
+.row-charter {
+  width: 120px;
+  height: 80px;
+}
+.row-empty {
+  width: 60px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed #c9bfa6;
+  border-radius: 8px;
+  color: #8a7650;
+}
+.row-counts,
+.row-charters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.row-counts li,
+.row-charters li {
+  display: grid;
+  justify-items: center;
+  font-size: 0.85rem;
+}
+.row-counts .row-card {
+  width: 44px;
+  height: 62px;
+}
+.row-charters li[data-done="true"] span {
+  color: #2f6f47;
+  font-weight: 700;
+}
+.row-charter-pick {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.row-picked {
+  border-color: var(--row-accent);
+}
+.row-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #55607a;
+}
+.row-error {
+  margin: 0;
+  color: #a01919;
+  font-weight: 700;
+}
+.row-players {
+  display: grid;
+  gap: 0.6rem;
+  position: sticky;
+  top: 1rem;
+}
+.row-player {
+  padding: 0.6rem 0.75rem;
+  background: #fffaf0;
+  border: 1px solid #ddd2b8;
+  border-radius: 10px;
+}
+.row-player-active {
+  border: 2px solid var(--row-ink);
+}
+.row-player-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.row-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--row-ink);
+  flex: none;
+}
+.row-place {
+  margin-left: auto;
+  font-weight: 700;
+}
+.row-player dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 0.75rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+}
+.row-player dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
+.row-final-charters {
+  display: grid;
+  gap: 0.15rem;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+.row-final-charters li {
+  justify-items: start;
+}
+@media (max-width: 860px) {
+  .row-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .row-players {
+    position: static;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+}
+
+.row-charter-towns {
+  max-width: 130px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+/* Town markers and labels never take a click meant for a route under them. */
+.row-town {
+  pointer-events: none;
+}
+
+.row-hit {
+  pointer-events: stroke;
+}
