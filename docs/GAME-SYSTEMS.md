@@ -117,7 +117,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
 | Deal to a zone, face down | a face-down market, a kitty, a role deck | engine-only: positions not yet in `dealt` stay sealed under every layer | exists (no protocol change) |
 | Private look | peek at the top card, look at the kitty | grant to a seat without ownership in the engine | exists as a grant; the engine models ownership |
 | Several decks | tiles plus cards; roles plus missions | one shuffle step per seat covering every initial deck | missing (session) |
-| Mid-game reshuffle | discard pile becomes the new draw pile | a shuffle round on a new deck epoch | missing |
+| Mid-game reshuffle | discard pile becomes the new draw pile | a shuffle round on the same deck's next epoch | built for Holler (D060); other games unchanged |
 | Visible to a set of seats | Hanabi (all but the owner), a team | public shares from non-members, **sealed shares** between members | missing |
 | Show a card to one player | "show your role to the player on your left" | the owner seals its own share to that seat | missing |
 | Pass a card | Hearts' pass, a trade of hidden cards | sealed share to the receiver, plus a new grant | missing |
@@ -140,6 +140,7 @@ Each new primitive must keep what the protocol already guarantees: one accepted 
   `{type: 'shuffle', deck: 'draw.2', cards: 'draw', from: [{deck, pos}, …]}`.
   The input is the current ciphertexts of the listed positions (cards already public may instead start from their trivial encryption). Every seat then shuffles in seat order, and the new epoch's positions are dealt as usual. Cost: S sequential steps, each needing that seat online.
 - **Background shuffle (recommended for multi-hand games).** A shuffle the engine can foresee (the next hand's deck in a trick-taking game) is requested early, and each seat's step **rides on its next move**, in the order the moves come. In round-robin play the new deck is ready after one round, with no added latency. When the engine cannot foresee the input (the discard pile as it stands when the draw pile runs out), the game waits for S steps, unless the rules allow a snapshot reshuffle as a variant (an OPEN rule, logged per game).
+- **Holler (D060).** The reshuffle is built for this game only, without a second deck and without new card points. Positions of epoch `k` are `128 * k + i`. `ShuffleCtx.deckId` is `pile.<k>` (a dot). The public action is `{"type":"epoch","actor":"deck","epoch":<k>,"size":<n>}` and carries no order. Full mode learns the order through `installDeckOrder`. A piggyback step on the next move, and a snapshot of a pile the game has not reached, are both rejected here: the epoch waits for S steps once the pile is known. A card dealt by the move that plays it is attached on that move for Holler only (PROTOCOL §6.2). Other games are unchanged. Sealed shares are still unbuilt.
 - **Budget** (extrapolated linearly from D019's 108-card bench): about 334 bytes and 10 ms of verification per card per step. A 52-card deck is about 17 KB and 0.5 s per step, so a 4-seat deal costs about 2 s of verification; the cap allows about 750 cards per step.
 
 #### 4.1.5 Sealed shares: showing and passing a card

@@ -63,7 +63,8 @@ export default defineConfig({
           root: 'packages/client',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
-          hookTimeout: 120_000,
+          // The Holler session hook proves two opening decks after it searches for scripts.
+          hookTimeout: 180_000,
         },
       },
       { test: { name: 'relay', root: 'packages/relay', include: ['test/**/*.test.ts'] } },

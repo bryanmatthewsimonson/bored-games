@@ -28,8 +28,9 @@ export interface WaitingInput {
  * or null when it waits on nobody else:
  * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game.";
  * - deal: every seat still missing its deal shares, "… to send their deal shares. Their apps must be open …";
- * - play: only when the game waits on seats other than the one whose decision it is (the game's own status line
- *   names that one): the seats whose shares the decision or a reveal needs;
+ * - play: a pending reshuffle names the next shuffler ("to shuffle"); otherwise only when the game waits on
+ *   seats other than the one whose decision it is (the game's own status line names that one): the seats whose
+ *   shares the decision or a reveal needs;
  * - end: the seats whose end-of-game secret is not in.
  */
 export function waitingLine(input: WaitingInput): string | null {
@@ -47,6 +48,7 @@ export function waitingLine(input: WaitingInput): string | null {
     case 'deal':
       return `Waiting for ${who} to send their deal shares. ${open}`;
     case 'play':
+      if (p.type === 'shuffle') return `Waiting for ${who} to shuffle. ${open}`;
       return `Waiting for ${who} to send their shares. ${open}`;
     case 'end':
       return `Waiting for ${who} to send their end-of-game ${others.length === 1 ? 'secret' : 'secrets'}. ${open}`;

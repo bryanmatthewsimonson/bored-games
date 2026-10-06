@@ -7,7 +7,8 @@ export type AddResult = 'new' | 'none';
 /**
  * Verified decryption shares, at most one per (seat, position): the first valid share is kept, so a seat that
  * publishes the same position twice (fresh proof randomness, same `D`) is counted once (PROTOCOL §5.4, D025).
- * Callers verify a share before adding it.
+ * Callers verify a share before adding it. The key is the position number, including a later epoch's
+ * `128 * k + i`. Those numbers are never reused, so two epochs cannot alias one slot.
  */
 export class ShareStore {
   private readonly seats: number;

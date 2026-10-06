@@ -1337,7 +1337,15 @@ export class GameController {
     const { rnd, now } = this.#d;
     if (kind === 'shuffle') {
       const slot = moveSlot(head.seq + 1, head.id);
-      return this.#commit(slot, this.#reusable(slot, head.id) ?? session.buildShuffle(rnd, now()));
+      const saved = this.#reusable(slot, head.id);
+      if (saved !== null) return this.#commit(slot, saved);
+      const view = session.view();
+      // A play-phase shuffle is an epoch. The opening shuffle stays `buildShuffle` (D060).
+      const event =
+        view.phase === 'play' && view.pending.type === 'shuffle'
+          ? session.buildEpoch(rnd, now())
+          : session.buildShuffle(rnd, now());
+      return this.#commit(slot, event);
     }
     if (kind === 'beacon') {
       // A public roll's share is a move on this head. Reusing the saved one is what keeps the seat from signing

@@ -90,8 +90,8 @@ import type {
  * one that reaches `over`, with ties going to the lowest event id. A late rival on an old prev that no other seat
  * played on is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
- * steps by the step's seat on the chain's prev, proofs or not (Ruling 12). Play goes on, and at the end the
- * flagged seats move to the last places (R5).
+ * steps, or two epoch steps, by that seat on the chain's prev, proofs or not (Ruling 12, D060). Play goes on,
+ * and at the end the flagged seats move to the last places (R5).
  *
  * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
  * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
@@ -160,6 +160,12 @@ const MAX_ACK_DEPTH = 32;
 
 /** Audits kept by log hash, so a trial fold that relinks the same finished chain does not run it again. */
 const MAX_AUDITS = 8;
+
+/**
+ * Epoch positions are `128 * k + i` (D060). Hardcoded so this package does not import a game. Opening positions
+ * stay below the deck size, which is at most 108, so the ranges do not meet.
+ */
+const EPOCH_STRIDE = 128;
 
 /**
  * A fork's best side branch, found by trial: its moves (lowest-id first among equals), whether it ends the game, and
@@ -343,7 +349,16 @@ export class GameSession {
   private readonly linked = new Set<Hex>();
   /** `decks[k]` is the deck after `k` shuffle steps; `decks[0]` is the initial deck. */
   private readonly decks: Ciphertext[][];
-  /** Shuffle proofs already checked, by event id, so each is verified once per session. */
+  /**
+   * Completed epoch outputs, keyed by epoch number (D060). Rebuilt from the chain. Positions `128 * k + i` read
+   * this map. The opening deck stays in `decks` and is never replaced.
+   */
+  private readonly epochDecks = new Map<number, readonly Ciphertext[]>();
+  /** The next seat of the epoch in progress, or 0 when none is. Rebuilt from the chain. */
+  private epochStep = 0;
+  /** The previous seat's output of the epoch in progress, or null before its first step. */
+  private epochPartial: readonly Ciphertext[] | null = null;
+  /** Shuffle and epoch proofs already checked, by event id, so each is verified once per session. */
   private readonly shuffleChecked = new Map<Hex, boolean>();
   /** The module state (frozen), set up in view mode once the shuffle is complete. */
   private state: unknown = null;
@@ -702,7 +717,7 @@ export class GameSession {
     }
     group.set(m.id, { m, seat });
     if (group.size >= 2) this.rivalKeys.add(key);
-    if (m.content.type === 'shuffle' && group.size === MAX_SHUFFLE_CANDIDATES + 1) this.shuffleVersion++;
+    if (this.shuffleLike(m) && group.size === MAX_SHUFFLE_CANDIDATES + 1) this.shuffleVersion++;
     this.candidateById.set(m.id, { m, seat });
     let kids = this.kidsOf.get(m.prevId);
     if (kids === undefined) {
@@ -725,8 +740,7 @@ export class GameSession {
     const ups: { id: Hex; seat: number; d: number }[] = [];
     let at: Candidate | undefined = { m, seat };
     for (let d = 0; at !== undefined && d <= MAX_ACK_DEPTH; d++) {
-      if (at.m.content.type === 'shuffle' && !this.acked.has(at.m.id))
-        ups.push({ id: at.m.id, seat: at.seat, d });
+      if (this.shuffleLike(at.m) && !this.acked.has(at.m.id)) ups.push({ id: at.m.id, seat: at.seat, d });
       at = this.candidateById.get(at.m.prevId);
     }
     if (ups.length === 0) return;
@@ -757,12 +771,17 @@ export class GameSession {
     }
   }
 
+  /** An opening shuffle step or an epoch step: both are capped, acknowledged and cut the same way (D060). */
+  private shuffleLike(m: ParsedMove): boolean {
+    return m.content.type === 'shuffle' || m.content.type === 'epoch';
+  }
+
   /**
-   * Whether well-formed move `m` is a fork-choice candidate (D030 Ruling 12): any game action; a shuffle step in
-   * a `prev:seq:seat` group of at most `MAX_SHUFFLE_CANDIDATES` held steps; or an acknowledged one.
+   * Whether well-formed move `m` is a fork-choice candidate (D030 Ruling 12): any game action; a shuffle or epoch
+   * step in a `prev:seq:seat` group of at most `MAX_SHUFFLE_CANDIDATES` held steps; or an acknowledged one.
    */
   private shuffleEligible(m: ParsedMove): boolean {
-    if (m.content.type !== 'shuffle') return true;
+    if (!this.shuffleLike(m)) return true;
     if (this.acked.has(m.id)) return true;
     const group = this.candidates.get(`${m.prevId}:${m.seq}:${this.seatOf.get(m.pubkey) as number}`);
     return (group?.size ?? 0) <= MAX_SHUFFLE_CANDIDATES;
@@ -791,7 +810,7 @@ export class GameSession {
         const r = this.rejectEvent(m.id, v.reject);
         // A shuffle step flags its seat whatever its proof, and an acknowledgement changes the candidates: judge
         // the chain, the side moves and the flags again.
-        if (m.content.type === 'shuffle' || this.shuffleVersion !== version) this.settleAndDecide();
+        if (this.shuffleLike(m) || this.shuffleVersion !== version) this.settleAndDecide();
         return r;
       }
     }
@@ -817,6 +836,9 @@ export class GameSession {
       if (seat !== expectedSeat) return `shuffle step ${m.seq} must be signed by seat ${expectedSeat}`;
       if (c.deck.length !== this.partitionAt(m.seq - 1).size)
         return 'shuffle output has the wrong group size';
+    } else if (c.type === 'epoch') {
+      // Chess has no deck, so an epoch step is still "a game action" and the deckless rejection stays put.
+      if (!this.hasDeck()) return `move ${m.seq} must be a game action`;
     } else if (c.type !== 'action') {
       return `move ${m.seq} must be a game action`;
     } else if (!this.hasDeck() && (c.shares.length > 0 || c.reveals.length > 0)) {
@@ -879,7 +901,7 @@ export class GameSession {
   private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
     if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no shares');
     for (const { pos } of s.shares) {
-      if (pos >= this.deckSize) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
+      if (!this.positionLive(pos)) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
     if (this.timedOut !== null || this.resignedBy?.cancels === true) {
       // A timeout, or a resign that cancelled the game, stopped the fold.
@@ -1381,7 +1403,160 @@ export class GameSession {
       if (m.seq === this.shuffleSteps) this.startDeal();
       return 'accepted';
     }
+    if (c.type === 'epoch') return this.foldEpoch(m, seat, c);
     return this.foldAction(m, seat, c);
+  }
+
+  /**
+   * One seat's step of a play-phase epoch (D060). The seats shuffle in order, as they do at the opening. Only the
+   * last step applies `{type:'epoch'}`. It does not call `startDeal`, and it does not install a plaintext order:
+   * this session is in view mode and does not hold the other seats' secrets.
+   */
+  private foldEpoch(m: ParsedMove, seat: number, c: Extract<ParsedMove['content'], { type: 'epoch' }>): Fold {
+    if (this.phase === 'shuffle' || this.phase === 'deal') return 'wait';
+    if (this.phase !== 'play') return reject('the game is not in play');
+    const pending = this.module.pending(this.state);
+    if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
+    if (c.epoch !== pending.epoch) return reject('epoch number');
+    const progress = this.epochProgress(this.chain.length);
+    if (seat !== progress.step) return reject(`epoch step must be signed by seat ${progress.step}`);
+    const input =
+      progress.partial === null ? this.ciphertextsOf(pending.from, progress.decks) : [...progress.partial];
+    if (input === null || c.deck.length !== input.length) return reject('epoch output has the wrong size');
+    if (!this.epochProofOk(m.id, c.epoch, seat, input, c.deck, c.proof)) {
+      return reject('the shuffle proof does not verify');
+    }
+    const done = progress.step + 1 === this.seats;
+    if (!done) {
+      this.link(m);
+      this.rebuildEpochs();
+      return 'accepted';
+    }
+    const action = { type: 'epoch' as const, actor: 'deck' as const, epoch: c.epoch, size: c.deck.length };
+    const applied = this.module.apply(this.state, action);
+    if (!applied.ok) {
+      return reject(`the module rejects the action: ${applied.error.code}: ${applied.error.message}`);
+    }
+    this.link(m);
+    this.rebuildEpochs();
+    this.state = deepFreeze(applied.state);
+    this.record(applied.events);
+    this.actionLog.push({ actor: 'deck', action, seq: m.seq });
+    return 'accepted';
+  }
+
+  /**
+   * Epoch steps on `chain[0..upto)`. A completed epoch's output is the last seat's deck. A partial epoch remembers
+   * the previous output and whose step is next.
+   */
+  private epochProgress(upto: number): {
+    step: number;
+    partial: readonly Ciphertext[] | null;
+    decks: Map<number, readonly Ciphertext[]>;
+  } {
+    const decks = new Map<number, readonly Ciphertext[]>();
+    let step = 0;
+    let partial: readonly Ciphertext[] | null = null;
+    let epoch: number | null = null;
+    for (let i = 0; i < upto && i < this.chain.length; i++) {
+      const move = this.chain[i] as ParsedMove;
+      if (move.content.type !== 'epoch') continue;
+      if (epoch !== move.content.epoch) {
+        epoch = move.content.epoch;
+        step = 0;
+        partial = null;
+      }
+      partial = move.content.deck;
+      step += 1;
+      if (step === this.seats) {
+        decks.set(move.content.epoch, move.content.deck);
+        step = 0;
+        partial = null;
+        epoch = null;
+      }
+    }
+    return { step, partial, decks };
+  }
+
+  /** Copy the chain's epoch progress into the fields decrypt and duties read. */
+  private rebuildEpochs(): void {
+    const progress = this.epochProgress(this.chain.length);
+    this.epochDecks.clear();
+    for (const [epoch, deck] of progress.decks) this.epochDecks.set(epoch, deck);
+    this.epochStep = progress.step;
+    this.epochPartial = progress.partial;
+  }
+
+  /** Ciphertexts of `from`, in order, from completed epochs and the opening deck. Null when one is missing. */
+  private ciphertextsOf(
+    from: readonly { readonly deck: string; readonly pos: number }[],
+    decks: ReadonlyMap<number, readonly Ciphertext[]>,
+  ): Ciphertext[] | null {
+    const out: Ciphertext[] = [];
+    for (const entry of from) {
+      if (entry.deck !== this.deckId) return null;
+      const ct = this.ciphertextFrom(entry.pos, decks);
+      if (ct === undefined) return null;
+      out.push(ct);
+    }
+    return out;
+  }
+
+  /** The ciphertext at `pos`: an accepted epoch's output, or the opening deck below `deckSize`. */
+  private ciphertextAt(pos: number): Ciphertext | undefined {
+    return this.ciphertextFrom(pos, this.epochDecks);
+  }
+
+  private ciphertextFrom(
+    pos: number,
+    decks: ReadonlyMap<number, readonly Ciphertext[]>,
+  ): Ciphertext | undefined {
+    if (!Number.isSafeInteger(pos) || pos < 0) return undefined;
+    if (pos >= EPOCH_STRIDE) {
+      const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
+      return deck?.[pos % EPOCH_STRIDE];
+    }
+    const opening = this.finalDeck();
+    if (opening === null || pos >= opening.length) return undefined;
+    return opening[pos];
+  }
+
+  /** An accepted epoch output owns `128 * k + i`. */
+  private epochOwns(pos: number): boolean {
+    return pos >= EPOCH_STRIDE && this.ciphertextAt(pos) !== undefined;
+  }
+
+  /**
+   * A share of `pos` is for this deck: an opening position, one an accepted epoch owns, or one `dealt` already
+   * lists. A position that exists only on a rival epoch output is not live.
+   */
+  private positionLive(pos: number): boolean {
+    if (!Number.isSafeInteger(pos) || pos < 0) return false;
+    if (this.hasDeck() && pos < this.deckSize) return true;
+    if (this.epochOwns(pos)) return true;
+    if (this.state === null || this.phase === 'shuffle') return false;
+    return this.module.dealt(this.state).some((d) => d.deck === this.deckId && d.pos === pos);
+  }
+
+  /** Verify one epoch step once. The cache is the same map opening shuffles use, so `trust` covers both. */
+  private epochProofOk(
+    id: Hex,
+    epoch: number,
+    seat: number,
+    input: readonly Ciphertext[],
+    output: readonly Ciphertext[],
+    proof: Extract<ParsedMove['content'], { type: 'epoch' }>['proof'],
+  ): boolean {
+    const cached = this.shuffleChecked.get(id);
+    if (cached !== undefined) return cached;
+    this.shuffleVerifications++;
+    const ok = verifyShuffle(input, output, this.X, proof, {
+      rootId: this.root.id,
+      seat,
+      deckId: `pile.${epoch}`,
+    });
+    this.shuffleChecked.set(id, ok);
+    return ok;
   }
 
   /**
@@ -1446,21 +1621,43 @@ export class GameSession {
     if (claims.some((l) => l.deck !== this.deckId) || canonicalJson(claimed) !== canonicalJson(shown)) {
       return reject('the reveals do not match the positions the action shows');
     }
-    const deck = this.finalDeck() as Ciphertext[];
     let missingShares = false;
     for (const claim of claims) {
       if (!this.shares.covered(claim.pos, seat)) {
         missingShares = true;
         continue;
       }
+      const ct = this.ciphertextAt(claim.pos);
+      if (ct === undefined) return reject(`the reveal of position ${claim.pos} is outside the deck`);
       const slots = this.shares.slots(claim.pos, seat);
       slots[seat] = (c.reveals.find((x) => x.pos === claim.pos) as PosShare).share;
       const ctx = this.shareCtx(claim.pos);
-      const card = decryptPosition(deck[claim.pos] as Ciphertext, ctx, this.keys, slots, this.cards);
+      const card = decryptPosition(ct, ctx, this.keys, slots, this.cards);
       if (card !== claim.card) return reject(`the reveal of position ${claim.pos} is not the claimed card`);
     }
     if (missingShares) return 'wait';
+    const omitted = this.childDealPositions(state, r.state, seat).filter(
+      (pos) => !c.shares.some((share) => share.pos === pos) && !this.shares.has(seat, pos),
+    );
+    if (omitted.length > 0) return reject('the move omits a share for a card it deals');
     return { next: r.state, events: r.events };
+  }
+
+  /**
+   * Positions Holler dealt inside `action` that `seat` does not own, and whose ciphertext already exists.
+   * Other games keep the parent-`dealt` rule, so this is empty for them (D060).
+   */
+  private childDealPositions(before: unknown, after: unknown, seat: number): number[] {
+    if (this.module.id !== 'holler') return [];
+    const had = new Set(this.module.dealt(before).map((d) => d.pos));
+    const out: number[] = [];
+    for (const dealt of this.module.dealt(after)) {
+      if (dealt.deck !== this.deckId || dealt.to === seat || had.has(dealt.pos)) continue;
+      if (this.ciphertextAt(dealt.pos) === undefined) continue;
+      out.push(dealt.pos);
+    }
+    out.sort((a, b) => a - b);
+    return out;
   }
 
   /**
@@ -1475,12 +1672,14 @@ export class GameSession {
   ): string | null {
     const cached = this.actionChecked.get(id);
     if (cached !== undefined) return cached;
-    const deck = this.finalDeck() as Ciphertext[];
     const key = this.keys[seat] as Point;
     const check = (list: readonly PosShare[], what: string): string | null => {
       for (const { pos, share } of list) {
-        if (pos >= this.deckSize) return `the ${what} for position ${pos} is outside the deck`;
-        if (!verifyShare(key, deck[pos] as Ciphertext, share, this.shareCtx(pos))) {
+        const ct = this.ciphertextAt(pos);
+        if (!this.positionLive(pos) || ct === undefined) {
+          return `the ${what} for position ${pos} is outside the deck`;
+        }
+        if (!verifyShare(key, ct, share, this.shareCtx(pos))) {
           return `the ${what} for position ${pos} does not verify`;
         }
       }
@@ -1579,9 +1778,13 @@ export class GameSession {
     return this.decks.length > this.shuffleSteps ? (this.decks[this.shuffleSteps] as Ciphertext[]) : null;
   }
 
-  /** Only called in a game with a deck. */
+  /**
+   * Opening positions stay on the module deck id. An epoch position is bound to `pile.<k>` so a share of one
+   * epoch does not verify against another (D060). The store still keys by position alone.
+   */
   private shareCtx(pos: number): ShareCtx {
-    return { rootId: this.root.id, deckId: this.deckId as string, pos };
+    const deckId = pos < this.deckSize ? (this.deckId as string) : `pile.${Math.floor(pos / EPOCH_STRIDE)}`;
+    return { rootId: this.root.id, deckId, pos };
   }
 
   /**
@@ -1590,11 +1793,12 @@ export class GameSession {
    * `sharesVersion`: an earlier-seen copy of a kept share moves P back but cannot let a move link.
    */
   private foldShares(s: ParsedShares, seat: number): Fold | 'nothing-new' {
-    const deck = this.finalDeck();
-    if (deck === null) return 'wait';
+    if (this.finalDeck() === null) return 'wait';
     const key = this.keys[seat] as Point;
     for (const { pos, share } of s.shares) {
-      if (!verifyShare(key, deck[pos] as Ciphertext, share, this.shareCtx(pos))) {
+      const ct = this.ciphertextAt(pos);
+      if (ct === undefined) return 'wait';
+      if (!verifyShare(key, ct, share, this.shareCtx(pos))) {
         return reject(`the share for position ${pos} does not verify`);
       }
     }
@@ -1671,6 +1875,7 @@ export class GameSession {
       seats: this.seats,
       deckId: this.deckId,
       deck: this.finalDeck() ?? [],
+      epochs: this.epochLists(),
       secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log,
@@ -1691,9 +1896,9 @@ export class GameSession {
    * moves stay pooled, and the step links again if it is acknowledged later.
    */
   private cutIneligible(): boolean {
-    const top = Math.min(this.shuffleSteps, this.chain.length);
-    for (let j = 0; j < top; j++) {
-      if (this.shuffleEligible(this.chain[j] as ParsedMove)) continue;
+    for (let j = 0; j < this.chain.length; j++) {
+      const move = this.chain[j] as ParsedMove;
+      if (!this.shuffleLike(move) || this.shuffleEligible(move)) continue;
       this.truncate(j);
       this.quiesce();
       return true;
@@ -2072,6 +2277,7 @@ export class GameSession {
     this.learned.clear();
     for (const pos of snap.learned) this.learned.add(pos);
     this.shares = new ShareStore(this.seats);
+    this.rebuildEpochs();
     if (!this.hasDeck()) {
       // A trial that keeps the roll move must still find the roller's share on it (D058). Chess carries none.
       if (this.usesBeacon()) this.replayActionShares();
@@ -2113,9 +2319,10 @@ export class GameSession {
    * ascending:
    * - shuffle steps (D030 Ruling 12): any two, proofs unchecked. Only the step's seat could sign both, and an honest
    *   client never signs twice;
+   * - epoch steps (D060): the same, and not part of the opening-deal stall;
    * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
    *   never counts.
-   * With `shuffleOnly`, only the shuffle equivocators (the deal's stall attribution, D056).
+   * With `shuffleOnly`, only the opening shuffle equivocators (the deal's stall attribution, D056).
    */
   private equivocators(shuffleOnly = false): number[] {
     const out = new Set<number>();
@@ -2128,9 +2335,45 @@ export class GameSession {
       if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
       if (first.content.type === 'shuffle') out.add(seat);
       else if (shuffleOnly) continue;
+      else if (first.content.type === 'epoch') out.add(seat);
       else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
     return ascending(out);
+  }
+
+  /** Epoch forks on the chain for `epoch`, or every epoch fork when `epoch` is null. */
+  private epochForkers(epoch: number | null): number[] {
+    const out = new Set<number>();
+    for (const key of this.rivalKeys) {
+      const group = this.candidates.get(key);
+      const first = group === undefined ? undefined : [...group.values()][0]?.m;
+      if (first === undefined || first.content.type !== 'epoch') continue;
+      if (epoch !== null && first.content.epoch !== epoch) continue;
+      const at = first.seq - 1;
+      if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
+      out.add(this.seatOf.get(first.pubkey) as number);
+    }
+    return ascending(out);
+  }
+
+  /**
+   * A Shares event of an epoch position that failed against the accepted output (D060). That seat already granted
+   * on a rival output and must not grant again.
+   */
+  private epochGrantedElsewhere(seat: number): boolean {
+    for (const shares of this.badShares.values()) {
+      if (this.seatOf.get(shares.pubkey) !== seat) continue;
+      if (shares.shares.some((share) => share.pos >= this.deckSize)) return true;
+    }
+    return false;
+  }
+
+  /** Completed epoch outputs, epoch 1 first. Holes stay empty so a missing epoch fails the audit. */
+  private epochLists(): Ciphertext[][] {
+    const out: Ciphertext[][] = [];
+    for (let epoch = 1; epoch <= this.latestEpoch(); epoch++)
+      out.push([...(this.epochDecks.get(epoch) ?? [])]);
+    return out;
   }
 
   /**
@@ -2175,9 +2418,31 @@ export class GameSession {
       at === this.chain.length ? { phase: this.phase, state: this.state } : (this.snapshots[at] as Snapshot);
     if (snap.phase === 'shuffle' || snap.phase === 'deal') return 'unknown';
     if (snap.phase !== 'play') return reject('the game is not in play');
+    if (c.type === 'epoch') return this.judgeEpoch(m, seat, c, at, snap.state);
     const r = this.checkAction(snap.state, m, seat, c);
     if (r === 'wait') return 'unknown';
     return 'next' in r ? 'valid' : r;
+  }
+
+  /** An epoch step judged against the chain prefix `at`, not the live head (D060). */
+  private judgeEpoch(
+    m: ParsedMove,
+    seat: number,
+    c: Extract<ParsedMove['content'], { type: 'epoch' }>,
+    at: number,
+    state: unknown,
+  ): Judged {
+    const pending = this.module.pending(state);
+    if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
+    if (c.epoch !== pending.epoch) return reject('epoch number');
+    const progress = this.epochProgress(at);
+    if (seat !== progress.step) return reject(`epoch step must be signed by seat ${progress.step}`);
+    const input =
+      progress.partial === null ? this.ciphertextsOf(pending.from, progress.decks) : [...progress.partial];
+    if (input === null || c.deck.length !== input.length) return reject('epoch output has the wrong size');
+    return this.epochProofOk(m.id, c.epoch, seat, input, c.deck, c.proof)
+      ? 'valid'
+      : reject('the shuffle proof does not verify');
   }
 
   /* -------------------------------------------------------------------------------------- phase steps */
@@ -2189,6 +2454,7 @@ export class GameSession {
       this.phase = 'play';
       progressed = true;
     }
+    if (this.phase === 'play' && this.grantReady()) progressed = true;
     if (this.phase === 'play' && this.revealPublic()) progressed = true;
     if (this.phase === 'play' && this.deriveBeacon()) progressed = true;
     if (this.phase === 'play' && this.module.pending(this.state).type === 'over') {
@@ -2231,6 +2497,7 @@ export class GameSession {
       seats: this.seats,
       deckId: this.deckId,
       deck: this.finalDeck() ?? [],
+      epochs: this.epochLists(),
       secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log: this.actionLog,
@@ -2246,11 +2513,29 @@ export class GameSession {
   }
 
   /**
+   * Once every seat has shared the positions a Holler epoch just dealt, apply `{type:'granted'}` so the starter
+   * can be revealed. Other games never pend `grant`.
+   */
+  private grantReady(): boolean {
+    if (this.module.id !== 'holler') return false;
+    if (this.module.pending(this.state).type !== 'grant') return false;
+    for (let seat = 0; seat < this.seats; seat++) {
+      if (this.epochGrantedElsewhere(seat) || this.playSharesDue(seat).length > 0) return false;
+    }
+    const action = { type: 'granted' as const, actor: 'deck' as const };
+    const applied = this.module.apply(this.state, action);
+    if (!applied.ok) return false;
+    this.state = deepFreeze(applied.state);
+    this.record(applied.events);
+    this.actionLog.push({ actor: 'deck', action, seq: this.chain.length });
+    return true;
+  }
+
+  /**
    * Derived reveals (PROTOCOL §6.3): while the module pends a public reveal and every listed position has all S
    * shares, apply `{type: 'reveal', actor: 'deck', …}` for each listed position in ascending order.
    */
   private revealPublic(): boolean {
-    const deck = this.finalDeck() as Ciphertext[];
     let progressed = false;
     for (;;) {
       const p = this.module.pending(this.state);
@@ -2258,14 +2543,10 @@ export class GameSession {
       const positions = [...p.positions].sort((a, b) => a - b);
       if (!positions.every((pos) => this.shares.covered(pos))) return progressed;
       for (const pos of positions) {
+        const ct = this.ciphertextAt(pos);
+        if (ct === undefined) return progressed;
         const ctx = this.shareCtx(pos);
-        const card = decryptPosition(
-          deck[pos] as Ciphertext,
-          ctx,
-          this.keys,
-          this.shares.slots(pos),
-          this.cards,
-        );
+        const card = decryptPosition(ct, ctx, this.keys, this.shares.slots(pos), this.cards);
         // With verified shuffles and shares every position decrypts to a card the module accepts; stop otherwise.
         if (card === null) return progressed;
         const action: RevealAction = { type: 'reveal', actor: 'deck', deck: this.deckId, pos, card };
@@ -2315,14 +2596,15 @@ export class GameSession {
    */
   private learnPrivate(): boolean {
     const me = this.me;
-    const deck = this.finalDeck();
-    if (me === null || deck === null || this.phase === 'shuffle' || this.phase === 'deal') return false;
+    if (me === null || this.finalDeck() === null || this.phase === 'shuffle' || this.phase === 'deal')
+      return false;
     let progressed = false;
     for (const d of this.module.dealt(this.state)) {
       if (d.to !== me.seat || d.deck !== this.deckId || this.learned.has(d.pos)) continue;
       if (!this.shares.covered(d.pos, me.seat)) continue;
+      const ct = this.ciphertextAt(d.pos);
+      if (ct === undefined) continue;
       this.learned.add(d.pos);
-      const ct = deck[d.pos] as Ciphertext;
       const own = { seat: me.seat, D: ownShare(me.deckSecret, ct) };
       const slots = this.shares.slots(d.pos, me.seat);
       const card = decryptPosition(ct, this.shareCtx(d.pos), this.keys, slots, this.cards, own);
@@ -2420,7 +2702,17 @@ export class GameSession {
    */
   private stalledInPlay(all: readonly number[]): number[] {
     const p = this.module.pending(this.state);
+    if (this.module.id === 'holler' && p.type === 'shuffle') {
+      const forkers = this.epochForkers(p.epoch);
+      return forkers.length > 0 ? forkers : [this.epochStep];
+    }
+    if (this.module.id === 'holler' && p.type === 'grant') {
+      const forkers = this.epochForkers(this.latestEpoch());
+      if (forkers.length > 0) return forkers;
+      return all.filter((seat) => this.playSharesDue(seat).length > 0);
+    }
     if (p.type === 'reveal') {
+      if (this.module.id === 'holler') return all.filter((seat) => this.playSharesDue(seat).length > 0);
       return all.filter((k) => p.positions.some((pos) => !this.shares.has(k, pos)));
     }
     if (p.type !== 'player') return [];
@@ -2674,8 +2966,14 @@ export class GameSession {
     ) {
       return [{ kind: 'deal' }];
     }
+    if (live && this.phase === 'play' && this.hollerShuffleDue(me.seat)) return [{ kind: 'shuffle' }];
     if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
       const positions = this.sharesDue(me.seat);
+      if (positions.length > 0) return [{ kind: 'share', positions }];
+    }
+    // Holler collects a post-deal reveal or the next round's grant without promptShares (D060).
+    if (live && this.phase === 'play' && this.module.id === 'holler') {
+      const positions = this.playSharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
     }
     // A public dice roll is the same for every seat (D058). The open app publishes this seat's share. Card
@@ -2776,16 +3074,65 @@ export class GameSession {
   }
 
   /**
+   * This seat's step of a play-phase epoch. The proof is under `pile.<epoch>`, over the pending pile or the
+   * previous seat's output. Build it once: a second step on the same prev is equivocation.
+   */
+  buildEpoch(rnd: RandomBytes, createdAt: number): NostrEvent {
+    const me = this.requireDuty('shuffle');
+    if (!this.hollerShuffleDue(me.seat)) throw new ClientError('no epoch is due from this seat');
+    const pending = this.module.pending(this.state);
+    if (pending.type !== 'shuffle') throw new ClientError('no epoch is due from this seat');
+    const input =
+      this.epochPartial === null ? this.ciphertextsOf(pending.from, this.epochDecks) : [...this.epochPartial];
+    if (input === null || input.length === 0) throw new ClientError('an epoch ciphertext is missing');
+    const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
+    const proof = proveShuffle(
+      input,
+      out,
+      this.X,
+      psi,
+      rPrime,
+      { rootId: this.root.id, seat: me.seat, deckId: `pile.${pending.epoch}` },
+      rnd,
+    );
+    const ev = finalizeEvent(
+      moveTemplate(
+        {
+          rootId: this.root.id,
+          prevId: this.headId(),
+          seq: this.chain.length + 1,
+          content: { type: 'epoch', epoch: pending.epoch, deck: out, proof },
+        },
+        createdAt,
+      ),
+      me.sessionSk,
+      rnd,
+    );
+    this.shuffleChecked.set(ev.id, true);
+    return ev;
+  }
+
+  /**
+   * Holler is in play and this seat owes the next epoch step. An epoch fork stalls the equivocator (D060);
+   * the next shuffler does not build on it.
+   */
+  private hollerShuffleDue(seat: number): boolean {
+    if (this.module.id !== 'holler' || this.phase !== 'play') return false;
+    const pending = this.module.pending(this.state);
+    if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return false;
+    if (this.epochForkers(pending.epoch).length > 0) return false;
+    return this.epochStep === seat;
+  }
+
+  /**
    * This seat's deal: one Shares event with a share for every position the deal assigns to another seat or to
    * nobody, that this seat has not shared yet, sorted by position. Build it once and re-send that event.
    */
   buildDeal(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('deal');
-    const deck = this.finalDeck() as Ciphertext[];
-    const shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map((pos) => ({
-      pos,
-      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
-    }));
+    const shares = this.shares
+      .missing(me.seat, this.module.dealt(this.state))
+      .map((pos) => this.shareOf(me, pos, rnd));
     return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
   }
 
@@ -2806,15 +3153,40 @@ export class GameSession {
       .sort((a, b) => a - b);
   }
 
+  /**
+   * Shares for a reveal or a grant that is not gated on `promptShares`. Empty except for Holler. A reveal lists
+   * every position this seat has not shared, owner included. A grant lists the positions owed to someone else.
+   */
+  private playSharesDue(seat: number): number[] {
+    if (!this.hasDeck() || this.module.id !== 'holler' || this.epochGrantedElsewhere(seat)) return [];
+    const pending = this.module.pending(this.state);
+    if (pending.type === 'reveal') {
+      return [...pending.positions].filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
+    }
+    if (pending.type === 'grant') return this.shares.missing(seat, this.module.dealt(this.state));
+    return [];
+  }
+
+  /** The highest completed epoch, or 0 before the first. */
+  private latestEpoch(): number {
+    let last = 0;
+    for (const epoch of this.epochDecks.keys()) if (epoch > last) last = epoch;
+    return last;
+  }
+
   /** Share newly assigned positions after setup, in the existing Shares wire format. */
   buildShares(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('share');
-    const deck = this.finalDeck() as Ciphertext[];
-    const shares = this.sharesDue(me.seat).map((pos) => ({
-      pos,
-      share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
-    }));
+    const positions = this.module.id === 'holler' ? this.playSharesDue(me.seat) : this.sharesDue(me.seat);
+    const shares = positions.map((pos) => this.shareOf(me, pos, rnd));
     return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
+  }
+
+  /** One decryption share of `pos` against the ciphertext that position holds now. */
+  private shareOf(me: Identity, pos: number, rnd: RandomBytes): PosShare {
+    const ct = this.ciphertextAt(pos);
+    if (ct === undefined) throw new ClientError(`position ${pos} has no ciphertext`);
+    return { pos, share: makeShare(me.deckSecret, ct, this.shareCtx(pos), rnd) };
   }
 
   /**
@@ -2860,14 +3232,20 @@ export class GameSession {
           ? []
           : [{ pos: rollId, share: makeRollShare(me.deckSecret, this.root.id, rollId, rnd) }];
     } else {
-      const deck = this.finalDeck() as Ciphertext[];
-      const share = (pos: number): PosShare => ({
-        pos,
-        share: makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd),
-      });
-      shares = this.shares.missing(me.seat, this.module.dealt(this.state)).map(share);
+      shares = this.shares
+        .missing(me.seat, this.module.dealt(this.state))
+        .map((pos) => this.shareOf(me, pos, rnd));
+      if (this.module.id === 'holler') {
+        const preview = this.module.apply(this.state, legal);
+        if (preview.ok) {
+          for (const pos of this.childDealPositions(this.state, preview.state, me.seat)) {
+            if (!shares.some((share) => share.pos === pos)) shares.push(this.shareOf(me, pos, rnd));
+          }
+          shares.sort((a, b) => a.pos - b.pos);
+        }
+      }
       const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
-      reveals = shown.sort((a, b) => a - b).map(share);
+      reveals = shown.sort((a, b) => a - b).map((pos) => this.shareOf(me, pos, rnd));
     }
     const t = moveTemplate(
       {

@@ -105,6 +105,9 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../games/chess
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../games/holler
 
   packages/deck:
     dependencies:

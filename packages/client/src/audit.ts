@@ -29,8 +29,13 @@ export interface AuditInput {
   deck: readonly Ciphertext[];
   /** Every seat's deck secret `x_k`, in seat order, each already checked against `X_k`; unused when deckless. */
   secrets: readonly bigint[];
-  /** Card points to card indices for the deck (`cardTable`). */
+  /** Card points to card indices for the deck (`cardTable`). Epoch outputs use the same points. */
   cards: ReadonlyMap<string, number>;
+  /**
+   * Completed epoch outputs, epoch 1 first (D060). Omit it on a log that never reshuffles. A hole is an empty
+   * list, and a missing or short list fails every seat.
+   */
+  epochs?: readonly (readonly Ciphertext[])[];
   /** The session's interleaved action log. */
   log: readonly LoggedAction[];
   /** The outcome the session's own (view-mode) state declares. */
@@ -54,9 +59,45 @@ const everyone = (seats: number, reason: string): Audit => ({
 /** Everything the audit reads but the declared outcome: what a partial audit (`auditPrefix`) gets. */
 export type PrefixInput = Omit<AuditInput, 'outcome'>;
 
+function epochFields(action: unknown): { epoch: number; size: number } | null {
+  if (typeof action !== 'object' || action === null) return null;
+  const raw = action as { type?: unknown; epoch?: unknown; size?: unknown };
+  if (raw.type !== 'epoch' || typeof raw.epoch !== 'number' || typeof raw.size !== 'number') return null;
+  return { epoch: raw.epoch, size: raw.size };
+}
+
+/**
+ * Decrypt one epoch output and store it with `installDeckOrder` before the public epoch action is applied.
+ * The order stays out of the action (D060).
+ */
+function installEpoch(
+  input: PrefixInput,
+  state: unknown,
+  seq: number,
+  epoch: number,
+  size: number,
+): { state: unknown } | { fail: Audit } {
+  const list = input.epochs?.[epoch - 1];
+  const fail = (why: string): { fail: Audit } => ({
+    fail: everyone(input.seats, `the derived epoch after move ${seq} fails: ${why}`),
+  });
+  if (list === undefined || list.length !== size) return fail('the epoch output is missing');
+  const order: number[] = [];
+  for (const [i, ct] of list.entries()) {
+    const card = cardOf(input.cards, decryptWithSecrets(ct, input.secrets));
+    if (card === null) return fail(`epoch position ${i} decrypts to no card`);
+    order.push(card);
+  }
+  const install = input.module.installDeckOrder;
+  if (install === undefined) return fail('the module has no epoch order');
+  const installed = install(state, epoch, order);
+  if (!installed.ok) return fail(`${installed.error.code}: ${installed.error.message}`);
+  return { state: installed.state };
+}
+
 /**
  * Decrypt the deck, set the module up in full mode and replay the log (PROTOCOL §7 steps 2–3): the full-mode state
- * after the last entry, or the verdict of the first failure.
+ * after the last entry, or the verdict of the first failure. An epoch action installs its decrypted order first.
  */
 function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
   const { module, seats } = input;
@@ -75,12 +116,20 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
     return { fail: everyone(seats, `full-mode setup fails: ${init.error.code}: ${init.error.message}`) };
   let state = init.value;
   for (const entry of input.log) {
+    const epoch = epochFields(entry.action);
+    if (epoch !== null) {
+      const installed = installEpoch(input, state, entry.seq, epoch.epoch, epoch.size);
+      if ('fail' in installed) return installed;
+      state = installed.state;
+    }
     const r = module.apply(state, entry.action);
     if (r.ok) {
       state = r.state;
       continue;
     }
     const why = `${r.error.code}: ${r.error.message}`;
+    if (epoch !== null)
+      return { fail: everyone(seats, `the derived epoch after move ${entry.seq} fails: ${why}`) };
     if (entry.actor === 'deck')
       return { fail: everyone(seats, `the derived reveal after move ${entry.seq} fails: ${why}`) };
     if (entry.actor === 'beacon')
