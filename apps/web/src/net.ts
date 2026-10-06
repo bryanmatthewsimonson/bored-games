@@ -6,6 +6,7 @@
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
+import { driftwrights } from '@bored-games/driftwrights';
 import type { GameModule } from '@bored-games/game-kit';
 import { luster } from '@bored-games/luster';
 import type { NostrEvent } from '@bored-games/protocol';
@@ -16,6 +17,7 @@ import {
   RelayPool,
   type SubscribeOptions,
 } from '@bored-games/relay';
+import { rightOfWay } from '@bored-games/right-of-way';
 import { effect } from '@preact/signals';
 import type { Timers } from './clock.ts';
 import type { Signer } from './identity.ts';
@@ -34,6 +36,8 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [chess.id, chess],
   [bank.id, bank],
   [luster.id, luster],
+  [rightOfWay.id, rightOfWay],
+  [driftwrights.id, driftwrights],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

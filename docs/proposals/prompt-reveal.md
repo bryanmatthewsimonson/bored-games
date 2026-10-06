@@ -433,7 +433,7 @@ Every run complete unless marked; **no exposure, no honest forfeit, no rating ga
 | Two devices, 2 seats, a claim, a resign, a deadline, a stale outbox with the outbox rule (B5c's scope; resigns at the named head) | 1,926,903 (single: 748,236 / 1,178,667; 2 runs, 2 min) | claim-race, post-end | – |
 
 ## 7. Sealed shares (K5)
-Reference implementation: `packages/deck/src/sealed.ts`, codecs in `wire.ts`, tests in `test/sealed.test.ts`, vectors in `test/vectors/sealed-v1.json` (`test/sealed-vectors.test.ts`). **Unused by gameplay** until the owner approves; nothing in `packages/client` or `packages/protocol` imports it.
+Reference implementation: `packages/deck/src/sealed.ts`, codecs in `wire.ts`, tests in `test/sealed.test.ts`, vectors in `test/vectors/sealed-v1.json` (`test/sealed-vectors.test.ts`). **Unused as a prompt reveal** until the owner approves. Since D066 the session uses it for one narrower purpose: a re-dealt private position's first holder seals its share to each later holder (Right of Way's returned charters; PROTOCOL §4.10).
 
 ### 7.1 Construction
 Seat k (secret `x_k`, key `X_k = x_k·G`) seals its decryption share of position j (ciphertext `(R, S)`) to seat T (key `X_T`):

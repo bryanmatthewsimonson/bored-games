@@ -131,6 +131,7 @@ function line(r: Result): string {
     `forfeits ${g.forfeits.join(',') || '-'}`,
     `actions ${g.actions}`,
     `events ${g.events}`,
+    `sealed ${g.kinds[7458] ?? 0}`,
     `rounds ${g.rounds}`,
     `sim ${days(g.duration)}`,
     `claims ${g.claims}`,

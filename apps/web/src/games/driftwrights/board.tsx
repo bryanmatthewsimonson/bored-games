@@ -50,6 +50,7 @@ export function actionLabel(a: Action): string {
       hearth: 'Build hearth',
       hub: 'Upgrade hub',
       link: 'Build sky link',
+      'requisition-payment': 'Transfer requisitioned supplies',
     } as const
   )[a.type];
 }
@@ -313,7 +314,7 @@ export function DriftwrightsBoard(props: BoardProps) {
               (s.span === i ? 2 : 0) +
               (s.watch === i ? 2 : 0);
             return (
-              <article key={i} class="drift-player" style={{ borderLeftColor: color(i) }}>
+              <article key={i} class="drift-player" data-seat={i} style={{ borderLeftColor: color(i) }}>
                 <strong>
                   {names[i] ?? `Player ${i + 1}`}
                   {i === s.turn ? ' · active' : ''}
@@ -337,7 +338,7 @@ export function DriftwrightsBoard(props: BoardProps) {
         </aside>
       </div>
       {mine?.goods && (
-        <section class="drift-hand" data-testid="drift-hand">
+        <section class="drift-hand" data-testid="drift-hand" data-goods={mine.goods.join(',')}>
           <h3>Your supplies</h3>
           <GoodsList goods={mine.goods} />
           <h3>Your ventures</h3>

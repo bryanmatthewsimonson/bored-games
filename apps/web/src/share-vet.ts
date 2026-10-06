@@ -4,7 +4,8 @@
  * verifies on the winning branch: its position may be undrawn there, or drawn by this very seat as a private card,
  * and publishing it then would hand out this seat's own layer. The owner never releases its own private layer.
  */
-import { type NostrEvent, parseShares } from '@bored-games/protocol';
+import { sealedOwed, sealedPositions } from '@bored-games/client';
+import { type NostrEvent, parseSealed, parseShares } from '@bored-games/protocol';
 
 /** The positions a Shares event carries, ascending, or null when it is not a well-formed Shares event. */
 export function sharePositions(ev: NostrEvent): number[] | null {
@@ -37,15 +38,65 @@ export interface ShareVetInput {
   sentElsewhere: (pos: number) => boolean;
 }
 
-/** Why a saved Shares event would reveal this seat's own private card, or null when it would not. */
+/**
+ * Why a saved Shares event would reveal a private card of this seat's, or null when it would not: a position dealt
+ * to this seat whose latest assignment is still private (a card it holds, or a card it first held and passed on,
+ * D066). A position later dealt to the public (a card shown at the end) is shared by everyone, its holders too.
+ */
 export function ownCardReason(
   positions: readonly number[],
   mySeat: number | null,
   dealt: readonly DealtLike[],
 ) {
   if (mySeat === null) return null;
-  const mine = new Set(dealt.filter((d) => d.to === mySeat).map((d) => d.pos));
+  const latest = new Map<number, number | null>();
+  for (const d of dealt) latest.set(d.pos, d.to);
+  const mine = new Set(dealt.filter((d) => d.to === mySeat && latest.get(d.pos) !== null).map((d) => d.pos));
   return positions.some((pos) => mine.has(pos)) ? 'it would reveal your own private card' : null;
+}
+
+/** The (position, recipient) pairs a Sealed event carries, or null when it is not a well-formed Sealed event. */
+export function sealedItems(ev: NostrEvent): { pos: number; to: number }[] | null {
+  try {
+    return parseSealed(ev).sealed.map((x) => ({ pos: x.pos, to: x.to }));
+  } catch {
+    return null;
+  }
+}
+
+export interface SealVetInput {
+  items: readonly { pos: number; to: number }[];
+  mySeat: number | null;
+  dealt: readonly (DealtLike & { deck?: string })[];
+  /** The sealed shares this seat owes now (the session's `seal` duty), or null once the event is folded in. */
+  owed: readonly { pos: number; to: number }[] | null;
+  /** Whether the relays sent another Sealed event of this seat carrying that pair (another device's). */
+  sentElsewhere: (pos: number, to: number) => boolean;
+}
+
+/**
+ * `send`, or why a saved Sealed event must be discarded (D066, as `shareVerdict`): on the current head each pair
+ * must be a re-dealt position this seat first held, dealt to that recipient, and still owed.
+ */
+export function sealVerdict(input: SealVetInput): 'send' | string {
+  const { items, mySeat } = input;
+  if (items.length === 0 || mySeat === null) return 'it carries no card';
+  const dealt = input.dealt.map((d) => ({ deck: d.deck ?? '', pos: d.pos, to: d.to }));
+  const first = sealedPositions(dealt);
+  for (const { pos, to } of items) {
+    if (first.get(pos) !== mySeat) return 'the game went another way, and that card is not yours to pass on';
+    if (!dealt.some((d) => d.pos === pos && d.to === to))
+      return 'the game went another way, and that card went elsewhere';
+  }
+  if (input.owed !== null) {
+    const owed = new Set(input.owed.map((x) => `${x.pos}>${x.to}`));
+    if (items.some((x) => !owed.has(`${x.pos}>${x.to}`))) return 'that sealed share is no longer owed';
+  } else if (items.some((x) => input.sentElsewhere(x.pos, x.to))) {
+    return 'another device of yours already sent that sealed share';
+  }
+  // sealedOwed is the session's own rule; the same pairs must be owed on this head whether or not it was sent.
+  const due = new Set(sealedOwed(dealt, mySeat).map((x) => `${x.pos}>${x.to}`));
+  return items.every((x) => due.has(`${x.pos}>${x.to}`)) ? 'send' : 'that sealed share is no longer owed';
 }
 
 /**

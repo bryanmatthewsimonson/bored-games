@@ -62,6 +62,9 @@ importers:
       '@bored-games/relay':
         specifier: workspace:*
         version: link:../../packages/relay
+      '@bored-games/right-of-way':
+        specifier: workspace:*
+        version: link:../../packages/games/right-of-way
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)
@@ -160,6 +163,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/right-of-way:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/protocol:
     dependencies:
       '@bored-games/deck':
@@ -212,12 +221,18 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../../packages/games/chess
+      '@bored-games/driftwrights':
+        specifier: workspace:*
+        version: link:../../packages/games/driftwrights
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
+      '@bored-games/right-of-way':
+        specifier: workspace:*
+        version: link:../../packages/games/right-of-way
 
   tools/protocol-model: {}
 

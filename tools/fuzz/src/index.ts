@@ -1,8 +1,10 @@
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
+import { driftwrights } from '@bored-games/driftwrights';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { luster } from '@bored-games/luster';
+import { rightOfWay } from '@bored-games/right-of-way';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
   CHAIN_REACTION_EXPECTED_COVERAGE,
@@ -10,7 +12,13 @@ import {
   chainReactionDeckOrder,
 } from './chain-reaction.ts';
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
+import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
 import { LUSTER_EXPECTED_COVERAGE, LUSTER_POLICIES, lusterDeckOrder } from './luster.ts';
+import {
+  RIGHT_OF_WAY_EXPECTED_COVERAGE,
+  RIGHT_OF_WAY_POLICIES,
+  rightOfWayDeckOrder,
+} from './right-of-way.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
 export interface FuzzTarget {
@@ -26,12 +34,25 @@ export interface FuzzTarget {
 }
 
 export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
+  driftwrights: {
+    module: driftwrights,
+    policies: DRIFTWRIGHTS_POLICIES,
+    expectedCoverage: ['end:prestige'],
+    defaultSeatCounts: [3, 4],
+  },
   luster: {
     module: luster,
     deckOrder: lusterDeckOrder,
     policies: LUSTER_POLICIES,
     expectedCoverage: LUSTER_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4],
+  },
+  'right-of-way': {
+    module: rightOfWay,
+    deckOrder: rightOfWayDeckOrder,
+    policies: RIGHT_OF_WAY_POLICIES,
+    expectedCoverage: RIGHT_OF_WAY_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4, 5],
   },
   'chain-reaction': {
     module: chainReaction,

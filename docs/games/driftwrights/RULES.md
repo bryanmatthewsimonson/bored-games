@@ -3,7 +3,7 @@
 
 An independently illustrated prototype for 3–4 players. Rules target: the classic 3–4 player base-game mechanics, with separate trading and construction phases. No expansion rules apply.
 
-**Implementation status:** the pure reference engine and development browser board implement this core ruleset. Driftwrights is not registered in the production lobby. Nostr multiplayer, private transfer proofs, immediate hidden venture draws, and release verification remain unfinished; see [IMPLEMENTATION.md](IMPLEMENTATION.md).
+**Implementation status:** the decentralized module and production browser board implement this ruleset. Release verification is in progress; see [IMPLEMENTATION.md](IMPLEMENTATION.md). Online tables use the illustrated classic layout.
 
 ## 1. Your aim
 Floating islands hold the supplies your community needs. Establish hearths where island corners meet, join them with sky links, and expand hearths into hubs. Trade with rivals and trading moorings to obtain what you lack. The first player with at least 10 prestige **during their own turn** wins immediately.
@@ -74,7 +74,7 @@ An **action venture** is a Gale Guide, Twin Links, Supply Windfall or Guild Requ
 
 **Twin Links (2):** place two links without paying resources, or one if your remaining pieces or legal placements permit only one. Each placement must independently meet normal link rules. Your first new link can enable the second. You cannot play this card if you cannot place any link. Recalculate Grand Span afterward.
 
-**Supply Windfall (2):** collect any two available supply cards from the banks, either the same type or two different types. If your first choices are unavailable, choose available alternatives; the card cannot create extra supply cards. **OPEN:** handling fewer than two cards across all five banks requires a primary-source clarification before release; the reference implementation currently permits only a two-card selection.
+**Supply Windfall (2):** collect two available supply cards from the banks, either the same type or two different types. If your first choices are unavailable, choose available alternatives; the card cannot create extra supply cards. When fewer than two cards remain across the entire bank, the default table option takes all that remain, including zero. The alternative option requires two available supplies before playing this venture. The publisher's general shortage rule supports taking the remainder, but applying it specifically to this venture is an inference rather than an explicit clarification; the table records its chosen interpretation. In all ordinary cases both options require exactly two cards.
 
 **Guild Requisition (2):** name one resource. Every rival transfers all supply cards of that type in their hand to you. Their mooring access gives no protection. The banks are unaffected.
 
@@ -238,3 +238,7 @@ Verified by the corresponding reference-engine test.
 #### C32 complete three and four player games conserve resources and replay exactly
 
 Verified by the corresponding reference-engine test.
+
+#### C33 a table chooses how Supply Windfall handles fewer than two supplies in the bank
+
+Verified for both options, including a bank containing one supply or none. See the interpretation note in §5.

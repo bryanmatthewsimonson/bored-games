@@ -118,6 +118,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
   const sample = opts.legalitySample ?? 3;
   const coverage: Record<string, number> = {};
   const actions: unknown[] = [];
+  const fullLog: LogEntry[] = [];
   const bump = (tag: string): void => {
     coverage[tag] = (coverage[tag] ?? 0) + 1;
   };
@@ -196,19 +197,24 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       }
       prevDealt = dealt;
       owner = new Map();
+      // A private position may be dealt again (to another seat, after its holder gave it back, or to the public:
+      // PROTOCOL §6.1); a public position never is. `owner` is the latest assignment, `holders` every seat ever.
+      const holders = new Map<string, Set<Seat>>();
       for (const d of dealt) {
         const key = posKey(d.deck, d.pos);
-        if (owner.has(key)) return `dealt: position ${key} assigned twice`;
+        if (owner.has(key) && owner.get(key) === null) return `dealt: public position ${key} assigned again`;
         if (deckOrders[d.deck]?.[d.pos] === undefined) return `dealt: ${key} is not a deck position`;
         if (d.to !== null && !(Number.isInteger(d.to) && d.to >= 0 && d.to < opts.seats)) {
           return `dealt: ${key} assigned to ${String(d.to)}`;
         }
         owner.set(key, d.to);
+        if (d.to !== null) holders.set(key, (holders.get(key) ?? new Set()).add(d.to));
       }
       for (const seat of range(opts.seats)) {
         for (const l of module.knownTo(full, seat)) {
-          const to = owner.get(learnKey(l));
-          if (to !== seat) return `seat ${seat} knows ${learnKey(l)}, which is dealt to ${who(to)}`;
+          const key = learnKey(l);
+          if (!holders.get(key)?.has(seat))
+            return `seat ${seat} knows ${key}, which is dealt to ${who(owner.get(key))}`;
         }
       }
       const pending = module.pending(full);
@@ -269,7 +275,35 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       step++;
 
       let action: unknown;
-      if (pending.type === 'reveal') {
+      const selection = module.privateSelection?.(full);
+      if (selection) {
+        // The pure fuzzer models private delivery; signed sessions separately verify its encryption and audit.
+        const card = selection.labels?.[selection.index];
+        if (card === undefined) return fail('private selection has no full-information label');
+        const learn: Learn = { deck: 'supplies', pos: selection.id, card };
+        const learned = module.learn(full, learn);
+        if (!learned.ok) return fail(`private learn rejected: ${learned.error.message}`);
+        full = deepFreeze(learned.state);
+        fullLog.push({ kind: 'learn', learn });
+        if (checkViews)
+          for (const seat of [selection.from, selection.to]) {
+            const vr = module.learn(views[seat] as S, learn);
+            if (!vr.ok) return fail(`private view learn rejected: ${vr.error.message}`);
+            views[seat] = deepFreeze(vr.state);
+            viewLogs[seat]?.push({ kind: 'learn', learn });
+          }
+        action = {
+          type: 'transfer',
+          actor: selection.from,
+          id: selection.id,
+          root: '00'.repeat(32),
+          anchor: '00'.repeat(32),
+          after: '00'.repeat(32),
+          packets: [selection.from, selection.to]
+            .sort((a, b) => a - b)
+            .map((to) => ({ to, ciphertext: 'fuzz-only' })),
+        };
+      } else if (pending.type === 'reveal') {
         const pos = pending.positions[0];
         const order = deckOrders[pending.deck];
         if (pos === undefined || !order) return fail('reveal pending without positions');
@@ -283,8 +317,13 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
         action = reveal;
       } else if (pending.type === 'beacon') {
         // The fuzzer does not run the beacon. Faces are uniform and come from the move rng, never a seat policy.
-        const die = (): number => moveRng.int(6) + 1;
-        action = { type: 'rolled', actor: 'beacon', id: pending.id, dice: [die(), die()] };
+        const shape = module.rollShape?.(full) ?? { count: 2, sides: 6 };
+        action = {
+          type: 'rolled',
+          actor: 'beacon',
+          id: pending.id,
+          dice: Array.from({ length: shape.count }, () => moveRng.int(shape.sides) + 1),
+        };
       } else {
         const legal = module.legalActions(full, pending.seat);
         if (legal.length === 0) return fail(`seat ${pending.seat} has no legal action (${pending.decision})`);
@@ -313,6 +352,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       const res = module.apply(full, action);
       if (!res.ok) return fail(`chosen action rejected: ${res.error.code} ${res.error.message}`);
       actions.push(action);
+      fullLog.push({ kind: 'action', action });
       full = deepFreeze(res.state);
 
       const violations = module.invariants(full);
@@ -350,8 +390,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
     bump(`end:${outcome.reason}`);
 
     // Replays from scratch must reproduce the final states exactly.
-    const entries: LogEntry[] = actions.map((a) => ({ kind: 'action', action: a }));
-    const rep = replay(module, { rules: opts.rules, seats: opts.seats, mode: 'full', deckOrders }, entries);
+    const rep = replay(module, { rules: opts.rules, seats: opts.seats, mode: 'full', deckOrders }, fullLog);
     if (!rep.ok) return fail(`replay failed at ${rep.index}: ${rep.error.message}`);
     if (!sameData(rep.state, full)) return fail('replay produced a different final state');
     if (checkViews) {

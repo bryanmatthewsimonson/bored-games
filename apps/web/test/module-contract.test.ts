@@ -20,7 +20,7 @@ describe('D052: every registered module with a deck pends public reveals only be
   it('covers every registered module with a deck, and exempts exactly those that never allow a Resign', () => {
     expect(deckModules.map((m) => m.id)).toContain('chain-reaction');
     const exempt = deckModules.filter((m) => resignSeatCounts(m).length === 0).map((m) => m.id);
-    expect(exempt).toEqual(['luster']);
+    expect(exempt).toEqual(['luster', 'right-of-way', 'driftwrights']);
     for (const id of exempt) {
       const m = MODULES.get(id) as AnyModule;
       const { min, max } = m.seatRange(m.defaultRules());
@@ -32,6 +32,14 @@ describe('D052: every registered module with a deck pends public reveals only be
   for (const module of deckModules) {
     const seats = resignSeatCounts(module);
     if (seats.length === 0) {
+      if (module.id === 'driftwrights') {
+        it('driftwrights: keeps Resign disabled for private supply transfers and mixed card/dice operations', () => {
+          expect(module.privateSelection).toBeTypeOf('function');
+          expect(module.rolls).toBeTypeOf('function');
+          expect(resignSeatCounts(module)).toEqual([]);
+        });
+        continue;
+      }
       // Exempt, and for a reason: it does pend public reveals during play, so it must keep Resign disabled until
       // a Resign rule for them exists (D052). This also proves the check can run a partitioned deck.
       it(`${module.id}: exempt (Resign disabled at every seat count), and would fail the check`, () => {

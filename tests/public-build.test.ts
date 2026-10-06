@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { COMPARE_PHRASE } from '../packages/games/chain-reaction/src/compare.ts';
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '../packages/games/luster/src/compare.ts';
+import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '../packages/games/right-of-way/src/compare.ts';
 import {
   ALLOWED_PHRASES,
   BINARY,
@@ -65,7 +66,7 @@ describe('public build', () => {
       .filter((f) => f.endsWith('.js'))
       .map((f) => readFileSync(f, 'utf8'))
       .join('\n');
-    expect(ALLOWED_PHRASES).toEqual([COMPARE_PHRASE, LUSTER_COMPARE_PHRASE]);
+    expect(ALLOWED_PHRASES).toEqual([COMPARE_PHRASE, LUSTER_COMPARE_PHRASE, RIGHT_OF_WAY_COMPARE_PHRASE]);
     for (const phrase of ALLOWED_PHRASES) expect(js).toContain(phrase);
     // The scan is not blind to the titles: the same bundle with each bare title written out would fail it.
     for (const phrase of ALLOWED_PHRASES) {

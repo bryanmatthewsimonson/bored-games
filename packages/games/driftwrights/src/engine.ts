@@ -2,6 +2,12 @@ import type { ApplyResult, Result } from '@bored-games/game-kit';
 import { BOARD, neighbors, SAMPLE_TERRAIN, touches, YIELDS } from './board.ts';
 import type { Action, DecisionStage, EntropyAction, Goods, State, View } from './types.ts';
 
+export const UNKNOWN: Goods = [-1, -1, -1, -1, -1];
+export const unknownGoods = (xs: Goods): boolean => xs.every((n) => n === -1);
+export const handCount = (s: State, seat: number): number => {
+  const xs = s.players[seat]?.goods ?? ZERO;
+  return unknownGoods(xs) ? (s.publicCounts?.[seat] ?? 0) : total(xs);
+};
 export const ZERO: Goods = [0, 0, 0, 0, 0];
 export const COSTS = {
   link: [1, 1, 0, 0, 0],
@@ -22,9 +28,9 @@ const goods = (raw: unknown): raw is Goods =>
   Array.isArray(raw) && raw.length === 5 && raw.every((n) => Number.isSafeInteger(n) && n >= 0);
 const index = (n: unknown, size: number): n is number =>
   typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n < size;
-const has = (xs: Goods, cost: Goods): boolean => cost.every((n, i) => n <= (xs[i] ?? 0));
+const has = (xs: Goods, cost: Goods): boolean => unknownGoods(xs) || cost.every((n, i) => n <= (xs[i] ?? 0));
 const add = (a: Goods, b: Goods, sign = 1): Goods =>
-  a.map((n, i) => n + sign * (b[i] ?? 0)) as unknown as Goods;
+  unknownGoods(a) ? UNKNOWN : (a.map((n, i) => n + sign * (b[i] ?? 0)) as unknown as Goods);
 function unit(resource: number, n = 1): Goods {
   return ZERO.map((_, i) => (i === resource ? n : 0)) as unknown as Goods;
 }
@@ -157,7 +163,7 @@ function settle(s: State): State {
   const gl = guides.flatMap((n, i) => (n === gmax && n >= 3 ? [i] : []));
   const watch = s.watch !== null && gl.includes(s.watch) ? s.watch : gl.length === 1 ? (gl[0] ?? null) : null;
   const next = { ...s, span, watch };
-  if (s.starter !== null && !s.stage.startsWith('setup') && prestige(next, s.turn) >= 10) {
+  if (!s.networkMode && s.starter !== null && !s.stage.startsWith('setup') && prestige(next, s.turn) >= 10) {
     const scores = s.players.map((_, i) => prestige(next, i));
     const places = scores.map((score, i) =>
       i === s.turn ? 1 : 2 + scores.filter((n, j) => j !== s.turn && n > score).length,
@@ -170,6 +176,7 @@ function pay(s: State, seat: number, cost: Goods): State {
   return {
     ...s,
     bank: add(s.bank, cost),
+    publicCounts: s.players.map((_, i) => handCount(s, i) - (i === seat ? total(cost) : 0)),
     players: s.players.map((p, i) => (i === seat ? { ...p, goods: add(p.goods, cost, -1) } : p)),
   };
 }
@@ -177,6 +184,7 @@ function collect(s: State, seat: number, cost: Goods): State {
   return {
     ...s,
     bank: add(s.bank, cost, -1),
+    publicCounts: s.players.map((_, i) => handCount(s, i) + (i === seat ? total(cost) : 0)),
     players: s.players.map((p, i) => (i === seat ? { ...p, goods: add(p.goods, cost) } : p)),
   };
 }
@@ -248,7 +256,7 @@ function dice(s: State, faces: readonly [number, number]): State {
   }
   let next = { ...s, dice: faces, chance: null, actor: s.turn };
   if (sum !== 7) return { ...production(next, sum), stage: 'trade' };
-  const discards = s.players.flatMap((p, i) => (total(p.goods) > 7 ? [i] : []));
+  const discards = s.players.flatMap((_, i) => (handCount(s, i) > 7 ? [i] : []));
   next = { ...next, discards };
   return discards.length
     ? { ...next, stage: 'discard', actor: discards[0] as number }
@@ -280,6 +288,7 @@ export function parseAction(raw: unknown): Action | EntropyAction | null {
   const a = raw as Record<string, unknown>;
   const t = a.type;
   const keys: Record<string, readonly string[]> = {
+    'requisition-payment': ['type', 'actor', 'amount'],
     'request-roll': ['type', 'actor'],
     hearth: ['type', 'actor', 'site'],
     hub: ['type', 'actor', 'site'],
@@ -313,6 +322,7 @@ export function parseAction(raw: unknown): Action | EntropyAction | null {
       : null;
   if (t === 'theft') return a.actor === 'entropy' && index(a.index, 96) ? (raw as EntropyAction) : null;
   if (!index(a.actor, 4)) return null;
+  if (t === 'requisition-payment' && !index(a.amount, 96)) return null;
   if (((t === 'hearth' || t === 'hub') && !index(a.site, 54)) || (t === 'link' && !index(a.lane, 72)))
     return null;
   if (t === 'bank' && (!index(a.give, 5) || !index(a.receive, 5))) return null;
@@ -375,6 +385,26 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
       const p = s.players[a.actor];
       if (!p) return fail('Missing player.');
       switch (a.type) {
+        case 'requisition-payment': {
+          const req = s.requisition;
+          if (
+            s.stage !== 'requisition' ||
+            !req ||
+            req.waiting[0] !== a.actor ||
+            a.amount > handCount(s, a.actor) ||
+            (!unknownGoods(p.goods) && a.amount !== p.goods[req.resource])
+          )
+            return fail('Return all supplies of the requisitioned type.');
+          n = transferSupply(s, a.actor, s.turn, req.resource, a.amount);
+          const waiting = req.waiting.slice(1);
+          n = {
+            ...n,
+            requisition: waiting.length ? { ...req, waiting } : null,
+            actor: waiting[0] ?? s.turn,
+            stage: waiting.length ? 'requisition' : s.resume,
+          };
+          break;
+        }
         case 'request-roll':
           if (s.stage !== 'roll' && s.stage !== 'starting-roll') return fail('A roll is not available.');
           n = {
@@ -501,6 +531,15 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
               return fail('The offered supplies are unavailable.');
             n = {
               ...s,
+              publicCounts: s.players.map(
+                (_, i) =>
+                  handCount(s, i) +
+                  (i === offer.from
+                    ? total(offer.receive) - total(offer.give)
+                    : i === offer.to
+                      ? total(offer.give) - total(offer.receive)
+                      : 0),
+              ),
               players: s.players.map((p, i) =>
                 i === offer.from
                   ? { ...p, goods: add(add(p.goods, offer.give, -1), offer.receive) }
@@ -516,7 +555,7 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
         case 'discard': {
           if (
             s.stage !== 'discard' ||
-            total(a.goods) !== Math.floor(total(p.goods) / 2) ||
+            total(a.goods) !== Math.floor(handCount(s, a.actor) / 2) ||
             !has(p.goods, a.goods)
           )
             return fail('Discard exactly half, rounded down.');
@@ -531,11 +570,11 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
             return fail('Move the Squall to a different island.');
           const adjacent = eligibleVictims(s, a.island);
           if (
-            (a.victim === null && adjacent.some((i) => total(s.players[i]?.goods ?? ZERO) > 0)) ||
+            (a.victim === null && adjacent.some((i) => handCount(s, i) > 0)) ||
             (a.victim !== null && !adjacent.includes(a.victim))
           )
             return fail('Choose a rival at the destination.');
-          const size = a.victim === null ? 0 : total(s.players[a.victim]?.goods ?? ZERO);
+          const size = a.victim === null ? 0 : handCount(s, a.victim);
           n = { ...s, squall: a.island, actor: s.turn };
           n =
             size && a.victim !== null
@@ -576,7 +615,10 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
           const kind = v.card < 14 ? 0 : v.card < 16 ? 1 : v.card < 18 ? 2 : 3;
           if (
             kind === 2
-              ? a.resource !== null || a.goods === null || total(a.goods) !== 2 || !has(s.bank, a.goods)
+              ? a.resource !== null ||
+                a.goods === null ||
+                total(a.goods) !== (s.windfall === 'available' ? Math.min(2, total(s.bank)) : 2) ||
+                !has(s.bank, a.goods)
               : kind === 3
                 ? a.goods !== null || a.resource === null
                 : a.goods !== null || a.resource !== null
@@ -602,6 +644,17 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
           if (kind === 2) n = collect(n, a.actor, a.goods as Goods);
           if (kind === 3) {
             const r = a.resource as number;
+            if (s.networkMode) {
+              const waiting = s.players.flatMap((_, i) => (i === a.actor ? [] : [i]));
+              n = {
+                ...n,
+                stage: 'requisition',
+                resume: s.stage as DecisionStage,
+                actor: waiting[0] as number,
+                requisition: { resource: r, waiting },
+              };
+              break;
+            }
             let taken = 0;
             n = {
               ...n,
@@ -627,25 +680,52 @@ export function apply(s: State, raw: unknown): ApplyResult<State, Event> {
     return fail('Unreadable action.');
   }
 }
+/** Transfer a declared resource; unknown hands remain unknown and only public counts change. */
+export function transferSupply(
+  s: State,
+  from: number,
+  to: number,
+  resource: number | null,
+  amount: number,
+): State {
+  return {
+    ...s,
+    publicCounts: s.players.map((_, i) => handCount(s, i) + (i === from ? -amount : i === to ? amount : 0)),
+    players: s.players.map((p, i) => {
+      if (i !== from && i !== to) return p;
+      return {
+        ...p,
+        goods: resource === null ? UNKNOWN : add(p.goods, unit(resource, amount), i === from ? -1 : 1),
+      };
+    }),
+  };
+}
 export function view(s: State, viewer: number | null): View {
   const { ventureOrder: _, players, ...rest } = s;
   return {
     ...rest,
     ventureOrder: null,
     players: players.map((p, i) => ({
-      count: total(p.goods),
-      goods: i === viewer ? p.goods : null,
+      count: handCount(s, i),
+      goods: i === viewer && !unknownGoods(p.goods) ? p.goods : null,
       guides: p.guides,
-      ventures: p.ventures.map((v) => ({ ...v, card: i === viewer || s.result !== null ? v.card : null })),
+      ventures: p.ventures.map((v) => ({
+        ...v,
+        card: v.card >= 0 && (i === viewer || s.result !== null) ? v.card : null,
+      })),
     })),
   };
 }
 export function invariants(s: State): string[] {
   const errors: string[] = [];
   if (s.buildings.length !== 54 || s.links.length !== 72) errors.push('board dimensions');
-  if (!goods(s.bank) || s.players.some((p) => !goods(p.goods))) errors.push('negative or malformed supplies');
+  if (!goods(s.bank) || s.players.some((p) => !goods(p.goods) && !(s.networkMode && unknownGoods(p.goods))))
+    errors.push('negative or malformed supplies');
   for (let i = 0; i < 5; i++)
-    if ((s.bank[i] ?? 0) + s.players.reduce((n, p) => n + (p.goods[i] ?? 0), 0) !== 19)
+    if (
+      !s.players.some((p) => unknownGoods(p.goods)) &&
+      (s.bank[i] ?? 0) + s.players.reduce((n, p) => n + (p.goods[i] ?? 0), 0) !== 19
+    )
       errors.push(`supply conservation ${i}`);
   for (let seat = 0; seat < s.seats; seat++) {
     if (s.links.filter((p) => p === seat).length > 15) errors.push('link limit');

@@ -47,15 +47,18 @@ export function choices(s: State): Action[] {
     for (const v of p.ventures) {
       if (v.card < 16) candidates.push({ type: 'play', actor, pos: v.pos, goods: null, resource: null });
       else if (v.card < 18)
-        for (let a = 0; a < 5; a++)
-          for (let b = a; b < 5; b++)
-            candidates.push({
-              type: 'play',
-              actor,
-              pos: v.pos,
-              goods: ZERO.map((_, i) => (i === a ? 1 : 0) + (i === b ? 1 : 0)) as unknown as Goods,
-              resource: null,
-            });
+        if (s.windfall === 'available' && total(s.bank) < 2)
+          candidates.push({ type: 'play', actor, pos: v.pos, goods: s.bank, resource: null });
+        else
+          for (let a = 0; a < 5; a++)
+            for (let b = a; b < 5; b++)
+              candidates.push({
+                type: 'play',
+                actor,
+                pos: v.pos,
+                goods: ZERO.map((_, i) => (i === a ? 1 : 0) + (i === b ? 1 : 0)) as unknown as Goods,
+                resource: null,
+              });
       else if (v.card < 20)
         for (let resource = 0; resource < 5; resource++)
           candidates.push({ type: 'play', actor, pos: v.pos, goods: null, resource });

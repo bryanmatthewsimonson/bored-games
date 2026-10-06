@@ -1,6 +1,7 @@
 import { type Ciphertext, cardOf, decryptWithSecrets } from '@bored-games/deck';
 import { canonicalJson, type GameModule, type Outcome as ModuleOutcome } from '@bored-games/game-kit';
 import type { Audit, Outcome } from '@bored-games/protocol';
+import { auditTransfer } from './private-transfer.ts';
 
 /*
  * The end of a game (PROTOCOL §7, §8.2, §8.3, D030 R5 and R6, D052): the full-mode audit once every deck secret is
@@ -16,6 +17,9 @@ export interface LoggedAction {
   action: unknown;
   /** The chain `seq` of the move that carried the action, or of the head a derived reveal followed. */
   seq: number;
+  /** Signed request and parent ids, retained when a module uses private selections. */
+  id?: string;
+  prev?: string;
 }
 
 export interface AuditInput {
@@ -35,6 +39,7 @@ export interface AuditInput {
   log: readonly LoggedAction[];
   /** The outcome the session's own (view-mode) state declares. */
   outcome: ModuleOutcome | null;
+  rootId?: string;
 }
 
 /** The protocol caps an audit reason at 500 code points (PROTOCOL §4.8). */
@@ -74,9 +79,34 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
   if (!init.ok)
     return { fail: everyone(seats, `full-mode setup fails: ${init.error.code}: ${init.error.message}`) };
   let state = init.value;
+  const origins = new Map<number, string>();
   for (const entry of input.log) {
+    const plan = module.privateSelection?.(state);
+    if (plan) {
+      try {
+        const origin = origins.get(plan.id);
+        if (!input.rootId || !origin || !entry.prev || entry.actor !== plan.from)
+          throw new Error('Private delivery is missing its signed context.');
+        const delivery = auditTransfer(entry.action, plan, input.secrets, input.rootId, origin, entry.prev);
+        const learned = module.learn(state, delivery);
+        if (!learned.ok) throw new Error(learned.error.message);
+        state = learned.state;
+      } catch (e) {
+        return {
+          fail: {
+            fail: [plan.from],
+            reason: clipReason(
+              `move ${entry.seq} private delivery fails: ${e instanceof Error ? e.message : 'invalid delivery'}`,
+            ),
+          },
+        };
+      }
+    }
+    const before = module.rolls?.(state) ?? [];
     const r = module.apply(state, entry.action);
     if (r.ok) {
+      for (const roll of module.rolls?.(r.state) ?? [])
+        if (!before.some((old) => old.id === roll.id) && entry.id) origins.set(roll.id, entry.id);
       state = r.state;
       continue;
     }

@@ -7,8 +7,9 @@ import { G, inRange, msm, q } from './group.ts';
 import type { RandomBytes } from './random.ts';
 
 /*
- * Sealed shares (docs/proposals/prompt-reveal.md §7, GAME-SYSTEMS §4.1.5). REFERENCE ONLY: nothing in the
- * session or the protocol uses these yet; they stay unwired until the owner approves (D055).
+ * Sealed shares (docs/proposals/prompt-reveal.md §7, GAME-SYSTEMS §4.1.5). The session uses them for one thing
+ * only: a re-dealt private position's first holder seals its share to each later holder (PROTOCOL §4.10, owner
+ * approval D066). Their use as prompt reveals (Phase K) stays unwired until the owner approves that (D055).
  *
  * Seat k's decryption share `D = x_k·R` of deck position j (ciphertext `(R, S)`) is ElGamal-encrypted to seat T's
  * deck key `X_T`: `(A, B) = (r·G, D + r·X_T)`. A generalized Chaum–Pedersen proof shows knowledge of `(x_k, r)`

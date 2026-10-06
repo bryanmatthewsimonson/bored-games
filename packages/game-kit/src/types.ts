@@ -31,7 +31,7 @@ export interface DeckSpec {
   readonly size: number;
   /** Optional contiguous groups shuffled independently; their sizes sum to `size`. */
   readonly partitions?: readonly { readonly id: string; readonly size: number }[];
-  /** Explicit release-policy opt-in; defaults off. Currently authorized for Luster only. */
+  /** Explicit release-policy opt-in; defaults off. Authorized per game in the owner decision log. */
   readonly promptShares?: boolean;
 }
 
@@ -119,12 +119,27 @@ export type SetupInput<R> =
       readonly viewer: Seat | null;
     };
 
+/** A private, uniformly selected member of the sender's hand, delivered to sender and recipient. */
+export interface PrivateSelection {
+  readonly id: number;
+  readonly from: Seat;
+  readonly to: Seat;
+  readonly index: number;
+  /** Sorted labels, one per card. Null when this viewer cannot see the sender's hand. */
+  readonly labels: readonly number[] | null;
+}
 export interface GameModule<S, E extends { readonly type: string }, R> {
   /** Permanent internal id; appears in network events. Never user-facing. */
   readonly id: string;
   /** Engine semver; a game is pinned to the engine version it started on. */
   readonly version: string;
 
+  /** Parameterized forms may validate a canonical owned intent beyond the finite choice list. */
+  validateIntent?(state: S, seat: Seat, action: unknown): Result<unknown>;
+  /** Optional private transfer, fixed by a completed public random selection. */
+  privateSelection?(state: S): PrivateSelection | null;
+  /** Optional dice shape; legacy games use two six-sided dice. */
+  rollShape?(state: S): { readonly count: number; readonly sides: number };
   defaultRules(): R;
   validateRules(rules: unknown): Result<R>;
   seatRange(rules: R): { readonly min: number; readonly max: number };
@@ -133,8 +148,9 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   setup(input: SetupInput<R>): Result<S>;
   pending(state: S): Pending;
   /**
-   * Every legal action for `seat`. Exact whenever the seat's hidden cards are
-   * known to `state` (always in full mode). It must return [] whenever the
+   * Legal finite choices for `seat`; parameterized forms may add choices through validateIntent.
+   * Exact whenever the seat's hidden cards are known to `state` (always in full mode), except private
+   * delivery markers that the session materializes before apply. It must return [] whenever the
    * legality of any action it would list depends on hidden cards the seat has
    * not learned, so a non-empty list is always exact: a live client offers a
    * decision as soon as the list is non-empty (D030).
@@ -159,7 +175,11 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   /**
    * Every deck position assigned so far, in assignment order. An entry never
    * changes or disappears, even after its card is played. Identical in full
-   * mode and in every view of the same log (PROTOCOL §6.1, §6.2).
+   * mode and in every view of the same log (PROTOCOL §6.1, §6.2). A private
+   * position may be assigned again, to another seat once its holder has given
+   * the card back (its first holder then seals its share to each later holder
+   * and never publishes it while the card stays private, D066) or to the public;
+   * a public position is never assigned again.
    */
   dealt(state: S): readonly DealtPosition[];
   /**

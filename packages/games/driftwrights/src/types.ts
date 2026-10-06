@@ -21,6 +21,7 @@ export type Stage =
   | 'squall'
   | 'free-links'
   | 'trade-answer'
+  | 'requisition'
   | 'chance'
   | 'over';
 export type DecisionStage = Exclude<Stage, 'chance' | 'over'>;
@@ -34,6 +35,11 @@ export interface Offer {
   readonly receive: Goods;
 }
 export interface State {
+  /** Network views use -1 goods/card sentinels; reference games keep full information. */
+  readonly networkMode?: boolean;
+  readonly windfall?: 'available' | 'two';
+  readonly publicCounts?: readonly number[];
+  readonly requisition?: { readonly resource: number; readonly waiting: readonly number[] } | null;
   readonly seats: number;
   readonly players: readonly Player[];
   readonly bank: Goods;
@@ -71,6 +77,7 @@ export type EntropyAction =
   | { readonly type: 'dice'; readonly actor: 'entropy'; readonly faces: readonly [number, number] }
   | { readonly type: 'theft'; readonly actor: 'entropy'; readonly index: number };
 export type Action =
+  | { readonly type: 'requisition-payment'; readonly actor: number; readonly amount: number }
   | { readonly type: 'request-roll'; readonly actor: number }
   | { readonly type: 'hearth' | 'hub'; readonly actor: number; readonly site: number }
   | { readonly type: 'link'; readonly actor: number; readonly lane: number }

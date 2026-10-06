@@ -7,6 +7,7 @@
  */
 import { COMPARE_PHRASE } from '@bored-games/chain-reaction/compare';
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '@bored-games/luster/compare';
+import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '@bored-games/right-of-way/compare';
 import { h } from 'preact';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -58,6 +59,12 @@ describe('the rendered public pages', () => {
     expect(lusterPage).toContain('https://boardgamegeek.com/boardgame/148228');
     expect(lusterPage).toContain('the makers of that game');
     expect(lusterPage).not.toContain(COMPARE_PHRASE);
+    const row = items.find((i) => i.entry.id === 'right-of-way');
+    if (row === undefined) throw new Error('Right of Way is in the catalog');
+    const rowPage = textOf(h(GameFacts, { entry: row.entry }));
+    expect(pages[0]).toContain(RIGHT_OF_WAY_COMPARE_PHRASE);
+    expect(rowPage).toContain(RIGHT_OF_WAY_COMPARE_PHRASE);
+    expect(rowPage).toContain('https://boardgamegeek.com/boardgame/9209');
     expect(findRestricted(withoutAllowedPhrases(pages.join('\n')), strings)).toEqual([]);
   });
 
@@ -75,12 +82,12 @@ describe('the rendered public pages', () => {
       expect(textOf(facts(id)), id).toContain(`https://boardgamegeek.com/boardgame/${bgg}`);
       expect(textOf(facts(id)), id).not.toContain('Compare to');
     }
-    for (const id of ['chain-reaction', 'luster'])
+    for (const id of ['chain-reaction', 'luster', 'right-of-way'])
       expect(spokenText(renderTree(facts(id))), id).not.toContain('BoardGameGeek');
   });
 
   it('would catch either title rendered on its own', () => {
-    for (const id of ['chain-reaction', 'luster']) {
+    for (const id of ['chain-reaction', 'luster', 'right-of-way']) {
       const game = catalogItems().find((i) => i.entry.id === id);
       const title = game?.entry.compareTo?.title ?? '';
       expect(title, id).not.toBe('');

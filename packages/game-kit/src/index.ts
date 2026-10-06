@@ -34,6 +34,7 @@ export type {
   LogEntry,
   Outcome,
   Pending,
+  PrivateSelection,
   Result,
   RevealAction,
   Seat,

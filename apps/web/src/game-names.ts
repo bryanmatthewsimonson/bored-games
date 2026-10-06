@@ -2,7 +2,9 @@ import { gameNames } from './brands.ts';
 import { BANK_META } from './games/bank/meta.ts';
 import { CHAIN_REACTION_META } from './games/chain-reaction/meta.ts';
 import { CHESS_META } from './games/chess/meta.ts';
+import { DRIFTWRIGHTS_META } from './games/driftwrights/meta.ts';
 import { LUSTER_META } from './games/luster/meta.ts';
+import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
 import type { GameMeta } from './games/types.ts';
 
 /** Every game's names, by module id. Light: no game components, so cards and the lobby can use it. */
@@ -11,6 +13,8 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [CHESS_META.id, CHESS_META],
   [BANK_META.id, BANK_META],
   [LUSTER_META.id, LUSTER_META],
+  [RIGHT_OF_WAY_META.id, RIGHT_OF_WAY_META],
+  [DRIFTWRIGHTS_META.id, DRIFTWRIGHTS_META],
 ]);
 
 /**

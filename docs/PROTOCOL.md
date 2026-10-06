@@ -88,6 +88,7 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 | 7455 | Secret reveal | regular | session key |
 | 7456 | Result attestation | regular | player npub |
 | 7457 | Resign | regular | session key |
+| 7458 | Sealed shares (§4.10) | regular | session key |
 | 30078 | Key backup (NIP-78, §3) | addressable | player npub |
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
@@ -257,6 +258,15 @@ A Resign that lacks the secret in a game with a deck, carries one in a deckless 
 
 A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
 
+### 4.10 Sealed shares (7458)
+Decryption shares of **re-dealt private positions** (§6.2), each encrypted to one seat (D066). A position is re-dealt when `dealt` assigns it privately to one seat (its **first holder**) and later privately to another seat, and never to the public: Right of Way's charter returned to the bottom and drawn by another player. Every other seat published its share when the first holder got the card, so the first holder's share is the only one not public. The first holder never publishes it while the position stays private; it seals it to each later holder instead, and only that holder can open it.
+
+**Tags:** `["e", <rootId>, "", "root"]`.
+
+**Content:** `{"sealed":[<sealed share>, ...],"type":"sealed"}`, at least one, strictly ascending by position, then recipient. A sealed share is `{"a","b","pos","proof":{"c","s1","s2"},"to"}`, the wire form of `docs/proposals/prompt-reveal.md` §7.1: the signer's decryption share `x_k·R` of position `pos`, ElGamal-encrypted to seat `to`'s deck key, with a proof of knowledge bound to the root, the deck, the position, the whole ciphertext and both keys. `to` is another seat.
+
+**Folding.** Clients check the signer is a seat, each `to` another seat and each `pos` in the deck, and, once the final deck is known, that every proof verifies; otherwise they reject the event. A kept sealed share counts only for its recipient's private learn (§6.4: the recipient opens it with `openAndVerify` and decrypts with the other seats' public shares and its own layer) and for stall attribution (§8.1: the first holder is stalled while a later holder waits for its sealed share). It never affects the move chain or fork choice. A Sealed event that removes its signer from the stall set is progress, like a Shares event.
+
 ## 5. Deck cryptography
 
 **Context strings.** The shuffle and share transcripts hash these identifiers as the UTF-8 of their NOSTR text (D025):
@@ -394,14 +404,14 @@ A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before t
 Dealing order has no effect on fairness: positions are uniformly shuffled. RULES.md C03 states it.
 
 ### 6.2 Owed shares (liveness rule)
-- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position). A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
+- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position), **except** a re-dealt private position whose first holder is `k` (§4.10): there `k` owes a sealed share to each later holder instead, and no public share until the position is dealt to `null`. A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
 - **The rule (monotone).** A game-action move by seat `k` on parent state `S` is acceptable only if, counting `k`'s verified shares the client already holds plus those in the move, `k` has a share for every position it owes at `S`. The rule counts only what is held, never what is absent.
 - **Buffering.** A move that fails only this rule MUST be buffered, not rejected. The missing shares may still arrive, for example in a Shares event published earlier that reaches this client later. The move links once they are held. Clients therefore converge whatever order events arrive in.
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
 ### 6.2a The Luster share duty (shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster only, under the owner's exception (D050, D059, D060). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only Luster's production module sets it.
+**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only these three production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
 
 **The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
 - no timeout claim was accepted and no Resign ended the game;
@@ -410,7 +420,7 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - its seat holds no Shares event that fails against the current final deck (it did not deal on a rival deck, §6.1);
 - the positions below are not empty.
 
-The positions: with more than one group, every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2). With one group (no module ships this), only the positions of a pending public reveal of that deck that `dealt(S)` lists as public and that lack its share. A seat never publishes a share of a position dealt to itself.
+The positions: every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2), with either one or multiple deck groups. A seat never publishes a share of a position dealt to itself.
 
 **Publishing.** The open app builds one Shares event (§4.5, v1 format: the root tag only, no anchor) holding a share for every such position, sorted by position, and publishes it at once, with no human action and no check for a held fork. The duty comes before `decide`. Receivers fold it as any Shares event (§5.4, §6.2): a verified share counts once per seat and position. In Luster this releases:
 - **public refills:** after a buy or a reserve from the display, the engine assigns the next card of that tier to `null` and pends its public reveal. Every seat, the actor included, releases its share, and every client derives the reveal (§6.3) once all are held. Moves wait meanwhile (§6.5), so without this duty no seat could move to carry the shares, and a v1 Luster game would deadlock at its first refill;
@@ -664,3 +674,13 @@ It MUST also meet these contract rules, which the session relies on:
 - A game is always replayed with the engine version it started on.
 - Incompatible protocol changes bump `proto`.
 - **Protocol version 2** (`PROTOCOL-v2.md`) replaces fork choice with the fork stop and adds prompt release, anchored Shares events, end attestations and the move-bound dice beacon. A game declares its version in its Table, Joins and root, and keeps it for good: a v1 game is always folded by these v1 rules, also by a client that implements v2.
+
+## 13. Driftwrights mixed proofs and private supplies (D069, D070)
+
+This game-specific v1 extension combines a 25-position `ventures` deck with the public beacon. Existing deckless beacon games keep §6.3a's wire positions and root-only domain. Driftwrights uses card positions 0–24 and beacon wire positions `25 + rollId`. A beacon proof still uses counter `rollId`, with domain string `rootId:requestMoveId`. The request is the signed action that appends the roll to the module's `rolls`; it carries no beacon share. Each seat then sends its `contribute` action, in the module's order, with one proof. All other owed card shares and reveals are independently checked and may ride the same action. Once all contributions arrive, dice or a one-die hand index are derived using §6.3a's seed and rejection sampling. A one-card hand has the deterministic face 1.
+
+Supply identities are concealed claims, with public hand counts. A theft request fixes thief, victim and hand size before contributions. The victim's deck secret, already committed at Join, fixes a Fisher–Yates permutation of the sorted resource labels (0–4, repeated for each card). For descending swap step `i`, the seed is the encoded scalar from `hs('driftwrights/private-hand/v1', secret, rootId, requestMoveId, rollId, i)`; use one unbiased die with `i+1` sides and subtract one. The derived public index selects that private permutation. The delivery parent, encryption nonces and selected index do not affect the permutation.
+
+The victim signs an action `{type:'transfer',actor,id,root,anchor,after,packets}`. `anchor` is the theft request's id; `after` equals the signed Move's `prev`; `id` is its roll counter. `packets` holds exactly two entries `{to,ciphertext}`, sorted by seat, addressed to victim and thief. Each NIP-44 plaintext is canonical JSON `{root,anchor,after,id,from,to,index,card}` with the same selection context and resource label. Conversation keys use the victim's deck secret and each recipient's x-only deck public key. Each affected player opens only their own packet and learns the supply before applying the count/resource transfer. Other seats apply only count changes. No other private resource hand is broadcast.
+
+At the end, full replay retains signed request/parent ids. Every audit derives the same private permutation from the released victim key and full hand, opens **both** packets with the released recipient keys, checks their exact context and resource, and fails the victim if either differs. Payments, half-hand discards and named-resource requisitions are likewise checked against full hands in replay; dishonest claims fail the signer. These checks give end-game attribution, not a live inventory proof. Resignation is disabled. Prompt venture shares retain the v1 fork/rollback residuals authorized by D069.

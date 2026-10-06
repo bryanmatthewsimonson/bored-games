@@ -38,10 +38,12 @@ export function NewTableForm(props: { game: string }) {
   const [rounds, setRounds] = useState<(typeof ROUND_CHOICES)[number]>(DEFAULT_RULES.rounds);
   const [banking, setBanking] = useState<(typeof BANKING_CHOICES)[number]>(DEFAULT_RULES.banking);
   const [gems, setGems] = useState<LusterGemRule>(LUSTER_DEFAULT_RULES.gems ?? 'published');
+  const [windfall, setWindfall] = useState<'available' | 'two'>('available');
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
     setGems(LUSTER_DEFAULT_RULES.gems ?? 'published');
+    setWindfall('available');
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -80,6 +82,12 @@ export function NewTableForm(props: { game: string }) {
     setError('');
     try {
       const spec = { seats, deadline, invited: check.invited, game };
+      if (game === 'driftwrights') {
+        const address = await lobby.createTable({ ...spec, rules: { layout: 'classic', windfall } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
       if (game === 'bank') {
         const checked = validateRules({
           rulesVersion: DEFAULT_RULES.rulesVersion,
@@ -215,6 +223,23 @@ export function NewTableForm(props: { game: string }) {
             The published rule takes three different colors, fewer only when fewer are left in the supply. The
             table names which.
           </p>
+        </fieldset>
+      )}
+
+      {game === 'driftwrights' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Supply Windfall with a nearly empty bank</legend>
+          {(['available', 'two'] as const).map((choice) => (
+            <label key={choice} class="radio">
+              <input
+                type="radio"
+                name="windfall"
+                checked={windfall === choice}
+                onChange={() => setWindfall(choice)}
+              />
+              {choice === 'available' ? 'Take whatever remains' : 'Require two available supplies'}
+            </label>
+          ))}
         </fieldset>
       )}
 

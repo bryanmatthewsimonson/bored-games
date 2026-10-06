@@ -307,6 +307,19 @@ describe('Driftwrights classic rules', () => {
     expect(n.players.map((p) => p.goods[0])).toEqual([6, 0, 0]);
     expect(n.bank).toEqual(s.bank);
   });
+  it('C33 a table chooses how Supply Windfall handles fewer than two supplies in the bank', () => {
+    const scarce = venture(hands(ready(), [ZERO, [18, 19, 19, 19, 19], ZERO]), 16);
+    const one = { type: 'play', actor: 0, pos: 0, goods: [1, 0, 0, 0, 0], resource: null } as const;
+    expect(apply({ ...scarce, windfall: 'two' }, one).ok).toBe(false);
+    const took = step({ ...scarce, windfall: 'available' }, one);
+    expect(took.bank).toEqual(ZERO);
+    expect(took.players[0]?.goods).toEqual([1, 0, 0, 0, 0]);
+    const empty = venture(hands(ready(), [ZERO, [19, 19, 19, 19, 19], ZERO]), 16);
+    expect(step({ ...empty, windfall: 'available' }, { ...one, goods: ZERO }).players[0]?.goods).toEqual(
+      ZERO,
+    );
+    expect(apply({ ...scarce, windfall: 'available' }, { ...one, goods: ZERO }).ok).toBe(false);
+  });
   it('C25 landmarks count immediately but have no playable action', () => {
     const s = venture(ready(), 20, 0);
     expect(prestige(s, 0)).toBe(3);

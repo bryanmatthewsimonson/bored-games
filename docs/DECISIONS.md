@@ -1045,10 +1045,72 @@ The owner's two reports of 2026-10-03 (PLAN, "Known bugs"). **No consensus chang
 - **No new dependencies.**
 - **Verified:** after the review fixes, `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes).
 
-## D066: Driftwrights reference implementation and multiplayer release gate (2026-10-06)
+## D066: Right of Way rules spec, an original map and art; build waits on mid-turn reveals (owner request, 2026-10-06)
+The owner asked for "a trademark & copyright safe version of Ticket To Ride with a clever name and original artwork and rewritten rules, which follows the exact same gameplay mechanics". `docs/games/right-of-way/RULES.md` is the source of truth for a future engine, with a 39-entry catalog (C01–C39). Only the spec and art are written: no engine, UI, fuzz target or package.
+- **Name: Right of Way** (a railway's strip of land, and who goes first), set in Ferrovia (Italian for "railway"). A web search on 2026-10-06 found no railway board game published under that name; that is not trademark clearance, which stays with a lawyer before release (as for Luster). Fallback name: "Iron Ribbon".
+- **Mechanics kept exactly; expression replaced.** Mechanics and the numbers that are part of them are kept: 110 cards (12 × 8 colours + 14 wilds), 45 pieces, 4-card hands, a 5-card market with the three-wild wipe, two-card draws with the face-up wild rule, route points 1/2/4/7/10/15, twin routes closed at 2–3 players, tickets 3-keep-2 at setup and 3-keep-1 later, returns to the bottom, the ≤ 2-piece end and one more turn, the 10-point longest path and the tie-breaks. All of these are checked against two secondary sources and marked **verified** or **recalled** in the spec. Replaced: every name (freight cards with cargo themes, the Engine, track, charters, the Iron Ribbon), the rules prose (new, not paraphrased), and the map. The map has 36 invented towns and 85 routes (22 twins, 107 sides, 332 spaces), checked by script for no crossing routes and no route grazing a town, with colours balanced to 28–30 spaces each and 99 unmarked. There are 30 charters, valued by a stated rule (the shortest connection in spaces; values 4–22). Nothing reproduces the reference map, card art or rulebook text.
+- **Original art, CC0-1.0:** `docs/games/right-of-way/art/` holds the cover, the board (drawn from the route table), the card sheet and the 30 charters, in a flat travel-poster style deliberately unlike the reference game's look. Each colour has a cargo symbol on cards and route spaces for colour-blind play.
+- **Platform rules** (marked as such; the forced-pass end and the wipe limit are **OPEN** for the owner):
+  - a random first player, as in Luster;
+  - first charters chosen in seat order;
+  - a forced pass when no action is possible, ending the game when every seat passes in a row (D015 needs an end);
+  - no wipe when fewer than 3 non-wild cards remain outside hands (the published wipe could loop forever);
+  - a one-card draw when no second card is legal;
+  - returns kept in drawn order;
+  - ties beyond the published tie-breaks share the place.
+
+  OPEN options logged: `firstPlayer`, and `chartersAtStart` (simultaneous, once GAME-SYSTEMS §4.8 exists).
+- **Build gate.** Blind draws, market refills and wipes reveal cards **mid-turn**, after the player's choice, and the discard reshuffle is a mid-game reshuffle (GAME-SYSTEMS §4.1.4, missing). Turn-piggybacked, each costs an extra async round, and D050 forbids prompt duties. The build therefore needs an owner choice: dealer tables (`docs/proposals/dealer-relay.md`, recommended), Phase K prompt reveals, or a Luster-style `promptShares` exception. No rule is changed to avoid the latency. Resign stays disabled until its D052 review for public reveals, as Luster's is.
+- **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
+- **No new dependencies.**
+
+## D067: Right of Way built and released as beta (owner, 2026-10-06)
+The owner asked: "If the game is finished and ready to play, then merge and deploy. If it is not ready, finish it up and then do so." The spec of D066 needed a build. Two decisions were the owner's, asked and answered the same day:
+- **Prompt shares, like Luster (D050 exception).** Blind draws, refills, wipes and sifts reveal cards mid-turn, so Right of Way's deck sets `DeckSpec.promptShares`. It is the second module allowed to (web allowlist and repo guard updated), with Luster's residual risk: a seat that forks after reading a released card is detected, not prevented.
+- **Sealed shares for re-dealt charters.** A returned charter drawn by another seat is a position privately dealt twice. Public shares cannot keep it private (shares belong to positions, not recipients), so the first holder seals its share to each later holder with the reviewed reference primitive `packages/deck/src/sealed.ts` (prompt-reveal §7). The owner chose this over setting returned charters aside, which would have changed the rules. It is new session code without a fresh adversarial review, the cost the owner accepted.
+
+How it is built:
+- **One packet, no protocol shuffle changes.** Deck `rail` (580 cards) in partitions (D060's mechanism): `freight` 110, `spare-1`…`spare-4` (110 each), `charters` 30. All are shuffled at setup; nothing is shuffled during play.
+- **Reshuffles from spare index decks.** A reshuffle of n discards uses the next spare: its card v < n is the v-th discard (ascending), and others are skipped. Members come up in a uniformly random order, which is a fair shuffle of the discards, and skipped cards reveal nothing. A refill skips publicly. A blind draw is dealt to the drawer, who sifts it: keeping reveals nothing, and skipping reveals the card, which the session verifies at once. Measured on 4000 fuzzed games: at most three reshuffles (five seats); none ever needed a fifth spare. Running out is a platform limit (RULES.md).
+- **Contract change: re-dealt positions** (game-kit `dealt`, the fuzzer, PROTOCOL §6.2). A private position may be dealt again: privately to another seat, or to the public. A public position never is. Owed shares exclude the first holder of a still-private re-dealt position. New event **Sealed (kind 7458, PROTOCOL §4.10)** with strict parsing, a `seal` duty (session, simulator, web controller with D056 vetting), stall attribution naming a withholding first holder, and private learns that open the sealed share. Existing games never re-deal, so nothing changes for them. The web vetting rule "never share your own private card" now applies only while the position's latest assignment is private, so the end-of-game charter reveal can go out.
+- **Platform rules (OPEN for the owner):**
+  - reshuffle when a card is needed from the empty pile (a blind draw, a refill after a take or a wipe); empty yard slots refill at a turn's start when the pile has cards;
+  - at most three wipes in a row;
+  - a forced pass, and the end when every seat passes in a row;
+  - a random first player, chosen from the setup yard;
+  - first charters kept in seat order.
+- **Resign** is disabled (`resignAllowed` false), like Luster's, pending a review of public reveals during play.
+- **Name and "Compare to".** `src/compare.ts` holds the one allowed phrase (`ALLOWED_PHRASE_HOMES`), linked to BoardGameGeek 9209.
+- **Verified:**
+  - 42 catalog tests (C01–C42);
+  - 4000 fuzzed games with no failure, all ending on the line, with re-dealt charters, sifts, wipes and reshuffles all covered, and 2000 more under the `charterer` policy (it draws charters whenever it may, so the charter pile cycles and charters are re-dealt to other seats);
+  - `pnpm sim` of whole games with real cryptography: 3- and 5-seat games, all done with the audit passing. Under `--policy charterer`, each 3-seat game exchanged 16 Sealed events and no timeout was claimed. That run found that the simulator did not sync kind 7458, so re-dealt charters stalled; `GAME_KINDS` now holds it, and a client test checks the list against `KIND`;
+  - session and protocol tests for sealed shares;
+  - the e2e spec (`apps/web/e2e/right-of-way.spec.ts`), with results in PLAN.
+- **No new dependencies.**
+
+## D068: Driftwrights reference implementation and multiplayer release gate (2026-10-06)
+
+Historical reference-only gate, superseded by the owner's D069 exception and the D070 transport implementation below.
 
 - The owner requested Driftwrights implementation, end-to-end tests, and merge/deployment once ready. The reference engine and board target the classic three/four-player mechanics with original art and rewritten text.
 - The current session cannot securely combine dice with a private deck, transfer hidden resource cards, prove complete resource requisitions, or guarantee immediate private venture learning. A redacted authoritative state is not a private multiplayer protocol.
 - Keep the reference fixture separate from the production lobby until those requirements work through the real session. Its coordinator inputs and test policy are development tooling, not signed actions or a production referee.
 - D050's hidden-share release gate and Luster-only exception remain in force. The owner is asked to choose decentralized protocol support or the unadopted trusted-dealer proposal; no trust-model amendment is inferred from conditional merge authorization.
 - No new external dependencies. Detailed architecture gaps and acceptance gates are in `docs/games/driftwrights/IMPLEMENTATION.md`.
+
+## D069: Driftwrights-specific D050 exception (owner, 2026-10-06)
+
+The owner instructed: **“Make an exception to D050 like you did for Luster, then merge and deploy when ready.”**
+
+- This authorizes Driftwrights' immediate hidden-card shares and private theft deliveries, including out-of-turn duties, with the existing v1 fork/rollback limits. It does not authorize prompt duties for other games.
+- D003 remains: player-and-relay tables, no trusted dealer. The exception removes the policy gate; missing transport and audit support still must be implemented and verified before release.
+- Mixed card/dice proofs must be isolated, and new rolls bound to their requesting move. Private theft must remain concealed from spectators and other seats, and both encrypted deliveries must match a uniform selection during the final full-information audit. Dishonest private claims must fail their sender's audit.
+- Resignation stays disabled pending analysis of transferred secrets. No merge/deployment until independent three/four-seat multiplayer games, privacy/reload/audit cases, existing regression tests and repository checks pass.
+
+## D070: Driftwrights transport and scarce-bank rule option (2026-10-06)
+
+- Resource identities remain private; public counts and bank balances follow signed actions. Payments, discards and all-of-a-resource claims are checked against full hands in the final audit, as hidden claims in the existing architecture are. A false claim fails its signer; it is not a live zero-knowledge proof of inventory.
+- One encrypted venture deck coexists with the beacon. Card wire positions are 0–24; roll slots are 25 + counter. Card and beacon verification caches are separate. A roll request carries no entropy share; every seat contributes only after it links, with the proof domain `rootId:requestMoveId`. Deckless Bank retains its existing wire positions and domain.
+- The victim's deck key, committed at Join, fixes a cryptographic Fisher–Yates permutation of its sorted resource hand, domain-separated by root/request/selection id. The public beacon selects a uniform index. Neither delivery parent nor encryption nonce changes the selected resource. Two NIP-44 packets deliver the same identity to victim and thief using their deck keys; no other seat decrypts during play. Once the deck secrets are released, every audit verifies both packets, their root/request/parent bindings, and the exact selected resource. Resign remains disabled. This uses existing dependencies.
+- OPEN interpretation: the publisher's Windfall instruction specifies two supplies; its general shortage exception says a sole recipient receives the remaining supply. No explicit Windfall-specific scarce-bank clarification was found. Apply the repository's rules-option convention: `windfall: 'available' | 'two'`, default `available`, exposed at table creation and covered by C33. Both interpretations take exactly two in ordinary cases. The owner was asked for a preference; the default is an explicit inference, not a claim of publisher confirmation.
