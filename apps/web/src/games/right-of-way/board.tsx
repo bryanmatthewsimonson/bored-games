@@ -88,6 +88,21 @@ function Side(props: {
       </g>
     );
   });
+  // A wide invisible line along the side: the whole route is one tap target, gaps between spaces included.
+  const first = R + sl / 2;
+  const last = d - R - sl / 2;
+  const hit = (
+    <line
+      class="row-hit"
+      x1={(a.x + ux * first - uy * offset).toFixed(1)}
+      y1={(a.y + uy * first + ux * offset).toFixed(1)}
+      x2={(a.x + ux * last - uy * offset).toFixed(1)}
+      y2={(a.y + uy * last + ux * offset).toFixed(1)}
+      stroke="transparent"
+      stroke-width="18"
+      stroke-linecap="round"
+    />
+  );
   const label = `${routeName(props.ri)}, ${r.length} long, ${colorName === 'gray' ? 'unmarked' : colorName}${
     owner !== null ? `, laid by ${props.names[owner] ?? `player ${owner + 1}`}` : ''
   }`;
@@ -117,6 +132,7 @@ function Side(props: {
     >
       <title>{label}</title>
       {spaces}
+      {hit}
     </g>
   );
 }
@@ -126,8 +142,8 @@ export function Board(props: BoardProps) {
     <div class="row-board-wrap">
       <svg class="row-board" viewBox="20 20 1460 920" aria-label="The board of Ferrovia">
         <title>The board of Ferrovia</title>
-        <rect x="0" y="0" width="1500" height="1000" fill="#b9d3d0" />
-        <path d={COAST} fill="#eadcb8" stroke={INK} stroke-width="2.5" />
+        <rect x="0" y="0" width="1500" height="1000" fill="#b9d3d0" pointer-events="none" />
+        <path d={COAST} fill="#eadcb8" stroke={INK} stroke-width="2.5" pointer-events="none" />
         {ROUTES.flatMap((r, ri) =>
           r.sides.map((_, side) => {
             const key = `${ri}:${side}`;

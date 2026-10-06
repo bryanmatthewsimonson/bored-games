@@ -58,23 +58,23 @@ async function play(page: Page): Promise<string> {
     )
     .toBe(true);
   if (phase === 'turn' && (await claim.count()) > 0) {
-    await claim.first().click();
-    await page.locator('.row-claim .row-primary').first().click();
+    await claim.first().click({ timeout: 30_000 });
+    await page.locator('.row-claim .row-primary').first().click({ timeout: 30_000 });
     return 'claim';
   }
   if (await blind.isEnabled()) {
-    await blind.click();
+    await blind.click({ timeout: 30_000 });
     return 'blind';
   }
   if ((await yard.count()) > 0) {
-    await yard.first().click();
+    await yard.first().click({ timeout: 30_000 });
     return 'take';
   }
   if (await charters.isEnabled()) {
-    await charters.click();
+    await charters.click({ timeout: 30_000 });
     return 'charters';
   }
-  await pass.click();
+  await pass.click({ timeout: 30_000 });
   return 'pass';
 }
 
