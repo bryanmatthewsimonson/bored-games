@@ -12,6 +12,7 @@
   "dependencies": {
     "@bored-games/luster": "workspace:*",
     "@bored-games/game-kit": "workspace:*",
+    "@bored-games/holler": "workspace:*",
     "@bored-games/bank": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
     "@bored-games/chess": "workspace:*"

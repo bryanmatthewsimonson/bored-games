@@ -2,6 +2,7 @@ import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
+import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
@@ -10,6 +11,7 @@ import {
   chainReactionDeckOrder,
 } from './chain-reaction.ts';
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
+import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
 import { LUSTER_EXPECTED_COVERAGE, LUSTER_POLICIES, lusterDeckOrder } from './luster.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
@@ -52,6 +54,12 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: BANK_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],
   },
+  holler: {
+    module: holler,
+    policies: HOLLER_POLICIES,
+    expectedCoverage: HOLLER_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 4, 10],
+  },
 };
 
 export {
@@ -62,4 +70,6 @@ export {
   CHESS_EXPECTED_COVERAGE,
   CHESS_POLICIES,
   chainReactionDeckOrder,
+  HOLLER_EXPECTED_COVERAGE,
+  HOLLER_POLICIES,
 };

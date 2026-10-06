@@ -39,6 +39,14 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          name: 'holler',
+          root: 'packages/games/holler',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
         test: { name: 'deck', root: 'packages/deck', include: ['test/**/*.test.ts'], testTimeout: 60_000 },
       },
       {

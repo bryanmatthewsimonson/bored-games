@@ -49,11 +49,11 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053), case-sensitive. Each
- * is stored as one string literal in its game's `src` (Chain Reaction: `src/compare.ts`), which a guard test
- * checks. Keep this to whole phrases: never add the bare title, here or to ALLOWED_WORDS.
+ * The exact phrases a public compare line may show (D053, D059), case-sensitive. A set: each game stores one
+ * phrase as one literal in `src/compare.ts`, and a guard test checks that this set equals those literals.
+ * Keep this to whole phrases: never add the bare title, here or to ALLOWED_WORDS.
  */
-export const ALLOWED_PHRASES: readonly string[] = ['Compare to Acquire'];
+export const ALLOWED_PHRASES: ReadonlySet<string> = new Set(['Compare to Acquire', 'Compare to Uno']);
 
 const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -63,10 +63,14 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * ("…-style", "…’s"), is left for the matchers to catch. The ASCII `'` may follow: it closes a quoted literal.
  */
 export function withoutAllowedPhrases(text: string): string {
-  return ALLOWED_PHRASES.reduce(
-    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_\\-\u2019])`, 'g'), ' '),
-    text,
-  );
+  let out = text;
+  for (const phrase of ALLOWED_PHRASES) {
+    out = out.replace(
+      new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(phrase)}(?![A-Za-z0-9_\\-\u2019])`, 'g'),
+      ' ',
+    );
+  }
+  return out;
 }
 
 /** The words of `text` (letters and digits, joined by `_`) that contain a restricted name, not allowed ones. */

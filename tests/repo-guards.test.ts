@@ -9,6 +9,12 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { HOLLER_CATALOG } from '../packages/games/holler/src/catalog.ts';
+import {
+  COMPARE_BGG_ID as HOLLER_BGG_ID,
+  COMPARE_PHRASE as HOLLER_PHRASE,
+  COMPARE_TITLE as HOLLER_TITLE,
+} from '../packages/games/holler/src/compare.ts';
 import {
   ALLOWED_PHRASES,
   ALLOWED_WORDS,
@@ -19,6 +25,7 @@ import {
   licensedPackStrings,
   packStrings,
   restrictedIn,
+  withoutAllowedPhrases,
 } from './restricted-names.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -168,7 +175,7 @@ describe('branding', () => {
     expect(findRestricted('hotel chainsaw', ['hotel chains'])).toEqual([]);
   });
 
-  describe('the one allowed phrase (D053)', () => {
+  describe('the allowed compare phrases (D053)', () => {
     const companies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -180,17 +187,41 @@ describe('branding', () => {
       'Phoenix',
     ];
 
-    it('is exactly "Compare to" the reference title, stored once in compare.ts', () => {
-      expect(ALLOWED_PHRASES).toEqual(['Compare to Acquire']);
-      expect(ALLOWED_PHRASES).toEqual([COMPARE_PHRASE]);
+    it('each phrase is one compare.ts literal', () => {
+      expect(ALLOWED_PHRASES).toEqual(new Set(['Compare to Acquire', 'Compare to Uno']));
+      expect(ALLOWED_PHRASES).toEqual(new Set([COMPARE_PHRASE, HOLLER_PHRASE]));
       expect(COMPARE_PREFIX + COMPARE_TITLE).toBe(COMPARE_PHRASE);
+      expect(COMPARE_PREFIX + HOLLER_TITLE).toBe(HOLLER_PHRASE);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
       expect(CHAIN_REACTION_CATALOG.compareTo).toEqual({ title: COMPARE_TITLE, bggId: COMPARE_BGG_ID });
       expect(COMPARE_BGG_ID).toBe(5);
-      // compare.ts writes the phrase as one literal and never the title on its own.
-      const code = readFileSync(join(root, 'packages/games/chain-reaction/src/compare.ts'), 'utf8');
-      expect(code.split(`'${COMPARE_PHRASE}'`)).toHaveLength(2);
-      expect(findRestricted(code.replace(`'${COMPARE_PHRASE}'`, ''), strings)).toEqual([]);
+      expect(HOLLER_CATALOG.compareTo).toEqual({ title: HOLLER_TITLE, bggId: HOLLER_BGG_ID });
+      expect(HOLLER_BGG_ID).toBe(2223);
+      // Each compare.ts writes its phrase as one literal and never the title on its own.
+      const chain = readFileSync(join(root, 'packages/games/chain-reaction/src/compare.ts'), 'utf8');
+      expect(chain.split(`'${COMPARE_PHRASE}'`)).toHaveLength(2);
+      expect(findRestricted(chain.replace(`'${COMPARE_PHRASE}'`, ''), strings)).toEqual([]);
+      const shedding = readFileSync(join(root, 'packages/games/holler/src/compare.ts'), 'utf8');
+      expect(shedding.split(`'${HOLLER_PHRASE}'`)).toHaveLength(2);
+      expect(findRestricted(shedding.replace(`'${HOLLER_PHRASE}'`, ''), strings)).toEqual([]);
+    });
+
+    it('the shedding package does not name the commercial titles as whole words', () => {
+      const tokens = ['Uno', 'DOS', 'Phase 10', 'Skip-Bo'];
+      const boundary = (word: string): RegExp =>
+        new RegExp(`(?<![A-Za-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i');
+      expect(boundary('Uno').test('Unofficial')).toBe(false);
+      expect(boundary('Phase 10').test('Phase')).toBe(false);
+      const offenders: string[] = [];
+      for (const dir of [join(root, 'packages/games/holler'), join(root, 'apps/web/src/games/holler')]) {
+        if (!existsSync(dir)) continue;
+        for (const file of files(dir)) {
+          const text = withoutAllowedPhrases(readFileSync(file, 'utf8'));
+          const hits = tokens.filter((token) => boundary(token).test(text));
+          if (hits.length > 0) offenders.push(`${relative(root, file)}: ${hits.join(', ')}`);
+        }
+      }
+      expect(offenders).toEqual([]);
     });
 
     it('passes the guard, alone and in code, with the licensed strings in the scan', () => {

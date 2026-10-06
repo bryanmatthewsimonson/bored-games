@@ -145,6 +145,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/holler:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/luster:
     dependencies:
       '@bored-games/game-kit':
@@ -206,6 +212,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../../packages/games/holler
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
