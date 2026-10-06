@@ -167,7 +167,7 @@
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle. **Met** (2d: the sims plus `play`, `end` and `shuffle-phase` tests).
   - A smoke test runs against the owner's relay plus a public relay. **Open** (2e; needs open question 7).
 
-### Phase v2: Protocol version 2 (outline; spec `docs/PROTOCOL-v2.md`)
+### Phase v2: Protocol version 2 (ABANDONED, D071: do not resume; every game stays on protocol 1 until trusted dealers)
 Outline only; each task gets its own plan before it starts. Nothing ships until every task's tests pass and `pnpm check` is green.
 - **0. Before the build (D059 item 8).**
   - Finish the unproven model scopes (prompt-reveal.md §6.7): 4 seats, 8 moves, public, adversary at seat 3; two honest seats on two devices each with a resign; viewers mode at 4 seats and 8 moves. Re-run on a bigger machine if needed.
