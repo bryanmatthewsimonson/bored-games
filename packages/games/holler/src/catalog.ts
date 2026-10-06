@@ -24,5 +24,5 @@ export const HOLLER_CATALOG: CatalogEntry = {
   randomness: true,
   tags: ['shedding', 'family'],
   minAge: null,
-  art: null,
+  art: { credit: 'Bored Games', license: 'same as the repository' },
 };

@@ -4,6 +4,7 @@
  */
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { catalogProblems } from '@bored-games/game-kit';
+import { COMPARE_PHRASE as HOLLER_PHRASE, COMPARE_TITLE as HOLLER_TITLE } from '@bored-games/holler/compare';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { catalogItems, GameCard } from '../src/components/game-catalog.tsx';
@@ -94,6 +95,8 @@ describe('game catalog', () => {
       return spokenText(renderTree(h(GameCard, { item })));
     };
     expect(card('chain-reaction')).toContain(COMPARE_PHRASE);
+    expect(card('holler')).toContain(HOLLER_PHRASE);
+    expect(`Compare to ${HOLLER_TITLE}`).toBe(HOLLER_PHRASE);
     expect(card('chess')).not.toContain('Compare to');
     expect(card('bank')).not.toContain('Compare to');
   });

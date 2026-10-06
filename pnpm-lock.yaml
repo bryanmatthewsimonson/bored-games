@@ -50,6 +50,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../../packages/games/holler
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
