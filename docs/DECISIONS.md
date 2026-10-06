@@ -1058,7 +1058,7 @@ The owner asked for "a trademark & copyright safe version of Ticket To Ride with
   - a one-card draw when no second card is legal;
   - returns kept in drawn order;
   - ties beyond the published tie-breaks share the place.
-  
+
   OPEN options logged: `firstPlayer`, and `chartersAtStart` (simultaneous, once GAME-SYSTEMS §4.8 exists).
 - **Build gate.** Blind draws, market refills and wipes reveal cards **mid-turn**, after the player's choice, and the discard reshuffle is a mid-game reshuffle (GAME-SYSTEMS §4.1.4, missing). Turn-piggybacked, each costs an extra async round, and D050 forbids prompt duties. The build therefore needs an owner choice: dealer tables (`docs/proposals/dealer-relay.md`, recommended), Phase K prompt reveals, or a Luster-style `promptShares` exception. No rule is changed to avoid the latency. Resign stays disabled until its D052 review for public reveals, as Luster's is.
 - **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
@@ -1088,3 +1088,29 @@ How it is built:
   - session and protocol tests for sealed shares;
   - the e2e spec (`apps/web/e2e/right-of-way.spec.ts`), with results in PLAN.
 - **No new dependencies.**
+
+## D068: Driftwrights reference implementation and multiplayer release gate (2026-10-06)
+
+Historical reference-only gate, superseded by the owner's D069 exception and the D070 transport implementation below.
+
+- The owner requested Driftwrights implementation, end-to-end tests, and merge/deployment once ready. The reference engine and board target the classic three/four-player mechanics with original art and rewritten text.
+- The current session cannot securely combine dice with a private deck, transfer hidden resource cards, prove complete resource requisitions, or guarantee immediate private venture learning. A redacted authoritative state is not a private multiplayer protocol.
+- Keep the reference fixture separate from the production lobby until those requirements work through the real session. Its coordinator inputs and test policy are development tooling, not signed actions or a production referee.
+- D050's hidden-share release gate and Luster-only exception remain in force. The owner is asked to choose decentralized protocol support or the unadopted trusted-dealer proposal; no trust-model amendment is inferred from conditional merge authorization.
+- No new external dependencies. Detailed architecture gaps and acceptance gates are in `docs/games/driftwrights/IMPLEMENTATION.md`.
+
+## D069: Driftwrights-specific D050 exception (owner, 2026-10-06)
+
+The owner instructed: **“Make an exception to D050 like you did for Luster, then merge and deploy when ready.”**
+
+- This authorizes Driftwrights' immediate hidden-card shares and private theft deliveries, including out-of-turn duties, with the existing v1 fork/rollback limits. It does not authorize prompt duties for other games.
+- D003 remains: player-and-relay tables, no trusted dealer. The exception removes the policy gate; missing transport and audit support still must be implemented and verified before release.
+- Mixed card/dice proofs must be isolated, and new rolls bound to their requesting move. Private theft must remain concealed from spectators and other seats, and both encrypted deliveries must match a uniform selection during the final full-information audit. Dishonest private claims must fail their sender's audit.
+- Resignation stays disabled pending analysis of transferred secrets. No merge/deployment until independent three/four-seat multiplayer games, privacy/reload/audit cases, existing regression tests and repository checks pass.
+
+## D070: Driftwrights transport and scarce-bank rule option (2026-10-06)
+
+- Resource identities remain private; public counts and bank balances follow signed actions. Payments, discards and all-of-a-resource claims are checked against full hands in the final audit, as hidden claims in the existing architecture are. A false claim fails its signer; it is not a live zero-knowledge proof of inventory.
+- One encrypted venture deck coexists with the beacon. Card wire positions are 0–24; roll slots are 25 + counter. Card and beacon verification caches are separate. A roll request carries no entropy share; every seat contributes only after it links, with the proof domain `rootId:requestMoveId`. Deckless Bank retains its existing wire positions and domain.
+- The victim's deck key, committed at Join, fixes a cryptographic Fisher–Yates permutation of its sorted resource hand, domain-separated by root/request/selection id. The public beacon selects a uniform index. Neither delivery parent nor encryption nonce changes the selected resource. Two NIP-44 packets deliver the same identity to victim and thief using their deck keys; no other seat decrypts during play. Once the deck secrets are released, every audit verifies both packets, their root/request/parent bindings, and the exact selected resource. Resign remains disabled. This uses existing dependencies.
+- OPEN interpretation: the publisher's Windfall instruction specifies two supplies; its general shortage exception says a sole recipient receives the remaining supply. No explicit Windfall-specific scarce-bank clarification was found. Apply the repository's rules-option convention: `windfall: 'available' | 'two'`, default `available`, exposed at table creation and covered by C33. Both interpretations take exactly two in ordinary cases. The owner was asked for a preference; the default is an explicit inference, not a claim of publisher confirmation.

@@ -13,6 +13,9 @@ import { ChainReactionScreen } from './chain-reaction/screen.tsx';
 import { ChessGame } from './chess/game.tsx';
 import { CHESS_META } from './chess/meta.ts';
 import { ChessRulesPage } from './chess/rules-page.tsx';
+import { DriftwrightsGame } from './driftwrights/game.tsx';
+import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
+import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
 import { GAME_IDS } from './ids.ts';
 import { LusterGame } from './luster/game.tsx';
 import { LUSTER_META } from './luster/meta.ts';
@@ -66,6 +69,16 @@ export const GAMES: readonly WebGame[] = [
       shuffling: 'Shuffling the freight, spare decks and charters',
       dealing: 'Dealing freight and charters…',
       share: { act: 'reveal a card', owed: 'a card reveal' },
+    }),
+  },
+  {
+    ...DRIFTWRIGHTS_META,
+    Component: DriftwrightsGame,
+    RulesPage: DriftwrightsRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Shuffling ventures',
+      dealing: 'Opening the island chart…',
+      share: { act: 'deliver a venture contribution', owed: 'a venture contribution' },
     }),
   },
 ];

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { MODULES } from '../src/net.ts';
 
 /** The modules allowed to set `promptShares` (owner-approved). Adding one needs an owner decision. */
-const PROMPT_SHARES_ALLOWED: readonly string[] = ['luster', 'right-of-way'];
+const PROMPT_SHARES_ALLOWED: readonly string[] = ['luster', 'right-of-way', 'driftwrights'];
 
 describe('promptShares allowlist', () => {
   for (const [id, module] of MODULES) {

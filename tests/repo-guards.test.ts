@@ -102,6 +102,7 @@ describe('promptShares (D050, D059 item 8, D066)', () => {
     'packages/client/src/session.ts',
     'packages/games/luster/src/transport.ts',
     'packages/games/right-of-way/src/module.ts',
+    'packages/games/driftwrights/src/module.ts',
   ];
   it('is named only by the type, the session, Luster and Right of Way in any package source', () => {
     const named = srcDirs()
