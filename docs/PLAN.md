@@ -92,6 +92,12 @@
 - **Open for the owner:** the platform rules in RULES.md (the reshuffle timing, the wipe limit, the forced-pass end, the spare-deck limit), an adversarial review of the sealed re-deal path, and name clearance.
 - **Resign:** disabled.
 
+**Room for Doubt (2026-10-06, D068): rules spec, original board and art; the build waits on the hidden-card path.**
+- **Package:** `docs/games/room-for-doubt/` holds `RULES.md` (catalog C01–C45), the board grid `board.txt` (its structure proved by `tests/room-for-doubt-board.test.ts`) and five CC0 art files drawn by `scripts/room-for-doubt/`. There is no engine, UI, fuzz target or e2e spec. `tests/catalog.test.ts` lists the game as spec only.
+- **Guards:** the reference game's names in all their forms, and its title as an exact-case word, are restricted (`tests/restricted-names.ts`).
+- **Open for the owner:** the hidden-card path (A, a beta on today's pieces; B, exact, with deck epochs and sealed choices; or C, dealer tables; recommended A then B), name clearance, and confirming BoardGameGeek 1294.
+- **Resign:** disabled.
+
 **Hanabi spec (Phase J0, 2026-10-02, D054):** `docs/games/hanabi/RULES.md` is written (56-entry catalog C01–C56; no engine, UI or package). `tests/catalog.test.ts` lists `hanabi` as spec only (`SPEC_ONLY`, which fails once the package exists). **The build is blocked on Phase K** (sealed shares plus a prompt-reveal protocol; GAME-SYSTEMS §4.1.10). OPEN rules points are marked in the spec, among them the third-fuse score being kept as an option, hand-order and clue-mark display, the co-op win label, and variants.
 
 **Phase 2d simulations (2026-10-01):** `pnpm sim --games 4 --seats 3-4 --seed night`: 4/4 done, audit pass. All 11 sim tests (4 memory-relay tests and 7 game scenarios, adversaries included) pass under `pnpm test:sim`. Request 3 (4 to 6 players) added 3: a 6-seat cancel in the shuffle (in `pnpm check`) and honest 4- and 6-seat whole games (`pnpm test:sim` only); all 14 pass in about 8 minutes, the 4- and 6-seat games taking about 72 s and 162 s.
