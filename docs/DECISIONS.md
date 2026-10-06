@@ -1044,3 +1044,11 @@ The owner's two reports of 2026-10-03 (PLAN, "Known bugs"). **No consensus chang
   - e2e `keys.spec.ts`: two browser contexts with the same nsec; join on one, restore and play on the other.
 - **No new dependencies.**
 - **Verified:** after the review fixes, `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes).
+
+## D066: Driftwrights reference implementation and multiplayer release gate (2026-10-06)
+
+- The owner requested Driftwrights implementation, end-to-end tests, and merge/deployment once ready. The reference engine and board target the classic three/four-player mechanics with original art and rewritten text.
+- The current session cannot securely combine dice with a private deck, transfer hidden resource cards, prove complete resource requisitions, or guarantee immediate private venture learning. A redacted authoritative state is not a private multiplayer protocol.
+- Keep the reference fixture separate from the production lobby until those requirements work through the real session. Its coordinator inputs and test policy are development tooling, not signed actions or a production referee.
+- D050's hidden-share release gate and Luster-only exception remain in force. The owner is asked to choose decentralized protocol support or the unadopted trusted-dealer proposal; no trust-model amendment is inferred from conditional merge authorization.
+- No new external dependencies. Detailed architecture gaps and acceptance gates are in `docs/games/driftwrights/IMPLEMENTATION.md`.
