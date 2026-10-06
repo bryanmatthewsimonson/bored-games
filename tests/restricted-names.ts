@@ -13,7 +13,7 @@
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053, D060): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title, as a store
+ * One exception (D053, D060, D066): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title, as a store
  * brand says it; one per game that has one) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
  * repo guard, the public build scan and `pnpm scan:dist`) let them through. Only the whole phrase, spelled exactly:
  * the title alone, in another case or inside another word is still caught.
@@ -79,13 +79,14 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060), case-sensitive:
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066), case-sensitive:
  * one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which a guard test
  * checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS.
  */
 export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/chain-reaction/src/compare.ts': 'Compare to Acquire',
   'packages/games/luster/src/compare.ts': 'Compare to Splendor',
+  'packages/games/right-of-way/src/compare.ts': 'Compare to Ticket to Ride',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

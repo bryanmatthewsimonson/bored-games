@@ -10,10 +10,11 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@bored-games/luster": "workspace:*",
-    "@bored-games/game-kit": "workspace:*",
     "@bored-games/bank": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
-    "@bored-games/chess": "workspace:*"
+    "@bored-games/chess": "workspace:*",
+    "@bored-games/game-kit": "workspace:*",
+    "@bored-games/luster": "workspace:*",
+    "@bored-games/right-of-way": "workspace:*"
   }
 }

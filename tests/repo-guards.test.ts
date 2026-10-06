@@ -11,6 +11,8 @@ import {
 } from '../packages/games/chain-reaction/src/compare.ts';
 import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
+import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog.ts';
+import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
 import {
   ALLOWED_PHRASE_HOMES,
   ALLOWED_PHRASES,
@@ -91,16 +93,17 @@ describe('engine purity', () => {
   }
 });
 
-describe('promptShares (D050, D059 item 8)', () => {
-  // The automatic share duty in play is an owner-authorized exception for Luster only. Outside the type that
-  // declares the flag and the session that reads it, only Luster's deck spec may name it, so no other game can
-  // switch it on, registered in the web app or not (apps/web/test/prompt-shares.test.ts checks the modules).
+describe('promptShares (D050, D059 item 8, D066)', () => {
+  // The automatic share duty in play is an owner-authorized exception for Luster and Right of Way only. Outside
+  // the type that declares the flag and the session that reads it, only their deck specs may name it, so no other
+  // game can switch it on, registered in the web app or not (apps/web/test/prompt-shares.test.ts checks the modules).
   const ALLOWED = [
     'packages/game-kit/src/types.ts',
     'packages/client/src/session.ts',
     'packages/games/luster/src/transport.ts',
+    'packages/games/right-of-way/src/module.ts',
   ];
-  it('is named only by the type, the session and Luster in any package source', () => {
+  it('is named only by the type, the session, Luster and Right of Way in any package source', () => {
     const named = srcDirs()
       .flatMap((d) => files(d, /\.(ts|tsx)$/))
       .filter((f) => /\bpromptShares\b/.test(stripComments(readFileSync(f, 'utf8'))))
@@ -253,11 +256,32 @@ describe('branding', () => {
         bggId: 148228,
         companies: lusterCompanies,
       },
+      {
+        game: 'Right of Way',
+        home: 'packages/games/right-of-way/src/compare.ts',
+        phrase: 'Compare to Ticket to Ride',
+        compare: RIGHT_OF_WAY_COMPARE,
+        entry: RIGHT_OF_WAY_CATALOG,
+        bggId: 9209,
+        companies: [
+          'Days of Wonder',
+          'DAYS OF WONDER',
+          'days-of-wonder',
+          'DaysOfWonder',
+          'Alan R. Moon',
+          'Alan Moon',
+          'AlanMoon',
+        ],
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
       expect(ALLOWED_PHRASE_HOMES).toEqual(Object.fromEntries(games.map((g) => [g.home, g.phrase])));
-      expect(ALLOWED_PHRASES).toEqual(['Compare to Acquire', 'Compare to Splendor']);
+      expect(ALLOWED_PHRASES).toEqual([
+        'Compare to Acquire',
+        'Compare to Splendor',
+        'Compare to Ticket to Ride',
+      ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });
 

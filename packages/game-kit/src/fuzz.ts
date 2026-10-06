@@ -196,19 +196,24 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       }
       prevDealt = dealt;
       owner = new Map();
+      // A private position may be dealt again (to another seat, after its holder gave it back, or to the public:
+      // PROTOCOL §6.1); a public position never is. `owner` is the latest assignment, `holders` every seat ever.
+      const holders = new Map<string, Set<Seat>>();
       for (const d of dealt) {
         const key = posKey(d.deck, d.pos);
-        if (owner.has(key)) return `dealt: position ${key} assigned twice`;
+        if (owner.has(key) && owner.get(key) === null) return `dealt: public position ${key} assigned again`;
         if (deckOrders[d.deck]?.[d.pos] === undefined) return `dealt: ${key} is not a deck position`;
         if (d.to !== null && !(Number.isInteger(d.to) && d.to >= 0 && d.to < opts.seats)) {
           return `dealt: ${key} assigned to ${String(d.to)}`;
         }
         owner.set(key, d.to);
+        if (d.to !== null) holders.set(key, (holders.get(key) ?? new Set()).add(d.to));
       }
       for (const seat of range(opts.seats)) {
         for (const l of module.knownTo(full, seat)) {
-          const to = owner.get(learnKey(l));
-          if (to !== seat) return `seat ${seat} knows ${learnKey(l)}, which is dealt to ${who(to)}`;
+          const key = learnKey(l);
+          if (!holders.get(key)?.has(seat))
+            return `seat ${seat} knows ${key}, which is dealt to ${who(owner.get(key))}`;
         }
       }
       const pending = module.pending(full);

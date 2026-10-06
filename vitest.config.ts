@@ -11,6 +11,14 @@ export default defineConfig({
           testTimeout: 120_000,
         },
       },
+      {
+        test: {
+          name: 'right-of-way',
+          root: 'packages/games/right-of-way',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
       { test: { name: 'game-kit', root: 'packages/game-kit', include: ['test/**/*.test.ts'] } },
       { test: { name: 'dice', root: 'packages/dice', include: ['test/**/*.test.ts'] } },
       {

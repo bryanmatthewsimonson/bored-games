@@ -392,6 +392,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return `move:${v.head.seq + 1}:${v.head.id}`;
       case 'share':
         return `share:${duty.positions.join(',')}`;
+      case 'seal':
+        return `seal:${duty.items.map((x) => `${x.pos}>${x.to}`).join(',')}`;
       case 'attest':
         return `attest:${canonicalJson({ audit: v.audit, logHash: v.logHash, outcome: v.outcome })}`;
       default:
@@ -414,6 +416,8 @@ export function simulateGame(opts: SimOptions): SimReport {
         return s.buildDeal(c.rnd, clock);
       case 'share':
         return s.buildShares(c.rnd, clock);
+      case 'seal':
+        return s.buildSealed(c.rnd, clock);
       case 'beacon':
         return s.buildBeacon(c.rnd, clock);
       case 'decide':

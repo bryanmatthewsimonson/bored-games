@@ -4,7 +4,7 @@
 
 Right of Way uses the base-game mechanics of *Ticket to Ride* (Alan R. Moon; Days of Wonder, 2004) unchanged. The rules prose, names, map, route layout, charter list and artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site may name it only through the exact "Compare to" phrase, once a `src/compare.ts` exists (D053).
 
-**Status: spec only.** No engine, UI or package exists yet. Until the package exists, `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY` and does not require catalog tests. When `packages/games/right-of-way` is created, remove that entry: every `#### Cnn` below then needs an `it('Cnn …')` test. The build waits on an owner decision about mid-turn card reveals (see [Online play](#online-play-hidden-information-and-the-build-gate)).
+**Status: beta (engine 0.1.0, D066).** The engine is `packages/games/right-of-way`, the web game `apps/web/src/games/right-of-way`. Every `#### Cnn` below has an `it('Cnn …')` test in `packages/games/right-of-way/test/catalog/`. How the hidden cards are played online is described in [Online play](#online-play-and-hidden-information).
 
 ## Name, brand and what is original
 
@@ -280,8 +280,8 @@ Take two cards, one at a time. Each card comes either from the yard (any face-up
 - **A face-up Engine is the whole draw.** If your first card is a face-up Engine, you take no second card. You may never take a face-up Engine as your second card.
 - **A blind Engine is one card.** An Engine drawn from the pile counts like any other card, and you take a second.
 - **Refill at once.** When you take a yard card, it is replaced from the pile before you choose again. The new card may be an Engine you are then not allowed to take.
-- **The wipe.** Whenever 3 or more of the 5 yard cards are Engines, all 5 go to the discard pile and 5 new cards are turned up. This can repeat.
-- **The pile runs out.** When a card must come from the pile and the pile is empty, the discards are shuffled to form a new pile.
+- **The wipe.** Whenever 3 or more of the 5 yard cards are Engines, all 5 go to the discard pile and 5 new cards are turned up. This can repeat, at most three times in a row (**platform**, see [Platform rules](#platform-rules)).
+- **The pile runs out.** When a card must come from the pile and the pile is empty, the discards are shuffled to form a new pile. A card is needed from the pile for a blind draw, and to refill the yard after a card is taken from it or wiped. Empty yard slots are also refilled at the start of a turn whenever the pile has cards, but that alone never reshuffles (**platform**: the rulebook says the discards are reshuffled "when the deck is exhausted" without saying more).
 - **Nothing left.** With no pile and no discards, the yard may hold fewer than 5 cards, and an empty slot cannot be taken. You may draw freight only if you can take at least one card. If, after your first card, you cannot legally take a second, your draw ends with one card (**platform**; see C17).
 - There is no hand limit.
 
@@ -312,68 +312,56 @@ Route points are already on the score track. Then:
 
 ## Rule options
 
-None at launch: the base game has no options. Two are logged as **OPEN** for the owner:
-- **`firstPlayer`:** `random` (default, platform) or `seat0`. The reference rule ("the most experienced traveller") cannot be checked online.
-- **`chartersAtStart`:** `sequential` (default, platform) or `simultaneous`, once the platform has simultaneous phases (GAME-SYSTEMS §4.8).
+None: the base game has no options. Two are logged as **OPEN** for the owner:
+- **`firstPlayer`:** `random` (as built, platform) or `seat0`. The reference rule ("the most experienced traveller") cannot be checked online.
+- **`chartersAtStart`:** `sequential` (as built, platform) or `simultaneous`, once the platform has simultaneous phases (GAME-SYSTEMS §4.8).
 
 ## Platform rules
 
 These are platform necessities, not published rules (D015, D016).
-- **Random first player.** As in Luster (C10 there), the first player comes from the jointly shuffled setup, so no seat can choose it. Every seat has an equal chance.
-- **Forced pass.** A turn with no legal action is a pass. There is no voluntary pass. Can it happen? Yes. Every freight card can end up in hands (110 cards, no hand limit), with no route side payable and no charters left. If every player passes in a row with nothing changing, the game would never end, which D015 forbids. So **after every seat in turn has passed in a row, the game ends and is scored as usual.** This is the only extra ending, and it applies only when no player can do anything at all. Marked **OPEN** for the owner's review: the published rules do not cover it.
-- **Wipe limit.** The rulebook repeats the wipe without limit. If the cards outside hands hold too few non-Engines, the yard can never show fewer than 3 Engines and the wipe would loop forever. **Before each wipe, count the non-Engine cards in the yard, pile and discards together. If there are fewer than 3, no wipe happens and the yard stays as it is.** Otherwise wipes repeat until the yard shows at most 2 Engines. A pile that runs out mid-wipe is reshuffled from the discards as usual. Marked **OPEN**: the owner may cap consecutive wipes instead, as some online versions do.
-- **Short draws.** As above: if no legal second card exists, the draw ends after one card. If no first card exists, freight cannot be drawn.
+- **Random first player.** The first player comes from the jointly shuffled setup: the first face-up card, in slot order, whose freight number is below the largest multiple of the seat count up to 110; that number modulo the seat count is the first seat. No seat can choose it, and every seat has an equal chance (C06).
+- **Forced pass.** A turn with no legal action is a pass. There is no voluntary pass. It can happen: every freight card can end up in hands (no hand limit), with no route side payable and no charters left. **After every seat in turn has passed in a row, the game ends and is scored as usual** (D015 needs an end). It applies only when no player can do anything at all. **OPEN** for the owner's review: the published rules do not cover it.
+- **Wipe limit.** The rulebook repeats the wipe without limit. If too few non-Engines are left outside hands, the yard could never show fewer than 3 Engines and the wipe would loop forever. **At most three wipes happen in a row**; after a third, the yard stays as it is until the next player action. The limit uses only public counts. **OPEN** for the owner.
+- **Short draws.** If no legal second card exists, the draw ends after one card. If no first card exists, freight cannot be drawn.
 - **Seat order of setup returns.** As in Setup step 4.
+- **Reshuffle limit.** A reshuffle uses one of four spare decks set aside at setup (see below). 4000 fuzzed games never needed more than three (five seats). If a game ever needs a fifth, the discards stay where they are: the pile stays empty, as if no discards could be reshuffled.
 
-## Online play, hidden information and the build gate
+## Online play and hidden information
 
 ### What is hidden
 | Information | Who knows it | How (GAME-SYSTEMS §2.1) |
 |---|---|---|
-| Freight cards in hand (dealt or drawn blind) | the holder | the mental-poker deck `freight`, a private grant per position |
-| The yard, the discards, paid cards | everyone | public reveals of `freight` positions |
-| Charters in hand | the holder, until the end | deck `charters`, private grants |
+| Freight cards in hand (dealt or drawn blind) | the holder | the mental-poker deck, a private position per card |
+| The yard, the discards, paid cards | everyone | public reveals |
+| Charters in hand | the holder, until the end | private positions |
 | Charters returned to the bottom | the player who returned them | already known to them; positions stay encrypted for the others |
 | How many cards and charters each player holds; track left; score | everyone | public counts in `view()` |
 | Whether a charter is complete | the holder, until the end | derived locally from public routes plus the holder's own charters |
 
-Returning charters to the bottom needs no new cryptography. The charter pile is a public list of encrypted positions, and a return appends the returned positions to it. The returner knows those identities, exactly as at a real table. The freight discard pile is public, but each reshuffle is a **mid-game reshuffle** of a new deck epoch (GAME-SYSTEMS §4.1.4, today **missing**). The engine cannot know in advance when the pile will run out, so each reshuffle costs every seat one shuffle step.
+### The packet
+The game plays one encrypted deck, `rail` (580 cards), in groups that each seat shuffles separately (`DeckSpec.partitions`, as Luster's): `freight` (110), four spare decks `spare-1`…`spare-4` (110 each) and `charters` (30). Setup proves every group's shuffle once; nothing is shuffled during play.
 
-### Why the build waits
-Three steps reveal cards **in the middle of a turn**, after the player's own decision:
-1. **A blind draw.** The drawer must see the card before choosing the second card, as at a table. The card can be read only once every other seat has released its share.
-2. **A yard refill**, and any wipe. The refill must be public before the second choice, because a new face-up Engine may not be taken. That is a public reveal, which needs a share from every seat.
-3. **A reshuffle** when the pile runs out: S shuffle steps.
+**Reshuffles from spare decks (C15).** A spare deck is a shuffled deck of numbered cards. When the discards (n cards) are reshuffled, the next unused spare stands for them: its card v < n means the v-th discard (ascending by freight number), and a card v ≥ n is skipped. The members turn up in a uniformly random order, which is exactly a fair shuffle of the discards, and a skipped card says nothing about the others. A refill from a reshuffle is revealed publicly and skipped publicly. A blind draw is dealt to the drawer, who **sifts** it: keeping a discard says nothing; skipping reveals the card publicly, so the session checks the skip at once. The pile's count is public throughout.
 
-Today's platform plays these turn-piggybacked (GAME-SYSTEMS §2.3, "one extra round"). Each such step waits until every other seat next opens the app, so a single draw turn could take several async rounds. D050 forbids prompt duties until Phase K passes review. Luster's `promptShares` is a single-game exception that the owner authorised (PLAN, "Luster"). So this game needs **one of these owner decisions**:
-- **(a) Dealer tables** (`docs/proposals/dealer-relay.md`, a proposal). Receipts carry private draws, refills and reshuffles at once, with no prompt duty. It fits this game best, and it is the recommendation.
-- **(b) A Phase K prompt-reveal protocol**, once it passes review, with `promptShares` enabled for this game.
-- **(c) A Luster-style release exception**, enabling `DeckSpec.promptShares` for this game only.
+**Returned charters (D066).** A charter returned to the bottom may later be drawn by another player. Its position was first dealt to the returner, and every other seat published its share then, so only the returner's share is not public. The returner never publishes it while the charter is private. Instead it **seals** that share to the new holder (a Sealed event, kind 7458, PROTOCOL §4.10), who alone can open it and read the card. The returner still knows the card, exactly as at a real table, where they saw it before putting it back.
 
-No rule is changed to dodge the latency. A "draw ahead" or "snapshot reshuffle" variant would be a named, logged OPEN option (GAME-SYSTEMS §4.10), never the default.
+### Mid-turn reveals (owner decision, D066)
+Blind draws, refills, wipes and sifts reveal cards in the middle of a turn, so the other seats' open apps release their shares at once (`DeckSpec.promptShares`), the exception the owner made for Luster and, on 2026-10-06, for Right of Way. The same applies to sealed shares. The residual risk is Luster's: a seat that forks the chain after reading a released card is detected but not prevented (D050).
 
-**Laying track is cheap.** Paid cards come from the actor's own hand, so the actor attaches its own shares to the move to make them public: no other seat is involved. **Drawing charters** is a private draw of 3, and the player cannot choose what to keep before seeing them. It is the blind-draw case again, a mid-turn private reveal.
+**Laying track** reveals the paid cards drawn blind: the actor attaches its own shares, and the session checks them at once. **Final scoring** reveals every held charter publicly; every seat's app sends its share. **Resign (D052)** is disabled, as Luster's is, until public reveals during play have their own Resign review.
 
-**Final scoring** needs every held charter made public. Each holder publishes its own shares for its charters at the end: a holder duty on its own data, like a Resign secret, ending in the D020 timeout if it stalls. Then the full audit (Secret 7455) checks every claim.
+### Actions (one accepted encoding each)
+- `{type:'take', actor, slot}` (a yard card) and `{type:'blind', actor}`;
+- `{type:'sift', actor, card}`: `card` null to keep a reshuffled card, or the card itself to skip it;
+- `{type:'claim', actor, route, side, pay}`: `route` is the route index (R01 is 0), `side` 0 or 1, `pay` the [position, card] pairs paid, ascending by position, and always the lowest positions of each kind used (C19);
+- `{type:'charters', actor}`, then `{type:'keep', actor, keep}`: ascending indexes into the offered charters;
+- `{type:'pass', actor}`, legal only when nothing else is.
 
-**Resign (D052).** This is a deck game with public reveals during play, so it needs a Resign rule for them before Resign is enabled (`module-contract.test.ts`). Until that review, `resignAllowed` returns false, as Luster's does.
-
-### Engine sketch (for the build, not binding)
-- **Decks:** `freight` (110 positions) and `charters` (30). The seat count is fixed. No reveal is skipped.
-- **State:** routes (owner per side), hands as counts plus private learned identities (`learn`), the yard (5 slots or `null`), the pile and discards as position lists, the charter pile as a position list, track left, scores, a `drawn` marker inside a draw turn, and `finalRound`.
-- **Actions (one accepted encoding each):**
-  - `{type:'take', slot}` (a yard card) and `{type:'blind'}`;
-  - `{type:'claim', route, side, colour, engines}`: `side` is 0 for a single route; `colour` is the colour of the non-Engine cards, or `null` when all are Engines; a coloured route needs `colour` to equal its colour or be `null`;
-  - `{type:'charters'}`, then `{type:'keep', keep}`: `keep` holds ascending, distinct indexes into the offered list;
-  - `{type:'pass'}`, legal only when nothing else is.
-- **Pending:** the seat to act, or a platform reveal (a blind card for the drawer, a refill or wipe for everyone, a reshuffle).
-- **Longest line:** a depth-first search over each player's own routes, using each route at most once. Players have at most 45 pieces, so this is small.
-
-### Interface sketch
+### Interface
 The board pans and zooms, and every route side is a large tap target. Tap a route to see its price; the payment picker suggests the cheapest colour and lets you trade Engines in or out. Tap a yard card or the pile to draw. After the first card, options that are not allowed are dimmed and say why. The charter dialog shows each offered charter with its mini map and greys out Confirm until enough are kept. Your charters list marks each one complete or open, using only public routes. Every player panel shows track left, cards held, charters held and score. A banner announces the final round. Cards and route spaces carry cargo symbols for colour-blind play.
 
-### Catalog entry (draft)
-`players {min: 2, max: 5, best: [4]}`, `playMinutes {min: 30, max: 60}`, `typicalTurns` about 100, `weight` 1.9, `luck` 2, `genre: 'family'`, `mechanisms: ['network-building', 'set-collection', 'hand-management', 'card-drafting']`, `modes: ['competitive']`, `turn: 'sequential'`, `hiddenInfo: true`, `randomness: true`, `tags: ['trains', 'routes', 'maps', 'charters']`, `minAge: 8`, `bggId: null`. `compareTo: {title: <reference title>, bggId: 9209}`: the id is recalled and matches a secondary search, but boardgamegeek.com was not checked directly; confirm it when `compare.ts` is written. `art: {credit: 'Original board, card and cover art by Bored Games', license: 'CC0-1.0'}`.
+### Catalog entry
+`players {min: 2, max: 5, best: [4]}`, `playMinutes {min: 30, max: 60}`, `typicalTurns` 100, `weight` 1.9, `luck` 2, `genre: 'family'`, `mechanisms: ['network-building', 'set-collection', 'hand-management', 'card-drafting']`, `hiddenInfo` and `randomness`, `minAge: 8`, `bggId: null`, "Compare to" the reference game (BoardGameGeek 9209, from a secondary search; boardgamegeek.com itself was not reachable). Art: original, CC0-1.0.
 
 ## Art direction
 
@@ -431,16 +419,16 @@ An Engine from the pile counts as one card, and the second draw is still taken.
 A taken yard card is replaced from the pile before the second choice.
 
 #### C13 The wipe
-Whenever 3 or more yard cards are Engines, all five are discarded and five new cards turned up, repeating as needed, at setup and after any refill.
+Whenever 3 or more yard cards are Engines, all five are discarded and five new cards turned up, at setup and after any refill.
 
 #### C14 Wipe limit
-When the yard, pile and discards hold fewer than 3 non-Engine cards in all, no wipe happens; the wipe never loops.
+At most three wipes happen in a row; after a third, the yard stays as it is until the next player action, so the wipe never loops.
 
 #### C15 Reshuffle
-When a card must come from an empty pile, the discards are shuffled into a new pile first (a new deck epoch).
+When a card must come from an empty pile, the discards are reshuffled: the next spare deck stands for them, its cards below the discard count stand for the discards in ascending order, and other cards are skipped (publicly for a refill, by a sift for a blind draw). The pile count is the discards not yet drawn.
 
 #### C16 Empty pile and discards
-With no pile and no discards, blind draws are unavailable, empty yard slots cannot be taken, and freight may be drawn only if at least one card can be taken.
+With no pile and no discards, blind draws are unavailable, empty yard slots cannot be taken, and freight may be drawn only if at least one card can be taken. Empty slots refill at the start of a turn when the pile has cards.
 
 #### C17 Short draw
 When no legal second card exists after the first, the draw ends with one card.
@@ -510,3 +498,12 @@ Players and spectators fold the same public state; hand identities appear only i
 
 #### C39 Games end
 Fuzzed games at 2–5 seats always end by declaration (D015).
+
+#### C40 Sifting a reshuffled card
+A blind card from a reshuffle is dealt to the drawer, who must keep it if it stands for a discard and skip it otherwise; a skip reveals the card, a keep reveals nothing, and a false keep or skip is refused.
+
+#### C41 Re-dealt charters
+A returned charter drawn again by another seat is dealt to that seat; its first holder owes a sealed share instead of a public one, the new holder reads the card, and nobody else can. A seat that draws back a charter it returned knows it at once.
+
+#### C42 Reshuffle limit
+Four spare decks are set aside; with none left, the discards stay put and the pile stays empty.

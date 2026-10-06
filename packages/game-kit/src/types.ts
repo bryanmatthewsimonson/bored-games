@@ -159,7 +159,11 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   /**
    * Every deck position assigned so far, in assignment order. An entry never
    * changes or disappears, even after its card is played. Identical in full
-   * mode and in every view of the same log (PROTOCOL §6.1, §6.2).
+   * mode and in every view of the same log (PROTOCOL §6.1, §6.2). A private
+   * position may be assigned again, to another seat once its holder has given
+   * the card back (its first holder then seals its share to each later holder
+   * and never publishes it while the card stays private, D066) or to the public;
+   * a public position is never assigned again.
    */
   dealt(state: S): readonly DealtPosition[];
   /**

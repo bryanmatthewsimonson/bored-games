@@ -83,7 +83,13 @@
 
 **Chess UI (Phase D2, 2026-10-02, D048):** the Cburnett pieces (BSD-3-Clause, credits page `#/credits`), a board of labelled buttons with dots and rings for targets, last-move and check highlights, click, drag or keyboard moves, a promotion dialog, captured pieces and material, the draw offer and Accept draw, a results panel (score from places), and a full `#/rules/chess`. Review fixes M1 (void offer not in the history) and M3 (FIDE 6.9 OPEN). Verified 2026-10-02: `pnpm check` passes (1350 tests in 78 files, 7 skipped); `pnpm e2e` passes all three specs, the Chess one now with three games (mate, resign in check, promotion and an agreed draw).
 
-**Right of Way spec (2026-10-06, D066):** `docs/games/right-of-way/RULES.md` is written (39-entry catalog C01–C39; no engine, UI or package), with original CC0 art in `docs/games/right-of-way/art/` (cover, board, cards, charters). It implements the reference railway game's base mechanics on an invented 36-town map, Ferrovia, with new names and prose. `tests/catalog.test.ts` lists it as spec only, and the guard restricts the reference title, publisher and designer. **The build waits on an owner choice** for mid-turn reveals (blind draws, market refills, discard reshuffles): dealer tables (recommended), Phase K, or a Luster-style exception. Open for the owner: the forced-pass end, the wipe limit, `firstPlayer`, `chartersAtStart`, and name clearance.
+**Right of Way (2026-10-06, D066, D067): built and released as beta.** It implements the reference railway game's base mechanics on an invented 36-town map, Ferrovia, with new names, rules prose and CC0 art (`docs/games/right-of-way/`).
+- **Engine:** `packages/games/right-of-way`, a 580-card packet with spare index decks for reshuffles, and 42 catalog tests.
+- **Web game:** `apps/web/src/games/right-of-way`, with a board, yard, claim panel, charter choice and rules page.
+- **E2E:** `apps/web/e2e/right-of-way.spec.ts`.
+- **Owner exceptions:** prompt shares, as for Luster, and sealed shares for re-dealt charters (new Sealed event, kind 7458, PROTOCOL §4.10).
+- **Open for the owner:** the platform rules in RULES.md (the reshuffle timing, the wipe limit, the forced-pass end, the spare-deck limit), an adversarial review of the sealed re-deal path, and name clearance.
+- **Resign:** disabled.
 
 **Hanabi spec (Phase J0, 2026-10-02, D054):** `docs/games/hanabi/RULES.md` is written (56-entry catalog C01–C56; no engine, UI or package). `tests/catalog.test.ts` lists `hanabi` as spec only (`SPEC_ONLY`, which fails once the package exists). **The build is blocked on Phase K** (sealed shares plus a prompt-reveal protocol; GAME-SYSTEMS §4.1.10). OPEN rules points are marked in the spec, among them the third-fuse score being kept as an option, hand-order and clue-mark display, the co-op win label, and variants.
 

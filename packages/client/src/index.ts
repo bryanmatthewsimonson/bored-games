@@ -15,6 +15,7 @@ export {
 } from './lobby.ts';
 export { backupSeat, seatForGameKeys } from './recover.ts';
 export { GameSession } from './session.ts';
+export { sealedOwed, sealedPositions } from './shares.ts';
 export {
   type Adversary,
   type CheatRecord,

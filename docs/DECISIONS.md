@@ -1063,3 +1063,28 @@ The owner asked for "a trademark & copyright safe version of Ticket To Ride with
 - **Build gate.** Blind draws, market refills and wipes reveal cards **mid-turn**, after the player's choice, and the discard reshuffle is a mid-game reshuffle (GAME-SYSTEMS §4.1.4, missing). Turn-piggybacked, each costs an extra async round, and D050 forbids prompt duties. The build therefore needs an owner choice: dealer tables (`docs/proposals/dealer-relay.md`, recommended), Phase K prompt reveals, or a Luster-style `promptShares` exception. No rule is changed to avoid the latency. Resign stays disabled until its D052 review for public reveals, as Luster's is.
 - **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
 - **No new dependencies.**
+
+## D067: Right of Way built and released as beta (owner, 2026-10-06)
+The owner asked: "If the game is finished and ready to play, then merge and deploy. If it is not ready, finish it up and then do so." The spec of D066 needed a build. Two decisions were the owner's, asked and answered the same day:
+- **Prompt shares, like Luster (D050 exception).** Blind draws, refills, wipes and sifts reveal cards mid-turn, so Right of Way's deck sets `DeckSpec.promptShares`. It is the second module allowed to (web allowlist and repo guard updated), with Luster's residual risk: a seat that forks after reading a released card is detected, not prevented.
+- **Sealed shares for re-dealt charters.** A returned charter drawn by another seat is a position privately dealt twice. Public shares cannot keep it private (shares belong to positions, not recipients), so the first holder seals its share to each later holder with the reviewed reference primitive `packages/deck/src/sealed.ts` (prompt-reveal §7). The owner chose this over setting returned charters aside, which would have changed the rules. It is new session code without a fresh adversarial review, the cost the owner accepted.
+
+How it is built:
+- **One packet, no protocol shuffle changes.** Deck `rail` (580 cards) in partitions (D060's mechanism): `freight` 110, `spare-1`…`spare-4` (110 each), `charters` 30. All are shuffled at setup; nothing is shuffled during play.
+- **Reshuffles from spare index decks.** A reshuffle of n discards uses the next spare: its card v < n is the v-th discard (ascending), and others are skipped. Members come up in a uniformly random order, which is a fair shuffle of the discards, and skipped cards reveal nothing. A refill skips publicly. A blind draw is dealt to the drawer, who sifts it: keeping reveals nothing, and skipping reveals the card, which the session verifies at once. Measured on 4000 fuzzed games: at most three reshuffles (five seats); none ever needed a fifth spare. Running out is a platform limit (RULES.md).
+- **Contract change: re-dealt positions** (game-kit `dealt`, the fuzzer, PROTOCOL §6.2). A private position may be dealt again: privately to another seat, or to the public. A public position never is. Owed shares exclude the first holder of a still-private re-dealt position. New event **Sealed (kind 7458, PROTOCOL §4.10)** with strict parsing, a `seal` duty (session, simulator, web controller with D056 vetting), stall attribution naming a withholding first holder, and private learns that open the sealed share. Existing games never re-deal, so nothing changes for them. The web vetting rule "never share your own private card" now applies only while the position's latest assignment is private, so the end-of-game charter reveal can go out.
+- **Platform rules (OPEN for the owner):**
+  - reshuffle when a card is needed from the empty pile (a blind draw, a refill after a take or a wipe); empty yard slots refill at a turn's start when the pile has cards;
+  - at most three wipes in a row;
+  - a forced pass, and the end when every seat passes in a row;
+  - a random first player, chosen from the setup yard;
+  - first charters kept in seat order.
+- **Resign** is disabled (`resignAllowed` false), like Luster's, pending a review of public reveals during play.
+- **Name and "Compare to".** `src/compare.ts` holds the one allowed phrase (`ALLOWED_PHRASE_HOMES`), linked to BoardGameGeek 9209.
+- **Verified:**
+  - 42 catalog tests (C01–C42);
+  - 4000 fuzzed games with no failure, all ending on the line, with re-dealt charters, sifts, wipes and reshuffles all covered;
+  - `pnpm sim` of whole games with real cryptography: one 3-seat and two 5-seat games, all done with the audit passing;
+  - session and protocol tests for sealed shares;
+  - the e2e spec (`apps/web/e2e/right-of-way.spec.ts`), with results in PLAN.
+- **No new dependencies.**
