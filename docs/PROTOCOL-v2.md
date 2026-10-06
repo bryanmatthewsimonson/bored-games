@@ -6,7 +6,7 @@ This document specifies **protocol version 2**: what changes from version 1 ([`P
 
 - **Authority.** The owner approved the design on 2026-10-04: every recommendation of `docs/proposals/prompt-reveal.md` §10, and candidate (e), "plain stop" with the attestation-and-anchor cutoff, as amended in round 3 with the review's fixes F1–F5 (D059). D060 adds the owner's rulings on Bank and Luster. Where this document and the proposal differ, this document is the specification; where it is silent, v1 applies (§3).
 - **Why a separate file.** A v1 game is folded by v1 rules for ever, by every client (§2). Keeping `PROTOCOL.md` as the frozen v1 text means a v1 rule never has to be read through "unless proto 2" clauses, and this file can list every change in one place, as a delta with section references. An implementer of v2 reads both: v1 for everything §3 lists as unchanged, this file for the rest.
-- **Status.** Specified, not built. The implementation plan is the "Protocol v2" phase of `docs/PLAN.md`. D059 item 8 requires the unproven model scopes (proposal §6.7) to finish before the build.
+- **Status.** Abandoned (D071). A build was completed and reviewed but never merged; the owner discarded it. Every game uses protocol 1 until the platform moves to trusted dealers. Kept for reference only.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119. "§n" refers to this document; "v1 §n" to `PROTOCOL.md`.
 
