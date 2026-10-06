@@ -17,7 +17,7 @@
 - No new dependencies.
 - The reference game's names appear only in `docs/`. No file under `scripts/`, `packages/`, `apps/` or `tools/` may hold a restricted name (the repo guard scans them). The bare title is restricted only as the exact-case whole word `Clue` or `CLUE` (spec §8).
 - Art is original SVG dedicated CC0-1.0, uses only the nine palette colours of spec §6 (tints by opacity), generic font stacks only, and is deterministic (no `Math.random`, no `Date`).
-- Game id `room-for-doubt`; decision id D068; date 2026-10-06. Engine ids are those of spec §4.1; display names live only in `data.ts` and the docs.
+- Game id `room-for-doubt`; decision id D072; date 2026-10-06. Engine ids are those of spec §4.1; display names live only in `data.ts` and the docs.
 - Every commit ends with two trailer lines and names no model: `Co-Authored-By: Claude <noreply@anthropic.com>` and `Claude-Session: https://claude.ai/code/session_01P9yDMQMsQVqiVj35Jq9cf6`.
 - `pnpm check` passes before the final push. Keep `docs/PLAN.md` and `docs/DECISIONS.md` current.
 
@@ -75,7 +75,7 @@ Expected: install succeeds; the guard test file PASSES.
 - [ ] **Step 2: Write the failing tests** (three, in `repo-guards.test.ts`)
 
 ```ts
-it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D068)", () => {
+it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D072)", () => {
   for (const text of [
     'Cluedo', 'CLUEDO', 'cluedo-rules', 'ClueDoBoard', 'Hasbro', 'by hasbro games',
     'Parker Brothers', 'parker-brothers', 'ParkerBrothers', 'parker_brothers', 'Waddingtons', 'waddington',
@@ -88,7 +88,7 @@ it("catches Room for Doubt's reference publisher, designer, victim and suspects 
     expect(findRestricted(text, []), text).not.toEqual([]);
 });
 
-it('restricts the bare title only as an exact-case whole word (D068)', () => {
+it('restricts the bare title only as an exact-case whole word (D072)', () => {
   for (const [text, found] of [
     ['Clue', 'Clue'], ['CLUE', 'CLUE'], ['a Clue board', 'Clue'], ['"Clue"', 'Clue'],
     ['Clue.', 'Clue'], ['Clue-style', 'Clue'], ['Clue’s', 'Clue'],
@@ -98,7 +98,7 @@ it('restricts the bare title only as an exact-case whole word (D068)', () => {
     expect(findRestricted(text, []), text).toEqual([]);
 });
 
-it('leaves ordinary colour words and other games alone (D068)', () => {
+it('leaves ordinary colour words and other games alone (D072)', () => {
   expect(findRestricted('plum, green, white, black, peacock, mustard, scarlet; Plum cargo; Right of Way', [])).toEqual([]);
 });
 ```
@@ -110,7 +110,7 @@ Expected: the first two new tests FAIL (names not restricted, `Clue` not matched
 
 - [ ] **Step 4: Implement in `tests/restricted-names.ts`**
 
-Keep the existing literal as `FIXED_NAMES` and export `RESTRICTED_NAMES = [...FIXED_NAMES, ...REFERENCE_NAMES.flatMap(nameForms)]` with a comment citing D068. `exactWordsIn` uses one case-sensitive global regex `(?<![A-Za-z0-9_])(?:Clue|CLUE)(?![A-Za-z0-9_])` and returns the distinct hits; `findRestricted` unions it with `restrictedIn` and `licensedIn`. Update the file's header comment to describe the third kind of term (exact-case words) and why (an everyday word, spec §8).
+Keep the existing literal as `FIXED_NAMES` and export `RESTRICTED_NAMES = [...FIXED_NAMES, ...REFERENCE_NAMES.flatMap(nameForms)]` with a comment citing D072. `exactWordsIn` uses one case-sensitive global regex `(?<![A-Za-z0-9_])(?:Clue|CLUE)(?![A-Za-z0-9_])` and returns the distinct hits; `findRestricted` unions it with `restrictedIn` and `licensedIn`. Update the file's header comment to describe the third kind of term (exact-case words) and why (an everyday word, spec §8).
 
 - [ ] **Step 5: Run the whole repo project**
 
@@ -122,7 +122,7 @@ Expected: PASS, including `tests/public-build.test.ts`. If the public build scan
 Run: `pnpm exec biome check tests` (expected: clean).
 ```bash
 git add tests/restricted-names.ts tests/repo-guards.test.ts
-git commit -m "Guard the reference game of Room for Doubt: names in any form, the title as an exact-case word (D068)"
+git commit -m "Guard the reference game of Room for Doubt: names in any form, the title as an exact-case word (D072)"
 ```
 
 ---
@@ -248,7 +248,7 @@ Expected: PASS (all 15 tests).
 Run: `pnpm exec biome check scripts tests && pnpm exec tsc -p tests/tsconfig.json` (expected: clean).
 ```bash
 git add docs/games/room-for-doubt/board.txt scripts/room-for-doubt/board.ts tests/room-for-doubt-board.test.ts
-git commit -m "Room for Doubt: the board grid and the checker that proves its properties (D068)"
+git commit -m "Room for Doubt: the board grid and the checker that proves its properties (D072)"
 ```
 
 ---
@@ -350,7 +350,7 @@ Expected: PASS and clean.
 
 ```bash
 git add scripts/room-for-doubt/data.ts scripts/room-for-doubt/svg.ts scripts/room-for-doubt/glyphs.ts tests/room-for-doubt-data.test.ts
-git commit -m "Room for Doubt: shared data, SVG helpers and the 21 glyphs (D068)"
+git commit -m "Room for Doubt: shared data, SVG helpers and the 21 glyphs (D072)"
 ```
 
 ---
@@ -430,7 +430,7 @@ Expected, by eye: squares and doors are legible; no label overlaps a door or Ent
 Run: `pnpm exec biome check scripts tests && pnpm exec tsc -p tests/tsconfig.json`
 ```bash
 git add scripts/room-for-doubt tests/room-for-doubt-art.test.ts docs/games/room-for-doubt/art/board.svg
-git commit -m "Room for Doubt: the board art and the generator that draws it from the grid (D068)"
+git commit -m "Room for Doubt: the board art and the generator that draws it from the grid (D072)"
 ```
 
 ---
@@ -482,7 +482,7 @@ Expected: every name and role fits inside its card, glyphs are centred and clear
 
 ```bash
 git add scripts/room-for-doubt docs/games/room-for-doubt/art/cards.svg tests/room-for-doubt-art.test.ts
-git commit -m "Room for Doubt: the 21 card faces, the card back and the Verdict envelope (D068)"
+git commit -m "Room for Doubt: the 21 card faces, the card back and the Verdict envelope (D072)"
 ```
 
 ---
@@ -532,7 +532,7 @@ Expected: pawns are told apart without colour (emblem and monogram), names fit, 
 
 ```bash
 git add scripts/room-for-doubt docs/games/room-for-doubt/art/pieces.svg docs/games/room-for-doubt/art/docket.svg tests/room-for-doubt-art.test.ts
-git commit -m "Room for Doubt: pawns, tokens, dice and the printable docket (D068)"
+git commit -m "Room for Doubt: pawns, tokens, dice and the printable docket (D072)"
 ```
 
 ---
@@ -572,7 +572,7 @@ Expected: the title and tagline are legible against the scene, the building read
 
 ```bash
 git add scripts/room-for-doubt docs/games/room-for-doubt/art/cover.svg tests/room-for-doubt-art.test.ts
-git commit -m "Room for Doubt: the cover (D068)"
+git commit -m "Room for Doubt: the cover (D072)"
 ```
 
 ---
@@ -581,14 +581,14 @@ git commit -m "Room for Doubt: the cover (D068)"
 
 **Files:**
 - Create: `docs/games/room-for-doubt/RULES.md`
-- Modify: `tests/catalog.test.ts` (`SPEC_ONLY` becomes `['hanabi', 'room-for-doubt']`, and the header comment lists "Room for Doubt, D068")
+- Modify: `tests/catalog.test.ts` (`SPEC_ONLY` becomes `['hanabi', 'room-for-doubt']`, and the header comment lists "Room for Doubt, D072")
 - Test: `tests/room-for-doubt-docs.test.ts`
 
 **Interfaces:**
 - Consumes: `PARTIES`, `EXHIBITS`, `SCENES` from `data.ts`; `parseBoard`, `boardStats`, `formatStats` from `board.ts`; `findRestricted` from `restricted-names.ts`.
 
 **RULES.md outline** (new prose throughout, never a paraphrase of the reference rulebook; mirror `docs/games/right-of-way/RULES.md`; draw the content from the spec section given):
-1. `# Room for Doubt rules` — what it is, source of truth, status "spec only (D068)".
+1. `# Room for Doubt rules` — what it is, source of truth, status "spec only (D072)".
 2. `## Name, brand and what is original` — `### The name` (pun, tagline, fallback, clearance; spec §2, §4.1), `### What is the same, and why it may be` (the 17 U.S.C. §102(b) paragraph as in Right of Way, then the table of spec §4.2), `### Glossary` (Room for Doubt term, reference term, engine id), `### Brand pack (for the build)` (the four strings of spec §4.1).
 3. `## Sources and interpretations` — the sources and the basis table (spec §3).
 4. `## Components`; 5. `## The board` — legend, the grid in a fenced block, the rooms table (letter, name, corner, door count), the Entrances table (number, party, door name, square), the passages, the originality note (spec §5), and one line between the markers `<!-- board-stats -->` and `<!-- /board-stats -->` holding exactly `formatStats(...)`.
@@ -694,7 +694,7 @@ Expected: PASS (the catalog test reports `room-for-doubt: spec only`).
 Run: `pnpm exec biome check scripts tests && pnpm exec tsc -p tests/tsconfig.json`
 ```bash
 git add docs/games/room-for-doubt/RULES.md tests/catalog.test.ts tests/room-for-doubt-docs.test.ts
-git commit -m "Room for Doubt: the rules spec and its verification catalog; listed as spec only (D068)"
+git commit -m "Room for Doubt: the rules spec and its verification catalog; listed as spec only (D072)"
 ```
 
 ---
@@ -702,11 +702,11 @@ git commit -m "Room for Doubt: the rules spec and its verification catalog; list
 ### Task 9: Records
 
 **Files:**
-- Modify: `docs/DECISIONS.md` (append D068 after D067), `docs/PLAN.md` (new status paragraph), `CLAUDE.md` (docs line of the repo map)
+- Modify: `docs/DECISIONS.md` (append D072 after D067), `docs/PLAN.md` (new status paragraph), `CLAUDE.md` (docs line of the repo map)
 
-- [ ] **Step 1: Append D068 to `docs/DECISIONS.md`** with the heading `## D068: Room for Doubt rules spec, an original board and art; build waits on the hidden-card path (owner request, 2026-10-06)` and bullets, in the style of D066: the owner's request quoted; name, clearance and the fallback; mechanics kept exactly and what is replaced; sources and the verified, platform and OPEN split; platform rules P1–P7 and the two OPEN options; the board (generated from `board.txt`, proven by `tests/room-for-doubt-board.test.ts`, its numbers, and the trip-band reword with its reason); the art (five CC0 files, one generator); the hidden-card gaps and build paths A, B and C with the recommendation (A then B), marked as the owner's decision; the guards (names, the exact-case title and its Hanabi consequence); Resign disabled; "No new dependencies."
+- [ ] **Step 1: Append D072 to `docs/DECISIONS.md`** with the heading `## D072: Room for Doubt rules spec, an original board and art; build waits on the hidden-card path (owner request, 2026-10-06)` and bullets, in the style of D066: the owner's request quoted; name, clearance and the fallback; mechanics kept exactly and what is replaced; sources and the verified, platform and OPEN split; platform rules P1–P7 and the two OPEN options; the board (generated from `board.txt`, proven by `tests/room-for-doubt-board.test.ts`, its numbers, and the trip-band reword with its reason); the art (five CC0 files, one generator); the hidden-card gaps and build paths A, B and C with the recommendation (A then B), marked as the owner's decision; the guards (names, the exact-case title and its Hanabi consequence); Resign disabled; "No new dependencies."
 
-- [ ] **Step 2: Add the PLAN paragraph** after the Right of Way block (after its `- **Resign:** disabled.` line) and before the Hanabi spec paragraph: `**Room for Doubt (2026-10-06, D068): rules spec, original board and art; the build waits on the hidden-card path.**` followed by bullets: the package (RULES.md with C01–C45, the board test, five art files), the guards, "Open for the owner" (the hidden-card path A, B or C; name clearance; confirm BoardGameGeek 1294) and "Resign: disabled".
+- [ ] **Step 2: Add the PLAN paragraph** after the Right of Way block (after its `- **Resign:** disabled.` line) and before the Hanabi spec paragraph: `**Room for Doubt (2026-10-06, D072): rules spec, original board and art; the build waits on the hidden-card path.**` followed by bullets: the package (RULES.md with C01–C45, the board test, five art files), the guards, "Open for the owner" (the hidden-card path A, B or C; name clearance; confirm BoardGameGeek 1294) and "Resign: disabled".
 
 - [ ] **Step 3: Edit `CLAUDE.md`**: in the `docs/` line of the repo map replace `Hanabi is spec only)` with `Hanabi and Room for Doubt are spec only)`. Leave the "Compare to" sentence unchanged (it lists the game once its package exists, spec §8).
 
@@ -714,7 +714,7 @@ git commit -m "Room for Doubt: the rules spec and its verification catalog; list
 
 ```bash
 git add docs/DECISIONS.md docs/PLAN.md CLAUDE.md
-git commit -m "Room for Doubt: decision D068, the status entry and the repo map (D068)"
+git commit -m "Room for Doubt: decision D072, the status entry and the repo map (D072)"
 ```
 
 ---
@@ -736,5 +736,5 @@ Expected: nothing clipped, overlapping or unreadable; the five read as one famil
 
 - [ ] **Step 4: Push and update the draft pull request**
 
-Run: `git push -u origin claude/ecstatic-faraday-80wa85`. Then update the body of bryanmatthewsimonson/bored-games#40 (`mcp__github__update_pull_request`): replace "Still to come" with what is now in it (RULES.md, board and proof, five art files, guards, D068), keep the "For the owner" section (hidden-card path; name clearance; BoardGameGeek 1294), tick the test plan, keep it a draft, and end the body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and the session URL.
+Run: `git push -u origin claude/ecstatic-faraday-80wa85`. Then update the body of bryanmatthewsimonson/bored-games#40 (`mcp__github__update_pull_request`): replace "Still to come" with what is now in it (RULES.md, board and proof, five art files, guards, D072), keep the "For the owner" section (hidden-card path; name clearance; BoardGameGeek 1294), tick the test plan, keep it a draft, and end the body with `🤖 Generated with [Claude Code](https://claude.com/claude-code)` and the session URL.
 Expected: the push succeeds and CI starts; the PR stays subscribed for CI and review events.

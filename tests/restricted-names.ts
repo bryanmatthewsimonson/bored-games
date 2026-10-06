@@ -10,7 +10,7 @@
  *   hyphenated and underscored forms), matched case-insensitively anywhere inside a word, so `cr-chain-x`,
  *   `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's `hydrate`) are
  *   allowed;
- * - the exact-case words (`RESTRICTED_EXACT_WORDS`, D068): Room for Doubt's reference title is an everyday English
+ * - the exact-case words (`RESTRICTED_EXACT_WORDS`, D072): Room for Doubt's reference title is an everyday English
  *   word, so only the whole word `Clue` or `CLUE` is restricted, and `clue`, `clues` and `ClueAction` pass (a
  *   Hanabi engine will use clues);
  * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
@@ -83,7 +83,7 @@ export function nameForms(name: string): string[] {
   return [...new Set([name, words.join(' '), words.join(''), words.join('-'), words.join('_')])];
 }
 
-/** Room for Doubt's reference game (D068): its old title, publishers, designer, victim and the suspects' full names. */
+/** Room for Doubt's reference game (D072): its old title, publishers, designer, victim and the suspects' full names. */
 const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
   'Cluedo',
   'Hasbro',
@@ -110,7 +110,7 @@ export const RESTRICTED_NAMES: readonly string[] = [
 ];
 
 /**
- * Words restricted only as a whole word in exactly this case (D068, spec §8): Room for Doubt's reference title is
+ * Words restricted only as a whole word in exactly this case (D072, spec §8): Room for Doubt's reference title is
  * an everyday English word, so lowercase `clue`, `clues` and `ClueAction` are not restricted.
  */
 export const RESTRICTED_EXACT_WORDS: readonly string[] = ['Clue', 'CLUE'];

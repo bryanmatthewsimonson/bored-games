@@ -3,7 +3,7 @@
  * in packages/games/<id>/test/catalog/ whose title starts with its id (`it('Cnn …')`), and every such test is
  * documented. Ids have 2 or 3 digits, and a heading or test title in any other form fails. A game with a RULES.md
  * must have a package and a catalog, except the games listed in SPEC_ONLY: a rules spec written before its engine
- * (Hanabi, D054; Room for Doubt, D068). A spec-only game must have no package yet, so the entry fails once the
+ * (Hanabi, D054; Room for Doubt, D072). A spec-only game must have no package yet, so the entry fails once the
  * package appears and must then be removed, and its catalog is checked for well-formed, unique ids only.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';

@@ -1,5 +1,5 @@
 /*
- * The playing pieces (spec section 6, D068): six party pawns, six Exhibit tokens and the six faces of a die, on one
+ * The playing pieces (spec section 6, D072): six party pawns, six Exhibit tokens and the six faces of a die, on one
  * sheet. Each pawn carries its party's emblem and monogram, so no pawn is told apart by colour alone.
  */
 import { EXHIBITS, FONT_SANS, FONT_SERIF, fitText, ON_ACCENT, PALETTE, PARTIES } from '../data.ts';

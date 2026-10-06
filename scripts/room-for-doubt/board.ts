@@ -1,5 +1,5 @@
 /*
- * The Room for Doubt board (spec section 5, D068): parse `docs/games/room-for-doubt/board.txt`, prove its structural
+ * The Room for Doubt board (spec section 5, D072): parse `docs/games/room-for-doubt/board.txt`, prove its structural
  * properties and measure it. Pure and deterministic: text in, plain data out. The repo test and the art generator
  * both read the board through here, so the grid stays the single source.
  *

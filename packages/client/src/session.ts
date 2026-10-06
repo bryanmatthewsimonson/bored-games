@@ -75,6 +75,7 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
+import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
 import {
   type DeckPartition,
   deckPartitions,
@@ -82,6 +83,7 @@ import {
   shuffleStepGroup,
   shuffleStepSeat,
 } from './partitioned-deck.ts';
+import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
   Duty,
@@ -1520,7 +1522,7 @@ export class GameSession {
     for (const { pos, share } of [...c.shares, ...c.reveals]) this.shares.add(seat, pos, share);
     this.state = deepFreeze(r.next);
     this.record(r.events);
-    this.actionLog.push({ actor: seat, action: c.action, seq: m.seq });
+    this.actionLog.push({ actor: seat, action: c.action, seq: m.seq, id: m.id, prev: m.prevId });
     return 'accepted';
   }
 
@@ -1544,11 +1546,34 @@ export class GameSession {
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
-    const bad = this.usesBeacon()
-      ? this.beaconShareOk(m.id, state, seat, c)
-      : this.actionProofs(m.id, seat, c.shares, c.reveals);
+    const cardShares = this.usesBeacon() ? c.shares.filter((x) => x.pos < this.deckSize) : c.shares;
+    const bad =
+      this.actionProofs(m.id, seat, cardShares, c.reveals) ??
+      (this.usesBeacon() ? this.beaconShareOk(m.id, state, seat, c) : null);
     if (bad !== null) return reject(bad);
 
+    const plan = this.module.privateSelection?.(state);
+    if (plan) {
+      const anchor = this.rollRequest(plan.id);
+      if (anchor === null || !transferEnvelope(c.action, plan, this.root.id, anchor, m.prevId))
+        return reject('the private delivery does not match its signed context');
+      if (this.me && (this.me.seat === plan.from || this.me.seat === plan.to)) {
+        try {
+          const delivery = readTransfer(
+            c.action,
+            plan,
+            this.me.seat,
+            this.me.deckSecret,
+            this.keys.map((key) => key.toHex(true).slice(2)),
+          );
+          const learned = this.module.learn(state, delivery);
+          if (!learned.ok) return reject('the private delivery is not accepted');
+          state = learned.state;
+        } catch {
+          return reject('the private delivery cannot be decrypted');
+        }
+      }
+    }
     const r = this.module.apply(state, c.action);
     if (!r.ok) return reject(`the module rejects the action: ${r.error.code}: ${r.error.message}`);
 
@@ -1585,7 +1610,8 @@ export class GameSession {
     shares: readonly PosShare[],
     reveals: readonly PosShare[],
   ): string | null {
-    const cached = this.actionChecked.get(id);
+    const cacheId = `cards:${id}`;
+    const cached = this.actionChecked.get(cacheId);
     if (cached !== undefined) return cached;
     const deck = this.finalDeck() as Ciphertext[];
     const key = this.keys[seat] as Point;
@@ -1599,13 +1625,33 @@ export class GameSession {
       return null;
     };
     const result = check(shares, 'share') ?? check(reveals, 'reveal');
-    this.actionChecked.set(id, result);
+    this.actionChecked.set(cacheId, result);
     return result;
   }
 
   /** A game that rolls dice with the beacon (D058). Chess does not. */
   private usesBeacon(): boolean {
     return typeof this.module.rolls === 'function' && typeof this.module.beaconOf === 'function';
+  }
+
+  /** Mixed games bind entropy to the requesting move, before any roll contribution is released. */
+  private rollRequest(id: number): string | null {
+    if (!this.hasDeck()) return null;
+    return rollOrigin(
+      id,
+      this.chain.map((move, i) => ({
+        id: move.id,
+        before: this.snapshots[i]?.state ?? null,
+        after: this.snapshots[i + 1]?.state ?? this.state,
+      })),
+      (s) => this.module.rolls?.(s) ?? [],
+    );
+  }
+
+  private rollDomain(id: number): string {
+    const request = this.rollRequest(id);
+    if (this.hasDeck() && request === null) throw new ClientError('the roll request is not linked');
+    return beaconDomain(this.root.id, request);
   }
 
   /**
@@ -1618,21 +1664,23 @@ export class GameSession {
     seat: number,
     c: Extract<ParsedMove['content'], { type: 'action' }>,
   ): string | null {
-    const cached = this.actionChecked.get(id);
+    const cacheId = `roll:${id}`;
+    const cached = this.actionChecked.get(cacheId);
     if (cached !== undefined) return cached;
     const owed = this.module.beaconOf?.(state, c.action) ?? null;
+    const shares = c.shares.filter((x) => x.pos >= this.deckSize);
     let result: string | null = null;
     if (owed === null) {
-      if (c.shares.length > 0 || c.reveals.length > 0) result = 'this action carries no roll share';
+      if (shares.length > 0) result = 'this action carries no roll share';
     } else {
-      const share = c.shares[0];
-      if (c.reveals.length > 0 || c.shares.length !== 1 || share === undefined || share.pos !== owed) {
+      const share = shares[0];
+      if (shares.length !== 1 || share === undefined || share.pos !== beaconPosition(this.deckSize, owed)) {
         result = 'the roll share must be the one share for this roll';
-      } else if (!verifyRollShare(this.keys[seat] as Point, this.root.id, owed, share.share)) {
+      } else if (!verifyRollShare(this.keys[seat] as Point, this.rollDomain(owed), owed, share.share)) {
         result = 'the roll share does not verify';
       }
     }
-    this.actionChecked.set(id, result);
+    this.actionChecked.set(cacheId, result);
     return result;
   }
 
@@ -1791,6 +1839,7 @@ export class GameSession {
       secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log,
+      rootId: this.root.id,
     });
     if (this.auditCache.size >= MAX_AUDITS) this.auditCache.clear();
     this.auditCache.set(key, this.resignAudit);
@@ -2351,6 +2400,7 @@ export class GameSession {
       secrets: Array.from({ length: this.seats }, (_, k) => this.secrets.get(k) as bigint),
       cards: this.cards,
       log: this.actionLog,
+      rootId: this.root.id,
       outcome: this.module.outcome(this.state),
     });
   }
@@ -2407,15 +2457,17 @@ export class GameSession {
     for (;;) {
       const p = this.module.pending(this.state);
       if (p.type !== 'beacon') return progressed;
-      if (!this.shares.covered(p.id)) return progressed;
-      const slots = this.shares.slots(p.id);
+      const position = beaconPosition(this.deckSize, p.id);
+      if (!this.shares.covered(position)) return progressed;
+      const slots = this.shares.slots(position);
       const shares = slots.filter((slot): slot is Share => slot !== null);
       if (shares.length !== this.seats) return progressed;
-      const rolled = faces(rollSeed(shares), 2, 6);
-      const a = rolled[0];
-      const b = rolled[1];
-      if (a === undefined || b === undefined) return progressed;
-      const action = { type: 'rolled' as const, actor: 'beacon' as const, id: p.id, dice: [a, b] as const };
+      const shape = this.module.rollShape?.(this.state) ?? { count: 2, sides: 6 };
+      const dice =
+        shape.sides === 1
+          ? (Array(shape.count).fill(1) as number[])
+          : faces(rollSeed(shares), shape.count, shape.sides);
+      const action = { type: 'rolled' as const, actor: 'beacon' as const, id: p.id, dice };
       const r = this.module.apply(this.state, action);
       if (!r.ok) return progressed;
       this.state = deepFreeze(r.state);
@@ -2933,8 +2985,8 @@ export class GameSession {
 
   /** Only assigned positions authorized for this seat; an owner never shares its private card. */
   private sharesDue(seat: number): number[] {
-    // Grouped decks deliver new private draws immediately: publish only other owners' layers.
-    if (this.partitions.length > 1) return this.shares.missing(seat, this.module.dealt(this.state));
+    // Owner-authorized prompt decks deliver new private draws immediately, with any number of groups.
+    if (this.promptShares) return this.shares.missing(seat, this.module.dealt(this.state));
     const p = this.module.pending(this.state);
     if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
     const publicPositions = new Set(
@@ -3012,24 +3064,34 @@ export class GameSession {
     } catch {
       throw new ClientError('the action is not canonical JSON');
     }
-    const legal = this.module.legalActions(this.state, me.seat).find((a) => canonicalJson(a) === wanted);
+    let legal = this.module.legalActions(this.state, me.seat).find((a) => canonicalJson(a) === wanted);
+    if (legal === undefined) {
+      const intent = this.module.validateIntent?.(this.state, me.seat, action);
+      if (intent?.ok) legal = intent.value;
+    }
     if (legal === undefined) throw new ClientError('the action is not legal now');
     return this.actionEvent(me, legal, rnd, createdAt);
   }
 
   /** The signed move for `action`, with the shares that action owes. The caller has already checked the duty. */
   private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
-    let shares: PosShare[];
-    let reveals: PosShare[];
-    if (this.usesBeacon()) {
-      // Bank has no dealt cards. The roll or contribution owes exactly one beacon share; Bank and Stay owe none.
-      reveals = [];
-      const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
-      shares =
-        rollId === null
-          ? []
-          : [{ pos: rollId, share: makeRollShare(me.deckSecret, this.root.id, rollId, rnd) }];
-    } else {
+    const plan = this.module.privateSelection?.(this.state);
+    if (plan) {
+      const anchor = this.rollRequest(plan.id);
+      if (anchor === null) throw new ClientError('the private selection request is not linked');
+      legal = makeTransfer(
+        plan,
+        me.deckSecret,
+        this.keys.map((key) => key.toHex(true).slice(2)),
+        this.root.id,
+        anchor,
+        this.headId(),
+        rnd,
+      );
+    }
+    let shares: PosShare[] = [];
+    let reveals: PosShare[] = [];
+    if (this.hasDeck()) {
       const deck = this.finalDeck() as Ciphertext[];
       const share = (pos: number): PosShare => ({
         pos,
@@ -3039,6 +3101,12 @@ export class GameSession {
       const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
       reveals = shown.sort((a, b) => a - b).map(share);
     }
+    const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
+    if (rollId !== null)
+      shares.push({
+        pos: beaconPosition(this.deckSize, rollId),
+        share: makeRollShare(me.deckSecret, this.rollDomain(rollId), rollId, rnd),
+      });
     const t = moveTemplate(
       {
         rootId: this.root.id,
@@ -3050,7 +3118,8 @@ export class GameSession {
     );
     const ev = finalizeEvent(t, me.sessionSk, rnd);
     // This seat made the proofs, so they need not be verified again.
-    this.actionChecked.set(ev.id, null);
+    this.actionChecked.set(`cards:${ev.id}`, null);
+    this.actionChecked.set(`roll:${ev.id}`, null);
     return ev;
   }
 

@@ -47,6 +47,9 @@ importers:
       '@bored-games/deck':
         specifier: workspace:*
         version: link:../../packages/deck
+      '@bored-games/driftwrights':
+        specifier: workspace:*
+        version: link:../../packages/games/driftwrights
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
@@ -148,6 +151,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/driftwrights:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/luster:
     dependencies:
       '@bored-games/game-kit':
@@ -212,6 +221,9 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../../packages/games/chess
+      '@bored-games/driftwrights':
+        specifier: workspace:*
+        version: link:../../packages/games/driftwrights
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit

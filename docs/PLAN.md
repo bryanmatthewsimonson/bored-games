@@ -92,10 +92,10 @@
 - **Open for the owner:** the platform rules in RULES.md (the reshuffle timing, the wipe limit, the forced-pass end, the spare-deck limit), an adversarial review of the sealed re-deal path, and name clearance.
 - **Resign:** disabled.
 
-**Room for Doubt (2026-10-06, D068): rules spec, original board and art; the build waits on the hidden-card path.**
+**Room for Doubt (2026-10-06, D072): rules spec, original board and art; the build waits on the hidden-card path.**
 - **Package:** `docs/games/room-for-doubt/` holds `RULES.md` (catalog C01–C45), the board grid `board.txt` (its structure proved by `tests/room-for-doubt-board.test.ts`) and five CC0 art files drawn by `scripts/room-for-doubt/`. There is no engine, UI, fuzz target or e2e spec. `tests/catalog.test.ts` lists the game as spec only.
 - **Guards:** the reference game's names in all their forms, and its title as an exact-case word, are restricted (`tests/restricted-names.ts`).
-- **Open for the owner:** the hidden-card path (A, a beta on today's pieces; B, exact, with deck epochs and sealed choices; or C, dealer tables; recommended A then B), name clearance, and confirming BoardGameGeek 1294.
+- **Open for the owner:** the hidden-card path (A, a beta on today's pieces, which needs a fourth `promptShares` exception; B, exact, with deck epochs and sealed choices; or C, dealer tables; recommended A then B, though D071 now points toward C), name clearance, and confirming BoardGameGeek 1294. The game deals and rolls, so every path reuses or generalises Driftwrights' deck-plus-beacon extension (PROTOCOL §13).
 - **Resign:** disabled.
 
 **Hanabi spec (Phase J0, 2026-10-02, D054):** `docs/games/hanabi/RULES.md` is written (56-entry catalog C01–C56; no engine, UI or package). `tests/catalog.test.ts` lists `hanabi` as spec only (`SPEC_ONLY`, which fails once the package exists). **The build is blocked on Phase K** (sealed shares plus a prompt-reveal protocol; GAME-SYSTEMS §4.1.10). OPEN rules points are marked in the spec, among them the third-fuse score being kept as an option, hand-order and clue-mark display, the co-op win label, and variants.
@@ -173,7 +173,7 @@
   - Adversarial tests detect: bad shares, wrong reveals, equivocation, a dishonest `skipPlace`, an undeclared dead tile, and a tampered shuffle. **Met** (2d: the sims plus `play`, `end` and `shuffle-phase` tests).
   - A smoke test runs against the owner's relay plus a public relay. **Open** (2e; needs open question 7).
 
-### Phase v2: Protocol version 2 (outline; spec `docs/PROTOCOL-v2.md`)
+### Phase v2: Protocol version 2 (ABANDONED, D071: do not resume; every game stays on protocol 1 until trusted dealers)
 Outline only; each task gets its own plan before it starts. Nothing ships until every task's tests pass and `pnpm check` is green.
 - **0. Before the build (D059 item 8).**
   - Finish the unproven model scopes (prompt-reveal.md §6.7): 4 seats, 8 moves, public, adversary at seat 3; two honest seats on two devices each with a resign; viewers mode at 4 seats and 8 moves. Re-run on a bigger machine if needed.
@@ -251,3 +251,9 @@ Interface follow-up (2026-10-04): replace numeric token inputs with clickable ge
 Luster hand/sidebar follow-up implemented: face-down opponent reservations, a separate clickable owner hand, and a responsive right-hand score/resource sidebar. Nine presentation tests, market/blind hand checks for players and spectators, owner reloads, complete 2–4-player games and audits pass. Local full-check permission failures were resolved by rerunning every affected file with local network access; details are in games/luster/VERIFICATION.md. Preserve Bank PR #29 unchanged and require final combined CI and browser flows before publishing.
 
 **D060 metadata and guards (2026-10-04, branch fix-meta):** Luster says "Compare to" its reference game (BoardGameGeek 148228; `packages/games/luster/src/compare.ts`, `bggId` null as Chain Reaction's), and the guard restricts that title, its publisher and designer, allowing each game's phrase (`ALLOWED_PHRASE_HOMES`) and proving each is spelled only in its own compare.ts. Bank links its own BoardGameGeek entry (412804). The D052 reveal contract now runs over every web-registered module (`apps/web/test/module-contract.test.ts`; Luster exempt because Resign is disabled at every seat count, and the test proves it would fail); only Luster may set `DeckSpec.promptShares` (web test and repo guard); the session's shuffle-step arithmetic cannot divide by a zero group count. Following the owner's "use whatever the rules dictate", the gem take is now a rules option (`gems: 'published' | 'any'`, C11): new tables take three different colors, fewer only when fewer are left (rulebook and FAQ); a rules object without the field (every earlier table) keeps the old "any number" behaviour, so games in progress fold as before and the engine version stays 0.2.0. The New table form offers the choice. The forced pass is labelled a platform rule (D015, D016).
+
+## Driftwrights — 2026-10-06
+
+Rules engine, original floating-island artwork, rewritten rules, decentralized module, catalog/lobby registration and responsive browser board are implemented on `feat/driftwrights` (PR #39). The catalog includes 33 rule cases, full seeded three/four-player games, invariant checks and deterministic replay. The reference fixture remains development-only; production games use independent signed sessions.
+
+**D069 authorizes the Driftwrights-specific D050 exception.** Keep the decentralized player/relay architecture. Mixed proofs use distinct card/beacon slots and request-bound entropy. Private supply selections use authenticated encrypted deliveries to both participants, checked against the victim's committed private permutation during the final audit. Hidden payment/requisition claims are also replayed against full hands. Resign stays disabled. The scarce-bank Windfall ambiguity is a table option. Independent-view games, complete signed and browser three/four-seat games, 100 seeded games, all 15 browser regressions, the full repository check (2,043 tests) and the production build/brand scan pass. PR #39 records CI and the merge/deployment result; see [the release evidence and gates](games/driftwrights/IMPLEMENTATION.md).

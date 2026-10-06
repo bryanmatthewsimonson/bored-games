@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
+    "@bored-games/driftwrights": "workspace:*",
     "@bored-games/bank": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
     "@bored-games/chess": "workspace:*",

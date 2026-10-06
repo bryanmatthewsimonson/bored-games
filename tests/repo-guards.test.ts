@@ -102,6 +102,7 @@ describe('promptShares (D050, D059 item 8, D066)', () => {
     'packages/client/src/session.ts',
     'packages/games/luster/src/transport.ts',
     'packages/games/right-of-way/src/module.ts',
+    'packages/games/driftwrights/src/module.ts',
   ];
   it('is named only by the type, the session, Luster and Right of Way in any package source', () => {
     const named = srcDirs()
@@ -209,7 +210,7 @@ describe('branding', () => {
     expect(findRestricted('Right of Way: a ticket, a ride, days of play', [])).toEqual([]);
   });
 
-  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D068)", () => {
+  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D072)", () => {
     for (const text of [
       'Cluedo',
       'CLUEDO',
@@ -257,7 +258,7 @@ describe('branding', () => {
       expect(findRestricted(text, []), text).not.toEqual([]);
   });
 
-  it('restricts the bare title only as an exact-case whole word (D068)', () => {
+  it('restricts the bare title only as an exact-case whole word (D072)', () => {
     for (const [text, found] of [
       ['Clue', 'Clue'],
       ['CLUE', 'CLUE'],
@@ -282,7 +283,7 @@ describe('branding', () => {
       expect(findRestricted(text, []), text).toEqual([]);
   });
 
-  it('leaves ordinary colour words and other games alone (D068)', () => {
+  it('leaves ordinary colour words and other games alone (D072)', () => {
     expect(
       findRestricted('plum, green, white, black, peacock, mustard, scarlet; Plum cargo; Right of Way', []),
     ).toEqual([]);

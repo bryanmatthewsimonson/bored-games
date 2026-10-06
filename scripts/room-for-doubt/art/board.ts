@@ -1,5 +1,5 @@
 /*
- * The board plate (spec section 6, D068): `board.svg`, drawn from the grid in `board.txt` so the picture cannot drift
+ * The board plate (spec section 6, D072): `board.svg`, drawn from the grid in `board.txt` so the picture cannot drift
  * from the rules. One 48-unit cell per square inside a 60-unit margin; every id and `data-door` mark below is what the
  * art test and a future renderer look for.
  */

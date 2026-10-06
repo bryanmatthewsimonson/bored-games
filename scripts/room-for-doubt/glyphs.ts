@@ -1,5 +1,5 @@
 /*
- * Room for Doubt's line art (D068): the 21 glyphs the board, the cards and the pieces share. Each is markup for a
+ * Room for Doubt's line art (D072): the 21 glyphs the board, the cards and the pieces share. Each is markup for a
  * 64 x 64 box, drawn in `currentColor`; `glyph()` places one, sets its colour and gives every glyph the same stroke
  * (3 units, round caps and joins). A part meant to read as solid says `fill="currentColor"` itself.
  */

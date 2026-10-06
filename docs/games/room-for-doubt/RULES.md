@@ -4,7 +4,7 @@
 
 Room for Doubt uses the mechanics of *Clue* (*Cluedo* in the United Kingdom; devised by Anthony E. Pratt, published by Parker Brothers and now Hasbro) unchanged. The rules prose, the names, the setting, the board and the artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site may name it only through the exact "Compare to" phrase, once a `src/compare.ts` exists (D053).
 
-**Status: spec only (D068).** There is no engine, package, web game, fuzz target or e2e spec yet. What exists is this file, the board (`board.txt`, with a test that proves its structure), the art (`art/`, CC0-1.0, drawn by `scripts/room-for-doubt/`), the name guards and the decision log. Every `#### Cnn` below is to get a named test when the engine exists (CLAUDE.md, D045); until then `tests/catalog.test.ts` lists the game as spec only. How the hidden cards would be played online, and the choices that are the owner's, are in [Online play](#online-play-and-hidden-information).
+**Status: spec only (D072).** There is no engine, package, web game, fuzz target or e2e spec yet. What exists is this file, the board (`board.txt`, with a test that proves its structure), the art (`art/`, CC0-1.0, drawn by `scripts/room-for-doubt/`), the name guards and the decision log. Every `#### Cnn` below is to get a named test when the engine exists (CLAUDE.md, D045); until then `tests/catalog.test.ts` lists the game as spec only. How the hidden cards would be played online, and the choices that are the owner's, are in [Online play](#online-play-and-hidden-information).
 
 ## Name, brand and what is original
 
@@ -188,7 +188,7 @@ A **trip** is the shortest walk between two rooms: one step out of the first roo
 6. There are 190–230 corridor squares, they are all connected, and each has at least two neighbours counting doors (no dead ends).
 7. Every pair of rooms can reach each other. The median trip is 9–14. A pair of rooms that no passage joins is at most 24 apart, and each passage pair is at least 24 apart on foot (the passage is the shortcut across the whole building). At least 5 pairs are 7 or fewer apart, and every room has at least 3 others within 12.
 
-These bands are design targets of ours, not measurements of the reference board. The design first set a single maximum of 28 for every pair. The two passage pairs are, by design, the longest trips on the board (28 and 29), so the limit is stated per pair: at most 24 where no passage joins the rooms, and at least 24 where one does (D068).
+These bands are design targets of ours, not measurements of the reference board. The design first set a single maximum of 28 for every pair. The two passage pairs are, by design, the longest trips on the board (28 and 29), so the limit is stated per pair: at most 24 where no passage joins the rooms, and at least 24 where one does (D072).
 
 **Originality.** The reference board arranges its rooms one, one, one and two around the four edges, with a block in the middle (recalled from general knowledge, not a rules fact). This board has one edge with no room between the corners: the **Colonnade**, a corridor two squares wide down the west side (columns A and B, rows 7–17) between Judge's Chambers and Holding Cells. It has one room set inside the ring, beside the Rotunda (the Jury Room, reached from an inner ring of corridor), and two rooms stacked on the east side (the Press Gallery and the Registry). Whether the layout is different enough is a design judgement reviewed by a person; it is not mechanically provable.
 
@@ -277,7 +277,7 @@ These are platform necessities, not published rules (D015, D016).
 | A card shown in a rebuttal | the shower and the submitter | Right of Way's sealed share (PROTOCOL §4.10): the shower seals its share of that card to the submitter |
 | "I hold none of those three" | public claim | audited at the end, like Chain Reaction's `skipPlace` |
 | The indictment's outcome | the indicting seat, then everyone | claimed by that seat and audited, so a false win is caught at the end audit |
-| Dice | public | Bank's key-committed beacon (D058) |
+| Dice | public | Bank's key-committed beacon (D058), combined with the deck as "Deck plus dice" below says |
 
 ### Resolving an indictment
 After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 asynchronous hops for each indictment.
@@ -293,14 +293,16 @@ Both gaps change who knows what, so they are recorded as platform limits, not as
 2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
 
 ### Build paths (the owner chooses at build time)
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so a rebuttal's sealed share needs a third owner exception. So does a **second indictment**: the first indictment needs none, but after a wrong one the Verdict positions are dealt again, and the first indicter, though dismissed, must seal its share of them to each later indicter (PROTOCOL §4.10). A first indicter who never answers stalls that later indictment (PROTOCOL §8.1 names it). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster, Right of Way and Driftwrights may set (D050, D067, D069; `apps/web/test/prompt-shares.test.ts` holds the list), so a rebuttal's sealed share needs a fourth owner exception. So does a **second indictment**: the first indictment needs none, but after a wrong one the Verdict positions are dealt again, and the first indicter, though dismissed, must seal its share of them to each later indicter (PROTOCOL §4.10). A first indicter who never answers stalls that later indictment (PROTOCOL §8.1 names it). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
 - **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
 - **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
 
-**Recommendation:** A as a beta, then B; C only if dealer tables are adopted generally.
+**Deck plus dice (every path).** Room for Doubt both deals cards and rolls dice. PROTOCOL §6.3a says that v1 has no deck id on the beacon's share store, so a game cannot do both; the one exception is Driftwrights' game-specific extension (PROTOCOL §13, D069, D070), which puts the card positions first and the roll slots after, and binds each roll to the move that requests it. A build on path A or B must reuse or generalise that extension, which is platform work in its own right.
+
+**Recommendation:** A as a beta, then B; C only if dealer tables are adopted generally. Since this was written, the owner decided that every game stays on protocol 1 until the move to trusted dealers, and named the trusted-dealer proposal as the next step for hidden-information safety (D071), so path C may become the build path sooner than this recommendation assumed. The choice stays the owner's.
 
 ### Dice and pace
-- `live` is exact: the roller's beacon share rides on the roll, and each other seat's open app contributes (a closed window stalls the roll, as in Bank).
+- `live` is exact: the roll comes from every seat's key-committed beacon share, each sent by that seat's open app with no decision (a closed window stalls the roll, as in Bank).
 - `ahead` is an asynchronous adaptation (a named variant, D049): the next turn's roll is scheduled at the end of the previous turn and the others' shares ride on their moves. The cost is that a Party starting in a corner room sees the roll before choosing whether to take the passage.
 - Every submission also waits on responses in turn, so this is a slow asynchronous game; the catalog entry says so.
 

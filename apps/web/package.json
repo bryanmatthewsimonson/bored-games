@@ -23,7 +23,8 @@
     "@bored-games/relay": "workspace:*",
     "@bored-games/right-of-way": "workspace:*",
     "@preact/signals": "2.11.3",
-    "preact": "11.0.0"
+    "preact": "11.0.0",
+    "@bored-games/driftwrights": "workspace:*"
   },
   "devDependencies": {
     "@bored-games/dev-relay": "workspace:*",

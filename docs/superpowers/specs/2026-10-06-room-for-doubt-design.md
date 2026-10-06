@@ -161,7 +161,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 | A card shown in a rebuttal | the shower and the submitter | Right of Way's sealed share (PROTOCOL §4.10): the shower seals its share of that card to the submitter |
 | "I hold none of those three" | public claim | audited at the end, like Chain Reaction's `skipPlace` |
 | The indictment's outcome | the indicting seat, then everyone | claimed by that seat and audited, so a false win is caught at the end audit |
-| Dice | public | Bank's key-committed beacon (D058) |
+| Dice | public | Bank's key-committed beacon (D058), combined with the deck as "Deck plus dice" below says |
 
 **Resolving an indictment.** After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 async hops for each indictment. The first indictment needs no prompt duty. A second indictment, after a wrong one, deals the same positions again, so the first indicter, though dismissed, must also seal its share of them to the new indicter (PROTOCOL §4.10); only a seal duty can deliver that today (see build path A). (Corrected in review: this paragraph first said that indictment resolution never needs a prompt duty.)
 
@@ -172,14 +172,16 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
 
 **Build paths (the owner chooses at build time).**
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so a rebuttal's sealed share needs a third owner exception. So does a second indictment: the first needs none, but after a wrong one the first indicter, though dismissed, must seal its share of the Verdict positions to each later indicter, and a first indicter who never answers stalls that later indictment (PROTOCOL §8.1). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster, Right of Way and Driftwrights may set (D050, D067, D069), so a rebuttal's sealed share needs a fourth owner exception. So does a second indictment: the first needs none, but after a wrong one the first indicter, though dismissed, must seal its share of the Verdict positions to each later indicter, and a first indicter who never answers stalls that later indictment (PROTOCOL §8.1). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
 - **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
 - **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
 
-**Recommendation:** A as a beta, then B; C only if dealer tables are adopted generally.
+**Deck plus dice (every path).** Room for Doubt both deals cards and rolls dice. PROTOCOL §6.3a says that v1 has no deck id on the beacon's share store, so a game cannot do both; the one exception is Driftwrights' game-specific extension (PROTOCOL §13, D069, D070), which puts the card positions first and the roll slots after, and binds each roll to the move that requests it. A build on path A or B must reuse or generalise that extension, which is platform work in its own right.
+
+**Recommendation:** A as a beta, then B; C only if dealer tables are adopted generally. Since this was written, the owner decided that every game stays on protocol 1 until the move to trusted dealers, and named the trusted-dealer proposal as the next step for hidden-information safety (D071), so path C may become the build path sooner than this recommendation assumed. The choice stays the owner's. (Updated 2026-10-06, after main moved: the exception count, the deck-plus-dice note and the D071 sentence.)
 
 **Dice and pace.**
-- `live` is exact: the roller's beacon share rides on the Roll, and each other seat's open app contributes (a closed window stalls the roll, as in Bank).
+- `live` is exact: the roll comes from every seat's key-committed beacon share, each sent by that seat's open app with no decision (a closed window stalls the roll, as in Bank).
 - `ahead` is an async adaptation (a named variant, D049): the next turn's roll is scheduled at the end of the previous turn and the others' shares ride on their moves. The cost is that a party starting in a corner room sees the roll before choosing whether to take the passage.
 - Every submission also waits on responses in turn, so this is a slow async game; the catalog entry says so.
 
@@ -200,7 +202,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 | `tests/restricted-names.ts` | new restricted names (below) |
 | `tests/repo-guards.test.ts` | guard tests for each new form |
 | `tests/catalog.test.ts` | `SPEC_ONLY` gains `'room-for-doubt'` |
-| `docs/DECISIONS.md` | D068 |
+| `docs/DECISIONS.md` | D072 |
 | `docs/PLAN.md` | a status entry |
 | `CLAUDE.md` | the repo map says Room for Doubt is spec only; the "Compare to" exception lists it once its package exists |
 

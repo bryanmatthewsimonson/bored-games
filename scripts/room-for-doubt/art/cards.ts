@@ -1,5 +1,5 @@
 /*
- * The card sheet (spec section 6, D068): the 21 faces, the back and the Verdict envelope on one sheet of three rows of
+ * The card sheet (spec section 6, D072): the 21 faces, the back and the Verdict envelope on one sheet of three rows of
  * nine slots. A face has a band top and bottom in its category colour, the corner index in both bands (the bottom one
  * turned half round, so a fanned hand reads from either end), a large pictogram on a tinted seal, the name and a
  * footer line. Names go through `fitText`, so no text is squeezed.

@@ -8,8 +8,8 @@ import { findRestricted, licensedPackStrings } from './restricted-names.ts';
 const game = join(import.meta.dirname, '../docs/games/room-for-doubt');
 const rules = readFileSync(join(game, 'RULES.md'), 'utf8');
 const boardText = readFileSync(join(game, 'board.txt'), 'utf8');
-const d068 =
-  readFileSync(join(import.meta.dirname, '../docs/DECISIONS.md'), 'utf8').split(/^## D068: /m)[1] ?? '';
+const decisions = readFileSync(join(import.meta.dirname, '../docs/DECISIONS.md'), 'utf8');
+const decision = decisions.split(/^## D072: /m)[1] ?? '';
 
 it('names every card exactly as the data does', () => {
   for (const n of [
@@ -49,7 +49,7 @@ it('has no restricted name or licensed string in the board file or the art', asy
 it('says what a second indictment costs on build path A: the first indicter seals its share', () => {
   const pathA = rules.match(/^- \*\*A\. Beta on today's pieces,\*\*.*$/m)?.[0] ?? '';
   expect(pathA).not.toContain('Indictment resolution needs no exception');
-  for (const text of [pathA, d068]) {
+  for (const text of [pathA, decision]) {
     expect(text).toMatch(/second indictment/);
     expect(text).toMatch(/first indicter/);
     expect(text).toMatch(/seal/);
@@ -63,4 +63,30 @@ it('states the roll shortfall precisely: a room entered early ends the move, els
   const c19 = rules.split(/^#### C19 .+$/m)[1]?.split(/^#### C20 /m)[0] ?? '';
   expect(c19).toMatch(/room/);
   expect(c19).toMatch(/longest legal path/);
+});
+
+it('records the design once, as D072: no decision number is used twice', () => {
+  const heads = [...decisions.matchAll(/^## (D\d{3}): /gm)].map((m) => m[1]);
+  expect(new Set(heads).size, 'a decision number appears twice').toBe(heads.length);
+  expect(decisions).toMatch(/^## D072: Room for Doubt/m);
+});
+
+it('counts every game allowed prompt shares on build path A: Luster, Right of Way and Driftwrights', () => {
+  const pathA = rules.match(/^- \*\*A\. Beta on today's pieces,\*\*.*$/m)?.[0] ?? '';
+  expect(pathA).toMatch(/Luster, Right of Way and Driftwrights/);
+  expect(pathA).toMatch(/fourth owner exception/);
+  expect(decision).toMatch(/fourth `promptShares` exception/);
+});
+
+it('says the game both deals and rolls, and what the platform offers for that (PROTOCOL 6.3a, 13)', () => {
+  expect(rules).toMatch(/both deals cards and rolls dice/);
+  expect(rules).toContain('PROTOCOL §6.3a');
+  expect(rules).toContain('PROTOCOL §13');
+  expect(rules).not.toContain("the roller's beacon share rides on the roll");
+  expect(decision).toMatch(/deals and rolls/);
+});
+
+it('records that protocol 1 and the trusted-dealer direction (D071) bear on the build path', () => {
+  expect(rules).toContain('D071');
+  expect(decision).toContain('D071');
 });

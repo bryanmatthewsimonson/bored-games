@@ -1,5 +1,5 @@
 /*
- * The cover (spec section 6, D068): night at the Aldermoor Assize Courts, the evening before the verdict. A columned
+ * The cover (spec section 6, D072): night at the Aldermoor Assize Courts, the evening before the verdict. A columned
  * portico over steps, a lit belfry with a clock showing midnight, storm clouds and rain, and a street lamp throwing
  * its long shadow up the steps. Flat shapes in the nine palette colours; the rain is placed by a fixed-seed generator,
  * so the file is the same every run.
