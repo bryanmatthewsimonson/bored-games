@@ -94,3 +94,12 @@ describe('docket.svg', () => {
     expect(svg).not.toContain('textLength');
   });
 });
+
+describe('cover.svg', () => {
+  const svg = rendered['cover.svg'] ?? '';
+  it('shows the title and tagline', () => {
+    expect(svg).toContain('id="cover"');
+    expect(svg).toContain('ROOM FOR DOUBT');
+    expect(svg).toContain('Leave no room for doubt.');
+  });
+});
