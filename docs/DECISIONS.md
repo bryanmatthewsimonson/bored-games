@@ -1083,8 +1083,8 @@ How it is built:
 - **Name and "Compare to".** `src/compare.ts` holds the one allowed phrase (`ALLOWED_PHRASE_HOMES`), linked to BoardGameGeek 9209.
 - **Verified:**
   - 42 catalog tests (C01–C42);
-  - 4000 fuzzed games with no failure, all ending on the line, with re-dealt charters, sifts, wipes and reshuffles all covered;
-  - `pnpm sim` of whole games with real cryptography: one 3-seat and two 5-seat games, all done with the audit passing;
+  - 4000 fuzzed games with no failure, all ending on the line, with re-dealt charters, sifts, wipes and reshuffles all covered, and 2000 more under the `charterer` policy (it draws charters whenever it may, so the charter pile cycles and charters are re-dealt to other seats);
+  - `pnpm sim` of whole games with real cryptography: 3- and 5-seat games, all done with the audit passing. Under `--policy charterer`, each 3-seat game exchanged 16 Sealed events and no timeout was claimed. That run found that the simulator did not sync kind 7458, so re-dealt charters stalled; `GAME_KINDS` now holds it, and a client test checks the list against `KIND`;
   - session and protocol tests for sealed shares;
   - the e2e spec (`apps/web/e2e/right-of-way.spec.ts`), with results in PLAN.
 - **No new dependencies.**

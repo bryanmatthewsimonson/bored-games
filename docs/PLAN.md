@@ -86,7 +86,8 @@
 **Right of Way (2026-10-06, D066, D067): built and released as beta.** It implements the reference railway game's base mechanics on an invented 36-town map, Ferrovia, with new names, rules prose and CC0 art (`docs/games/right-of-way/`).
 - **Engine:** `packages/games/right-of-way`, a 580-card packet with spare index decks for reshuffles, and 42 catalog tests.
 - **Web game:** `apps/web/src/games/right-of-way`, with a board, yard, claim panel, charter choice and rules page.
-- **E2E:** `apps/web/e2e/right-of-way.spec.ts`.
+- **E2E:** `apps/web/e2e/right-of-way.spec.ts`, whole games at 2 and 3 seats (about 3.4 and 9.5 minutes); the full `pnpm e2e` suite passed 13/13.
+- **Simulations:** `pnpm sim --game right-of-way --policy charterer` at 3 and 5 seats: done, audit pass, Sealed events exchanged (16 per 3-seat game), no timeouts.
 - **Owner exceptions:** prompt shares, as for Luster, and sealed shares for re-dealt charters (new Sealed event, kind 7458, PROTOCOL §4.10).
 - **Open for the owner:** the platform rules in RULES.md (the reshuffle timing, the wipe limit, the forced-pass end, the spare-deck limit), an adversarial review of the sealed re-deal path, and name clearance.
 - **Resign:** disabled.

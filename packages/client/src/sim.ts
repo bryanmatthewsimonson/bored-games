@@ -130,6 +130,8 @@ export interface SimReport {
   actions: number;
   /** Events on the relay, of every kind. */
   events: number;
+  /** Events on the relay by kind (Sealed events, kind 7458, show re-dealt cards, D066). */
+  kinds: Record<number, number>;
   rounds: number;
   /** Simulated seconds from the root to the end. */
   duration: number;
@@ -140,8 +142,16 @@ export interface SimReport {
   failures: string[];
 }
 
-/** The in-game kinds a client subscribes to (PROTOCOL §9). */
-const GAME_KINDS = [KIND.move, KIND.shares, KIND.timeout, KIND.reveal, KIND.attest, KIND.resign];
+/** The in-game kinds a client subscribes to (PROTOCOL §9): all but the lobby's (table, join, root) and the backup. */
+export const GAME_KINDS: readonly number[] = [
+  KIND.move,
+  KIND.shares,
+  KIND.sealed,
+  KIND.timeout,
+  KIND.reveal,
+  KIND.attest,
+  KIND.resign,
+];
 const RELAYS = ['wss://relay.sim.invalid'];
 const DEFAULT_START = 1_700_000_000;
 /** The most events one client publishes in one turn; a sound session needs far fewer. */
@@ -199,6 +209,13 @@ const errorText = (e: unknown): string => (e instanceof Error ? e.message : Stri
  * Simulate one game from the lobby to its end. A game that goes wrong is reported in `failures`; it throws only
  * for an unknown game or a lobby that cannot start one.
  */
+/** How many of `events` there are of each kind. */
+function kindCounts(events: readonly NostrEvent[]): Record<number, number> {
+  const out: Record<number, number> = {};
+  for (const ev of events) out[ev.kind] = (out[ev.kind] ?? 0) + 1;
+  return out;
+}
+
 export function simulateGame(opts: SimOptions): SimReport {
   const rng = createRng(`sim:${opts.seed}`);
   const rnd = rngBytes(rng.fork('bytes'));
@@ -567,6 +584,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     // A deckless game has no shuffle steps before its first action (D045).
     actions: Math.max(0, final.head.seq - final.shuffleSteps),
     events: relay.size,
+    kinds: kindCounts(relay.query({})),
     rounds,
     duration: clock - rootAt,
     claims,

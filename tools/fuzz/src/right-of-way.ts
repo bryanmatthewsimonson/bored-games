@@ -57,57 +57,71 @@ function wantedRoutes(s: RowState, seat: number): Set<number> {
 }
 
 /** Test driver only: lay track toward its charters, draw the colours those routes need, keep short charters. */
-export const RIGHT_OF_WAY_POLICIES: readonly FuzzPolicy<RowState>[] = [
-  {
-    name: 'builder',
-    choose(s, seat, raw, rng) {
-      const legal = raw as readonly RowAction[];
-      const first = legal[0];
-      if (first?.type === 'sift' || first?.type === 'pass') return first;
-      if (first?.type === 'keep') {
-        const p = s.players[seat];
-        const values = (p?.offered ?? []).map(
-          (c) => CHARTERS[(c.card ?? CHARTER_OFFSET) - CHARTER_OFFSET]?.value ?? 99,
-        );
-        const min = Math.min(...legal.map((a) => (a.type === 'keep' ? a.keep.length : 9)));
-        const order = range(values.length).sort((a, b) => (values[a] ?? 0) - (values[b] ?? 0));
-        const keep = order.slice(0, min).sort((a, b) => a - b);
-        return (
-          legal.find((a) => a.type === 'keep' && JSON.stringify(a.keep) === JSON.stringify(keep)) ?? first
-        );
-      }
-      const wanted = wantedRoutes(s, seat);
-      const claims = legal.filter((a): a is Claim => a.type === 'claim');
-      const engines = (a: Claim) =>
-        a.pay.filter(([pos, card]) => colorAt(s, { pos, card }) === ENGINE).length;
-      const best = (xs: Claim[]) =>
-        [...xs].sort(
-          (a, b) =>
-            (ROUTES[b.route]?.length ?? 0) - (ROUTES[a.route]?.length ?? 0) || engines(a) - engines(b),
-        )[0];
-      const goal = best(claims.filter((a) => wanted.has(a.route)));
-      if (goal) return goal;
-      const hand = s.players[seat]?.hand.length ?? 0;
-      const track = s.players[seat]?.track ?? 0;
-      if (claims.length > 0 && (wanted.size === 0 || hand > 14 || track < 12)) return best(claims);
-      if (wanted.size === 0 && legal.some((a) => a.type === 'charters') && track > 20 && rng.int(3) === 0)
-        return legal.find((a) => a.type === 'charters');
-      const need = new Set<number>();
-      for (const ri of wanted)
-        for (const c of ROUTES[ri]?.sides ?? []) if (c !== 'gray') need.add(ROUTE_COLORS.indexOf(c));
-      const takes = legal.filter((a): a is Extract<RowAction, { type: 'take' }> => a.type === 'take');
-      const useful = takes.find((a) => {
-        const y = s.yard[a.slot];
-        const c = y ? colorAt(s, y) : null;
-        return c !== null && (need.has(c) || (c === ENGINE && s.phase === 'turn'));
-      });
-      if (useful) return useful;
-      const blind = legal.find((a) => a.type === 'blind');
-      if (blind) return blind;
-      return rng.pick(legal);
-    },
+const builder: FuzzPolicy<RowState> = {
+  name: 'builder',
+  choose(s, seat, raw, rng) {
+    const legal = raw as readonly RowAction[];
+    const first = legal[0];
+    if (first?.type === 'sift' || first?.type === 'pass') return first;
+    if (first?.type === 'keep') {
+      const p = s.players[seat];
+      const values = (p?.offered ?? []).map(
+        (c) => CHARTERS[(c.card ?? CHARTER_OFFSET) - CHARTER_OFFSET]?.value ?? 99,
+      );
+      const min = Math.min(...legal.map((a) => (a.type === 'keep' ? a.keep.length : 9)));
+      const order = range(values.length).sort((a, b) => (values[a] ?? 0) - (values[b] ?? 0));
+      const keep = order.slice(0, min).sort((a, b) => a - b);
+      return legal.find((a) => a.type === 'keep' && JSON.stringify(a.keep) === JSON.stringify(keep)) ?? first;
+    }
+    const wanted = wantedRoutes(s, seat);
+    const claims = legal.filter((a): a is Claim => a.type === 'claim');
+    const engines = (a: Claim) => a.pay.filter(([pos, card]) => colorAt(s, { pos, card }) === ENGINE).length;
+    const best = (xs: Claim[]) =>
+      [...xs].sort(
+        (a, b) => (ROUTES[b.route]?.length ?? 0) - (ROUTES[a.route]?.length ?? 0) || engines(a) - engines(b),
+      )[0];
+    const goal = best(claims.filter((a) => wanted.has(a.route)));
+    if (goal) return goal;
+    const hand = s.players[seat]?.hand.length ?? 0;
+    const track = s.players[seat]?.track ?? 0;
+    if (claims.length > 0 && (wanted.size === 0 || hand > 14 || track < 12)) return best(claims);
+    if (wanted.size === 0 && legal.some((a) => a.type === 'charters') && track > 20 && rng.int(3) === 0)
+      return legal.find((a) => a.type === 'charters');
+    const need = new Set<number>();
+    for (const ri of wanted)
+      for (const c of ROUTES[ri]?.sides ?? []) if (c !== 'gray') need.add(ROUTE_COLORS.indexOf(c));
+    const takes = legal.filter((a): a is Extract<RowAction, { type: 'take' }> => a.type === 'take');
+    const useful = takes.find((a) => {
+      const y = s.yard[a.slot];
+      const c = y ? colorAt(s, y) : null;
+      return c !== null && (need.has(c) || (c === ENGINE && s.phase === 'turn'));
+    });
+    if (useful) return useful;
+    const blind = legal.find((a) => a.type === 'blind');
+    if (blind) return blind;
+    return rng.pick(legal);
   },
-];
+};
+
+/** Test driver only: draws charters whenever it can (keeping one), so returned charters come round again (D067). */
+const charterer: FuzzPolicy<RowState> = {
+  name: 'charterer',
+  choose(s, seat, raw, rng) {
+    const legal = raw as readonly RowAction[];
+    const first = legal[0];
+    if (first?.type === 'keep')
+      return (
+        legal.find(
+          (a) =>
+            a.type === 'keep' &&
+            a.keep.length === Math.min(...legal.map((b) => (b.type === 'keep' ? b.keep.length : 9))),
+        ) ?? first
+      );
+    const draw = legal.find((a) => a.type === 'charters');
+    if (draw && (s.players[seat]?.track ?? 0) > 15) return draw;
+    return (builder.choose(s, seat, legal, rng) as RowAction | undefined) ?? first;
+  },
+};
 
 export const RIGHT_OF_WAY_EXPECTED_COVERAGE = [
   'move:take',
@@ -121,6 +135,8 @@ export const RIGHT_OF_WAY_EXPECTED_COVERAGE = [
   'charters:redealt',
   'end:line',
 ];
+
+export const RIGHT_OF_WAY_POLICIES: readonly FuzzPolicy<RowState>[] = [builder, charterer];
 
 export function rightOfWayDeckOrder(_deck: DeckSpec, rng: Rng): number[] {
   return GROUPS.flatMap((g) =>
