@@ -22,6 +22,7 @@ import {
   type Claim,
   cargoName,
   charterLines,
+  charterTowns,
   claimsBySide,
   enginesIn,
   handCounts,
@@ -171,6 +172,9 @@ export function RightOfWayGame(props: GameViewProps) {
                       }
                     />
                     <CharterCard index={c.card === null ? null : c.card - CHARTER_OFFSET} />
+                    <span class="row-charter-towns">
+                      {charterTowns(c.card === null ? null : c.card - CHARTER_OFFSET)}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -276,6 +280,7 @@ export function RightOfWayGame(props: GameViewProps) {
                 {mine.map((c) => (
                   <li key={c.pos} data-done={c.done}>
                     <CharterCard index={c.index} done={c.done} />
+                    <span class="row-charter-towns">{charterTowns(c.index)}</span>
                     <span>{c.done ? 'Completed' : 'Open'}</span>
                   </li>
                 ))}

@@ -259,3 +259,14 @@ main:has(.row-game) {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
 }
+
+.row-charter-towns {
+  max-width: 130px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+/* Town markers and labels never take a click meant for a route under them. */
+.row-town {
+  pointer-events: none;
+}

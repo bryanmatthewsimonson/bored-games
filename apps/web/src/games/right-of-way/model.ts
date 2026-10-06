@@ -133,3 +133,9 @@ export function pileText(s: RowState): string {
   const n = pileCount(s.pile);
   return `${n} card${n === 1 ? '' : 's'} in the pile · ${s.discards.length} discard${s.discards.length === 1 ? '' : 's'}`;
 }
+
+/** "Saltmere – Yarrowfen", or "Not revealed yet" for a charter this state does not know. */
+export function charterTowns(index: number | null): string {
+  const t = index === null ? undefined : CHARTERS[index];
+  return t === undefined ? 'Not revealed yet' : `${townName(t.a)} – ${townName(t.b)}`;
+}
