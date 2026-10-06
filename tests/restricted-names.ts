@@ -5,9 +5,9 @@
  *
  * Two kinds of term:
  * - the fixed list below (each reference game's name, its designer's, and for Chain Reaction its published
- *   editions' chain names; for Luster, also its publisher's), matched case-insensitively anywhere inside a word,
- *   so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's
- *   `hydrate`) are allowed;
+ *   editions' chain names; for Luster and Right of Way, also its publisher's), matched case-insensitively anywhere
+ *   inside a word, so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that
+ *   contain one (Preact's `hydrate`) are allowed;
  * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
  *   and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is covered
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
@@ -52,6 +52,21 @@ export const RESTRICTED_NAMES: readonly string[] = [
   'Marc-André',
   'Marc_Andre',
   'Marc_André',
+  // Right of Way's reference game (D066): its title, its publisher and its designer, as they are commonly written.
+  'Ticket to Ride',
+  'TicketToRide',
+  'Ticket-to-Ride',
+  'Ticket_to_Ride',
+  'Days of Wonder',
+  'DaysOfWonder',
+  'Days-of-Wonder',
+  'Days_of_Wonder',
+  'Alan R. Moon',
+  'Alan R Moon',
+  'Alan Moon',
+  'AlanMoon',
+  'Alan-Moon',
+  'Alan_Moon',
 ];
 
 /** Ordinary words that contain a restricted name (lower case). Keep this short: each entry is a hole. */

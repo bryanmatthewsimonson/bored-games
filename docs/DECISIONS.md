@@ -1044,3 +1044,22 @@ The owner's two reports of 2026-10-03 (PLAN, "Known bugs"). **No consensus chang
   - e2e `keys.spec.ts`: two browser contexts with the same nsec; join on one, restore and play on the other.
 - **No new dependencies.**
 - **Verified:** after the review fixes, `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes).
+
+## D066: Right of Way rules spec, an original map and art; build waits on mid-turn reveals (owner request, 2026-10-06)
+The owner asked for "a trademark & copyright safe version of Ticket To Ride with a clever name and original artwork and rewritten rules, which follows the exact same gameplay mechanics". `docs/games/right-of-way/RULES.md` is the source of truth for a future engine, with a 39-entry catalog (C01–C39). Only the spec and art are written: no engine, UI, fuzz target or package.
+- **Name: Right of Way** (a railway's strip of land, and who goes first), set in Ferrovia (Italian for "railway"). A web search on 2026-10-06 found no railway board game published under that name; that is not trademark clearance, which stays with a lawyer before release (as for Luster). Fallback name: "Iron Ribbon".
+- **Mechanics kept exactly; expression replaced.** Mechanics and the numbers that are part of them are kept: 110 cards (12 × 8 colours + 14 wilds), 45 pieces, 4-card hands, a 5-card market with the three-wild wipe, two-card draws with the face-up wild rule, route points 1/2/4/7/10/15, twin routes closed at 2–3 players, tickets 3-keep-2 at setup and 3-keep-1 later, returns to the bottom, the ≤ 2-piece end and one more turn, the 10-point longest path and the tie-breaks. All of these are checked against two secondary sources and marked **verified** or **recalled** in the spec. Replaced: every name (freight cards with cargo themes, the Engine, track, charters, the Iron Ribbon), the rules prose (new, not paraphrased), and the map. The map has 36 invented towns and 85 routes (22 twins, 107 sides, 332 spaces), checked by script for no crossing routes and no route grazing a town, with colours balanced to 28–30 spaces each and 99 unmarked. There are 30 charters, valued by a stated rule (the shortest connection in spaces; values 4–22). Nothing reproduces the reference map, card art or rulebook text.
+- **Original art, CC0-1.0:** `docs/games/right-of-way/art/` holds the cover, the board (drawn from the route table), the card sheet and the 30 charters, in a flat travel-poster style deliberately unlike the reference game's look. Each colour has a cargo symbol on cards and route spaces for colour-blind play.
+- **Platform rules** (marked as such; the forced-pass end and the wipe limit are **OPEN** for the owner):
+  - a random first player, as in Luster;
+  - first charters chosen in seat order;
+  - a forced pass when no action is possible, ending the game when every seat passes in a row (D015 needs an end);
+  - no wipe when fewer than 3 non-wild cards remain outside hands (the published wipe could loop forever);
+  - a one-card draw when no second card is legal;
+  - returns kept in drawn order;
+  - ties beyond the published tie-breaks share the place.
+  
+  OPEN options logged: `firstPlayer`, and `chartersAtStart` (simultaneous, once GAME-SYSTEMS §4.8 exists).
+- **Build gate.** Blind draws, market refills and wipes reveal cards **mid-turn**, after the player's choice, and the discard reshuffle is a mid-game reshuffle (GAME-SYSTEMS §4.1.4, missing). Turn-piggybacked, each costs an extra async round, and D050 forbids prompt duties. The build therefore needs an owner choice: dealer tables (`docs/proposals/dealer-relay.md`, recommended), Phase K prompt reveals, or a Luster-style `promptShares` exception. No rule is changed to avoid the latency. Resign stays disabled until its D052 review for public reveals, as Luster's is.
+- **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
+- **No new dependencies.**

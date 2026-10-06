@@ -190,6 +190,22 @@ describe('branding', () => {
     expect(findRestricted('hotel chainsaw', ['hotel chains'])).toEqual([]);
   });
 
+  it("catches Right of Way's reference title, publisher and designer as commonly written (D066)", () => {
+    for (const text of [
+      'a Ticket to Ride map',
+      'TICKET TO RIDE',
+      'ticket-to-ride',
+      'ticketToRideRules',
+      'days_of_wonder',
+      'DaysOfWonder',
+      'by Alan R. Moon',
+      'alan moon',
+      'AlanMoon',
+    ])
+      expect(findRestricted(text, []), text).not.toEqual([]);
+    expect(findRestricted('Right of Way: a ticket, a ride, days of play', [])).toEqual([]);
+  });
+
   describe('the allowed phrases (D053, D060)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),

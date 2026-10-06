@@ -32,7 +32,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - `tools/dev-relay/`: in-memory NIP-01 relay for development and tests
 - `scripts/dev.ts`: runs `pnpm relay` and the Vite dev server together
 - `tests/`: repo-wide guards (purity, branding, the public build scan for restricted names)
-- `docs/`: ARCHITECTURE, PROTOCOL, PLAN (status and open questions), DECISIONS (log), TESTING (owner's guide), `games/<id>/RULES.md` (source of truth; Chain Reaction, Chess, Bank; Hanabi is spec only)
+- `docs/`: ARCHITECTURE, PROTOCOL, PLAN (status and open questions), DECISIONS (log), TESTING (owner's guide), `games/<id>/RULES.md` (source of truth; Chain Reaction, Chess, Bank; Hanabi and Right of Way are spec only)
 
 ## Conventions
 - **Pure packages** (game-kit, dice, deck `src/`, games/*): no `Math.random`, `Date`, timers, I/O, `node:` imports, `Intl` or locale APIs. State is plain JSON, money is integers, absent values are `null`.
