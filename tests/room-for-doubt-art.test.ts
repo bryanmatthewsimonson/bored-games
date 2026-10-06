@@ -74,3 +74,23 @@ describe('cards.svg', () => {
   });
   it('names every card through fitText with no squeezed text', () => expect(svg).not.toContain('textLength'));
 });
+
+describe('pieces.svg', () => {
+  const svg = rendered['pieces.svg'] ?? '';
+  it('draws six pawns, six tokens and six dice faces', () => {
+    for (const p of PARTIES) expect(svg).toContain(`id="pawn-${p.id}"`);
+    for (const e of EXHIBITS) expect(svg).toContain(`id="token-${e.id}"`);
+    for (let n = 1; n <= 6; n++) expect(svg).toContain(`id="die-${n}"`);
+    expect(svg).not.toContain('textLength');
+  });
+});
+
+describe('docket.svg', () => {
+  const svg = rendered['docket.svg'] ?? '';
+  it('has a row for each of the 21 cards and a notes area', () => {
+    for (const id of [...PARTIES.map((p) => p.id), ...EXHIBITS.map((e) => e.id), ...SCENES.map((s) => s.id)])
+      expect(svg).toContain(`id="docket-row-${id}"`);
+    expect(svg).toContain('id="docket-notes"');
+    expect(svg).not.toContain('textLength');
+  });
+});

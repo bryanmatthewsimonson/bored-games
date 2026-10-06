@@ -147,6 +147,8 @@ export const TEXT_PAIRS: readonly (readonly [PaletteName, PaletteName])[] = [
   ['ivory', 'ink'],
   ['parchment', 'ink'],
   ['ink', 'brass'],
+  ['oxblood', 'ivory'],
+  ['slate', 'ivory'],
   ...(Object.keys(ON_ACCENT) as Accent[]).map((accent) => [ON_ACCENT[accent], accent] as const),
 ];
 
