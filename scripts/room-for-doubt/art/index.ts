@@ -5,9 +5,13 @@
  */
 import { parseBoard } from '../board.ts';
 import { renderBoard } from './board.ts';
+import { renderCards } from './cards.ts';
 
-export const ART_FILES: readonly string[] = ['board.svg'];
+export const ART_FILES: readonly string[] = ['board.svg', 'cards.svg'];
 
 export function renderAll(boardText: string): Record<string, string> {
-  return { 'board.svg': renderBoard(parseBoard(boardText), boardText) };
+  return {
+    'board.svg': renderBoard(parseBoard(boardText), boardText),
+    'cards.svg': renderCards(),
+  };
 }
