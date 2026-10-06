@@ -213,7 +213,7 @@ Do one of these three.
 - You may not enter the same square twice in one turn.
 - **Doors.** A room is entered and left through its doors. Passing a door is one step, between the doorstep (the corridor square outside) and the room itself; the doorway is not a square and costs nothing more. A door whose doorstep holds a pawn cannot be used, in either direction.
 - **Entering a room ends your move**, however much of the roll is left. You may not enter a room that you left earlier in the same turn.
-- **Shortfall (P4).** You must use the whole roll. If no path of that length exists, you move as far as you can, which may be not at all.
+- **Shortfall (P4).** You must use the whole roll, or enter a room on the way, which ends the move as above. If neither is possible (no path of the full roll exists and no shorter path ends in a room), you move along the longest legal path there is, which may be no squares at all; any path of that greatest length is accepted.
 
 **Take the Old Gaol Passage.** If your pawn starts the turn in a corner room, you may skip the roll and move at once to the corner room diagonally opposite (Judge's Chambers ↔ Evidence Store, Belfry ↔ Holding Cells). You count as having entered it.
 
@@ -261,7 +261,7 @@ These are platform necessities, not published rules (D015, D016).
 - **P1 Seats and Parties.** As in Setup step 1. The Prosecutor is always played and goes first, which matches the published rule that a fixed first Party always starts.
 - **P2 The deal.** From the first seat: 3 seats 6, 6, 6; 4 seats 5, 5, 4, 4; 5 seats 4, 4, 4, 3, 3; 6 seats 3 each.
 - **P3 Exhibits.** Six different rooms are drawn from the jointly shuffled public setup, as Luster's first player is, one room for each Exhibit. No seat can choose them.
-- **P4 Shortfall.** A Party must move the whole roll. If no legal path of that length exists, it moves as far as it can, possibly not at all.
+- **P4 Shortfall.** A Party moves the whole roll, or enters a room on the way, which ends the move. If neither is possible, it moves along the longest legal path, possibly no squares at all, and any path of that greatest length is accepted. The published rules are silent; "as far as it can" is read as the greatest distance, not as "until a dead end".
 - **P5 Trapped.** A Party that cannot move passes its move. It may still indict, or submit if another Party's submission has moved it.
 - **P6 Last standing.** The engine declares the last undismissed seat the winner (D015: games end only by declaration).
 - **P7 Result.** A winner is place 1 with score 1; every other seat shares place 2 with score 0.
@@ -271,7 +271,7 @@ These are platform necessities, not published rules (D015, D016).
 ### What is hidden
 | Hidden thing | Who may know | Platform mechanism |
 |---|---|---|
-| The Verdict (1 Party, 1 Exhibit, 1 Scene) | nobody, until an indicting seat reads it | One deck in three groups (6 / 6 / 9) (`DeckSpec.partitions`). The first card of each group is the Verdict and is never dealt. An indictment deals those three positions to the indicting seat, so only that seat can decrypt them. |
+| The Verdict (1 Party, 1 Exhibit, 1 Scene) | nobody, until an indicting seat reads it | One deck in three groups (6 / 6 / 9) (`DeckSpec.partitions`). The first card of each group is the Verdict and is never dealt. An indictment deals those three positions to the indicting seat, so only that seat can decrypt them. A second indictment, after a wrong one, deals them again, to the next indicting seat: the first indicter seals its share to that seat (PROTOCOL §4.10). |
 | Hands | the holder (sizes are public) | the standard deal at setup |
 | The Exhibits' starting rooms | everyone | a fourth group of 9 cards (one per room) in the same deck, revealed publicly at setup; the first 6 name the rooms (P3) |
 | A card shown in a rebuttal | the shower and the submitter | Right of Way's sealed share (PROTOCOL §4.10): the shower seals its share of that card to the submitter |
@@ -279,8 +279,10 @@ These are platform necessities, not published rules (D015, D016).
 | The indictment's outcome | the indicting seat, then everyone | claimed by that seat and audited, so a false win is caught at the end audit |
 | Dice | public | Bank's key-committed beacon (D058) |
 
-### Resolving an indictment without a prompt duty
-After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 asynchronous hops, once per player per game.
+### Resolving an indictment
+After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 asynchronous hops for each indictment.
+
+The first indictment needs no prompt duty: every other seat's share of the Verdict is public once the seats have attended, and only the indicting seat holds its own. A **second indictment**, after a wrong one, deals the same three positions again, so the first indicter, although dismissed, must also seal its share of them to the new indicter (PROTOCOL §4.10), as a shower seals a shown card to the submitter. Only a seal duty can deliver that today (see build path A).
 
 ### Actions (one accepted encoding each)
 Names only; the build fixes the encodings: `roll`, `move`, `passage`, `stay` (a trapped Party's pass), `submit`, `show`, `none` (no matching card), `indict`, `attend`, `verdict`, `endTurn`. A player never sends the dice: the session derives `rolled`.
@@ -291,7 +293,7 @@ Both gaps change who knows what, so they are recorded as platform limits, not as
 2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
 
 ### Build paths (the owner chooses at build time)
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so it needs a third owner exception, or a narrower rule limited to the shower's own move (a possible design, not yet checked against the session). Indictment resolution needs no exception.
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so a rebuttal's sealed share needs a third owner exception. So does a **second indictment**: the first indictment needs none, but after a wrong one the Verdict positions are dealt again, and the first indicter, though dismissed, must seal its share of them to each later indicter (PROTOCOL §4.10). A first indicter who never answers stalls that later indictment (PROTOCOL §8.1 names it). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
 - **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
 - **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
 
@@ -385,7 +387,7 @@ From a corner room, at the start of a turn and instead of rolling, a Party moves
 A Party with no legal move passes its move. It may still submit if it has been moved into a room, or indict.
 
 #### C19 Roll shortfall
-If no path of the full roll exists, the Party moves as far as it can (P4).
+If no path of the full roll exists and no shorter path ends in a room, the Party moves along the longest legal path (P4), which may be none, and any path of that greatest length is accepted.
 
 #### C20 Submission on entry
 After entering a room by roll or by passage, a Party may submit (`submit: 'optional'`) or must (`'required'`).

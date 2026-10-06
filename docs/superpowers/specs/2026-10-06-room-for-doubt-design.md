@@ -110,7 +110,7 @@ The order above is the clockwise order of the Entrances and the turn order. Colo
 - **P1 Seats and parties.** Parties are spread evenly around the building, in party order, so the Prosecutor is always played and goes first (the published "first suspect always starts"). Seats take them in turn order: 3 seats Ashdown, Reeve, Faulk; 4 seats Ashdown, Brine, Crowther, Faulk; 5 seats all but Quarrel; 6 seats all. Unplayed parties stand on their Entrances, can be named in submissions and block squares.
 - **P2 Deal.** From seat 0: 3 seats 6, 6, 6; 4 seats 5, 5, 4, 4; 5 seats 4, 4, 4, 3, 3; 6 seats 3 each.
 - **P3 Exhibits.** Six different rooms are drawn from the jointly shuffled public setup (as Luster's first player is), one per Exhibit.
-- **P4 Shortfall.** A party must move the whole roll; if no legal path of that length exists, it moves as far as it can (possibly not at all).
+- **P4 Shortfall.** A party moves the whole roll, or enters a room on the way (which ends the move). If neither is possible, it moves along the longest legal path (any path of that greatest length), possibly not at all.
 - **P5 Trapped.** A party that cannot move passes its move. It may still indict, or submit if another party's submission moved it.
 - **P6 Last standing.** The engine declares the last undismissed seat the winner (D015: games end only by declaration).
 - **P7 Result.** A winner is place 1 with score 1; every other seat shares place 2 with score 0.
@@ -163,7 +163,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 | The indictment's outcome | the indicting seat, then everyone | claimed by that seat and audited, so a false win is caught at the end audit |
 | Dice | public | Bank's key-committed beacon (D058) |
 
-**Resolving an indictment without a prompt duty.** After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 async hops, once per player per game.
+**Resolving an indictment.** After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 async hops for each indictment. The first indictment needs no prompt duty. A second indictment, after a wrong one, deals the same positions again, so the first indicter, though dismissed, must also seal its share of them to the new indicter (PROTOCOL §4.10); only a seal duty can deliver that today (see build path A). (Corrected in review: this paragraph first said that indictment resolution never needs a prompt duty.)
 
 **Actions** (one accepted encoding each; names only, the build fixes the encodings): `roll`, `move`, `passage`, `stay` (a trapped party's pass), `submit`, `show`, `none` (no matching card), `indict`, `attend`, `verdict`, `endTurn`. A player never sends the dice (the session derives `rolled`).
 
@@ -172,7 +172,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
 
 **Build paths (the owner chooses at build time).**
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so it needs a third owner exception, or a narrower rule limited to the shower's own move (a possible design, not yet checked against the session). Indictment resolution needs no exception.
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which only Luster and Right of Way may set, so a rebuttal's sealed share needs a third owner exception. So does a second indictment: the first needs none, but after a wrong one the first indicter, though dismissed, must seal its share of the Verdict positions to each later indicter, and a first indicter who never answers stalls that later indictment (PROTOCOL §8.1). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
 - **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
 - **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
 
