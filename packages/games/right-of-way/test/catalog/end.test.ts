@@ -120,7 +120,7 @@ describe('the end', () => {
     expect(t.result?.scores[1]).toBeLessThan(0);
   });
 
-  it("C32 a charter is completed only by the holder's own routes", () => {
+  it('C32 a charter is completed only by the routes of its holder', () => {
     const c0 = 0;
     const c = CHARTERS[c0] as (typeof CHARTERS)[number];
     const rs = path(c.a, c.b);
