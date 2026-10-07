@@ -1,8 +1,8 @@
 /*
  * The Game route (#/g/<rootId>): one GameController for the life of the screen. The screen is generic (D045): it
  * shows the setup progress, the chrome every game shares (warnings, the result line, Resign) and dispatches the
- * play area to the registry's component for the table's game. The controller performs the automatic duties; the
- * player's decisions go to `act`.
+ * play area to the registry's component for the table's game. The controller performs the automatic duties, and the
+ * game's automatic move where the registry gives one (`autoMove`); the player's decisions go to `act`.
  */
 import type { SessionView } from '@bored-games/client';
 import type { ComponentChildren } from 'preact';
@@ -314,9 +314,15 @@ export function placesText(view: SessionView, names: readonly string[]): string 
     .join(', ');
 }
 
+/** A game's automatic move, by module id, from the registry (only Room for Doubt has one). */
+const autoMoveOf = (game: string) => webGame(game)?.autoMove;
+
 export function GameScreen(props: { rootId: string }) {
   const { deps, profile, store, signer } = useApp();
-  const ctl = useMemo(() => new GameController(props.rootId, deps), [props.rootId, deps]);
+  const ctl = useMemo(
+    () => new GameController(props.rootId, deps, { autoMove: autoMoveOf }),
+    [props.rootId, deps],
+  );
   useEffect(() => {
     ctl.start();
     return () => ctl.dispose();

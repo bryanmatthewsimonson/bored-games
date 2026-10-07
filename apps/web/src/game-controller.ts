@@ -107,6 +107,24 @@ export type BackupState = 'checking' | 'due' | 'sending' | 'done' | 'unavailable
 /** How often `tick` runs while the controller is started, in ms. */
 export const TICK_MS = 30_000;
 
+/**
+ * A game's automatic move (opt-in): from this seat's legal actions at its decision, with the state as it sees it,
+ * the action its app sends without a click, or null to wait for the player. Room for Doubt sends a lone `none`
+ * this way (D078 ruling 7, amended in the final review).
+ */
+export type AutoMove = (legal: readonly unknown[], state: unknown, seat: number) => unknown;
+
+/** What a game controller is built with, besides its dependencies. */
+export interface GameControllerOptions {
+  /** Stored game events asked for per page (`GAME_PAGE`; tests make it small to exercise paging). */
+  gamePage?: number;
+  /**
+   * The automatic move of a game, by module id (the game screen passes the registry's lookup). A game it returns
+   * nothing for, as every game but Room for Doubt, sends nothing by itself.
+   */
+  autoMove?: (game: string) => AutoMove | undefined;
+}
+
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
 export const GAME_KINDS = [
   KIND.move,
@@ -378,6 +396,11 @@ export class GameController {
   readonly #checkSince = new Map<string, number>();
   /** Automatic duties (`kind@headId`) held back by the check before signing until the next tick. */
   readonly #heldDuties = new Set<string>();
+  /**
+   * Heads (ids) at which this seat's automatic move (`#autoMove`) was tried since the last tick: it is tried once
+   * per head, and a send that failed waits for the next tick, which clears this.
+   */
+  readonly #autoTried = new Set<string>();
   /** Automatic duties (`kind@headId`) waiting for their deterministic date (`#buildDate`), with their wake time. */
   readonly #waits = new Map<string, number>();
   /**
@@ -440,12 +463,15 @@ export class GameController {
 
   /** Stored game events asked for per page (`GAME_PAGE`; tests make it small to exercise paging). */
   readonly #page: number;
+  /** The automatic move of a game, by module id (`GameControllerOptions.autoMove`), or null for none. */
+  readonly #autoMoveOf: ((game: string) => AutoMove | undefined) | null;
 
-  constructor(rootId: string, deps: ControllerDeps, opts: { gamePage?: number } = {}) {
+  constructor(rootId: string, deps: ControllerDeps, opts: GameControllerOptions = {}) {
     this.rootId = rootId;
     this.#d = deps;
     this.clock = signal(deps.now());
     this.#page = opts.gamePage ?? GAME_PAGE;
+    this.#autoMoveOf = opts.autoMove ?? null;
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -470,8 +496,10 @@ export class GameController {
   /** Re-check deadlines and stored timeout claims, retry undelivered events, and resume duties. */
   tick(): void {
     if (this.#disposed) return;
-    // A duty the check before signing held back is tried again (D059 item 2).
+    // A duty the check before signing held back is tried again (D059 item 2), and so is an automatic move whose
+    // send failed (`#autoMove`).
     this.#heldDuties.clear();
+    this.#autoTried.clear();
     this.#session?.tick(this.#d.now());
     if (this.#synced) this.#retryUndelivered();
     this.#refresh();
@@ -1788,6 +1816,31 @@ export class GameController {
       this.#working = false;
       this.#refresh();
     }
+    // Once no automatic duty comes first, the game's automatic move, if it has one.
+    this.#autoMove();
+  }
+
+  /**
+   * Send this seat's automatic move (`GameControllerOptions.autoMove`), if its game has one and picks an action now:
+   * only while the decision is this seat's (`your-turn`, so no automatic duty comes first and no move of its own is
+   * waiting), and at most once per head until the next tick (`#autoTried`). A send that fails, for instance while the
+   * check before signing holds, shows in `error` as `act` sets it, and is tried again on the next tick, never in a
+   * loop. A player may still send the same move by hand meanwhile.
+   */
+  #autoMove(): void {
+    const session = this.#session;
+    const game = this.game.value;
+    const pick = game === null ? undefined : this.#autoMoveOf?.(game);
+    if (pick === undefined || session === null || this.#disposed || this.busy.value) return;
+    if (this.status.value !== 'your-turn') return;
+    const v = session.view();
+    if (v.mySeat === null || this.#autoTried.has(v.head.id)) return;
+    const action = pick(this.legal.value, v.state, v.mySeat);
+    if (action === null || action === undefined) return;
+    this.#autoTried.add(v.head.id);
+    this.act(action).catch(() => {
+      // `act` has set `error`; the next tick tries again while the move is still this seat's to make.
+    });
   }
 
   /**

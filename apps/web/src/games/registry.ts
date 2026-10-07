@@ -4,6 +4,7 @@
  * its id to ids.ts, its module to MODULES (net.ts) and an entry here (a test checks that the three agree).
  */
 
+import type { RfdAction } from '@bored-games/room-for-doubt';
 import { BankGame } from './bank/game.tsx';
 import { BANK_META } from './bank/meta.ts';
 import { BankRulesPage } from './bank/rules-page.tsx';
@@ -28,6 +29,7 @@ import { RIGHT_OF_WAY_META } from './right-of-way/meta.ts';
 import { RightOfWayRulesPage } from './right-of-way/rules-page.tsx';
 import { ROOM_FOR_DOUBT_SETUP_COPY, RoomForDoubtGame } from './room-for-doubt/game.tsx';
 import { ROOM_FOR_DOUBT_META } from './room-for-doubt/meta.ts';
+import { automaticAnswer } from './room-for-doubt/model.ts';
 import { RoomForDoubtRulesPage } from './room-for-doubt/rules-page.tsx';
 import type { WebGame } from './types.ts';
 
@@ -99,6 +101,8 @@ export const GAMES: readonly WebGame[] = [
     Component: RoomForDoubtGame,
     RulesPage: RoomForDoubtRulesPage,
     setupCopy: () => ROOM_FOR_DOUBT_SETUP_COPY,
+    // A lone none goes out by itself; every show waits for its player (D078 ruling 7, amended).
+    autoMove: (legal) => automaticAnswer(legal as readonly RfdAction[]),
   },
 ];
 

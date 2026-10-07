@@ -1,9 +1,10 @@
 /*
  * The Room for Doubt game screen (D078): the status line, the decisions of the moment (roll, passage, stay, end the
  * turn, the submission, the rebuttal, the Verdict's announcement, the indictment), the board with the targets of the
- * viewer's walk, the viewer's hand, the Docket and the players. Moves are sent only from the legal list. A rebuttal
- * with one possible answer is sent without a click (ruling 7), as Right of Way sends a forced sift. A shown card is
- * named only to the two seats it passed between (Review Focus 1); the session seals it, never this screen.
+ * viewer's walk, the viewer's hand, the Docket and the players. Moves are sent only from the legal list. A lone none
+ * goes out without a click, sent by the game controller (the registry's `autoMove`, ruling 7 as amended); every
+ * show waits for its player's click, so its timing says nothing about the hand. A shown card is named only to the two
+ * seats it passed between (Review Focus 1); the session seals it, never this screen.
  */
 import {
   passageTo,
@@ -15,7 +16,7 @@ import {
 } from '@bored-games/room-for-doubt';
 import { EMBLEMS } from '@bored-games/room-for-doubt/art';
 import { ROOM_FOR_DOUBT_THEME as THEME } from '@bored-games/room-for-doubt/theme';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { rulesHref } from '../../router.ts';
 import type { GameViewProps, SetupCopy } from '../types.ts';
@@ -29,12 +30,13 @@ import {
   cardAt,
   charge,
   choicesOf,
-  forcedAnswer,
   handOf,
   type Line,
+  type NoneAction,
   ON_ACCENT,
   PALETTE,
   rollTotal,
+  type ShowMarker,
   sceneName,
   seatName,
   shownByMe,
@@ -70,6 +72,71 @@ export function StatusLine(props: {
   );
 }
 
+/**
+ * "Your answer" (hook-free): the submission the viewer is asked to rebut, and its answers. With none of the three
+ * cards, the none goes out by itself through the game controller (ruling 7, amended), and its button stays for a
+ * send by hand. Every show is a button the player clicks, one per named card held, even when there is only one.
+ */
+export function AnswerPanel(props: {
+  state: RfdState;
+  me: number;
+  names: readonly string[];
+  shows: readonly ShowMarker[];
+  none: NoneAction | null;
+  enabled: boolean;
+  onSend: (a: RfdAction) => void;
+}) {
+  const sub = props.state.submissions.at(-1);
+  if (sub === undefined) return null;
+  const to = { name: seatName(props.names, sub.by) };
+  const note: Line =
+    props.shows.length === 0
+      ? ['You hold none of the three cards, so your app answers for you.']
+      : props.shows.length === 1
+        ? ['Show this card. Only ', to, ' will see it.']
+        : ['Show one of your cards. Only ', to, ' will see which.'];
+  return (
+    <section class="rfd-panel rfd-rebut" aria-labelledby="rfd-rebut-title">
+      <h3 id="rfd-rebut-title">Your answer</h3>
+      <p>
+        <LineText line={[to, ` submitted ${charge(sub)}`]} />
+      </p>
+      <p class="rfd-note">
+        <LineText line={note} />
+      </p>
+      <div class="rfd-answers">
+        {props.shows.map((marker) => {
+          const card = cardAt(props.state, props.me, marker.pos);
+          return (
+            <button
+              key={marker.pos}
+              type="button"
+              class="rfd-answer"
+              data-action={JSON.stringify(marker)}
+              disabled={!props.enabled}
+              aria-label={card === null ? 'Show this card' : `Show ${shownName(card)}`}
+              onClick={() => props.onSend(marker)}
+            >
+              <CardFace card={card} />
+            </button>
+          );
+        })}
+        {props.none !== null && (
+          <button
+            type="button"
+            class="btn rfd-btn rfd-primary"
+            data-action={JSON.stringify(props.none)}
+            disabled={!props.enabled}
+            onClick={() => props.none !== null && props.onSend(props.none)}
+          >
+            Say you have none
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function RoomForDoubtGame(props: GameViewProps) {
   const s = props.view.state as RfdState | null;
   const legal = props.legal as readonly RfdAction[];
@@ -78,7 +145,6 @@ export function RoomForDoubtGame(props: GameViewProps) {
   const [error, setError] = useState<string | null>(null);
   // The head a move was sent at: the controls stay locked until the move lands or fails.
   const [sentAt, setSentAt] = useState<string | null>(null);
-  const answeredAt = useRef<string | null>(null);
   useEffect(() => {
     if (!props.busy) setSentAt(null);
   }, [props.busy]);
@@ -95,14 +161,6 @@ export function RoomForDoubtGame(props: GameViewProps) {
     }
   };
 
-  // Ruling 7: a rebuttal with exactly one answer (none, or the one card this seat can show) is sent unasked.
-  const forced = forcedAnswer(legal);
-  useEffect(() => {
-    if (forced === null || !enabled || answeredAt.current === head) return;
-    answeredAt.current = head;
-    void send(forced);
-  });
-
   if (s === null) return <p>Setting up the game…</p>;
 
   const me = props.mySeat;
@@ -110,7 +168,6 @@ export function RoomForDoubtGame(props: GameViewProps) {
   const ended = props.ended || s.stage === 'over';
   const choices = choicesOf(legal);
   const pending = props.view.pending;
-  const sub = s.submissions.at(-1);
   const indictment = s.indictments.at(-1);
   const room = me === null ? null : roomOf(pawnOf(s, me));
   const hand = handOf(s, me);
@@ -161,38 +218,16 @@ export function RoomForDoubtGame(props: GameViewProps) {
 
       <div class="rfd-table">
         <div class="rfd-main">
-          {rebutting && sub !== undefined && me !== null && (
-            <section class="rfd-panel rfd-rebut" aria-labelledby="rfd-rebut-title">
-              <h3 id="rfd-rebut-title">Your answer</h3>
-              <p>
-                <LineText line={[{ name: seatName(props.names, sub.by) }, ` submitted ${charge(sub)}`]} />
-              </p>
-              <p class="rfd-note">
-                {choices.shows.length > 0
-                  ? `Show one of your cards. Only ${seatName(props.names, sub.by)} will see which.`
-                  : 'You hold none of the three cards.'}
-                {forced !== null ? ' Your only possible answer is being sent.' : ''}
-              </p>
-              <div class="rfd-answers">
-                {choices.shows.map((marker) => {
-                  const card = cardAt(s, me, marker.pos);
-                  return (
-                    <button
-                      key={marker.pos}
-                      type="button"
-                      class="rfd-answer"
-                      data-action={JSON.stringify(marker)}
-                      disabled={!enabled}
-                      aria-label={card === null ? 'Show this card' : `Show ${shownName(card)}`}
-                      onClick={() => void send(marker)}
-                    >
-                      <CardFace card={card} />
-                    </button>
-                  );
-                })}
-                {choices.none !== null && button(choices.none, 'Say you have none', true)}
-              </div>
-            </section>
+          {rebutting && me !== null && (
+            <AnswerPanel
+              state={s}
+              me={me}
+              names={props.names}
+              shows={choices.shows}
+              none={choices.none}
+              enabled={enabled}
+              onSend={(a) => void send(a)}
+            />
           )}
 
           {answer !== null && (

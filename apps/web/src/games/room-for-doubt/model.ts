@@ -8,7 +8,10 @@
 import {
   EXHIBITS,
   type ExhibitId,
+  handKnown,
+  holds,
   kindOf,
+  namedCards,
   PARTIES,
   type PartyId,
   type Place,
@@ -208,10 +211,20 @@ export function statusLine(s: RfdState, names: readonly string[], me: number | n
     case 'answered':
       return turn('end the turn or indict.');
     case 'rebut': {
-      const by = s.submissions.at(-1)?.by ?? s.turn;
+      const sub = s.submissions.at(-1);
+      const by = sub?.by ?? s.turn;
       const asked = s.asking ?? s.turn;
-      if (asked === me)
-        return ['Your answer to ', named(names, by), "'s submission: show a card or say you have none."];
+      if (asked === me) {
+        // The asked seat knows its own hand: one named card or more is a show to choose, by a click; none is the
+        // app's to send (ruling 7, amended). Until the hand is learned, the line names both answers.
+        const answer =
+          sub === undefined || !handKnown(s, me)
+            ? 'show a card or say you have none.'
+            : holds(s, me, namedCards(sub))
+              ? 'show a card.'
+              : 'you hold none of the three cards, so your app answers for you.';
+        return ['Your answer to ', named(names, by), `'s submission: ${answer}`];
+      }
       const whose: Part[] = by === me ? ['your'] : [named(names, by), "'s"];
       return ['Waiting for ', named(names, asked), ' to answer ', ...whose, ' submission.'];
     }
@@ -397,12 +410,15 @@ export function choicesOf(legal: readonly RfdAction[]): Choices {
   };
 }
 
-/** A rebuttal with exactly one answer, none or the one card the seat can show: ruling 7 sends it unasked. */
-export function forcedAnswer(legal: readonly RfdAction[]): ShowMarker | NoneAction | null {
+/**
+ * The rebuttal the app sends without a click (ruling 7, amended in the final review): a lone `none`, which is public
+ * and hides nothing whenever it is sent. A show always waits for its player, even of the only card the seat can
+ * show: sent at once, it would tell every seat that the shower holds exactly one of the three cards. The game
+ * controller sends it (the registry's `autoMove`), and tries again on its next tick if the send fails.
+ */
+export function automaticAnswer(legal: readonly RfdAction[]): NoneAction | null {
   const only = legal.length === 1 ? legal[0] : undefined;
-  if (only === undefined) return null;
-  if (only.type === 'none') return only;
-  return isMarker(only) ? only : null;
+  return only?.type === 'none' ? only : null;
 }
 
 /* -------------------------------------------------------------------------------------------- the table */

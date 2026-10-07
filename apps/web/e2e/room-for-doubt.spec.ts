@@ -19,12 +19,14 @@ import { type Browser, expect, type Locator, type Page, test } from '@playwright
  * Room for Doubt end to end (D078): three players and a spectator, each in a browser context of its own, over
  * the dev relay. The case deck is shuffled in the browsers in two rounds (D076) and dealt; the table requires a
  * submission on entering a room. Every roll gathers a share from each open app (D058); a shown card goes to the
- * submitter alone (D077), and a rebuttal with one possible answer goes out by itself (ruling 7). The test driver
- * reads every player's screen: until it has seen a player choose which card to show and an answer sent with no
- * click, a submission names cards from the other hands to bring that about. Seat 0 then indicts naming a card it
- * holds, so the Verdict dismisses it; seat 1 indicts the three cards no hand holds, which it can read only through
- * seat 0's sealed shares, and wins. Privacy after the first show (for a late spectator too), a reload, 390 px at
- * four points, the deck audit and the signed result are checked. Run it with `pnpm e2e room-for-doubt.spec.ts`.
+ * submitter alone (D077). A lone none goes out by itself, while every show, even of a seat's only named card, waits
+ * for its player's click (ruling 7, amended). The test driver reads every player's screen: until it has seen a
+ * player choose among two or more cards, a player show its only named card (nothing is sent before the click) and a
+ * none sent with no click, a submission names cards from the other hands to bring that about. Seat 0 then indicts
+ * naming a card it holds, so the Verdict dismisses it; seat 1 indicts the three cards no hand holds, which it can
+ * read only through seat 0's sealed shares, and wins. Privacy after the first show (for a late spectator too), a
+ * reload, 390 px at four points, the deck audit and the signed result are checked. Run it with
+ * `pnpm e2e room-for-doubt.spec.ts`.
  */
 
 const root = (p: Page) => p.getByTestId('rfd-game');
@@ -80,9 +82,8 @@ async function choices(page: Page): Promise<RfdAction[]> {
 
 const isRoom = (place: string): place is SceneId => (SCENES as readonly string[]).includes(place);
 const isMarker = (a: RfdAction): boolean => a.type === 'show' && 'pos' in a;
-/** A rebuttal with one possible answer, which the app sends without a click (ruling 7). */
-const forced = (all: readonly RfdAction[]): boolean =>
-  all.length === 1 && all[0] !== undefined && (all[0].type === 'none' || isMarker(all[0]));
+/** A lone none, which the app sends without a click (ruling 7, amended); a lone show waits for its player. */
+const automatic = (all: readonly RfdAction[]): boolean => all.length === 1 && all[0]?.type === 'none';
 
 /** Steps from each corridor square to the nearest doorstep: the walk heads for a room when none is in reach. */
 const TO_DOOR: ReadonlyMap<number, number> = (() => {
@@ -141,19 +142,33 @@ function pick(all: readonly RfdAction[]): RfdAction | null {
   );
 }
 
+/** A rebuttal the test wants to see: a choice among named cards, a seat's only named card, or a none. */
+type Want = 'choice' | 'single' | 'none';
+
+/**
+ * How well a submission brings `want` about, 0 when it does not: `passed` seats said none before the seat that shows
+ * `shown` named cards (0 when nobody holds one). A none before the show is a bonus.
+ */
+function scoreFor(want: Want, passed: number, shown: number): number {
+  if (want === 'none') return passed > 0 ? 1 : 0;
+  const fits = want === 'choice' ? shown >= 2 : shown === 1;
+  return fits ? 1 + passed : 0;
+}
+
 /**
  * The Party and Exhibit a submission by `seat`, standing in `scene`, names to bring about a rebuttal the test has
  * not seen yet, reading every hand (`held`, by seat; three seats, asked in turn from the submitter's left):
  * - `choice`: the answering seat holds two or more named cards, so its player picks one to show (a click), best
  *   after a seat with none of them has passed;
- * - `forced`: an answer the app sends alone (ruling 7): a seat with none passes, or the answering seat holds one.
+ * - `single`: the answering seat holds exactly one named card, which still waits for its player's click;
+ * - `none`: a seat with none of them passes, which its app sends alone (ruling 7, amended).
  * Null when no Party and Exhibit bring it about: the form's defaults are kept.
  */
 function steer(
   held: readonly ReadonlySet<string>[],
   seat: number,
   scene: string,
-  want: 'choice' | 'forced',
+  want: Want,
 ): { party: PartyId; exhibit: ExhibitId } | null {
   let best: { party: PartyId; exhibit: ExhibitId } | null = null;
   let bestScore = 0;
@@ -167,7 +182,7 @@ function steer(
         if (shown > 0) break;
         passed++;
       }
-      const score = want === 'choice' ? (shown >= 2 ? 1 + passed : 0) : passed > 0 || shown === 1 ? 1 : 0;
+      const score = scoreFor(want, passed, shown);
       if (score > bestScore) {
         best = { party, exhibit };
         bestScore = score;
@@ -291,18 +306,20 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   let reloaded: Page | null = null;
   let lateSpectator = false;
   let required = 0;
-  /** Show markers clicked: a player chose which of two or more cards to show. */
-  let clicked = 0;
-  /** Whether an answer has gone out with no click (ruling 7): a "none" (always forced), or a show not clicked. */
-  const autoAnswered = async (): Promise<boolean> => {
-    const lines = await record(spectator).allTextContents();
-    const shown = lines.filter((line) => line.includes(' showed a card.')).length;
-    return lines.some((line) => line.includes(' had none.')) || shown > clicked;
-  };
+  /** Shows clicked where the player chose which of two or more named cards to show. */
+  let chose = 0;
+  /** Shows clicked where the player held one named card only: each waited for the click first. */
+  let singles = 0;
+  /** Whether a none has gone out with no click (ruling 7, amended): the driver never clicks a lone none. */
+  const autoAnswered = async (): Promise<boolean> =>
+    (await record(spectator).allTextContents()).some((line) => line.includes(' had none.'));
+  /** The rebuttal not seen yet, in this order: a choice of cards, a seat's only named card, a none. */
+  const wanted = async (): Promise<Want | null> =>
+    chose === 0 ? 'choice' : singles === 0 ? 'single' : (await autoAnswered()) ? null : 'none';
   let finished = false;
   for (let step = 0; step < 400; step++) {
-    // Wait for a seat with a decision to click, or the end: dice shares, forced rebuttals and Verdict shares go out
-    // by themselves meanwhile, and only move `data-seq` on.
+    // Wait for a seat with a decision to click, or the end: dice shares, a lone none and Verdict shares go out by
+    // themselves meanwhile, and only move `data-seq` on.
     const next: { page: Page | null; options: RfdAction[] } = { page: null, options: [] };
     try {
       await expect
@@ -314,7 +331,7 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
               if ((await r.getAttribute('data-pending-seat')) !== (await r.getAttribute('data-my-seat')))
                 continue;
               const options = await choices(p);
-              if (options.length === 0 || forced(options)) continue;
+              if (options.length === 0 || automatic(options)) continue;
               next.page = p;
               next.options = options;
               return true;
@@ -444,8 +461,7 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
       indicted[0] === null &&
       (starts[0] ?? 0) >= 3 &&
       lateSpectator &&
-      clicked > 0 &&
-      (await autoAnswered())
+      (await wanted()) === null
     ) {
       // A card the indicter holds is never in the Verdict, so this indictment is surely dismissed.
       indicted[0] = await indict(page, async (form) => {
@@ -506,10 +522,10 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
       expect(action.upheld).toBe(seat === 1);
       await expect(root(page).locator('.rfd-verdict .rfd-card-name')).toHaveCount(3);
     }
-    if (action.type === 'submit' && (clicked === 0 || !(await autoAnswered()))) {
-      // Until both kinds of rebuttal have been seen, the submission names cards from the other hands to bring the
+    const want = action.type === 'submit' ? await wanted() : null;
+    if (action.type === 'submit' && want !== null) {
+      // Until every kind of rebuttal has been seen, the submission names cards from the other hands to bring the
       // missing one about; then the form's defaults.
-      const want = clicked === 0 ? 'choice' : 'forced';
       const title = (await root(page).locator('#rfd-submit-title').textContent()) ?? '';
       const held = await Promise.all(players.map(async (p) => new Set(await handNames(p))));
       const steered = steer(held, seat, title.replace(/^Submit in the /, ''), want);
@@ -524,9 +540,23 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
         console.log(`[rfd] the submission names other players' cards, for a ${want} rebuttal`);
       }
     }
+    // A seat's only named card waits for its player (ruling 7, amended): one enabled show button, and nothing is
+    // sent, on any page, until it is clicked.
+    const lone = next.options.length === 1 && isMarker(action);
+    if (lone) {
+      const answers = root(page).locator('.rfd-answer');
+      await expect(answers).toHaveCount(1);
+      await expect(answers).toBeEnabled();
+      await page.waitForTimeout(3000);
+      for (const p of everyone) expect(await seqOf(p)).toBe(seq);
+      console.log(`[rfd] seat ${seat}'s only named card waited 3 s for the click`);
+    }
     await act(page, action);
     actions++;
-    if (isMarker(action)) clicked++;
+    if (isMarker(action)) {
+      if (lone) singles++;
+      else chose++;
+    }
     const what = action.type === 'move' && isRoom(action.to) ? 'room' : action.type;
     done.set(what, (done.get(what) ?? 0) + 1);
     console.log(`[rfd] #${actions} seat ${seat} ${stage}: ${JSON.stringify(action)}`);
@@ -548,7 +578,8 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   expect(lateSpectator).toBe(true);
   expect(required).toBeGreaterThan(0);
   expect(done.get('submit') ?? 0).toBeGreaterThan(0);
-  expect(clicked).toBeGreaterThan(0);
+  expect(chose).toBeGreaterThan(0);
+  expect(singles).toBeGreaterThan(0);
   expect(await autoAnswered()).toBe(true);
   expect(indicted[0]).not.toBeNull();
   expect(indicted[1]).not.toBeNull();

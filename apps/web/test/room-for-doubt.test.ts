@@ -49,6 +49,7 @@ import { webGame } from '../src/games/registry.ts';
 import { Board } from '../src/games/room-for-doubt/board.tsx';
 import { CardFace } from '../src/games/room-for-doubt/cards.tsx';
 import {
+  AnswerPanel,
   ROOM_FOR_DOUBT_SETUP_COPY,
   RoomForDoubtGame,
   StatusLine,
@@ -56,8 +57,9 @@ import {
 import { glyphUri } from '../src/games/room-for-doubt/glyph-image.ts';
 import {
   answerTo,
+  automaticAnswer,
+  choicesOf,
   docketRows,
-  forcedAnswer,
   nextMark,
   ON_ACCENT,
   PALETTE,
@@ -102,6 +104,8 @@ const HANDS = [
 ];
 const start = (): RfdState => started(3, orderWith(VERDICT, HANDS));
 const view = (s: RfdState, seat: number | null): RfdState => roomForDoubt.view(s, seat);
+/** Bob's legal actions, from his own view, as the screen gets them. */
+const legal1 = (s: RfdState): RfdAction[] => roomForDoubt.legalActions(view(s, 1), 1) as RfdAction[];
 
 /** Ann, in the Courtroom, submits Lucian Faulk with the Gavel; Bob, holding all three, shows the Gavel. */
 function gavelShown(): { asked: RfdState; shown: RfdState } {
@@ -130,9 +134,22 @@ describe('statusText (Review Focus 3 and 5)', () => {
     const { asked } = gavelShown();
     expect(statusText(view(asked, 2), NAMES, 2)).toBe("Waiting for Bob to answer Ann's submission.");
     expect(statusText(view(asked, 0), NAMES, 0)).toBe('Waiting for Bob to answer your submission.');
-    expect(statusText(view(asked, 1), NAMES, 1)).toBe(
-      "Your answer to Ann's submission: show a card or say you have none.",
+    // Bob holds all three named cards: he chooses one to show.
+    expect(statusText(view(asked, 1), NAMES, 1)).toBe("Your answer to Ann's submission: show a card.");
+  });
+
+  it('asks a seat with one named card to show it, and tells a seat with none that its app answers', () => {
+    // Ann names her own Party and Exhibit in the Courtroom: Bob holds the Courtroom alone, so he must click it.
+    const one = submit(enter(start(), 'courtroom'), 'ashdown', 'scales');
+    expect(only(one, 'show', 1)).toHaveLength(1);
+    expect(statusText(view(one, 1), NAMES, 1)).toBe("Your answer to Ann's submission: show a card.");
+    // In the Jury Room she names three cards of her own: Bob holds none of them, and his app answers for him.
+    const none = submit(enter(start(), 'jury'), 'ashdown', 'scales');
+    expect(only(none, 'none', 1)).toHaveLength(1);
+    expect(statusText(view(none, 1), NAMES, 1)).toBe(
+      "Your answer to Ann's submission: you hold none of the three cards, so your app answers for you.",
     );
+    expect(statusText(view(none, 2), NAMES, 2)).toBe("Waiting for Bob to answer Ann's submission.");
   });
 
   it('opens the Verdict for the indicter, then asks for the announcement; the others wait on the indicter', () => {
@@ -336,14 +353,68 @@ describe('cards and the board', () => {
 });
 
 describe('the screen', () => {
-  it('sends a forced rebuttal by itself: exactly one answer, none or one card', () => {
+  it('answers by itself only with a lone none: every show waits for its player (ruling 7, amended)', () => {
     const none: RfdAction = { type: 'none', actor: 2 };
     const show = { type: 'show', actor: 1, pos: 7 } as RfdAction;
-    expect(forcedAnswer([none])).toEqual(none);
-    expect(forcedAnswer([show])).toEqual(show);
-    expect(forcedAnswer([show, { type: 'show', actor: 1, pos: 9 } as RfdAction])).toBeNull();
-    expect(forcedAnswer([{ type: 'endTurn', actor: 0 }])).toBeNull();
-    expect(forcedAnswer([])).toBeNull();
+    expect(automaticAnswer([none])).toEqual(none);
+    // A show, even of the only card the seat can show, waits for a click: sent at once, it would tell every seat
+    // that the shower holds exactly one of the three cards.
+    expect(automaticAnswer([show])).toBeNull();
+    expect(automaticAnswer([show, { type: 'show', actor: 1, pos: 9 } as RfdAction])).toBeNull();
+    expect(automaticAnswer([{ type: 'endTurn', actor: 0 }])).toBeNull();
+    expect(automaticAnswer([])).toBeNull();
+  });
+
+  it('the answer panel: a lone none says the app answers; a show, even of one card, waits for a click', () => {
+    const panel = (s: RfdState, legalList: readonly RfdAction[], enabled = true) => {
+      const choices = choicesOf(legalList);
+      return renderTree(
+        h(AnswerPanel, {
+          state: view(s, 1),
+          me: 1,
+          names: NAMES,
+          shows: choices.shows,
+          none: choices.none,
+          enabled,
+          onSend: () => {},
+        }),
+      );
+    };
+    const buttons = (tree: ReturnType<typeof renderTree>) =>
+      findAll(tree, (e) => e.tag === 'button').map((b) => ({
+        label: (b.attrs['aria-label'] as string | undefined) ?? spokenText([b]),
+        action: JSON.parse(String(b.attrs['data-action'])) as RfdAction,
+        disabled: b.attrs.disabled,
+      }));
+    // Bob holds none of the three: the app answers for him, and the button stays for a send by hand.
+    const none = submit(enter(start(), 'jury'), 'ashdown', 'scales');
+    const noneTree = panel(none, legal1(none));
+    expect(spokenText(noneTree)).toContain('You hold none of the three cards, so your app answers for you.');
+    expect(spokenText(noneTree)).not.toMatch(/being sent|is sent/);
+    expect(buttons(noneTree)).toEqual([
+      { label: 'Say you have none', action: { type: 'none', actor: 1 }, disabled: false },
+    ]);
+    // Bob holds the Courtroom alone: one show button, which he clicks.
+    const one = submit(enter(start(), 'courtroom'), 'ashdown', 'scales');
+    const oneTree = panel(one, legal1(one));
+    expect(spokenText(oneTree)).toContain('Show this card. Only Ann will see it.');
+    expect(buttons(oneTree)).toEqual([
+      {
+        label: 'Show the Courtroom',
+        action: { type: 'show', actor: 1, pos: posOf(one, 'courtroom') },
+        disabled: false,
+      },
+    ]);
+    // Bob holds all three named cards: a button for each, his choice.
+    const { asked } = gavelShown();
+    const allTree = panel(asked, legal1(asked));
+    expect(spokenText(allTree)).toContain('Show one of your cards. Only Ann will see which.');
+    expect(new Set(buttons(allTree).map((b) => b.label))).toEqual(
+      new Set(['Show the Gavel', 'Show the Lucian Faulk card', 'Show the Courtroom']),
+    );
+    expect(buttons(allTree)).toHaveLength(3);
+    // While the seat may not act (a send in flight), every answer is disabled.
+    expect(buttons(panel(one, legal1(one), false)).map((b) => b.disabled)).toEqual([true]);
   });
 
   it('exports the component and the setup copy for the registry', () => {
@@ -490,7 +561,7 @@ describe('the rules page', () => {
       'Dice shares.',
       'Verdict shares.',
       'Sealed shares.',
-      'Forced rebuttals.',
+      'Rebuttals.',
       'A shown card.',
       'The Docket.',
       'Enlarge board.',
@@ -500,6 +571,9 @@ describe('the rules page', () => {
     ]);
     const words = spokenText(online);
     expect(words).toContain('Only the submitter sees which card');
+    // A none goes out by itself; a show, even of the only card, waits for its player (ruling 7, amended).
+    expect(words).toContain('your app says so for you, without a click');
+    expect(words).toContain('even when only one is possible');
     expect(words).toContain('Resign is not offered');
     expect(words).toContain('Enlarge board');
     expect(words).toContain('Docket');
@@ -520,6 +594,16 @@ describe('the registration', () => {
     expect(game?.Component).toBe(RoomForDoubtGame);
     expect(game?.RulesPage).toBe(RoomForDoubtRulesPage);
     expect(game?.setupCopy(true)).toEqual(ROOM_FOR_DOUBT_SETUP_COPY);
+  });
+
+  it('asks the controller to send a lone none by itself, and never a show (ruling 7, amended)', () => {
+    const auto = webGame('room-for-doubt')?.autoMove;
+    const none: RfdAction = { type: 'none', actor: 1 };
+    const show = { type: 'show', actor: 1, pos: 7 } as RfdAction;
+    expect(auto?.([none], start(), 1)).toEqual(none);
+    expect(auto?.([show], start(), 1)).toBeNull();
+    expect(auto?.([show, { type: 'show', actor: 1, pos: 9 } as RfdAction], start(), 1)).toBeNull();
+    expect(auto?.([{ type: 'roll', actor: 1 }], start(), 1)).toBeNull();
   });
 
   it('routes its game page and its rules page, whole and by section', () => {

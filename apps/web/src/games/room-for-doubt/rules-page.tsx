@@ -389,9 +389,10 @@ export function RoomForDoubtRulesContent() {
             then seals its share of {THEME.verdict} for the new indicter in the same way.
           </li>
           <li>
-            <strong>Forced rebuttals.</strong> When you have only one possible answer to a submission, because
-            you hold none of the three named cards or exactly one of them, your app sends it for you, without
-            a click. With two or three of them you choose which to show.
+            <strong>Rebuttals.</strong> When you hold none of the three named cards, your app says so for you,
+            without a click: a "none" is public anyway. When you hold one or more of them, you choose the card
+            to show and click it, even when only one is possible, so the time you take says nothing about your
+            hand.
           </li>
           <li>
             <strong>A shown card.</strong> Only the submitter sees which card it was. Everyone else sees that
