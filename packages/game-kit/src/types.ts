@@ -32,7 +32,7 @@ export interface DeckSpec {
   /** Optional contiguous groups shuffled independently; their sizes sum to `size`. */
   readonly partitions?: readonly { readonly id: string; readonly size: number }[];
   /**
-   * Optional second shuffle round (D074, PROTOCOL §5.5): groups of positions that every seat shuffles together,
+   * Optional second shuffle round (D076, PROTOCOL §5.5): groups of positions that every seat shuffles together,
    * after every seat has shuffled every first-round group (the `partitions`, or the whole deck). The groups may
    * mix cards of different partitions. A position outside every group keeps a card of its own partition, so its
    * kind stays public while the kinds of the mixed positions do not.
@@ -50,7 +50,7 @@ export interface DeckSpec {
 
 /**
  * A card identity at a deck position, known privately by one viewer. `deck` may also be `SHOW_DECK`: a private
- * show's card (D075, PROTOCOL §14), whose `pos` is then the show's id, not a deck position.
+ * show's card (D077, PROTOCOL §14), whose `pos` is then the show's id, not a deck position.
  */
 export interface Learn {
   readonly deck: string;
@@ -59,7 +59,7 @@ export interface Learn {
 }
 
 /**
- * The pseudo-deck of a private show's learn (D075, PROTOCOL §14): `{deck: SHOW_DECK, pos: <show id>, card}`. It is
+ * The pseudo-deck of a private show's learn (D077, PROTOCOL §14): `{deck: SHOW_DECK, pos: <show id>, card}`. It is
  * never a real deck's id.
  */
 export const SHOW_DECK = 'shown';
@@ -152,7 +152,7 @@ export interface PrivateSelection {
 }
 
 /**
- * A private show (D075, PROTOCOL §14): seat `from` is deciding whether to show seat `to` one card it holds, and
+ * A private show (D077, PROTOCOL §14): seat `from` is deciding whether to show seat `to` one card it holds, and
  * nobody else may learn the card or its deck position. `id` names the show; a module never reuses it.
  */
 export interface PrivateShow {
@@ -172,7 +172,7 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   /** Optional private transfer, fixed by a completed public random selection. */
   privateSelection?(state: S): PrivateSelection | null;
   /**
-   * Optional private show (D075, PROTOCOL §14): non-null while seat `from` is deciding whether to show seat `to` a
+   * Optional private show (D077, PROTOCOL §14): non-null while seat `from` is deciding whether to show seat `to` a
    * card. Meanwhile:
    * - `legalActions(state, from)` holds a marker `{type: 'show', actor: from, pos}` for each deck position `from`
    *   holds and may show (and any other answers the rules allow). The type `show` is reserved for this: a legal
@@ -199,7 +199,7 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
    * Legal finite choices for `seat`; parameterized forms may add choices through validateIntent.
    * Exact whenever the seat's hidden cards are known to `state` (always in full mode), except private
    * delivery markers that the session materializes before apply: a private selection's `transfer`, and the
-   * `show` markers `{type: 'show', actor, pos}` it may list while `privateShow` is set (D075). It must return []
+   * `show` markers `{type: 'show', actor, pos}` it may list while `privateShow` is set (D077). It must return []
    * whenever the legality of any action it would list depends on hidden cards the seat has
    * not learned, so a non-empty list is always exact: a live client offers a
    * decision as soon as the list is non-empty (D030).
@@ -209,12 +209,12 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   apply(state: S, action: unknown): ApplyResult<S, E>;
   /**
    * Records a privately learned card (view mode). A private selection's card and a private show's
-   * (`SHOW_DECK`, D075) are also learned in full mode, as the audit learns them.
+   * (`SHOW_DECK`, D077) are also learned in full mode, as the audit learns them.
    */
   learn(state: S, learn: Learn): ApplyResult<S, E>;
   /**
    * Everything `seat` privately knows in a full state, as learn records. Never a `SHOW_DECK` learn: the session
-   * delivers a shown card itself, after the show's `apply` (D075).
+   * delivers a shown card itself, after the show's `apply` (D077).
    */
   knownTo(state: S, seat: Seat): readonly Learn[];
   /** Redacts a full state to what `viewer` may know (null = spectator). */

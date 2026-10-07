@@ -30,7 +30,7 @@ import {
  *    positions dealt to their seat or to the public, `revealsOf` claims match
  *    the deck and the actor's positions, and `standings` is the same in every
  *    view and equals the final scores;
- *  - a private show (D075) stands in for the session: a chosen marker must name
+ *  - a private show (D077) stands in for the session: a chosen marker must name
  *    a position the shower holds, and becomes the wire; the shown card is
  *    learned into the full state and into the shower's and the submitter's
  *    views only, so a view that keeps it for anyone else fails;
@@ -107,7 +107,7 @@ function who(to: Seat | null | undefined): string {
   return to === null ? 'public' : `seat ${to}`;
 }
 
-/** A private show's marker (D075): a legal action of type `show` with a `pos` key, never applied as it is. */
+/** A private show's marker (D077): a legal action of type `show` with a `pos` key, never applied as it is. */
 function isShowMarker(a: unknown): a is { readonly type: 'show'; readonly pos: unknown } {
   return typeof a === 'object' && a !== null && (a as { type?: unknown }).type === 'show' && 'pos' in a;
 }
@@ -287,7 +287,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       step++;
 
       let action: unknown;
-      /** The private show this step makes (D075): its plan, and the learn its shower and submitter get. */
+      /** The private show this step makes (D077): its plan, and the learn its shower and submitter get. */
       let shown: { readonly plan: PrivateShow; readonly learn: Learn } | null = null;
       const selection = module.privateSelection?.(full);
       if (selection) {

@@ -2,7 +2,7 @@ import { type Rng, range, shuffle } from './prng.ts';
 import type { DeckSpec } from './types.ts';
 
 /*
- * The deck orders that a packet's shuffle rounds can produce (PROTOCOL §5.5, D074). Round 1 shuffles every
+ * The deck orders that a packet's shuffle rounds can produce (PROTOCOL §5.5, D076). Round 1 shuffles every
  * first-round group within itself: each partition, or the whole deck when it has none. Round 2 then shuffles each
  * `secondRound` group's positions together. Both functions take a valid deck (the session checks it).
  */

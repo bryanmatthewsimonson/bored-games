@@ -84,7 +84,7 @@ describe('ids', () => {
     }
   });
 
-  it('lays the deck out in four groups of 6, 6, 9 and 9 (D076)', () => {
+  it('lays the deck out in four groups of 6, 6, 9 and 9 (D078)', () => {
     expect(DECK_ID).toBe('case');
     expect(DECK_SIZE).toBe(30);
     expect(VERDICT_POSITIONS).toEqual([0, 6, 12]);

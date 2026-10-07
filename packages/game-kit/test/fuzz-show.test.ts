@@ -3,7 +3,7 @@ import { fuzzBatch, fuzzGame, replay, SHOW_DECK } from '../src/index.ts';
 import { createShowToy, type ShowToyState, showToy } from './show-toy.ts';
 
 /*
- * Private shows in the fuzzer (D075, PROTOCOL §14). The fuzzer stands in for the session: it turns the chosen
+ * Private shows in the fuzzer (D077, PROTOCOL §14). The fuzzer stands in for the session: it turns the chosen
  * marker into the wire form, learns the shown card into the full state and into the views of the shower and the
  * submitter only, and checks every view against the module's redaction, so a module that lets a third seat see a
  * shown card fails.
@@ -11,7 +11,7 @@ import { createShowToy, type ShowToyState, showToy } from './show-toy.ts';
 
 const rules = showToy.defaultRules();
 
-describe('private shows in the fuzzer (D075)', () => {
+describe('private shows in the fuzzer (D077)', () => {
   it('models a private show: only the two seats learn the card', () => {
     const report = fuzzBatch(showToy, {
       seed: 'show',

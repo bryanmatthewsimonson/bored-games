@@ -23,7 +23,7 @@ export const ROOM_FOR_DOUBT_VERSION = '0.1.0';
 
 export { CASE_DECK };
 
-/** Room for Doubt (D076): one case deck (D074), dice from the beacon (D058) and private shows (D075). */
+/** Room for Doubt (D078): one case deck (D076), dice from the beacon (D058) and private shows (D077). */
 export const roomForDoubt: GameModule<RfdState, RfdEvent, RfdRules> = {
   id: ROOM_FOR_DOUBT_ID,
   version: ROOM_FOR_DOUBT_VERSION,

@@ -1,5 +1,5 @@
 /*
- * Room for Doubt's shared data (spec sections 4.1, 4.3 and 6, D072): ids, display names, the palette and the seat
+ * Room for Doubt's shared data (spec sections 4.1, 4.3 and 6, D074): ids, display names, the palette and the seat
  * spread. Display names live here and in the docs only; the board checker, the glyphs and every renderer take them
  * from here, so a name is spelled once.
  */

@@ -13,7 +13,7 @@ import {
 } from '../src/index.ts';
 
 /**
- * "Show and tell": a minimal private-show game (D075, PROTOCOL §14) for testing the kit and the session without a
+ * "Show and tell": a minimal private-show game (D077, PROTOCOL §14) for testing the kit and the session without a
  * real game. Six cards (0..5). Position p is dealt to seat floor(p / 2) at setup, so each of the 2 or 3 seats holds
  * two. On a turn, the turn seat t asks; then seat (t + 1) mod n shows t one card it holds, privately: only the two
  * of them learn which. The turn then passes on. After four shows the game is over, and each seat scores the shows

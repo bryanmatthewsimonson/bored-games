@@ -354,7 +354,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 
 ### 5.5 Partitioned decks (Luster; shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D074) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
+**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D076) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
 
 **The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
 - the list holds 1 to 16 groups;
@@ -374,7 +374,7 @@ Group g's **offset** is the sum of the sizes of the groups before it, so the gro
 
 The final deck is `E_N`. Shares, reveals, `dealt`, `revealsOf`, the deal round and the audit all use **global packet positions** and the **deck id** (`glass`), unchanged (§5.4, §6, §7): `ShareCtx` is `{rootId, deckId: "glass", pos}`.
 
-**Second round (D074).** A deck MAY also carry `secondRound`: a list of groups `{id, positions}` that every seat shuffles together once every seat has shuffled every first-round group above (the partitions, or the whole deck). Its groups may mix cards of different first-round groups. Clients MUST refuse the deck unless:
+**Second round (D076).** A deck MAY also carry `secondRound`: a list of groups `{id, positions}` that every seat shuffles together once every seat has shuffled every first-round group above (the partitions, or the whole deck). Its groups may mix cards of different first-round groups. Clients MUST refuse the deck unless:
 - the list holds 1 to 16 groups;
 - group ids are non-empty strings, distinct from each other and from every partition id;
 - every `positions` list holds at least 2 safe integers in `[0, size)`, strictly ascending;
@@ -398,7 +398,7 @@ So a card at a position outside every second-round group stays in its first-roun
 ## 6. Game flow
 
 ### 6.1 Phases
-**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats, and with a second round (§5.5, D074) the number of first-round groups plus second-round groups, times the number of seats. Game actions are moves N+1 onward.
+**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats, and with a second round (§5.5, D076) the number of first-round groups plus second-round groups, times the number of seats. Game actions are moves N+1 onward.
 
 1. **Table:** Table, Joins, then Game root.
 2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order. With a partitioned deck each seat takes one step per group, and with a second round every first-round step comes before any second-round step, each seat again taking one step per group of the round (§5.5 gives the seat and group of every step).
@@ -632,7 +632,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck, which may be split into contiguous groups shuffled apart (`partitions`) and then have chosen positions mixed in a second round (`secondRound`, D074); both are in §5.5.
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck, which may be split into contiguous groups shuffled apart (`partitions`) and then have chosen positions mixed in a second round (`secondRound`, D076); both are in §5.5.
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)
@@ -703,7 +703,7 @@ The victim signs an action `{type:'transfer',actor,id,root,anchor,after,packets}
 
 At the end, full replay retains signed request/parent ids. Every audit derives the same private permutation from the released victim key and full hand, opens **both** packets with the released recipient keys, checks their exact context and resource, and fails the victim if either differs. Payments, half-hand discards and named-resource requisitions are likewise checked against full hands in replay; dishonest claims fail the signer. These checks give end-game attribution, not a live inventory proof. Resignation is disabled. Prompt venture shares retain the v1 fork/rollback residuals authorized by D069.
 
-## 14. Private shows (D075)
+## 14. Private shows (D077)
 
 A rules module MAY offer a **private show**: one seat shows one card it holds to one other seat, and no other seat or spectator learns the card or even its deck position. Room for Doubt's rebuttal is the first use. A show adds no event kind, no Move field and no tag, and `proto` stays `"1"` (D071): its payload is the module's own action (§4.4). A module with private shows has a deck (§10).
 

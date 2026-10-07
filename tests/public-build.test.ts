@@ -3,7 +3,7 @@
  * `VITE_*` variable) and scan every file, source maps included, for every restricted name and every licensed pack
  * string (restricted-names.ts). A control build with the flag on must contain every one of those strings, which
  * proves the scan, the pack coverage and the flag; the public build must hold the allowed phrase of every hosted
- * game (D053, D060, D066, D076). Both build into temporary directories, so `apps/web/dist` and a concurrent run are
+ * game (D053, D060, D066, D078). Both build into temporary directories, so `apps/web/dist` and a concurrent run are
  * left alone. Part of `pnpm test`, so of `pnpm check` and CI; a build takes a few seconds.
  * `pnpm scan:dist` runs the same scan on an existing build (the Pages workflow runs it before uploading).
  */
@@ -64,7 +64,7 @@ describe('public build', () => {
     expect(existsSync(join(dist, 'index.html'))).toBe(true);
     expect(filesUnder(dist).some((f) => f.endsWith('.map'))).toBe(true);
     expect(scanDir(dist, strings)).toEqual([]);
-    // The allowed mentions (D053, D060, D066, D076) ship, each as one literal in the bundle, and the scan let them
+    // The allowed mentions (D053, D060, D066, D078) ship, each as one literal in the bundle, and the scan let them
     // through: every phrase of a game the app hosts (GAME_IDS). A game whose package exists before the app
     // registers it has nothing in the bundle yet; its phrase is checked here from the day it is registered.
     const js = filesUnder(join(dist, 'assets'))

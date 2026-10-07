@@ -21,7 +21,7 @@ export type CardId = PartyId | ExhibitId | SceneId;
 /** The Verdict of `orderWith` when a test names none: the last card of each kind. */
 export const VERDICT: readonly [PartyId, ExhibitId, SceneId] = ['quarrel', 'clockhand', 'gallery'];
 
-/** A case order the two shuffle rounds can produce (D074), drawn from `rng`. */
+/** A case order the two shuffle rounds can produce (D076), drawn from `rng`. */
 export const caseOrder = (rng: Rng): number[] => packetOrder(CASE_DECK, rng);
 
 /**

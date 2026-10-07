@@ -177,7 +177,7 @@ describe('opt-in partitioned encrypted shuffles', () => {
   });
 });
 
-describe('second shuffle round (D074)', () => {
+describe('second shuffle round (D076)', () => {
   /** Everything but each partition's first position: the positions the second round mixes. */
   const MIX = [1, 2, 3, 4, 5, 7, 8, 9, 10, 11];
   const secondRound = [{ id: 'mix', positions: MIX }];

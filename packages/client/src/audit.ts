@@ -18,7 +18,7 @@ export interface LoggedAction {
   action: unknown;
   /** The chain `seq` of the move that carried the action, or of the head a derived reveal followed. */
   seq: number;
-  /** The move's id and its `prev`, which a private selection's and a private show's audit check (D070, D075). */
+  /** The move's id and its `prev`, which a private selection's and a private show's audit check (D070, D077). */
   id?: string;
   prev?: string;
 }
@@ -30,7 +30,7 @@ export interface AuditInput {
   seats: number;
   /** The module's one deck, or null for a deckless game (D045). */
   deckId: string | null;
-  /** The final deck: the packet after the last shuffle step, the second round's when the deck has one (D074); empty for a deckless game. */
+  /** The final deck: the packet after the last shuffle step, the second round's when the deck has one (D076); empty for a deckless game. */
   deck: readonly Ciphertext[];
   /** Every seat's deck secret `x_k`, in seat order, each already checked against `X_k`; unused when deckless. */
   secrets: readonly bigint[];
@@ -60,7 +60,7 @@ const everyone = (seats: number, reason: string): Audit => ({
 /** Everything the audit reads but the declared outcome: what a partial audit (`auditPrefix`) gets. */
 export type PrefixInput = Omit<AuditInput, 'outcome'>;
 
-/** An action of type `show`: while a private show is pending, its wire (PROTOCOL §14, D075). */
+/** An action of type `show`: while a private show is pending, its wire (PROTOCOL §14, D077). */
 const isShowAction = (action: unknown): boolean =>
   action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'show';
 
@@ -123,7 +123,7 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
         if (!before.some((old) => old.id === roll.id) && entry.id) origins.set(roll.id, entry.id);
       state = r.state;
       if (show !== null && isShowAction(entry.action)) {
-        // A private show (PROTOCOL §14, D075): open its packet with the released secrets, and learn the card in
+        // A private show (PROTOCOL §14, D077): open its packet with the released secrets, and learn the card in
         // full mode, where the module checks that it may be shown and is held.
         try {
           if (!input.rootId || !entry.prev || input.deckId === null)
@@ -177,7 +177,7 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
  * - The first action the full-mode engine rejects fails its actor. A rejected derived reveal, a position that
  *   decrypts to no card, or a module that refuses the order fails every seat: no single seat is to blame.
  * - A private show whose packet does not open with the released secrets, or does not show the shower's own share of
- *   a position it holds, or whose card the full-mode module refuses, fails the shower (PROTOCOL §14, D075).
+ *   a position it holds, or whose card the full-mode module refuses, fails the shower (PROTOCOL §14, D077).
  * - If the replay's outcome differs from the declared one, every seat fails ("outcome mismatch").
  * - Otherwise the audit passes.
  */

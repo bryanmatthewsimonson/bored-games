@@ -165,7 +165,7 @@ function lockedReason(status: GameStatus): string {
 
 /**
  * The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). A
- * deck with a second shuffle round (D074) is worded by round: "Shuffling the deck (round 2 of 2): 1 of 3 players
+ * deck with a second shuffle round (D076) is worded by round: "Shuffling the deck (round 2 of 2): 1 of 3 players
  * done."
  */
 export function setupStep(view: SessionView | null, copy: SetupCopy | null): string {

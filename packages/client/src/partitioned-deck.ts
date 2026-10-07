@@ -49,7 +49,7 @@ export function deckPartitions(deck: DeckSpec | null): readonly DeckPartition[] 
 }
 
 /**
- * The second round's groups in list order (D074, PROTOCOL §5.5), each with the domain `<deck id>/<group id>`; none
+ * The second round's groups in list order (D076, PROTOCOL §5.5), each with the domain `<deck id>/<group id>`; none
  * when the deck has no second round. Throws `ClientError` unless the list holds 1 to 16 groups with non-empty ids,
  * distinct from each other and from every partition id, and each group's positions are at least 2 safe integers in
  * `[0, size)`, strictly ascending, shared with no other group.
@@ -86,7 +86,7 @@ function secondRoundGroups(deck: DeckSpec): readonly ShuffleGroup[] {
 }
 
 /**
- * Who signs each shuffle step and what it shuffles (PROTOCOL §5.5, D074). Round 1 is every seat shuffling each
+ * Who signs each shuffle step and what it shuffles (PROTOCOL §5.5, D076). Round 1 is every seat shuffling each
  * first-round group in list order (the partitions, or the whole deck as one group), seat after seat. Round 2 is the
  * same over the second-round groups. So with G1 first-round groups, G2 second-round groups and S seats there are
  * (G1 + G2) · S steps, and step `s` past the first G1 · S has t = s − G1 · S, seat `floor(t / G2)` and group

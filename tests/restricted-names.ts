@@ -10,7 +10,7 @@
  *   hyphenated and underscored forms), matched case-insensitively anywhere inside a word, so `cr-chain-x`,
  *   `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's `hydrate`) are
  *   allowed;
- * - the exact-case words (`RESTRICTED_EXACT_WORDS`, D072): Room for Doubt's reference title is an everyday English
+ * - the exact-case words (`RESTRICTED_EXACT_WORDS`, D074): Room for Doubt's reference title is an everyday English
  *   word, so only the whole word `Clue` or `CLUE` is restricted, and `clue`, `clues` and `ClueAction` pass (a
  *   Hanabi engine will use clues);
  * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
@@ -18,7 +18,7 @@
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053, D060, D066, D076): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
+ * One exception (D053, D060, D066, D078): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
  * as a store brand says it; one per game that has one) are cut out of the text before both matchers run, so
  * `findRestricted` and everything built on it (the repo guard, the public build scan and `pnpm scan:dist`) let them
  * through. Only the whole phrase, spelled exactly: the title alone, in another case or inside another word is still
@@ -84,7 +84,7 @@ export function nameForms(name: string): string[] {
   return [...new Set([name, words.join(' '), words.join(''), words.join('-'), words.join('_')])];
 }
 
-/** Room for Doubt's reference game (D072): its old title, publishers, designer, victim and the suspects' full names. */
+/** Room for Doubt's reference game (D074): its old title, publishers, designer, victim and the suspects' full names. */
 const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
   'Cluedo',
   'Hasbro',
@@ -111,7 +111,7 @@ export const RESTRICTED_NAMES: readonly string[] = [
 ];
 
 /**
- * Words restricted only as a whole word in exactly this case (D072, spec §8): Room for Doubt's reference title is
+ * Words restricted only as a whole word in exactly this case (D074, spec §8): Room for Doubt's reference title is
  * an everyday English word, so lowercase `clue`, `clues` and `ClueAction` are not restricted.
  */
 export const RESTRICTED_EXACT_WORDS: readonly string[] = ['Clue', 'CLUE'];
@@ -126,7 +126,7 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D076),
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078),
  * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
  * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS.
  */

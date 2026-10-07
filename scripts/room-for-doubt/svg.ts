@@ -1,5 +1,5 @@
 /*
- * Small SVG helpers for Room for Doubt's art (D072): elements, escaped text, the document wrapper and a well-formedness
+ * Small SVG helpers for Room for Doubt's art (D074): elements, escaped text, the document wrapper and a well-formedness
  * check. Pure string building, so every renderer is deterministic.
  */
 
@@ -35,7 +35,7 @@ export function svgDocument(
   body: string,
 ): string {
   const note = [
-    'Room for Doubt art (D072). Original work dedicated to the public domain: CC0-1.0, https://creativecommons.org/publicdomain/zero/1.0/',
+    'Room for Doubt art (D074). Original work dedicated to the public domain: CC0-1.0, https://creativecommons.org/publicdomain/zero/1.0/',
     opts.comment,
   ]
     .filter((c): c is string => c !== undefined)

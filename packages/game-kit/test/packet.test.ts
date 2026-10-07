@@ -8,7 +8,7 @@ const partitions = [
 ];
 /** Two partitions and no second round: the shuffle every partitioned game has today. */
 const partitioned: DeckSpec = { id: 'cards', size: 12, partitions };
-/** The same deck with a second round that mixes everything but each partition's first position (D074). */
+/** The same deck with a second round that mixes everything but each partition's first position (D076). */
 const deck: DeckSpec = { ...partitioned, secondRound: [{ id: 'mix', positions: MIX }] };
 /** Two second-round groups that each hold two positions of each partition. */
 const twoMixes: DeckSpec = {

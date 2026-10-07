@@ -1,5 +1,5 @@
 /*
- * The printable docket (spec section 6, D072): an A4 page listing the 21 cards, each with six tick boxes (the first
+ * The printable docket (spec section 6, D074): an A4 page listing the 21 cards, each with six tick boxes (the first
  * for the cards in your own hand, then one for each other player) and a notes area. Pure deduction paper: it says
  * nothing about the rules.
  */

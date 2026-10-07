@@ -324,12 +324,12 @@ function playerSentDice(action: unknown): boolean {
   return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'rolled';
 }
 
-/** An action of type `show`. While a private show is pending, it must be the show's wire (PROTOCOL §14, D075). */
+/** An action of type `show`. While a private show is pending, it must be the show's wire (PROTOCOL §14, D077). */
 function isShowAction(action: unknown): boolean {
   return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'show';
 }
 
-/** A private show's marker (D075): a legal action of type `show` with a `pos` key. It never goes on the wire. */
+/** A private show's marker (D077): a legal action of type `show` with a `pos` key. It never goes on the wire. */
 function isShowMarker(action: unknown): action is { readonly type: 'show'; readonly pos: unknown } {
   return isShowAction(action) && 'pos' in (action as object);
 }
@@ -343,7 +343,7 @@ export class GameSession {
   /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
   /**
-   * The shuffle schedule (PROTOCOL §5.5, D074): the seat that signs each step and the positions it shuffles, in chain
+   * The shuffle schedule (PROTOCOL §5.5, D076): the seat that signs each step and the positions it shuffles, in chain
    * order. Empty for a deckless game. A legacy deck is one group; a partitioned deck is one step per group per seat;
    * a second round adds one per second-round group per seat after every first-round step.
    */
@@ -420,7 +420,7 @@ export class GameSession {
   /** Game actions' share and reveal checks, by event id: null when every proof verifies, else the reason. */
   private readonly actionChecked = new Map<Hex, string | null>();
   /**
-   * The card each private show's packet showed this seat (D075), by `show:<event id>`, or null when it showed none:
+   * The card each private show's packet showed this seat (D077), by `show:<event id>`, or null when it showed none:
    * trial folds check a show again, and the packet is opened once.
    */
   private readonly showCards = new Map<string, number | null>();
@@ -1593,7 +1593,7 @@ export class GameSession {
         }
       }
     }
-    // A private show (PROTOCOL §14, D075): every client checks the wire's public shape before `apply`.
+    // A private show (PROTOCOL §14, D077): every client checks the wire's public shape before `apply`.
     const show = this.module.privateShow?.(state) ?? null;
     const showing = show !== null && isShowAction(c.action);
     if (showing && !showEnvelope(c.action, show, this.deckSize))
@@ -1626,7 +1626,7 @@ export class GameSession {
   }
 
   /**
-   * After a private show's `apply` (PROTOCOL §14, D075): the shower and the submitter learn the card, as
+   * After a private show's `apply` (PROTOCOL §14, D077): the shower and the submitter learn the card, as
    * `{deck: SHOW_DECK, pos: <show id>, card}`, and nobody else learns anything. A packet that shows this seat no card
    * skips the learn and never rejects the move, so every client keeps one chain; the audit fails the shower.
    */
@@ -1699,7 +1699,7 @@ export class GameSession {
     return to;
   }
 
-  /** Each seat's deck key in x-only hex, as NIP-44 conversation keys take it (D070, D075). */
+  /** Each seat's deck key in x-only hex, as NIP-44 conversation keys take it (D070, D077). */
   private xOnlyKeys(): string[] {
     return this.keys.map((key) => key.toHex(true).slice(2));
   }
@@ -3170,7 +3170,7 @@ export class GameSession {
   /**
    * My game-action move: `action` (one of `legalActions()`), every share I owe as of the head (R1) and my reveal
    * shares for the cards it shows (`revealsOf`), each sorted by position. A private show's marker goes out as the
-   * show's wire, which names neither the position nor the card (D075). Throws `ClientError` unless a decision
+   * show's wire, which names neither the position nor the card (D077). Throws `ClientError` unless a decision
    * is mine and the action is legal. Build it once per decision: a second move on the same prev is equivocation.
    */
   buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
@@ -3192,7 +3192,7 @@ export class GameSession {
 
   /**
    * The signed move for `action`, with the shares that action owes. The caller has already checked the duty. A
-   * private selection's move is its transfer, and a private show's marker becomes the show's wire (D075).
+   * private selection's move is its transfer, and a private show's marker becomes the show's wire (D077).
    */
   private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
     const plan = this.module.privateSelection?.(this.state);
@@ -3246,7 +3246,7 @@ export class GameSession {
   }
 
   /**
-   * A private show's wire (PROTOCOL §14, D075) for the marker's position `pos`: this seat's decryption share of it,
+   * A private show's wire (PROTOCOL §14, D077) for the marker's position `pos`: this seat's decryption share of it,
    * sealed with the move's context in a packet that only the shower and the submitter can open. Throws unless this
    * seat is the shower and the latest `dealt` entry of `pos` names it.
    */

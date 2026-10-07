@@ -95,8 +95,8 @@ describe('engine purity', () => {
   }
 });
 
-describe('promptShares (D050, D073)', () => {
-  // Any game may switch on the automatic share and seal duties in play: a standing exception to D050 (D073). Outside
+describe('promptShares (D050, D075)', () => {
+  // Any game may switch on the automatic share and seal duties in play: a standing exception to D050 (D075). Outside
   // the type that declares the flag and the session that reads it, only game modules may name it, so no shared code
   // can switch it on for every game (apps/web/test/prompt-shares.test.ts records which registered games set it).
   const CORE = ['packages/game-kit/src/types.ts', 'packages/client/src/session.ts'];
@@ -207,7 +207,7 @@ describe('branding', () => {
     expect(findRestricted('Right of Way: a ticket, a ride, days of play', [])).toEqual([]);
   });
 
-  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D072)", () => {
+  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D074)", () => {
     for (const text of [
       'Cluedo',
       'CLUEDO',
@@ -255,7 +255,7 @@ describe('branding', () => {
       expect(findRestricted(text, []), text).not.toEqual([]);
   });
 
-  it('restricts the bare title only as an exact-case whole word (D072)', () => {
+  it('restricts the bare title only as an exact-case whole word (D074)', () => {
     for (const [text, found] of [
       ['Clue', 'Clue'],
       ['CLUE', 'CLUE'],
@@ -280,13 +280,13 @@ describe('branding', () => {
       expect(findRestricted(text, []), text).toEqual([]);
   });
 
-  it('leaves ordinary colour words and other games alone (D072)', () => {
+  it('leaves ordinary colour words and other games alone (D074)', () => {
     expect(
       findRestricted('plum, green, white, black, peacock, mustard, scarlet; Plum cargo; Right of Way', []),
     ).toEqual([]);
   });
 
-  describe('the allowed phrases (D053, D060, D066, D076)', () => {
+  describe('the allowed phrases (D053, D060, D066, D078)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -367,7 +367,7 @@ describe('branding', () => {
           'Anthony Pratt',
           'Anthony E. Pratt',
         ],
-        // An everyday word, restricted only as the exact-case whole words `Clue` and `CLUE` (D072).
+        // An everyday word, restricted only as the exact-case whole words `Clue` and `CLUE` (D074).
         exactCase: true,
       },
     ];
@@ -421,7 +421,7 @@ describe('branding', () => {
         const upper = title.toUpperCase();
         const lower = title.toLowerCase();
         // A title on the fixed list is caught in any case and inside a word; an everyday word that is a title
-        // (`exactCase`) only as the exact-case whole word, so it stays an ordinary word in lower case (D072).
+        // (`exactCase`) only as the exact-case whole word, so it stays an ordinary word in lower case (D074).
         const caught = g.exactCase
           ? [
               title,

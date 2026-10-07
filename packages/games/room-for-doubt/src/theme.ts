@@ -1,6 +1,6 @@
 import type { BrandNames } from '@bored-games/game-kit';
 
-/** The trademark-safe brand pack (D046, D072): RULES.md "Brand pack (for the build)", word for word. */
+/** The trademark-safe brand pack (D046, D074): RULES.md "Brand pack (for the build)", word for word. */
 export const ROOM_FOR_DOUBT_BRAND: BrandNames = {
   id: 'safe',
   gameTitle: 'Room for Doubt',

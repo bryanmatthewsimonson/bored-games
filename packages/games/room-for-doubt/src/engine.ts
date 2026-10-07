@@ -1,5 +1,5 @@
 /*
- * The Room for Doubt rules engine (docs/games/room-for-doubt/RULES.md, D076). Pure: `apply` and `learn` never throw
+ * The Room for Doubt rules engine (docs/games/room-for-doubt/RULES.md, D078). Pure: `apply` and `learn` never throw
  * or mutate, and every move has one accepted encoding. Cards and positions are numbers of the case deck (ids.ts);
  * untrusted numbers are range-checked before `kindOf` or `squareName`, which throw outside their domain.
  *
@@ -7,7 +7,7 @@
  * by staying when its pawn has no free first step (P5), by submitting when another seat's submission moved it
  * (the moved Party), or by indicting. A roll is committed by the roller and every seat adds a beacon share in turn
  * (D058); the session derives the faces. A submission asks the other seats in turn; a seat that holds a named card
- * shows one through a private show (D075) that only it and the submitter can open, so no position or card goes on
+ * shows one through a private show (D077) that only it and the submitter can open, so no position or card goes on
  * the wire. An indictment deals the Verdict's three positions to the indicter, who announces what it reads: upheld
  * or dismissed. The full state checks every claim, which is what the end audit replays.
  */
@@ -58,8 +58,8 @@ export const DEFAULT_RULES: RfdRules = { submit: 'optional' };
 
 /**
  * The case deck: Parties, Exhibits, Scenes and room cards, each group shuffled within itself; then a second round
- * (D074) mixes the 18 hand positions, so a hand's mix of kinds is hidden while the Verdict (the first position of
- * each case group) keeps one card of each kind. `promptShares` (D073): every other seat's open app releases its
+ * (D076) mixes the 18 hand positions, so a hand's mix of kinds is hidden while the Verdict (the first position of
+ * each case group) keeps one card of each kind. `promptShares` (D075): every other seat's open app releases its
  * shares of a dealt card at once, and the first indicter seals its Verdict shares to a later indicter.
  */
 export const CASE_DECK: DeckSpec = {
@@ -265,7 +265,7 @@ export function pendingOf(s: RfdState): Pending {
   }
 }
 
-/** The private show while a seat decides how to rebut (D075): public data only, so every view agrees. */
+/** The private show while a seat decides how to rebut (D077): public data only, so every view agrees. */
 export function showOf(s: RfdState): PrivateShow | null {
   const sub = s.submissions.at(-1);
   if (s.stage !== 'rebut' || s.asking === null || sub === undefined) return null;
@@ -397,7 +397,7 @@ export function parseAction(raw: unknown): RfdAction | null {
           : null;
       }
       case 'show': {
-        // Only the wire: a marker ({type, actor, pos}) names a deck position and never reaches apply (D075).
+        // Only the wire: a marker ({type, actor, pos}) names a deck position and never reaches apply (D077).
         const { id, packet } = raw;
         return keys(raw, ['type', 'actor', 'id', 'packet']) &&
           int(id) &&
@@ -735,7 +735,7 @@ export function applyAction(s: RfdState, raw: unknown): ApplyResult<RfdState, Rf
 
 const accepted = (state: RfdState): ApplyResult<RfdState, RfdEvent> => ({ ok: true, state, events: [] });
 
-/** A shown card (D075): learned by the shower's and the submitter's views, and by the full state in the audit. */
+/** A shown card (D077): learned by the shower's and the submitter's views, and by the full state in the audit. */
 function learnShown(s: RfdState, pos: unknown, card: unknown): ApplyResult<RfdState, RfdEvent> {
   if (!int(pos) || !int(card)) return failure('Invalid shown card.');
   const sub = s.submissions[pos];

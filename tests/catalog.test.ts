@@ -5,7 +5,7 @@
  * must have a package and a catalog, except the games listed in SPEC_ONLY: a rules spec written before its engine
  * (Hanabi, D054). A spec-only game must have no `test/catalog/` directory yet: its package may exist, holding the
  * engine's foundations and their own tests, as Room for Doubt's board and movement landed before its 45 catalog
- * tests (D076). The entry fails once the directory appears and must then be removed, and the game's catalog is
+ * tests (D078). The entry fails once the directory appears and must then be removed, and the game's catalog is
  * checked for well-formed, unique ids only until then.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';

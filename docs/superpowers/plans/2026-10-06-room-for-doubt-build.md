@@ -12,7 +12,7 @@ A pure engine in `packages/games/room-for-doubt` implements RULES.md on one 30-c
 
 **Tech Stack:** TypeScript run directly by Node ≥ 22.18 (type stripping, `.ts` imports), Vitest, Biome, Preact + Signals, Playwright for e2e (Chromium is preinstalled under `/opt/pw-browsers`). No new dependencies.
 
-**Spec:** `docs/games/room-for-doubt/RULES.md` is the source of truth ("RULES §…" below). Read it with decisions D072 and D073 in `docs/DECISIONS.md`. The owner's standing instruction (D073) is: "The main concern is for the games to work exactly as they should." So no information gap may ship.
+**Spec:** `docs/games/room-for-doubt/RULES.md` is the source of truth ("RULES §…" below). Read it with decisions D074 and D075 in `docs/DECISIONS.md`. The owner's standing instruction (D075) is: "The main concern is for the games to work exactly as they should." So no information gap may ship.
 
 ## Global Constraints
 
@@ -37,7 +37,7 @@ A pure engine in `packages/games/room-for-doubt` implements RULES.md on one 30-c
 - **Ids:**
   - game id `room-for-doubt`, engine version `0.1.0`, deck id `case`;
   - engine ids as in RULES §Glossary;
-  - decisions D074 (second shuffle round), D075 (private show) and D076 (Room for Doubt built as a beta), all dated 2026-10-06.
+  - decisions D076 (second shuffle round), D077 (private show) and D078 (Room for Doubt built as a beta), all dated 2026-10-06.
 - **Existing games fold byte-identically.**
   - A deck without `secondRound` keeps today's shuffle schedule and proof domains.
   - A module without `privateShow` keeps today's fold, audit and fuzz paths.
@@ -62,11 +62,11 @@ A pure engine in `packages/games/room-for-doubt` implements RULES.md on one 30-c
 
 ## How this build refines RULES.md (rulings)
 
-Task 9 writes each of these into RULES.md "as built" and into D076.
+Task 9 writes each of these into RULES.md "as built" and into D078.
 
-1. **Both information gaps close.** RULES §"Where the platform cannot be exact yet" listed the public hand mix and the visible shown position as unavoidable on path A. The second shuffle round (D074) closes the first and the private show (D075) the second. The owner's priority (D073) rules out shipping either gap.
+1. **Both information gaps close.** RULES §"Where the platform cannot be exact yet" listed the public hand mix and the visible shown position as unavoidable on path A. The second shuffle round (D076) closes the first and the private show (D077) the second. The owner's priority (D075) rules out shipping either gap.
 2. **No `attend` move.**
-   - Under D073 the deck sets `promptShares`. When an indictment deals the Verdict positions to the indicter, every other seat's open app sends its shares automatically.
+   - Under D075 the deck sets `promptShares`. When an indictment deals the Verdict positions to the indicter, every other seat's open app sends its shares automatically.
    - A second indictment's sealed share also comes from the first indicter's app (the seal duty).
    - The indicter then announces `verdict`. RULES §"Resolving an indictment" is rewritten accordingly.
 3. **An upheld verdict reveals nothing on the wire.** The indictment already names the three cards publicly, `verdict {upheld: true}` claims they match, and the end audit checks the claim, as it checks a dismissal.
@@ -81,7 +81,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 
 ## Platform design (decided; Tasks 1 and 2 implement it)
 
-### Second shuffle round (D074)
+### Second shuffle round (D076)
 
 - **`DeckSpec.secondRound?`** is `readonly { readonly id: string; readonly positions: readonly number[] }[]`.
 - **Valid only if:**
@@ -103,7 +103,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 - **Parsing:** the parse size set adds each second-round group's size. Stall attribution names the seat of step `chain length` in this schedule.
 - **What stays the same:** `packages/deck`, `packages/protocol`, `sim.ts` and `game-controller.ts` need no change, and the wire format is unchanged.
 
-### Private show (D075)
+### Private show (D077)
 
 - **Contract** (`packages/game-kit`):
   - `SHOW_DECK = 'shown'`, a pseudo-deck id that is never a real deck;
@@ -145,7 +145,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 
 ---
 
-### Task 1: Second shuffle round (D074)
+### Task 1: Second shuffle round (D076)
 
 **Files:**
 - Modify: `packages/game-kit/src/types.ts` (`DeckSpec`, lines 28–36), `packages/game-kit/src/index.ts`
@@ -153,7 +153,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 - Modify: `packages/client/src/partitioned-deck.ts`, `packages/client/src/session.ts` (constructor 532–545, intake 686, `moveShape` 839–845, `foldMove` 1479–1496, `shuffleVerifies` 1687–1701, `partitionAt` 1704–1708, `nextShuffler` 1711–1713, `shuffleCtx` 1715–1719, `buildShuffle` 2948–2970, `view()`), `packages/client/src/types.ts` (`SessionView`, 70–80), `packages/client/src/audit.ts:32` (doc)
 - Test: `packages/client/test/partitioned-deck.test.ts`
 - Modify: `apps/web/src/screens/game.tsx` (`setupStep`, 166–178); Test: `apps/web/test/game-screen.test.ts` (175–194)
-- Modify: `docs/PROTOCOL.md` (§4.4 lines 196–200, §5.5, §6.1 lines 384–387, §6.5 line 461, §6.6 line 482, §10 line 618), `docs/DECISIONS.md` (D074), `docs/ARCHITECTURE.md:141`, `docs/GAME-SYSTEMS.md:55`
+- Modify: `docs/PROTOCOL.md` (§4.4 lines 196–200, §5.5, §6.1 lines 384–387, §6.5 line 461, §6.6 line 482, §10 line 618), `docs/DECISIONS.md` (D076), `docs/ARCHITECTURE.md:141`, `docs/GAME-SYSTEMS.md:55`
 
 **Interfaces:**
 - **Produces:**
@@ -178,7 +178,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
     - false for an order with a card ≥ 6 at position 0;
     - false for an order where position 6 holds a card < 6.
 
-  **`packages/client/test/partitioned-deck.test.ts`**, a new `describe('second shuffle round (D074)')`:
+  **`packages/client/test/partitioned-deck.test.ts`**, a new `describe('second shuffle round (D076)')`:
   - `it('schedules every first-round step before any second-round step')`: with the deck above and 2 seats:
     - `shuffleSchedule(deck, 2).map(s => s.seat)` is `[0, 0, 1, 1, 0, 1]`;
     - the group ids are `['cards/a','cards/b','cards/a','cards/b','cards/mix','cards/mix']`;
@@ -249,7 +249,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
   Run the three commands of Step 2, then `pnpm vitest run --project client --project luster --project right-of-way --project driftwrights > $SCRATCH/t1.log 2>&1; tail -5 $SCRATCH/t1.log`.
   Expected: PASS everywhere. Luster, Right of Way and Driftwrights must still pass unchanged, which proves byte-identical folding.
 
-- [ ] **Step 6: Write the protocol text and D074**
+- [ ] **Step 6: Write the protocol text and D076**
 
   **PROTOCOL.md:**
   - §5.5: add three paragraphs:
@@ -262,7 +262,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
   - §10: one deck, which may be split into partitions and a second round.
   - Fix the stale `shuffleSteps` lines in `ARCHITECTURE.md:141` and `GAME-SYSTEMS.md:55`.
 
-  **DECISIONS.md D074, "A second shuffle round mixes chosen positions after the partitions (opt-in)":**
+  **DECISIONS.md D076, "A second shuffle round mixes chosen positions after the partitions (opt-in)":**
   - **Context.** Room for Doubt's gap 1: partitions make each position's kind public, so a rebuttal would show which named card it was.
   - **Decision.** The field, the schedule, the domain, and no deck or protocol package change.
   - **What it costs.** S more sequential steps: a second pass round the table.
@@ -274,19 +274,19 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 ```bash
 pnpm check > $SCRATCH/check-t1.log 2>&1; tail -15 $SCRATCH/check-t1.log
 git add packages/game-kit packages/client apps/web/src/screens/game.tsx apps/web/test/game-screen.test.ts docs/PROTOCOL.md docs/DECISIONS.md docs/ARCHITECTURE.md docs/GAME-SYSTEMS.md
-git commit -m "Platform: a second shuffle round over chosen positions, after the partitions (D074)"
+git commit -m "Platform: a second shuffle round over chosen positions, after the partitions (D076)"
 ```
 
 ---
 
-### Task 2: Private show (D075)
+### Task 2: Private show (D077)
 
 **Files:**
 - Modify: `packages/game-kit/src/types.ts` (the `Learn` doc 38–43, the `knownTo` and `legalActions` docs, a new member after `privateSelection` at 140), `packages/game-kit/src/index.ts`, `packages/game-kit/src/fuzz.ts` (player branch 327–381)
 - Create: `packages/game-kit/test/show-toy.ts` (a test module) and `packages/game-kit/test/fuzz-show.test.ts`
 - Create: `packages/client/src/private-show.ts`; Test: `packages/client/test/private-show.test.ts`
 - Modify: `packages/client/src/session.ts` (`checkAction` ~1540–1600, `actionEvent` ~3077), `packages/client/src/audit.ts` (`replay` 82–124)
-- Modify: `docs/PROTOCOL.md` (new §14 "Private shows"; a §11 security note), `docs/DECISIONS.md` (D075)
+- Modify: `docs/PROTOCOL.md` (new §14 "Private shows"; a §11 security note), `docs/DECISIONS.md` (D077)
 
 **Interfaces:**
 - **Consumes:** nothing from Task 1.
@@ -367,7 +367,7 @@ git commit -m "Platform: a second shuffle round over chosen positions, after the
   Run the two commands of Step 2, then `pnpm vitest run --project client --project game-kit --project driftwrights > $SCRATCH/t2.log 2>&1; tail -5 $SCRATCH/t2.log`.
   Expected: PASS. Driftwrights' private transfer and the existing fuzz tests pass unchanged.
 
-- [ ] **Step 7: Write PROTOCOL §14 "Private shows (D075)" and D075**
+- [ ] **Step 7: Write PROTOCOL §14 "Private shows (D077)" and D077**
 
   **§14** specifies:
   - the hook, the marker, the wire (exact keys) and the plaintext (exact keys and padding);
@@ -378,7 +378,7 @@ git commit -m "Platform: a second shuffle round over chosen positions, after the
 
   **§11** gains one line: an equivocating shower exposes two cards to the submitter, and is flagged and ranked last (the D071 residual).
 
-  **D075, "A private show: the shower's share rides on its own move, encrypted to one seat":**
+  **D077, "A private show: the shower's share rides on its own move, encrypted to one seat":**
   - **Context.** Room for Doubt's gap 2: a public re-deal names the position, so repeated shows link and a third seat can deduce the card.
   - **Decision.** The design above, and why not a Sealed event (anyone can trial-verify a sealed share against the shower's few positions).
   - **What stays the same.** No new kind or field; `proto` 1.
@@ -389,7 +389,7 @@ git commit -m "Platform: a second shuffle round over chosen positions, after the
 ```bash
 pnpm check > $SCRATCH/check-t2.log 2>&1; tail -15 $SCRATCH/check-t2.log
 git add packages/game-kit packages/client docs/PROTOCOL.md docs/DECISIONS.md
-git commit -m "Platform: a private show, the shower's share sealed to the submitter inside its own move (D075)"
+git commit -m "Platform: a private show, the shower's share sealed to the submitter inside its own move (D077)"
 ```
 
 ---
@@ -489,7 +489,7 @@ git commit -m "Platform: a private show, the shower's share sealed to the submit
 ```bash
 pnpm check > $SCRATCH/check-t3.log 2>&1; tail -15 $SCRATCH/check-t3.log
 git add packages/games/room-for-doubt vitest.config.ts tests/catalog.test.ts pnpm-lock.yaml
-git commit -m "Room for Doubt engine: ids, the board model and the movement search (D076)"
+git commit -m "Room for Doubt engine: ids, the board model and the movement search (D078)"
 ```
 
 ---
@@ -778,7 +778,7 @@ git commit -m "Room for Doubt engine: ids, the board model and the movement sear
 ```bash
 pnpm check > $SCRATCH/check-t4.log 2>&1; tail -15 $SCRATCH/check-t4.log
 git add packages/games/room-for-doubt tests
-git commit -m "Room for Doubt engine: the rules, the catalog C01–C45 and the brand pack (D076)"
+git commit -m "Room for Doubt engine: the rules, the catalog C01–C45 and the brand pack (D078)"
 ```
 
 ---
@@ -836,7 +836,7 @@ git commit -m "Room for Doubt engine: the rules, the catalog C01–C45 and the b
 ```bash
 pnpm check > $SCRATCH/check-t5.log 2>&1; tail -15 $SCRATCH/check-t5.log
 git add tools/fuzz pnpm-lock.yaml
-git commit -m "Room for Doubt: fuzz target and policies; simulated games end and pass the audit (D076)"
+git commit -m "Room for Doubt: fuzz target and policies; simulated games end and pass the audit (D078)"
 ```
 
 ---
@@ -951,7 +951,7 @@ git commit -m "Room for Doubt: fuzz target and policies; simulated games end and
 ```bash
 pnpm check > $SCRATCH/check-t6.log 2>&1; tail -15 $SCRATCH/check-t6.log
 git add packages/games/room-for-doubt/src/art.ts scripts/room-for-doubt/glyphs.ts apps/web pnpm-lock.yaml
-git commit -m "Room for Doubt web: board, hand, Docket and the game screen (D076)"
+git commit -m "Room for Doubt web: board, hand, Docket and the game screen (D078)"
 ```
 
 ---
@@ -1004,7 +1004,7 @@ git commit -m "Room for Doubt web: board, hand, Docket and the game screen (D076
 ```bash
 pnpm check > $SCRATCH/check-t7.log 2>&1; tail -15 $SCRATCH/check-t7.log
 git add apps/web
-git commit -m "Room for Doubt web: registered with its rules page and the submission option (D076)"
+git commit -m "Room for Doubt web: registered with its rules page and the submission option (D078)"
 ```
 
 ---
@@ -1047,7 +1047,7 @@ git commit -m "Room for Doubt web: registered with its rules page and the submis
 
 ```bash
 git add apps/web/e2e/room-for-doubt.spec.ts
-git commit -m "Room for Doubt: end-to-end spec with three players, privacy and mobile checks (D076)"
+git commit -m "Room for Doubt: end-to-end spec with three players, privacy and mobile checks (D078)"
 ```
 
 ---
@@ -1055,38 +1055,38 @@ git commit -m "Room for Doubt: end-to-end spec with three players, privacy and m
 ### Task 9: Docs and records
 
 **Files:**
-- Modify: `docs/games/room-for-doubt/RULES.md`, `tests/room-for-doubt-docs.test.ts`, `docs/DECISIONS.md` (D076), `docs/PLAN.md`, `CLAUDE.md`, `docs/PROTOCOL.md` (§6.3a, §10, §13)
+- Modify: `docs/games/room-for-doubt/RULES.md`, `tests/room-for-doubt-docs.test.ts`, `docs/DECISIONS.md` (D078), `docs/PLAN.md`, `CLAUDE.md`, `docs/PROTOCOL.md` (§6.3a, §10, §13)
 
 - [ ] **Step 1: Update the docs test first.** Then watch it fail on the current RULES.md.
-  - `it('records the build as beta (D076)')`: the status line matches `/^\*\*Status: beta \(D076\)\.\*\*/m`.
-  - `it('says how the hidden information stays exact')`: the rules name "second shuffle round" with D074 and "private show" with D075, and no longer contain "Where the platform cannot be exact yet".
+  - `it('records the build as beta (D078)')`: the status line matches `/^\*\*Status: beta \(D078\)\.\*\*/m`.
+  - `it('says how the hidden information stays exact')`: the rules name "second shuffle round" with D076 and "private show" with D077, and no longer contain "Where the platform cannot be exact yet".
   - `it('has no attend action')`: the rules contain no `` `attend` ``.
   - The other existing assertions stay. The path A line, P4, C19, §6.3a, §13 and D071 are kept in the text.
 
 - [ ] **Step 2: Rewrite RULES.md "as built":**
-  - **Status:** beta (D076), naming the package, the web game, the fuzz target and the e2e spec.
+  - **Status:** beta (D078), naming the package, the web game, the fuzz target and the e2e spec.
   - **"What is hidden":** rows for the second round and the private show.
   - **"Resolving an indictment":** prompt shares and the seal, with no `attend`.
   - **Actions:** the list as built.
   - **Gaps:** the gaps section is replaced by "How the platform keeps it exact".
-  - **Build paths:** path A is built, with both gaps closed (keep the path A paragraph, adding "Built (D076)").
+  - **Build paths:** path A is built, with both gaps closed (keep the path A paragraph, adding "Built (D078)").
   - **Dice and pace:** `ahead` is not built.
   - **C34:** "only once every other seat's share of it has arrived".
   - **"Online play on this site"**, with every ruling of "How this build refines RULES.md".
 
 - [ ] **Step 3: Write the records:**
-  - **D076, "Room for Doubt built as a beta, with exact hidden information":** the deck, D074, D075, prompt shares (D073), no `attend`, `live` dice, the `submit` option, Resign disabled, BGG 1294 confirmed, the e2e spec, and the rulings above.
+  - **D078, "Room for Doubt built as a beta, with exact hidden information":** the deck, D076, D077, prompt shares (D075), no `attend`, `live` dice, the `submit` option, Resign disabled, BGG 1294 confirmed, the e2e spec, and the rulings above.
   - **PLAN.md:** Room for Doubt becomes beta.
   - **CLAUDE.md:**
-    - line 3: add Room for Doubt (D076) to the Compare exceptions;
+    - line 3: add Room for Doubt (D078) to the Compare exceptions;
     - the `pnpm test` project list;
     - the fuzz games list with "Room for Doubt's 3–6";
     - the e2e list;
     - the repo map entry for `packages/games/room-for-doubt/`;
     - "Hanabi is spec only";
-    - "Adding a game": bullets for `secondRound` (D074) and `privateShow` (D075).
+    - "Adding a game": bullets for `secondRound` (D076) and `privateShow` (D077).
   - **PROTOCOL:**
-    - §13 retitled "Deck plus dice (D069, D070, D076)", and worded for any module with a deck and rolls; the Driftwrights supply paragraphs stay as its example;
+    - §13 retitled "Deck plus dice (D069, D070, D078)", and worded for any module with a deck and rolls; the Driftwrights supply paragraphs stay as its example;
     - §6.3a's "v1 does not have one" sentence points to §13;
     - §10 allows deck plus dice.
 
@@ -1096,7 +1096,7 @@ git commit -m "Room for Doubt: end-to-end spec with three players, privacy and m
 pnpm vitest run --project repo tests/room-for-doubt-docs.test.ts
 pnpm check > $SCRATCH/check-t9.log 2>&1; tail -15 $SCRATCH/check-t9.log
 git add docs CLAUDE.md tests/room-for-doubt-docs.test.ts
-git commit -m "Room for Doubt: rules as built, decision D076, plan, protocol and CLAUDE.md"
+git commit -m "Room for Doubt: rules as built, decision D078, plan, protocol and CLAUDE.md"
 ```
 
 ---

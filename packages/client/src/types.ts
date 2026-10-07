@@ -73,12 +73,12 @@ export interface SessionView {
   seats: number;
   /**
    * The shuffle steps that open the chain (PROTOCOL §6.1): the length of the shuffle schedule (§5.5), which is the
-   * number of seats for a plain deck, groups times seats for a partitioned one, and a second round (D074) adds its
+   * number of seats for a plain deck, groups times seats for a partitioned one, and a second round (D076) adds its
    * groups times seats; 0 in a deckless game (D045). The first game action is move `shuffleSteps + 1`.
    */
   shuffleSteps: number;
   /**
-   * While `phase` is `shuffle`, where the shuffle stands (PROTOCOL §5.5, D074); null in every other phase. `round`
+   * While `phase` is `shuffle`, where the shuffle stands (PROTOCOL §5.5, D076); null in every other phase. `round`
    * is the round (1-based) the next step belongs to, `rounds` is 2 when the deck has a second round and 1 otherwise,
    * and `seatsDone` is how many seats have finished that round: each seat shuffles all of a round's groups before
    * the next seat starts, so it is the seat of the next step.

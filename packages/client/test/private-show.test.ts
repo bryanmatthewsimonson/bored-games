@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats, positions and shows.
 /*
- * A private show over the session and real crypto (D075, PROTOCOL §14), on the "show and tell" test module: seat
+ * A private show over the session and real crypto (D077, PROTOCOL §14), on the "show and tell" test module: seat
  * (t + 1) mod 3 shows the turn seat t one card it holds. Only the shower and the submitter learn the card, the wire
  * names neither the card nor its position, every client keeps one chain whatever the packet holds, and the end audit
  * opens every packet with the released deck secrets.
@@ -94,7 +94,7 @@ function reveal(t: Table): void {
 /** The action a move carries. */
 const actionOf = (ev: NostrEvent) => (JSON.parse(ev.content) as { action: { packet: string } }).action;
 
-describe('a private show over the session (D075)', () => {
+describe('a private show over the session (D077)', () => {
   it('only the shower and the submitter learn the card; the wire holds no position or card', () => {
     const t = table('show-private');
     expect(ask(t, 0)).toEqual(ALL);

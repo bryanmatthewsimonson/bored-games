@@ -58,7 +58,7 @@ describe('setup', () => {
     ]);
     for (const id of [...PARTIES, ...EXHIBITS, ...SCENES]) expect(cardName(cardOf(id))).toBe(id);
     expect(cardOf('nobody' as never)).toBe(-1);
-    // One deck: the four groups, the second round over the hands (D074), and the share duties (D073).
+    // One deck: the four groups, the second round over the hands (D076), and the share duties (D075).
     expect(CASE_DECK).toEqual({
       id: 'case',
       size: 30,

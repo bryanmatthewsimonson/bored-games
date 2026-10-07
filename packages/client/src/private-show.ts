@@ -16,7 +16,7 @@ import { canonicalJson, type Learn, type PrivateShow, SHOW_DECK } from '@bored-g
 import { getConversationKey, isNip44Payload, nip44Decrypt, nip44Encrypt } from '@bored-games/protocol';
 
 /*
- * Private shows (PROTOCOL §14, D075): seat `from` shows seat `to` one card it holds, and nobody else learns the card
+ * Private shows (PROTOCOL §14, D077): seat `from` shows seat `to` one card it holds, and nobody else learns the card
  * or its deck position. The shower's decryption share of the position rides inside its own `show` move, in one
  * NIP-44 packet under the conversation key of the two seats' deck keys, which only they can open: the other seats'
  * shares of a hand position are public since the deal, so with it either of them decrypts the card. Deck keys are

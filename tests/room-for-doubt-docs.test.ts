@@ -9,7 +9,7 @@ const game = join(import.meta.dirname, '../docs/games/room-for-doubt');
 const rules = readFileSync(join(game, 'RULES.md'), 'utf8');
 const boardText = readFileSync(join(game, 'board.txt'), 'utf8');
 const decisions = readFileSync(join(import.meta.dirname, '../docs/DECISIONS.md'), 'utf8');
-const decision = decisions.split(/^## D072: /m)[1] ?? '';
+const decision = decisions.split(/^## D074: /m)[1] ?? '';
 
 it('names every card exactly as the data does', () => {
   for (const n of [
@@ -65,17 +65,17 @@ it('states the roll shortfall precisely: a room entered early ends the move, els
   expect(c19).toMatch(/longest legal path/);
 });
 
-it('records the design once, as D072: no decision number is used twice', () => {
+it('records the design once, as D074: no decision number is used twice', () => {
   const heads = [...decisions.matchAll(/^## (D\d{3}): /gm)].map((m) => m[1]);
   expect(new Set(heads).size, 'a decision number appears twice').toBe(heads.length);
-  expect(decisions).toMatch(/^## D072: Room for Doubt/m);
+  expect(decisions).toMatch(/^## D074: Room for Doubt/m);
 });
 
-it('relies on the standing prompt-share exception (D073), not a per-game one', () => {
+it('relies on the standing prompt-share exception (D075), not a per-game one', () => {
   const pathA = rules.match(/^- \*\*A\. Beta on today's pieces,\*\*.*$/m)?.[0] ?? '';
-  expect(pathA).toMatch(/standing exception \(D073\)/);
+  expect(pathA).toMatch(/standing exception \(D075\)/);
   expect(pathA).not.toMatch(/(third|fourth) owner exception/);
-  expect(decision).toMatch(/standing exception \(D073\)/);
+  expect(decision).toMatch(/standing exception \(D075\)/);
   expect(decision).not.toMatch(/fourth `promptShares` exception/);
 });
 

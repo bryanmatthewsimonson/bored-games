@@ -172,7 +172,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
 
 **Build paths (the owner chooses at build time).**
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which any game may now set under the standing exception (D073) to D050, so a rebuttal's sealed share needs no further decision. A second indictment needs a sealed share too, and the same flag covers it: the first needs none, but after a wrong one the first indicter, though dismissed, must seal its share of the Verdict positions to each later indicter, and a first indicter who never answers stalls that later indictment (PROTOCOL §8.1). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is today gated by `DeckSpec.promptShares`, which any game may now set under the standing exception (D075) to D050, so a rebuttal's sealed share needs no further decision. A second indictment needs a sealed share too, and the same flag covers it: the first needs none, but after a wrong one the first indicter, though dismissed, must seal its share of the Verdict positions to each later indicter, and a first indicter who never answers stalls that later indictment (PROTOCOL §8.1). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
 - **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
 - **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
 
@@ -202,7 +202,7 @@ All files in `docs/games/room-for-doubt/art/` are original SVG made for this pro
 | `tests/restricted-names.ts` | new restricted names (below) |
 | `tests/repo-guards.test.ts` | guard tests for each new form |
 | `tests/catalog.test.ts` | `SPEC_ONLY` gains `'room-for-doubt'` |
-| `docs/DECISIONS.md` | D072 |
+| `docs/DECISIONS.md` | D074 |
 | `docs/PLAN.md` | a status entry |
 | `CLAUDE.md` | the repo map says Room for Doubt is spec only; the "Compare to" exception lists it once its package exists |
 

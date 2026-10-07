@@ -133,9 +133,9 @@ export type RfdAction =
   | { readonly type: 'passage'; readonly actor: number }
   | { readonly type: 'stay'; readonly actor: number }
   | { readonly type: 'submit'; readonly actor: number; readonly party: PartyId; readonly exhibit: ExhibitId }
-  /** The show marker (D075): listed for the shower only, never applied. The session sends the wire instead. */
+  /** The show marker (D077): listed for the shower only, never applied. The session sends the wire instead. */
   | { readonly type: 'show'; readonly actor: number; readonly pos: number }
-  /** The show wire (D075): its packet, which only the shower and the submitter can open, names the card. */
+  /** The show wire (D077): its packet, which only the shower and the submitter can open, names the card. */
   | { readonly type: 'show'; readonly actor: number; readonly id: number; readonly packet: string }
   | { readonly type: 'none'; readonly actor: number }
   | {
