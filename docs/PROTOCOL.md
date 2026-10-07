@@ -200,13 +200,14 @@ The hash-chained log.
 - `deck` holds the output ciphertexts, one per card the step shuffles (all 108 for Chain Reaction; the step's group in a partitioned deck or a second round, §5.5).
 - `proof` is the shuffle proof (§5.3).
 
-**Epoch step (D073).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to the module deck, and an epoch does not start a deal. No `proto` bump.
+**Epoch step (D073).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to its step's group (§5.5), and an epoch does not start a deal. No `proto` bump.
 ```json
 {"deck":[["<a>","<b>"], …],"epoch":<k>,"proof":{…},"type":"epoch"}
 ```
 - `epoch` is an integer of at least 1.
 - `deck` is that step's output. Its length is the pending pile, from 1 to 108, not the opening deck size.
 - `proof` is the shuffle proof (§5.3) under the context deck id `pile.<k>` (a dot, not a colon). Card points stay `card:pile:<m>`.
+- Output `i` of epoch `k` is the deck position `128·k + i`, in `dealt` and for its shares. A position below the deck's size is always the opening deck's, and only a position at or above it can be an epoch's, so a game that reshuffles has a deck of at most 128 cards (D078).
 - The seats publish one step each, in seat order. The last step applies `{"type":"epoch","actor":"deck","epoch":<k>,"size":<n>}`. The order is not in that action.
 
 **Game action.**
@@ -268,7 +269,7 @@ A Resign that lacks the secret in a game with a deck, carries one in a deckless 
 A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
 
 ### 4.10 Sealed shares (7458)
-Decryption shares of **re-dealt private positions** (§6.2), each encrypted to one seat (D066). A position is re-dealt when `dealt` assigns it privately to one seat (its **first holder**) and later privately to another seat, and never to the public: Right of Way's charter returned to the bottom and drawn by another player. Every other seat published its share when the first holder got the card, so the first holder's share is the only one not public. The first holder never publishes it while the position stays private; it seals it to each later holder instead, and only that holder can open it.
+Decryption shares of **re-dealt private positions** (§6.2), each encrypted to one seat (D066). A position is re-dealt when `dealt` assigns it privately to one seat (its **first holder**) and later privately to another seat, and never to the public: Right of Way's charter returned to the bottom and drawn by another player, or Room for Doubt's Verdict, dealt to each indicting seat in turn (D078). Every other seat published its share when the first holder got the card, so the first holder's share is the only one not public. The first holder never publishes it while the position stays private; it seals it to each later holder instead, and only that holder can open it.
 
 **Tags:** `["e", <rootId>, "", "root"]`.
 
@@ -363,7 +364,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 
 ### 5.5 Partitioned decks (Luster; shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D076) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
+**Status.** Shipped in v1 first for Luster, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). Right of Way (D067) and Room for Doubt (D078) set `partitions` too; Driftwrights' deck has none. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D076) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
 
 **The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
 - the list holds 1 to 16 groups;
@@ -436,10 +437,10 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
-**Child-deal shares, Holler only (D073).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster, Right of Way, and Driftwrights keep the prompt duty in §6.2a. None of them emit `epoch`.
+**Child-deal shares, Holler only (D073).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster, Right of Way, Driftwrights and Room for Doubt keep the prompt duty in §6.2a. None of them emit `epoch`.
 
 ### 6.2a The Luster share duty (shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only these three production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
+**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069), and for Room for Doubt (D078) under the standing exception that lets any game use it (D075). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2, now abandoned (D071), would have replaced it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. These four production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
 
 **The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
 - no timeout claim was accepted and no Resign ended the game;
@@ -472,7 +473,7 @@ The positions: every position that `dealt(S)` assigns to **another seat or to `n
 A module that rolls dice exposes `rolls` and `beaconOf`. The session treats it as a beacon game even when `decks(rules)` is empty. Bank is the first (§4.3 of `docs/GAME-SYSTEMS.md`, option 1b). The roll is one public result. Each other seat's share is sent by its open app, with no decision. That is not a prompt duty in D050's sense: it releases no hidden card and no sealed choice.
 - **The point.** Roll `i` is `H_i = h2c('roll:' + rootId + ':' + i)`. Seat `k`'s contribution is `D = x_k·H_i`, published as one decryption share (`packages/deck` `makeRollShare`) bound to the reserved deck id `roll` and position `i`, with a DLEQ proof against the seat's deck key. The deck key was fixed at Join, so the seat has exactly one valid contribution. Proof randomness does not change `D`.
 - **Who publishes, and when.** The seat who chooses to roll attaches its share to that Roll move. `beaconOf` names the roll id for that action and for each later Contribute action, and names none for a bank or a stay. Every other seat then publishes one contribution, in the order the module lists. An open app sends it as a `beacon` duty (`buildBeacon`); it is not a player decision, and the screen offers no button. The last publisher is a seat other than the roller, so the roller cannot compute the faces before choosing to roll. That last seat learns the faces first and can only withhold, which a closed window does by publishing nothing. Withholding is a timeout forfeit (§8). The share is the one the deck key already determines.
-- **Not a Shares event.** The share rides on the move (§6.1). A Shares event (7453) in a deckless game stays invalid. The session stores the share in the same share store as card shares, keyed by the roll id. Bank deals nothing, so a roll id never meets a card position. A game that deals and rolls needs a deck id on that store; v1 does not have one.
+- **Not a Shares event.** The share rides on the move (§6.1). A Shares event (7453) in a deckless game stays invalid. The session stores the share in the same share store as card shares, keyed by the roll id. Bank deals nothing, so a roll id never meets a card position. A game that deals and rolls keeps the two apart by position instead: its roll slots follow the deck's positions, and each roll is bound to the move that requests it (§13).
 - **Deriving.** Once `pending()` is `{type:'beacon', id}` and every seat has one verified share of that id, every client computes the seed as the SHA-256 of those `D` points in seat order, each as compressed SEC1 bytes, draws two faces in `1..6` by rejection sampling (`packages/dice` `faces`), and applies `{type:'rolled', actor:'beacon', id, dice:[a,b]}`. The action is not an event. It is recorded in the interleaved action log (§7) at the chain length where the fold applied it, which is the length after the last contribution. The fold derives it in the same settle as that contribution, and a trial fold does too, so fork choice sees the dice. The client repeats while the module pends a beacon it can satisfy.
 - **A player does not send the faces.** A game action whose action is `{type:'rolled', …}` is invalid (`a player does not send the dice`), before the pending-seat check. While a beacon is pending, a game action is invalid (`no player decision is pending`): the fold derives the roll itself, and the move is not buffered. A roll or a contribution with the wrong number of shares, a reveal, a share for another roll, or a share that fails `verifyRollShare` is invalid. A bank or a stay that carries a share is invalid.
 - **Audit.** Contributions are checked when the move is folded. The replay (§7) re-applies the derived roll from the log. It does not re-draw the faces: the faces in the log are what every client derived from the same shares. A module that rejects that roll fails every seat, as a rejected derived reveal does.
@@ -492,6 +493,7 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
 4. For a game action, judged on the parent state, in this order:
    - The game is in play. If the deal is not complete, or a public reveal is pending, the move **waits**.
    - Every share and reveal proof verifies against the signer's deck key.
+   - While the module pends a private show (§14), an action of type `show` is the exact wire of §14, checked before `apply`; its packet is opened after `apply`, by two clients only, and never rejects the move.
    - The module's `apply` accepts the action (on a copy of the state).
    - `reveals` covers exactly the positions that `revealsOf(state, action)` claims. `revealsOf` is syntactic, so it is trusted only for an action `apply` accepts.
    - Each reveal, combined with the other seats' held shares, decrypts the position to the card `revealsOf` claims. If another seat's share of a revealed position is missing, the move **waits**.
@@ -507,7 +509,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 
 ### 6.6 Equivocation and fork choice
 - **Equivocation.** Two distinct Moves with the same `prev`, `seq` and signer prove equivocation when `prev` is the chain's move at `seq − 1`. Any client can show both events.
-  - **Shuffle steps** (`seq ≤ N`): any two *well-formed* steps count, whether or not their proofs verify. Well-formed means the event parses and is signed by the seat §5.5 gives for step `seq − 1`. Only that seat's key can sign both, and an honest client signs one step per prev (D030 Ruling 12).
+  - **Shuffle steps** (`seq ≤ N`): any two *well-formed* steps count, whether or not their proofs verify. Well-formed means the event parses, is signed by the seat §5.5 gives for step `seq − 1`, and its `deck` has the size of that step's group. Only that seat's key can sign both, and an honest client signs one step per prev (D030 Ruling 12).
   - **Game actions:** both must be *valid-looking*, that is, valid as of `prev` on every check of §6.5 except the owed-shares rule: the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `apply` accepts the action. An invalid action never counts.
 - **The seat is flagged, and play goes on.** Equivocation never stops or cancels the game, and it rewinds the game only for a rival branch that reaches the module's `over` (fork choice below; §11, "A stale rival"); otherwise one re-signed old move would let a seat void a finished game. The chain follows fork choice. When the game ends, the flagged seats forfeit with the end adjustment (§8.2), and the audit still runs.
 - **Shuffle candidates.** For each `prev`, `seq ≤ N` and signer, let C be the well-formed steps held. If C holds 3 steps or fewer, each is a candidate. Otherwise only *acknowledged* steps are: some well-formed Move signed by another seat lies 1 to 32 Moves below the step along `prev`, every Move on that path held. Fork choice considers only candidates. A step that is not one is kept, not verified and not rejected; it becomes a candidate if it is acknowledged later, and a step on the chain that stops being one is cut back off it, with the Moves after it. Both conditions depend only on the events held, so clients holding the same events agree. A seat that publishes more than 3 unacknowledged steps on one `prev` therefore stalls its own position, and the timeout falls on it (§8).
@@ -526,7 +528,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 2. **Audit.** Once every seat's secret is known, any client:
    - decrypts every final-deck position with all the secrets (`decryptWithSecrets`, then `cardOf`), which gives the full deck order
    - sets the module up in **full mode** with that order
-   - replays the **interleaved action log**: the chain's game actions, the derived reveals (§6.3) and the derived rolls (§6.3a), in the order the fold applied them. Learns are not replayed.
+   - replays the **interleaved action log**: the chain's game actions, the derived reveals (§6.3) and the derived rolls (§6.3a), in the order the fold applied them. Learns are not replayed, apart from the cards of private deliveries, which the auditor opens from their packets with the released secrets and checks: a private supply selection (§13) and a private show (§14).
 
    The full-mode engine re-checks every claim that depended on hidden cards, for example in Chain Reaction:
    - "no playable tile" (`skipPlace`)
@@ -643,7 +645,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck, which may be split into contiguous groups shuffled apart (`partitions`) and then have chosen positions mixed in a second round (`secondRound`, D076); both are in §5.5.
+- `decks(rules)`: one deck, or none (`[]`). Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). One deck may be split into contiguous groups shuffled apart (`partitions`), and chosen positions may be mixed in a second round (`secondRound`, D076); both are in §5.5. A game with a deck or without one may roll dice: `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share, as §6.3a says for a deckless game and §13 for a game with a deck (deck plus dice, D078).
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)
@@ -655,6 +657,7 @@ A `GameModule` used with this protocol MUST provide:
 It MUST also meet these contract rules, which the session relies on:
 - **`legalActions` is exact or empty.** It MUST return `[]` whenever the legality of any action it would list depends on hidden cards the seat has not learned. A non-empty list is then always exact, which the decide gate (§6.5) and stall attribution (§8.1) rely on. `view(state, null)` MUST accept a view-mode state, since stall attribution asks `legalActions` on the public view.
 - **`learn` tolerates arrival order.** Where a learn falls among other seats' actions depends on when shares arrive (§6.4). A learn MUST commute with every action: learning a card before or after an action gives the same state. A module's `learn` SHOULD emit no events, since their place in the event log would depend on arrival order (Chain Reaction's emits none).
+- **Private shows are opt-in (§14).** A module with a deck MAY offer them with `privateShow`. It then meets §14's module duties, and disables Resign.
 
 ## 11. Security considerations
 - **Hidden cards** are secret as long as at least one seat is honest about its deck key, which it never reveals before the end.
@@ -704,9 +707,18 @@ It MUST also meet these contract rules, which the session relies on:
 - Incompatible protocol changes bump `proto`.
 - **Protocol version 2** (`PROTOCOL-v2.md`) replaces fork choice with the fork stop and adds prompt release, anchored Shares events, end attestations and the move-bound dice beacon. A game declares its version in its Table, Joins and root, and keeps it for good: a v1 game is always folded by these v1 rules, also by a client that implements v2.
 
-## 13. Driftwrights mixed proofs and private supplies (D069, D070)
+## 13. Deck plus dice (D069, D070, D078)
 
-This game-specific v1 extension combines a 25-position `ventures` deck with the public beacon. Existing deckless beacon games keep §6.3a's wire positions and root-only domain. Driftwrights uses card positions 0–24 and beacon wire positions `25 + rollId`. A beacon proof still uses counter `rollId`, with domain string `rootId:requestMoveId`. The request is the signed action that appends the roll to the module's `rolls`; it carries no beacon share. Each seat then sends its `contribute` action, in the module's order, with one proof. All other owed card shares and reveals are independently checked and may ride the same action. Once all contributions arrive, dice or a one-die hand index are derived using §6.3a's seed and rejection sampling. A one-card hand has the deterministic face 1.
+A module with a deck that also rolls dice (`decks(rules)` lists one deck, and `rolls` and `beaconOf` are present) keeps its card shares and its roll shares apart by position, and binds each roll to the move that requests it. Driftwrights brought this in as its own extension (D069, D070); the session applies it to every such module, and Room for Doubt is the second (D078). A deckless beacon game (Bank) keeps §6.3a's wire positions and its root-only domain.
+- **Positions.** With a deck of `size` cards, card positions are `0 … size − 1`, and the share of roll `rollId` goes at wire position `size + rollId` in a move's `shares`. A share below `size` is a card share, and one at or above it a roll share.
+- **The request** is the signed move whose action appends the roll to the module's `rolls`. It carries no roll share, because the roll's domain holds the request's own id.
+- **The domain.** A roll proof still uses the counter `rollId` as its position, with the domain string `rootId:requestMoveId` in place of `rootId`: the roll point is `h2c('roll:' + rootId + ':' + requestMoveId + ':' + rollId)`, and the proof's context is `{rootId: rootId + ':' + requestMoveId, deckId: 'roll', pos: rollId}` (§5.4, §6.3a).
+- **Contributions.** Each seat then sends one action for which `beaconOf` names the roll, in the module's order, carrying exactly that one roll share; an open app sends it with no decision, as in §6.3a. The card shares and reveals the seat owes are checked independently and may ride the same action. The request fixes the roll before any share exists, so the module may order the contributions as it likes: the last contributor learns the faces first and can only withhold, which a timeout claim answers (§8).
+- **The faces.** Once every seat's share is in, the faces are derived as in §6.3a, from the same seed and by rejection sampling. A module may give a roll's shape with `rollShape` (count and sides; two six-sided dice by default); a one-sided die is the deterministic face 1.
+
+**Room for Doubt** (D078): the deck `case` has 30 cards, so roll `i` is wire position `30 + i`. The `roll` action is the request. Every seat, from the one after the roller round to the roller, then sends `contribute` with its share, and the session derives two six-sided dice.
+
+**Driftwrights** (D069, D070), the first such game, adds private supply selections on top, below. Its 25-position `ventures` deck uses card positions 0–24 and roll wire positions `25 + rollId`. Its rolls are dice or a one-die hand index (`rollShape`), and a one-card hand has the deterministic face 1. The rest of this section is Driftwrights' own.
 
 Supply identities are concealed claims, with public hand counts. A theft request fixes thief, victim and hand size before contributions. The victim's deck secret, already committed at Join, fixes a Fisher–Yates permutation of the sorted resource labels (0–4, repeated for each card). For descending swap step `i`, the seed is the encoded scalar from `hs('driftwrights/private-hand/v1', secret, rootId, requestMoveId, rollId, i)`; use one unbiased die with `i+1` sides and subtract one. The derived public index selects that private permutation. The delivery parent, encryption nonces and selected index do not affect the permutation.
 
@@ -718,7 +730,7 @@ At the end, full replay retains signed request/parent ids. Every audit derives t
 
 A rules module MAY offer a **private show**: one seat shows one card it holds to one other seat, and no other seat or spectator learns the card or even its deck position. Room for Doubt's rebuttal is the first use. A show adds no event kind, no Move field and no tag, and `proto` stays `"1"` (D071): its payload is the module's own action (§4.4). A module with private shows has a deck (§10).
 
-**The hook.** `privateShow(state)` returns `{id, from, to}` while seat `from` is deciding whether to show seat `to` a card, and null otherwise. `id` names the show and is never reused; `from` and `to` are different seats.
+**The hook.** `privateShow(state)` returns `{id, from, to}` while seat `from` is deciding whether to show seat `to` a card, and null otherwise. `id` names the show and is never reused; `from` and `to` are different seats. It MUST depend on public state only, so that it is the same in every view: each client checks a show against its own view's value before `apply` (below), and views that disagreed would follow two chains.
 
 **The marker.** Meanwhile `legalActions(state, from)` lists a marker `{"actor":<from>,"pos":<n>,"type":"show"}` for each deck position `from` holds and may show, besides any other answer the rules allow (in Room for Doubt, `none`). While a show is pending the action type `show` is reserved: a legal action of type `show` with a `pos` key is a marker. A marker names its position, so it never goes on the wire, and `apply` never accepts one.
 
@@ -743,7 +755,7 @@ It does so only for a position whose latest `dealt` entry names `from`. `reveals
 2. **after a successful `apply`**, on the clients of `from` and `to` only (no other client learns anything):
    1. open the packet, and check that the plaintext is canonical with exactly the keys above, and that its `root` is the game's, its `after` the Move's `prev`, and its `id`, `from` and `to` the show's;
    2. check that the latest `dealt` entry of `pos` at the parent names `from`;
-   3. put the packet's share in `from`'s slot of a copy of the position's shares (every other seat's share of a hand position is public since the deal, §6.1) and decrypt the position with `decryptPosition`, which verifies every proof;
+   3. put the packet's share in `from`'s slot of a copy of the position's shares (every other seat's share of a position dealt once is public since its deal, §6.1, §6.2; a re-dealt one is the exception under Residuals) and decrypt the position with `decryptPosition`, which verifies every proof;
    4. call `learn(state, {deck: "shown", pos: id, card})`: `"shown"` is `SHOW_DECK`, a pseudo-deck that is never a real deck's id, and `pos` is the show's id.
 
    On any failure the client skips the learn and does **not** reject the Move. Only `from` and `to` can open the packet: if their clients rejected a Move that every other client accepts, the clients would follow two chains. With one chain, a bad packet costs the submitter its card during play, and the audit fails the shower at the end. The learn depends only on the event, so a client may cache it per event id (fork choice checks a Move again in trial folds), and a client that reloads learns the card again.
@@ -756,7 +768,7 @@ It does so only for a position whose latest `dealt` entry names `from`. `reveals
 
 Any failure fails `from` alone, with reason `move N private show fails: …`.
 
-**Module duties** (add to §10). `view` keeps a shown card for `from` and `to` only, `knownTo` never lists a `shown` learn, and `dealt` does not change when a card is shown. The fuzzer stands in for the session: it never applies a marker, checks that the chosen marker's position is held by `from`, builds the wire from it, and learns the card into the full state and into the views of `from` and `to` only, so a module whose `view` shows the card to any other viewer fails.
+**Module duties** (add to §10). `view` keeps a shown card for `from` and `to` only, `knownTo` never lists a `shown` learn, and `dealt` does not change when a card is shown. The module never lists a marker for a re-dealt private position (§4.10), whose first holder's share is sealed rather than public (Residuals, below). The fuzzer stands in for the session: it never applies a marker, checks that the chosen marker's position is held by `from`, builds the wire from it, and learns the card into the full state and into the views of `from` and `to` only, so a module whose `view` shows the card to any other viewer fails.
 
 **Resign stays disabled** for a module with private shows (`resignAllowed` returns false). A Resign carries the resigner's deck secret (§8.3), and that secret opens every packet the resigner sent or received: the cards it showed and was shown, and their positions, would be public during play.
 
@@ -765,3 +777,4 @@ Any failure fails `from` alone, with reason `move N private show fails: …`.
 - A shower that equivocates can show the submitter two cards; it is flagged and ranked last (§6.6, §11), not prevented (D071).
 - A packet the submitter cannot use (sealed to another key, a share of another position, a broken proof) costs the submitter that card until the end, when the audit fails the shower.
 - A show of a position dealt during play, folded before every other seat's share of it is in, teaches nothing until the Move is folded again (after a reload). A hand dealt at setup always has every share.
+- A re-dealt private position (§4.10) is worse: its first holder's share is sealed to the later holder and never published, so an honest show of it teaches the submitter nothing, while its audit passes (the auditor holds every secret). Hence the module duty above (D078). Room for Doubt shows only hand positions dealt once, at setup; the Verdict, which is re-dealt, is never shown.

@@ -91,3 +91,16 @@ it('records that protocol 1 and the trusted-dealer direction (D071) bear on the 
   expect(rules).toContain('D071');
   expect(decision).toContain('D071');
 });
+
+it('records the build as beta (D078)', () => {
+  expect(rules).toMatch(/^\*\*Status: beta \(D078\)\.\*\*/m);
+  expect(decisions).toMatch(/^## D078: Room for Doubt built as a beta, with exact hidden information /m);
+});
+
+it('says how the hidden information stays exact', () => {
+  expect(rules).toMatch(/second shuffle round[^.\n]*\bD076\b/);
+  expect(rules).toMatch(/private show[^.\n]*\bD077\b/);
+  expect(rules).not.toContain('Where the platform cannot be exact yet');
+});
+
+it('has no attend action', () => expect(rules).not.toContain('`attend`'));

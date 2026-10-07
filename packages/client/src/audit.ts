@@ -30,7 +30,10 @@ export interface AuditInput {
   seats: number;
   /** The module's one deck, or null for a deckless game (D045). */
   deckId: string | null;
-  /** The final deck: the packet after the last shuffle step, the second round's when the deck has one (D076); empty for a deckless game. */
+  /**
+   * The final deck: the packet after the last shuffle step, the second round's when the deck has one (D076);
+   * empty for a deckless game.
+   */
   deck: readonly Ciphertext[];
   /** Every seat's deck secret `x_k`, in seat order, each already checked against `X_k`; unused when deckless. */
   secrets: readonly bigint[];

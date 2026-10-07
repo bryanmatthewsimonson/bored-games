@@ -1,10 +1,10 @@
 # Room for Doubt rules
 
-**Room for Doubt** is a deduction game for 3–6 players. Six people are trapped in the Aldermoor Assize Courts on the night before a verdict, and the judge is dead. Players walk the building, make submissions in its rooms, rebut each other with the cards they hold, and race to indict the right Party, the right Exhibit and the right Scene. This file is the **source of truth** for a future engine in `packages/games/room-for-doubt`.
+**Room for Doubt** is a deduction game for 3–6 players. Six people are trapped in the Aldermoor Assize Courts on the night before a verdict, and the judge is dead. Players walk the building, make submissions in its rooms, rebut each other with the cards they hold, and race to indict the right Party, the right Exhibit and the right Scene. This file is the **source of truth** for the engine in `packages/games/room-for-doubt`.
 
-Room for Doubt uses the mechanics of *Clue* (*Cluedo* in the United Kingdom; devised by Anthony E. Pratt, published by Parker Brothers and now Hasbro) unchanged. The rules prose, the names, the setting, the board and the artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site may name it only through the exact "Compare to" phrase, once a `src/compare.ts` exists (D053).
+Room for Doubt uses the mechanics of *Clue* (*Cluedo* in the United Kingdom; devised by Anthony E. Pratt, published by Parker Brothers and now Hasbro) unchanged. The rules prose, the names, the setting, the board and the artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site names it only through the exact "Compare to" phrase, stored once in `packages/games/room-for-doubt/src/compare.ts` (D053, D078).
 
-**Status: spec only (D074).** There is no engine, package, web game, fuzz target or e2e spec yet. What exists is this file, the board (`board.txt`, with a test that proves its structure), the art (`art/`, CC0-1.0, drawn by `scripts/room-for-doubt/`), the name guards and the decision log. Every `#### Cnn` below is to get a named test when the engine exists (CLAUDE.md, D045); until then `tests/catalog.test.ts` lists the game as spec only. How the hidden cards would be played online, and the choices that are the owner's, are in [Online play](#online-play-and-hidden-information).
+**Status: beta (D078).** Room for Doubt is built and playable on the site. The engine is the package `packages/games/room-for-doubt` (engine 0.1.0), where every `#### Cnn` below has a named test in `test/catalog/` (CLAUDE.md, D045). The web game is `apps/web/src/games/room-for-doubt` (the board, the hand, the Docket and the rules page `#/rules/room-for-doubt`). The fuzz target is `room-for-doubt` (`pnpm fuzz --game room-for-doubt`, policies in `tools/fuzz/src/room-for-doubt.ts`), and the e2e spec is `apps/web/e2e/room-for-doubt.spec.ts`. The design came first (D074): this file, the board (`board.txt`, with a test that proves its structure), the art (`art/`, CC0-1.0, drawn by `scripts/room-for-doubt/`) and the name guards. Two opt-in platform features keep the hidden cards exactly as hidden as at a table, a second shuffle round (D076) and a private show (D077); [Online play](#online-play-and-hidden-information) says how, and [Online play on this site](#online-play-on-this-site) lists what the build settled.
 
 ## Name, brand and what is original
 
@@ -35,10 +35,11 @@ Nothing on the board copies the reference board: the rooms, the corridors and th
 | Party | suspect | `ashdown`, `brine`, `reeve`, `crowther`, `faulk`, `quarrel` |
 | Exhibit | weapon | `gavel`, `scales`, `reports`, `carafe`, `manacles`, `clockhand` |
 | Scene | room (the card) | `courtroom`, `chambers`, `jury`, `robing`, `registry`, `store`, `cells`, `belfry`, `gallery` |
-| the Verdict | the case file | one deck position per group (see [Online play](#online-play-and-hidden-information)) |
+| the Verdict | the case file | positions 0, 6 and 12 of the deck `case`, one per group (see [Online play](#online-play-and-hidden-information)) |
+| roll | roll the dice | `roll`; each seat's share of the roll is `contribute` |
 | submit | make a suggestion | `submit` |
 | rebut (show a card, or say none) | disprove a suggestion | `show`, `none` |
-| indict | make an accusation | `indict`, `attend`, `verdict` |
+| indict | make an accusation | `indict`, `verdict` |
 | dismissed | eliminated | `dismissed` |
 | Entrance | start square | Entrance `1`–`6` |
 | Old Gaol Passage | secret passage | `passage` |
@@ -56,7 +57,7 @@ Engine ids are plain words, permanent once they appear in network events. Displa
 
 ## Sources and interpretations
 
-**Sources.** The Parker Brothers instruction book of the 2002 printing (3 to 6 players; the publisher's PDF, read in full, pages 1–7), a rulebook extract on rulespal.com, and Wikipedia's article on *Cluedo*. Rules confirmed by the instruction book are **verified**. A rule that rested on the author's memory alone would be marked **recalled**; none does. Points the sources do not settle are **platform** rules or **OPEN** options, per CLAUDE.md ("Never invent rules"). BoardGameGeek itself was not read: the id **1294** comes from the URL of a search result and must be confirmed when the package exists.
+**Sources.** The Parker Brothers instruction book of the 2002 printing (3 to 6 players; the publisher's PDF, read in full, pages 1–7), a rulebook extract on rulespal.com, and Wikipedia's article on *Cluedo*. Rules confirmed by the instruction book are **verified**. A rule that rested on the author's memory alone would be marked **recalled**; none does. Points the sources do not settle are **platform** rules or **OPEN** options, per CLAUDE.md ("Never invent rules"). BoardGameGeek's own pages refuse automated reads (HTTP 403), so the id **1294** was confirmed at build time by a search limited to boardgamegeek.com, which returned the reference game's page, `boardgame/1294` (D078).
 
 | Topic | Rule | Basis |
 |---|---|---|
@@ -202,16 +203,16 @@ These bands are design targets of ours, not measurements of the reference board.
 
 ## Your turn
 
-A turn has a movement, then, if you are entitled to one, a submission, then the end. You may indict at any point of your own turn; an indictment ends the turn (see [3. Indict](#3-indict)). Play passes over a dismissed seat, which takes no turns. Nothing is accepted out of turn, apart from a seat's answer when it is asked to rebut or to attend (see [Online play](#online-play-and-hidden-information)).
+A turn has a movement, then, if you are entitled to one, a submission, then the end. You may indict at any point of your own turn; an indictment ends the turn (see [3. Indict](#3-indict)). Play passes over a dismissed seat, which takes no turns. Nothing is accepted out of turn, apart from a seat's answer when it is asked to rebut, and the shares of the dice and of the Verdict that every seat's app adds by itself (see [Online play](#online-play-and-hidden-information)).
 
 ### 1. Move
-Do one of these three.
+Do one of these three, or stay if your pawn cannot move (see [A turn with no possible move](#a-turn-with-no-possible-move)).
 
 **Roll and walk.** Roll the two dice and walk your pawn exactly the total, from 2 to 12 squares. A player never sends the dice online: the session derives them.
 - A step goes to an orthogonally adjacent square (up, down, left or right), never diagonally. You may turn as often as you like.
 - You may not enter or end on a square holding any pawn: another player's, an unplayed Party's or a dismissed Party's. Rooms are not squares in this sense: any number of pawns and tokens may stand in a room.
 - You may not enter the same square twice in one turn.
-- **Doors.** A room is entered and left through its doors. Passing a door is one step, between the doorstep (the corridor square outside) and the room itself; the doorway is not a square and costs nothing more. A door whose doorstep holds a pawn cannot be used, in either direction.
+- **Doors.** A room is entered and left through its doors. Passing a door is one step, between the doorstep (the corridor square outside) and the room itself; the doorway is not a square and costs nothing more. A door whose doorstep holds another pawn cannot be used, in either direction. Your own pawn on a doorstep never blocks that door for you.
 - **Entering a room ends your move**, however much of the roll is left. You may not enter a room that you left earlier in the same turn.
 - **Shortfall (P4).** You must use the whole roll, or enter a room on the way, which ends the move as above. If neither is possible (no path of the full roll exists and no shorter path ends in a room), you move along the longest legal path there is, which may be no squares at all; any path of that greatest length is accepted.
 
@@ -234,14 +235,14 @@ A submission is a question to the table. You may make one when you have just ent
 - If every other seat says none, the submission stands unrebutted. You may end your turn or indict.
 
 ### 3. Indict
-- A seat that is not dismissed may indict, **once per game**, at any point of its own turn: before it moves, after it moves, or after a submission, whether or not that submission was rebutted.
+- A seat that is not dismissed may indict, **once per game**, at any point of its own turn: before it moves (at the start of the turn, or after its roll and before its walk), after it moves, or after a submission, whether or not that submission was rebutted.
 - You name any Party, any Exhibit and any Scene. The Scene need not be the room you stand in.
 - Then you, and nobody else, look at the Verdict in secret.
-- **Upheld.** If your three cards match the Verdict exactly, the game ends and you win. Lay the cards out for the table.
-- **Dismissed.** Otherwise you are dismissed. You may no longer move, submit or indict, and the Verdict goes back sealed, unseen by anyone else. You keep your hand and you still rebut and attend, as before. Your pawn stays where it is, and other players' submissions may still name your Party and move your pawn. If your pawn stands on a doorstep, it moves into that door's room at once, so that it never blocks the door.
+- **Upheld.** If your three cards match the Verdict exactly, the game ends and you win. Lay the cards out for the table. (Online the indictment has already named the three cards to everyone, and the end audit checks your claim; see [Resolving an indictment](#resolving-an-indictment).)
+- **Dismissed.** Otherwise you are dismissed. You may no longer move, submit or indict, and the Verdict goes back sealed, unseen by anyone else. You keep your hand and you still rebut, as before (online, your app also goes on adding its shares to the dice and, if you were the first to indict, sealing your share of the Verdict to each later indicter). Your pawn stays where it is, and other players' submissions may still name your Party and move your pawn. If your pawn stands on a doorstep, it moves into that door's room at once, so that it never blocks the door.
 
 ### A turn with no possible move
-A Party that cannot move (every route is blocked, or it is walled in) passes its move (P5). It may still indict, or submit if another Party's submission has moved it into a room. A seat that has not been dismissed always has a legal action, because it can indict, so play never deadlocks.
+A Party whose pawn has no free first step cannot move: no free square beside it on the corridor or, in a room, every doorstep of the room taken by another pawn. It does not roll; it stays where it is, which passes its move (P5). It may still indict, take the Old Gaol Passage from a corner room, or submit if another Party's submission has moved it into a room. A Party that has a free first step always has somewhere to go after its roll, since that step alone is a legal path, so P4 never leaves it nowhere to move. A seat that has not been dismissed always has a legal action, because it can indict, so play never deadlocks.
 
 ## End of the game
 
@@ -251,8 +252,8 @@ There is no stall rule. Games end only by declaration (D015, D016): a game in wh
 
 ## Rule options
 
-- **`submit`:** `'optional'` (the default) or `'required'`. The source book phrases entering a room as an instruction to make a suggestion at once, yet elsewhere says that a player may make a suggestion and then an accusation in one turn, and limits a player to one suggestion per entry. Whether a submission is required is therefore **OPEN**, so it is an option, logged in DECISIONS.
-- **`dice`:** `'live'` (the default) or `'ahead'` (see [Dice and pace](#dice-and-pace)).
+- **`submit`:** `'optional'` (the default) or `'required'`. The source book phrases entering a room as an instruction to make a suggestion at once, yet elsewhere says that a player may make a suggestion and then an accusation in one turn, and limits a player to one suggestion per entry. Whether a submission is required is therefore **OPEN**, so it is an option, logged in DECISIONS. The New table form offers it as "Submissions on entering a room": Optional or Required. Under `'required'` a seat that entered a room must submit there or indict; it cannot end its turn first.
+- **Dice:** always live (see [Dice and pace](#dice-and-pace)). The design also described `dice: 'ahead'`, an asynchronous adaptation; it is not built (D078). The rules object is therefore `{submit: 'optional' | 'required'}` and nothing else.
 - **Two players:** not offered. The 2002 book is for 3 to 6 players, so a two-player variant stays **OPEN**, as Chain Reaction's does.
 
 ## Platform rules
@@ -262,7 +263,7 @@ These are platform necessities, not published rules (D015, D016).
 - **P2 The deal.** From the first seat: 3 seats 6, 6, 6; 4 seats 5, 5, 4, 4; 5 seats 4, 4, 4, 3, 3; 6 seats 3 each.
 - **P3 Exhibits.** Six different rooms are drawn from the jointly shuffled public setup, as Luster's first player is, one room for each Exhibit. No seat can choose them.
 - **P4 Shortfall.** A Party moves the whole roll, or enters a room on the way, which ends the move. If neither is possible, it moves along the longest legal path, possibly no squares at all, and any path of that greatest length is accepted. The published rules are silent; "as far as it can" is read as the greatest distance, not as "until a dead end".
-- **P5 Trapped.** A Party that cannot move passes its move. It may still indict, or submit if another Party's submission has moved it.
+- **P5 Trapped.** A Party whose pawn has no free first step is offered `stay` instead of `roll` at the start of its turn, and staying passes its move. It may still indict, take a passage from a corner room, or submit if another Party's submission has moved it. After a roll a free first step is itself a legal path, so P4 always leaves at least one destination.
 - **P6 Last standing.** The engine declares the last undismissed seat the winner (D015: games end only by declaration).
 - **P7 Result.** A winner is place 1 with score 1; every other seat shares place 2 with score 0.
 
@@ -271,53 +272,88 @@ These are platform necessities, not published rules (D015, D016).
 ### What is hidden
 | Hidden thing | Who may know | Platform mechanism |
 |---|---|---|
-| The Verdict (1 Party, 1 Exhibit, 1 Scene) | nobody, until an indicting seat reads it | One deck in three groups (6 / 6 / 9) (`DeckSpec.partitions`). The first card of each group is the Verdict and is never dealt. An indictment deals those three positions to the indicting seat, so only that seat can decrypt them. A second indictment, after a wrong one, deals them again, to the next indicting seat: the first indicter seals its share to that seat (PROTOCOL §4.10). |
-| Hands | the holder (sizes are public) | the standard deal at setup |
-| The Exhibits' starting rooms | everyone | a fourth group of 9 cards (one per room) in the same deck, revealed publicly at setup; the first 6 name the rooms (P3) |
-| A card shown in a rebuttal | the shower and the submitter | Right of Way's sealed share (PROTOCOL §4.10): the shower seals its share of that card to the submitter |
+| The Verdict (1 Party, 1 Exhibit, 1 Scene) | nobody, until an indicting seat reads it | One deck, `case`, of 30 cards in four groups shuffled apart (`DeckSpec.partitions`, PROTOCOL §5.5): Parties (6), Exhibits (6), Scenes (9) and room cards (9). The first position of each of the first three groups (0, 6 and 12) is the Verdict and is dealt to no seat at setup, so it always holds one card of each kind. An indictment deals those three positions to the indicting seat alone (see [Resolving an indictment](#resolving-an-indictment)). |
+| Hands | the holder (sizes are public) | the 18 other positions of the first three groups, dealt at setup from the first seat in the P2 counts. Every other seat publishes its share of a hand position in the deal; the holder never publishes its own in play |
+| How many Parties, Exhibits and Scenes a hand holds | the holder | the **second shuffle round** (D076, PROTOCOL §5.5): once every seat has shuffled the four groups, every seat shuffles the 18 hand positions together (`DeckSpec.secondRound`, one group `mix`), so a position no longer shows its card's kind. The round never touches the Verdict's positions |
+| The Exhibits' starting rooms | everyone | the room cards' group, in the same deck: positions 21–26 are revealed publicly at setup and name the six rooms (P3); positions 27–29 are never dealt |
+| A card shown in a rebuttal, and its position | the shower and the submitter | a **private show** (D077, PROTOCOL §14): the shower's share of the card rides on its own `show` move, inside a packet that only the shower and the submitter can open. The move names neither the card nor its position, and two shows of one card cannot be told from shows of two cards |
 | "I hold none of those three" | public claim | audited at the end, like Chain Reaction's `skipPlace` |
-| The indictment's outcome | the indicting seat, then everyone | claimed by that seat and audited, so a false win is caught at the end audit |
-| Dice | public | Bank's key-committed beacon (D058), combined with the deck as "Deck plus dice" below says |
+| The indictment's outcome | the indicting seat, then everyone | claimed by that seat's `verdict` and audited, so a false claim is caught at the end audit |
+| Dice | public | Bank's key-committed beacon (D058), beside the deck as "Deck plus dice" below says |
 
 ### Resolving an indictment
-After the indictment the engine asks each other seat, in turn, for one `attend` move. Each carries that seat's owed shares for the Verdict positions (PROTOCOL §6.2). The indicting seat then decrypts the three cards and publishes `verdict` (upheld or dismissed). The cost is n − 1 asynchronous hops for each indictment.
+An indictment deals the three Verdict positions to the indicting seat (`dealt`). The deck sets `DeckSpec.promptShares` (D075), so every other seat's open app sends its shares of those positions at once, in a Shares event outside its own turn and with no click (PROTOCOL §6.2a). No seat answers in turn: the shares go out together, as soon as each app sees the indictment. The indicter's app then decrypts the three cards with its own layer and shows them to that player alone. Only then does the game offer the indicter its one answer, `verdict`, with `upheld` true or false as the cards say. A seat whose app stays closed while it owes a share stalls the indictment, and once the deadline has passed the timeout falls on that seat (PROTOCOL §8.1).
 
-The first indictment needs no prompt duty: every other seat's share of the Verdict is public once the seats have attended, and only the indicting seat holds its own. A **second indictment**, after a wrong one, deals the same three positions again, so the first indicter, although dismissed, must also seal its share of them to the new indicter (PROTOCOL §4.10), as a shower seals a shown card to the submitter. Only a seal duty can deliver that today (see build path A).
+A **second indictment**, after a wrong one, deals the same three positions again, to the new indicter. Every other seat's share of them went out at the first indictment, except the first indicter's own. The first indicter's app, although its seat is dismissed, seals that share to the new indicter in a Sealed event (PROTOCOL §4.10, the `seal` duty), as the first holder of a re-dealt charter does in Right of Way. Each later indicter gets the first indicter's sealed share the same way.
+
+An upheld verdict reveals nothing on the wire. The indictment already named the three cards to everyone, `verdict` with `upheld: true` claims that they match the Verdict, and the end audit checks that claim as it checks a dismissal (C44).
 
 ### Actions (one accepted encoding each)
-Names only; the build fixes the encodings: `roll`, `move`, `passage`, `stay` (a trapped Party's pass), `submit`, `show`, `none` (no matching card), `indict`, `attend`, `verdict`, `endTurn`. A player never sends the dice: the session derives `rolled`.
+Each action is a JSON object with exactly the keys below; `actor` is the acting seat. A player never sends the dice: the session derives `rolled`.
 
-### Where the platform cannot be exact yet
-Both gaps change who knows what, so they are recorded as platform limits, not as rules.
-1. **Hand mix is public.** A card's group is visible from its deck position, so everyone can see how many Parties, Exhibits and Scenes each seat holds. At a table only hand sizes show.
-2. **Which card was shown is visible.** A rebuttal names a deck position, so a repeated show reads as "the same card again".
+| Action | Keys | When |
+|---|---|---|
+| `roll` | `type`, `actor` | at the start of the turn, when the pawn has a free first step. It commits the roll and carries no share |
+| `contribute` | `type`, `actor`, `id` | each seat's share of roll `id`, one seat at a time from the seat after the roller round to the roller. The seat's app sends it; nobody clicks |
+| `move` | `type`, `actor`, `to` | the walk. `to` is a square name (`H3`) or a room's Scene id |
+| `passage` | `type`, `actor` | at the start of the turn, from a corner room |
+| `stay` | `type`, `actor` | at the start of the turn, when the pawn has no free first step (P5) |
+| `submit` | `type`, `actor`, `party`, `exhibit` | on entering a room, or at the start of the turn after another seat's submission moved the pawn there. The Scene is the submitter's room |
+| `show` | `type`, `actor`, `id`, `packet` | the rebuttal's private show (D077). `id` is the submission's index and `packet` the encrypted share. The asked seat's own legal list holds a marker `{type, actor, pos}` for each named card it holds; its app turns the chosen marker into this action, and `apply` never accepts a marker |
+| `none` | `type`, `actor` | the asked seat holds none of the three named cards |
+| `indict` | `type`, `actor`, `party`, `exhibit`, `scene` | at any point of the seat's own turn, once per game |
+| `verdict` | `type`, `actor`, `upheld` | the indicter's announcement, once it has read the three cards |
+| `endTurn` | `type`, `actor` | after the move, or after a submission's answers |
 
-### Build paths (the owner chooses at build time)
-- **A. Beta on today's pieces,** as Luster and Right of Way shipped. Both deviations ship documented. The seal duty is switched on by `DeckSpec.promptShares`, which any game may now set under the standing exception (D075) to D050, so a rebuttal's sealed share needs no further decision. A **second indictment** needs a sealed share too, and the same flag covers it: the first indictment needs none, but after a wrong one the Verdict positions are dealt again, and the first indicter, though dismissed, must seal its share of them to each later indicter (PROTOCOL §4.10). A first indicter who never answers stalls that later indictment (PROTOCOL §8.1 names it). A narrower rule would let a sealed share ride on its sealer's own move (the shower's `show`, the first indicter's `attend`); a Move carries no sealed shares today (PROTOCOL §4.4), so that is a protocol change, a possible design not yet checked against the session.
-- **B. Exact, with platform work.** Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) fix gap 1. Sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) fix gap 2. Room for Doubt would be the validating game for both. This needs new session and protocol code and an adversarial review.
-- **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted.
+Every client derives two more actions, which nobody sends: `{type: 'reveal', actor: 'deck', deck: 'case', pos, card}` for the room cards at setup (PROTOCOL §6.3), and `{type: 'rolled', actor: 'beacon', id, dice}` for each roll (PROTOCOL §6.3a).
 
-**Deck plus dice (every path).** Room for Doubt both deals cards and rolls dice. PROTOCOL §6.3a says that v1 has no deck id on the beacon's share store, so a game cannot do both; the one exception is Driftwrights' game-specific extension (PROTOCOL §13, D069, D070), which puts the card positions first and the roll slots after, and binds each roll to the move that requests it. A build on path A or B must reuse or generalise that extension, which is platform work in its own right.
+### How the platform keeps it exact
+The design (D074) found two gaps in what the platform could do then, and recorded them as platform limits. The owner's priority (D075) is that a game plays exactly as its rules say, so neither ships. Two opt-in platform features close them:
+1. **The hand mix.** With the groups shuffled apart, every deck position shows its card's kind. Everyone could then count the Parties, Exhibits and Scenes in each hand, where a table shows only hand sizes, and a rebuttal's position would tell which kind of card was shown. The second shuffle round (D076) mixes the 18 hand positions after the groups are shuffled. The Verdict keeps one card of each kind, because its positions are outside the round. What stays public is how many cards of each kind the 18 positions hold (5 Parties, 5 Exhibits and 8 Scenes), which a table shows too.
+2. **The shown card.** Dealt again to the submitter and sealed to it (D066), a shown card would be a public `dealt` entry naming its position. A repeated show would then read as "the same card again", and a third seat that could place the other cards might deduce it. The private show (D077) puts the shower's share inside the shower's own move, encrypted to the submitter. No event names the position, and every packet has the same length, so two shows of one card cannot be linked.
 
-**Recommendation:** A as a beta, then B; C only if dealer tables are adopted generally. Since this was written, the owner decided that every game stays on protocol 1 until the move to trusted dealers, and named the trusted-dealer proposal as the next step for hidden-information safety (D071), so path C may become the build path sooner than this recommendation assumed. The choice stays the owner's.
+What remains is what every protocol-1 game with prompt shares accepts (D071, D075): a seat that forks after reading a released value, or a shower that equivocates and shows the submitter two cards, is detected and ranked last, not prevented (PROTOCOL §11, §14).
+
+### Online play on this site
+The players' apps take the mechanical steps by themselves while the game is open in a window: a seat's dice share, its shares of the Verdict for an indicter, the first indicter's sealed share for a later one, and a forced rebuttal. A closed window stalls the step it owes. The status line names that seat, and once the deadline has passed another seat may claim a timeout (PROTOCOL §8.1). The game is slow and asynchronous: every submission waits on the answers in turn, so a game takes days.
+
+The build settled these points, the rulings of its plan (D078). Each refines how this file is played online; none changes a published rule.
+1. **Both information gaps close.** The second shuffle round (D076) hides the mix of kinds in a hand, and the private show (D077) hides which card a rebuttal showed and where it lies in the deck (see [How the platform keeps it exact](#how-the-platform-keeps-it-exact)). The owner's priority (D075) ruled out shipping either gap.
+2. **No attend move.** The design had each other seat answer an indictment with a move of its own carrying its shares of the Verdict. Instead the deck sets `promptShares` (D075): every other seat's open app sends its shares as soon as the indictment deals the Verdict, and for a second indictment the first indicter's app sends its sealed share (the `seal` duty). The indicter then announces `verdict` (see [Resolving an indictment](#resolving-an-indictment)).
+3. **An upheld verdict reveals nothing on the wire.** The indictment already names the three cards publicly, `verdict` with `upheld: true` claims that they match, and the end audit checks the claim, as it checks a dismissal.
+4. **Trapped (P5).** At the start of a turn a Party with no free first step is offered `stay` instead of `roll`. After a roll P4 always leaves at least one destination, because a free first step is a path of length 1.
+5. **Indict after rolling.** "Before it moves" includes the moment between the roll and the walk, so an indictment is legal at the start of the turn, after the roll, after the move and after a submission's answers.
+6. **No `ahead` dice.** `dice: 'ahead'` is not built. The rules object is `{submit: 'optional' | 'required'}`, and the dice are always rolled live.
+7. **Forced rebuttals.** When the asked seat has exactly one legal answer (`none`, or the one named card it holds), its app sends that answer without a click, as Right of Way's app sends a forced sift. With two or three named cards the player chooses which to show.
+8. **The spec-only guard.** `tests/catalog.test.ts` treats a game as spec only until its package has `test/catalog/`, rather than until the package exists. So the board and the movement search landed, with their own tests, before the 45 catalog tests.
+9. **The art moves into the game package.** The glyph markup lives in `packages/games/room-for-doubt/src/art.ts`, so the web game draws the same original art as `art/`. `scripts/room-for-doubt/` re-exports it, and the art test proves the SVG files unchanged.
+
+### Build paths
+- **A. Beta on today's pieces,** as Luster and Right of Way shipped. **Built (D078),** with both gaps closed on the platform (a second shuffle round, D076, and a private show, D077), so no deviation from the rules ships. The deck sets `DeckSpec.promptShares`, which any game may now set under the standing exception (D075) to D050: every other seat's open app releases its shares of the Verdict to an indicter at once. A **second indictment** needs a sealed share too, and the same flag covers it: the first indictment needs none, but after a wrong one the Verdict positions are dealt again, and the first indicter, though dismissed, seals its share of them to each later indicter (a Sealed event, PROTOCOL §4.10, the `seal` duty of its app). A first indicter whose app stays closed stalls that later indictment, and the timeout falls on it (PROTOCOL §8.1). A rebuttal needs no sealed share: the narrower rule the design considered, a share riding on its sealer's own move, is the private show, carried inside the module's own `show` action, so it needed no change to the Move format (PROTOCOL §4.4, §14).
+- **B. Exact, with platform work** (not taken). Deck epochs (an 18-card re-shuffle after the Verdict is fixed; GAME-SYSTEMS §4.1.4, roadmap #4) would have fixed gap 1, and sealed choices (a public commitment, a private opening, an audit-time check; §4.4, roadmap #9) gap 2, with new session and protocol code and an adversarial review. The build closed both gaps on path A with two smaller opt-in features instead.
+- **C. Dealer tables** (`docs/proposals/dealer-relay.md`): exact and immediate, but the dealer is trusted. Not taken.
+
+**Deck plus dice.** Room for Doubt both deals cards and rolls dice. PROTOCOL §6.3a keeps a deckless game's roll shares in the card share store, keyed by roll id; with a deck, the roll slots follow the card positions and each roll is bound to the move that requests it. That was Driftwrights' extension (D069, D070). The session applies it to any module with a deck that rolls, and PROTOCOL §13 now says so (D078). Here the card positions are 0–29 and roll `i` is wire position `30 + i`. The `roll` action is the request and carries no share; every seat then sends a `contribute` action with its share, from the seat after the roller round to the roller.
+
+**Outcome.** The design recommended A as a beta, then B, and C only if dealer tables were adopted generally. The build took A and closed both gaps on it, so B is not needed. Every game stays on protocol 1 until the move to trusted dealers (D071), and the trusted-dealer proposal stays the next step for preventing cheating rather than detecting it.
 
 ### Dice and pace
-- `live` is exact: the roll comes from every seat's key-committed beacon share, each sent by that seat's open app with no decision (a closed window stalls the roll, as in Bank).
-- `ahead` is an asynchronous adaptation (a named variant, D049): the next turn's roll is scheduled at the end of the previous turn and the others' shares ride on their moves. The cost is that a Party starting in a corner room sees the roll before choosing whether to take the passage.
+- The dice are always rolled live, and exactly: the roller's `roll` commits the roll, and every seat's open app then adds its key-committed beacon share with no decision, the roller's last. The faces appear once the last share is in. A closed window stalls the roll, as in Bank, and the status line names whose app is next.
+- `ahead`, the asynchronous adaptation the design described (a named variant, D049: the next turn's roll scheduled at the end of the previous turn, the other seats' shares riding on their moves, at the cost of a Party in a corner room seeing the roll before choosing whether to take the passage), is not built (D078). The rules object has no `dice` field.
 - Every submission also waits on responses in turn, so this is a slow asynchronous game; the catalog entry says so.
 
 ### Resign
-Resign is disabled at every seat count (`resignAllowed` false) until its D052 review, as for Luster and Right of Way.
+Resign is disabled at every seat count (`resignAllowed` false) until its D052 review, as for Luster and Right of Way. A Resign publishes the resigner's deck secret at once (PROTOCOL §8.3), which would open the resigner's hand, every private show it sent or received (PROTOCOL §14) and, once the resigner has indicted, the Verdict itself. A player who cannot go on is timed out instead.
 
 ### Catalog entry (for the build)
-`players {min: 3, max: 6, best: [4]}`, `playMinutes {min: 45, max: 90}` face to face, `weight` 1.6, `luck` 2, `genre: 'family'`, `mechanisms: ['deduction', 'dice-rolling', 'grid-movement']`, competitive, sequential, `hiddenInfo` and `randomness`, `minAge: 8`, "Compare to Clue" with BoardGameGeek 1294, art credit "Original board, card and cover art by Bored Games", CC0-1.0.
+`players {min: 3, max: 6, best: [4]}`, `playMinutes {min: 45, max: 90}` face to face, `weight` 1.6, `luck` 2, `genre: 'family'`, `mechanisms: ['deduction', 'dice-rolling', 'grid-movement']`, competitive, sequential, `hiddenInfo` and `randomness`, `minAge: 8`, "Compare to Clue" with BoardGameGeek 1294, art credit "Original board, card and cover art by Bored Games", CC0-1.0. As built (`src/catalog.ts`), the entry also has `status: 'beta'`, `typicalTurns: 60`, `bggId: null` (the game has no BoardGameGeek entry of its own) and the tags mystery, murder, courthouse and detective.
 
-### Interface notes (for the build)
-The Docket is private to the player. It records what that player has seen (their hand and the cards shown to them) and the public record of who rebutted, and leaves every deduction to the player. The game screen says who owes a rebuttal, an `attend` or a roll contribution, and when the deadline passes.
+### Interface notes
+The Docket is private to the player: a row for each of the 21 cards and a column for each seat. The app marks the player's own cards (●) and the cards shown to them (✓). Every other box is the player's to mark (✗, then ?, then blank again), and the marks stay in that browser. The public record of each submission and indictment sits below it. The Docket leaves every deduction to the player. The game screen says who owes a rebuttal, a roll contribution, a share of the Verdict or a sealed share, and when the deadline passes. On a phone, "Enlarge board" draws the board bigger inside a frame that scrolls.
 
 ## Art direction
 
-All files in `art/` are original SVG made for this project and dedicated to the public domain (CC0-1.0). `node scripts/room-for-doubt/cli.ts` draws them from `board.txt` and the tables in `scripts/room-for-doubt/data.ts`; `tests/room-for-doubt-art.test.ts` fails if a file on disk differs from what the generator draws, or uses a colour outside the palette. Text uses generic font stacks (serif and sans); the web build later chooses freely licensed fonts.
+All files in `art/` are original SVG made for this project and dedicated to the public domain (CC0-1.0). `node scripts/room-for-doubt/cli.ts` draws them from `board.txt`, the tables in `scripts/room-for-doubt/data.ts` and the 21 glyphs of `packages/games/room-for-doubt/src/art.ts`; `tests/room-for-doubt-art.test.ts` fails if a file on disk differs from what the generator draws, or uses a colour outside the palette. The glyphs live in the game package so that the web game draws the same pictures (D078). Text uses generic font stacks (serif and sans), and so does the web game, which ships no font files.
 
 | File | What |
 |---|---|
@@ -356,10 +392,10 @@ Six distinct rooms, taken from the public setup, hold one Exhibit each, identica
 Seat 0, the Prosecutor, moves first, and play then passes in seat order.
 
 #### C08 Turn shape
-A turn is a movement (or its alternative), then a submission if the Party is entitled to one, then the end. An indictment may come at any point and ends the turn. Nothing is accepted out of turn.
+A turn is a movement (or its alternative), then a submission if the Party is entitled to one, then the end. An indictment may come at any point and ends the turn. Nothing is accepted out of turn, apart from a rebuttal and a seat's share of the dice.
 
 #### C09 Roll
-Two dice are rolled and the total is 2 to 12. A player never sends the dice.
+Two dice are rolled, from every seat's share in turn, and the total is 2 to 12. A player never sends the dice.
 
 #### C10 Orthogonal movement
 Movement is one orthogonal step at a time, never diagonal.
@@ -374,7 +410,7 @@ A square may not be entered twice in one turn.
 A door is passed in one step between its doorstep and the room. The doorway is not a square.
 
 #### C14 Blocked doors
-A door whose doorstep holds a pawn cannot be used, in either direction.
+A door whose doorstep holds another pawn cannot be used, in either direction. A pawn on a doorstep never blocks that door for itself.
 
 #### C15 Room entry
 Entering a room ends the move, whatever part of the roll remains.
@@ -386,7 +422,7 @@ A Party may not enter a room that it left earlier in the same turn.
 From a corner room, at the start of a turn and instead of rolling, a Party moves to the opposite corner room (Judge's Chambers to Evidence Store, Belfry to Holding Cells) and counts as having entered it.
 
 #### C18 Trapped
-A Party with no legal move passes its move. It may still submit if it has been moved into a room, or indict.
+A Party whose pawn has no free first step cannot roll: it stays, which passes its move (P5). It may still submit if it has been moved into a room, take a passage from a corner room, or indict.
 
 #### C19 Roll shortfall
 If no path of the full roll exists and no shorter path ends in a room, the Party moves along the longest legal path (P4), which may be none, and any path of that greatest length is accepted.
@@ -425,16 +461,16 @@ A seat holding none of them says so (`none`), and the next seat is asked.
 If every other seat passes, the submission stands, and the submitter may end the turn or indict.
 
 #### C31 Rebuttal privacy
-Only the submitter learns which card was shown. Every seat sees that one was shown, and by whom.
+Only the submitter learns which card was shown. Every seat sees that one was shown, and by whom. No seat but the shower and the submitter, and no spectator, learns the card or its deck position (D077).
 
 #### C32 Indict timing
-A seat that is not dismissed may indict at any point of its own turn.
+A seat that is not dismissed may indict at any point of its own turn, between its roll and its walk included.
 
 #### C33 Indict once
 A seat may indict once per game. A second indictment is rejected.
 
 #### C34 The Verdict check
-An indictment names any Party, any Exhibit and any Scene. Only the indicting seat can read the Verdict, and only after every other seat has attended.
+An indictment names any Party, any Exhibit and any Scene, and deals the Verdict's three positions to the indicting seat. Only that seat can read the Verdict, and only once every other seat's share of it has arrived (after a wrong indictment, the first indicter's share comes sealed to the new indicter).
 
 #### C35 Upheld
 An indictment that matches all three cards ends the game, and the indicting seat wins.
@@ -443,7 +479,7 @@ An indictment that matches all three cards ends the game, and the indicting seat
 Any mismatch dismisses the seat: it may not move, submit or indict, and the Verdict stays sealed to everyone else.
 
 #### C37 A dismissed seat's duties
-A dismissed seat still rebuts and attends, and its pawn can still be named.
+A dismissed seat still rebuts, it still adds its share to every roll, and its pawn can still be named.
 
 #### C38 A pawn blocking a door
 A dismissed Party's pawn standing on a doorstep moves into that door's room at once.
@@ -464,7 +500,7 @@ Malformed, out-of-turn or illegal actions are rejected without changing the stat
 Replaying the same actions from the same setup gives the same state for every seat and every spectator.
 
 #### C44 Audit of hidden claims
-At the end, every `none`, every shown card and the indictment's outcome is checked against the decrypted hands and the Verdict. A false claim fails its seat.
+At the end, every `none`, every shown card and every indictment's announced outcome is checked against the decrypted hands and the Verdict. A false claim fails its seat.
 
 #### C45 Games end
 Every game ends by an upheld indictment or by the last seat standing. A game in which no seat ever indicts is a policy bug, not a rules gap (D015).
