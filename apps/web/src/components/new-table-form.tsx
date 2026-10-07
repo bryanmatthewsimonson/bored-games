@@ -7,6 +7,7 @@ import {
   validateRules as validateLusterRules,
 } from '@bored-games/luster';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
+import { type RfdRules, DEFAULT_RULES as ROOM_FOR_DOUBT_DEFAULT_RULES } from '@bored-games/room-for-doubt';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
@@ -17,6 +18,12 @@ import { checkNewTable, DEADLINE_CHOICES, seatOptions } from '../lobby-model.ts'
 import { tableHref } from '../router.ts';
 import { requestPersistenceOnce, storageManager } from '../storage.ts';
 import { CopyPageKey, JoinBackup } from './join-backup.tsx';
+
+/** Room for Doubt's table option (D078): whether a player who enters a room must make a submission there. */
+export const SUBMIT_CHOICES: readonly { readonly value: RfdRules['submit']; readonly label: string }[] = [
+  { value: 'optional', label: 'Optional' },
+  { value: 'required', label: 'Required' },
+];
 
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
@@ -39,11 +46,13 @@ export function NewTableForm(props: { game: string }) {
   const [banking, setBanking] = useState<(typeof BANKING_CHOICES)[number]>(DEFAULT_RULES.banking);
   const [gems, setGems] = useState<LusterGemRule>(LUSTER_DEFAULT_RULES.gems ?? 'published');
   const [windfall, setWindfall] = useState<'available' | 'two'>('available');
+  const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
     setGems(LUSTER_DEFAULT_RULES.gems ?? 'published');
     setWindfall('available');
+    setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -84,6 +93,12 @@ export function NewTableForm(props: { game: string }) {
       const spec = { seats, deadline, invited: check.invited, game };
       if (game === 'driftwrights') {
         const address = await lobby.createTable({ ...spec, rules: { layout: 'classic', windfall } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'room-for-doubt') {
+        const address = await lobby.createTable({ ...spec, rules: { submit: submitRule } });
         const a = splitAddress(address);
         if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
         return;
@@ -240,6 +255,31 @@ export function NewTableForm(props: { game: string }) {
               {choice === 'available' ? 'Take whatever remains' : 'Require two available supplies'}
             </label>
           ))}
+        </fieldset>
+      )}
+
+      {game === 'room-for-doubt' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Submissions on entering a room</legend>
+          <div class="radio-row">
+            {SUBMIT_CHOICES.map((choice) => (
+              <label key={choice.value} class="radio">
+                <input
+                  type="radio"
+                  name="submissions"
+                  value={choice.value}
+                  checked={submitRule === choice.value}
+                  onChange={() => setSubmitRule(choice.value)}
+                />
+                {choice.label}
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            The published rules do not settle whether entering a room obliges a player to make a submission.
+            The table names which: with Optional it is the player's choice, and with Required a player who
+            enters a room must submit there, or indict, before ending the turn.
+          </p>
         </fieldset>
       )}
 

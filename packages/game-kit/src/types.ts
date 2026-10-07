@@ -31,16 +31,38 @@ export interface DeckSpec {
   readonly size: number;
   /** Optional contiguous groups shuffled independently; their sizes sum to `size`. */
   readonly partitions?: readonly { readonly id: string; readonly size: number }[];
+  /**
+   * Optional second shuffle round (D076, PROTOCOL §5.5): groups of positions that every seat shuffles together,
+   * after every seat has shuffled every first-round group (the `partitions`, or the whole deck). The groups may
+   * mix cards of different partitions. A position outside every group keeps a card of its own partition, so its
+   * kind stays public while the kinds of the mixed positions do not.
+   *
+   * Valid only if: it holds 1 to 16 groups; every `id` is a non-empty string, distinct from the others and from
+   * every partition id; every group's `positions` are safe integers in `[0, size)`, strictly ascending, at least
+   * 2 of them; and the groups share no position. The session refuses a deck that is not valid. Each group's
+   * proof domain is `<deck id>/<group id>`. `packetOrder` draws a deck order the rounds can produce and
+   * `packetOrderFits` says whether an order is one.
+   */
+  readonly secondRound?: readonly { readonly id: string; readonly positions: readonly number[] }[];
   /** Explicit release-policy opt-in; defaults off. Authorized per game in the owner decision log. */
   readonly promptShares?: boolean;
 }
 
-/** A card identity at a deck position, known privately by one viewer. */
+/**
+ * A card identity at a deck position, known privately by one viewer. `deck` may also be `SHOW_DECK`: a private
+ * show's card (D077, PROTOCOL §14), whose `pos` is then the show's id, not a deck position.
+ */
 export interface Learn {
   readonly deck: string;
   readonly pos: number;
   readonly card: number;
 }
+
+/**
+ * The pseudo-deck of a private show's learn (D077, PROTOCOL §14): `{deck: SHOW_DECK, pos: <show id>, card}`. It is
+ * never a real deck's id.
+ */
+export const SHOW_DECK = 'shown';
 
 /**
  * A deck position assigned so far. `to` is the seat that owns the card (it
@@ -140,6 +162,17 @@ export interface PrivateSelection {
   /** Sorted labels, one per card. Null when this viewer cannot see the sender's hand. */
   readonly labels: readonly number[] | null;
 }
+
+/**
+ * A private show (D077, PROTOCOL §14): seat `from` is deciding whether to show seat `to` one card it holds, and
+ * nobody else may learn the card or its deck position. `id` names the show; a module never reuses it.
+ */
+export interface PrivateShow {
+  readonly id: number;
+  readonly from: Seat;
+  readonly to: Seat;
+}
+
 export interface GameModule<S, E extends { readonly type: string }, R> {
   /** Permanent internal id; appears in network events. Never user-facing. */
   readonly id: string;
@@ -150,6 +183,21 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   validateIntent?(state: S, seat: Seat, action: unknown): Result<unknown>;
   /** Optional private transfer, fixed by a completed public random selection. */
   privateSelection?(state: S): PrivateSelection | null;
+  /**
+   * Optional private show (D077, PROTOCOL §14): non-null while seat `from` is deciding whether to show seat `to` a
+   * card. Meanwhile:
+   * - `legalActions(state, from)` holds a marker `{type: 'show', actor: from, pos}` for each deck position `from`
+   *   holds and may show (and any other answers the rules allow). The type `show` is reserved for this: a legal
+   *   action of type `show` with a `pos` key is a marker.
+   * - The session turns the chosen marker into the wire `{type: 'show', actor: from, id, packet}`, exactly those
+   *   keys, whose packet only `from` and `to` can open. `apply` accepts only the wire, never a marker, and
+   *   `revealsOf` of the wire is `[]`.
+   * - After the wire's `apply`, the session calls `learn` with `{deck: SHOW_DECK, pos: id, card}` in the views of
+   *   `from` and `to`, and the audit in full mode, where the module checks that the card may be shown and is held.
+   * The module's duties: `view` keeps a shown card only for `from` and `to`, `knownTo` never lists it, and `dealt`
+   * does not change when a card is shown.
+   */
+  privateShow?(state: S): PrivateShow | null;
   /** Optional dice shape; legacy games use two six-sided dice. */
   rollShape?(state: S): { readonly count: number; readonly sides: number };
   defaultRules(): R;
@@ -162,17 +210,24 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   /**
    * Legal finite choices for `seat`; parameterized forms may add choices through validateIntent.
    * Exact whenever the seat's hidden cards are known to `state` (always in full mode), except private
-   * delivery markers that the session materializes before apply. It must return [] whenever the
-   * legality of any action it would list depends on hidden cards the seat has
+   * delivery markers that the session materializes before apply: a private selection's `transfer`, and the
+   * `show` markers `{type: 'show', actor, pos}` it may list while `privateShow` is set (D077). It must return []
+   * whenever the legality of any action it would list depends on hidden cards the seat has
    * not learned, so a non-empty list is always exact: a live client offers a
    * decision as soon as the list is non-empty (D030).
    */
   legalActions(state: S, seat: Seat): readonly unknown[];
   /** Validates and applies any input. Never throws, never mutates `state`. */
   apply(state: S, action: unknown): ApplyResult<S, E>;
-  /** Records a privately learned card (view mode). */
+  /**
+   * Records a privately learned card (view mode). A private selection's card and a private show's
+   * (`SHOW_DECK`, D077) are also learned in full mode, as the audit learns them.
+   */
   learn(state: S, learn: Learn): ApplyResult<S, E>;
-  /** Everything `seat` privately knows in a full state, as learn records. */
+  /**
+   * Everything `seat` privately knows in a full state, as learn records. Never a `SHOW_DECK` learn: the session
+   * delivers a shown card itself, after the show's `apply` (D077).
+   */
   knownTo(state: S, seat: Seat): readonly Learn[];
   /** Redacts a full state to what `viewer` may know (null = spectator). */
   view(state: S, viewer: Seat | null): S;

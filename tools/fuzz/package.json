@@ -17,6 +17,7 @@
     "@bored-games/game-kit": "workspace:*",
     "@bored-games/holler": "workspace:*",
     "@bored-games/luster": "workspace:*",
-    "@bored-games/right-of-way": "workspace:*"
+    "@bored-games/right-of-way": "workspace:*",
+    "@bored-games/room-for-doubt": "workspace:*"
   }
 }

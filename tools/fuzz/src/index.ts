@@ -6,6 +6,7 @@ import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-game
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import { rightOfWay } from '@bored-games/right-of-way';
+import { roomForDoubt } from '@bored-games/room-for-doubt';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
   CHAIN_REACTION_EXPECTED_COVERAGE,
@@ -21,6 +22,12 @@ import {
   RIGHT_OF_WAY_POLICIES,
   rightOfWayDeckOrder,
 } from './right-of-way.ts';
+import {
+  ROOM_FOR_DOUBT_EXPECTED_COVERAGE,
+  ROOM_FOR_DOUBT_POLICIES,
+  ROOM_FOR_DOUBT_SIM_DEADLINE,
+  roomForDoubtDeckOrder,
+} from './room-for-doubt.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
 export interface FuzzTarget {
@@ -33,6 +40,8 @@ export interface FuzzTarget {
   /** Outcomes that must never happen; each one is reported as a bug. */
   readonly checkOutcome?: (outcome: Outcome) => string | null;
   readonly defaultSeatCounts: readonly number[];
+  /** The move deadline `pnpm sim` gives this game's tables, in seconds; the sim's own default is one day. */
+  readonly simDeadline?: number;
 }
 
 export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
@@ -80,6 +89,14 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     policies: HOLLER_POLICIES,
     expectedCoverage: HOLLER_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 4, 10],
+  },
+  'room-for-doubt': {
+    module: roomForDoubt,
+    deckOrder: roomForDoubtDeckOrder,
+    policies: ROOM_FOR_DOUBT_POLICIES,
+    expectedCoverage: ROOM_FOR_DOUBT_EXPECTED_COVERAGE,
+    defaultSeatCounts: [3, 4, 5, 6],
+    simDeadline: ROOM_FOR_DOUBT_SIM_DEADLINE,
   },
 };
 

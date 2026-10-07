@@ -51,6 +51,8 @@ A game is a deterministic state machine. Its full contract is `GameModule` in `p
 | `standings(state)` | Per-seat scores as if the game ended now, from public data only, so every view agrees. Equals `outcome.scores` at the end. Ranks the remaining seats after a forfeit (PROTOCOL §8.2). Chain Reaction: final scoring on a copy. |
 | `dealt(state)` | Every deck position assigned so far, `{deck, pos, to}` in assignment order, with `to` a seat or `null` for a public position. Entries never change or disappear. Identical in full mode and every view; the protocol derives owed shares from it (PROTOCOL §6.1, §6.2). |
 | `revealsOf(state, action)` | The hidden cards an action shows from its actor's hand, as `{deck, pos, card}` claims, which the protocol checks against reveal shares. `[]` for anything else, including unparseable input. Never throws. Chain Reaction: a placed tile, or each discarded tile. |
+| `privateSelection(state)` | Optional. A private transfer fixed by a completed public random selection: seat `from` delivers the selected card of its hand to seat `to` in packets only those two can open, checked by the audit (Driftwrights' supplies, D070, PROTOCOL §13). |
+| `privateShow(state)` | Optional. Seat `from` is deciding whether to show seat `to` a card: its legal list holds markers, its move carries its share encrypted to `to`, and nobody else learns the card or its position (Room for Doubt's rebuttal, D077, PROTOCOL §14). |
 | `invariants(state)`, `coverage(state, events)` | Used by the fuzzer and tests. |
 
 **Event sourcing.** The public log is the ordered list of actions, and state is a fold over it. A seat's view is a fold over the public log plus that seat's private `learn` records. Replays must reproduce identical state; the fuzzer checks this for full states and for every seat's view after every action. After every action it also checks `standings`, `dealt` and `revealsOf` against the deck order and every view.
@@ -138,7 +140,7 @@ Event kinds are chosen in Phase 2 after checking the NIPs registry, avoiding 300
 
 ## More than one game (D045)
 
-- **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the seat count with a deck, else 0) marks where game actions start.
+- **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the length of the shuffle schedule, PROTOCOL §5.5: the seat count for a plain deck, groups times seats for a partitioned one, a second round adding its groups times seats, and 0 without a deck) marks where game actions start.
 - **Web registry.** `apps/web/src/games/registry.ts` lists every hosted game: names (`meta.ts`, from the game's theme), the in-game component (`GameViewProps`), the rules page (`#/rules/<gameId>`) and the setup copy. `screens/game.tsx` is generic: the setup progress, the chrome every game shares (notices, final places, attestations, Resign) and the table's game component.
 - **Tools.** The fuzzer and the sim take `--game`; one meta-test checks the rules catalog of every `docs/games/*/RULES.md`.
 

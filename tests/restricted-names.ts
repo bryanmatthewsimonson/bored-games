@@ -3,26 +3,32 @@
  * repo guard (repo-guards.test.ts) over the sources outside `licensed/` and `docs/`, and the public build scan
  * (public-build.test.ts, `pnpm scan:dist`) over the built files.
  *
- * Two kinds of term:
+ * Three kinds of term:
  * - the fixed list below (each reference game's name, its designer's, and for Chain Reaction its published
- *   editions' chain names; for Luster and Right of Way, also its publisher's), matched case-insensitively anywhere
- *   inside a word, so `cr-chain-x`, `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that
- *   contain one (Preact's `hydrate`) are allowed;
+ *   editions' chain names; for Luster and Right of Way, also its publisher's; for Room for Doubt, its reference
+ *   game's old title, publishers, designer, victim and the suspects' full names, each in its spaced, joined,
+ *   hyphenated and underscored forms), matched case-insensitively anywhere inside a word, so `cr-chain-x`,
+ *   `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's `hydrate`) are
+ *   allowed;
+ * - the exact-case words (`RESTRICTED_EXACT_WORDS`, D074): Room for Doubt's reference title is an everyday English
+ *   word, so only the whole word `Clue` or `CLUE` is restricted, and `clue`, `clues` and `ClueAction` pass (a
+ *   Hanabi engine will use clues);
  * - every name and text string of every licensed pack (`licensedPackStrings`): title, aliases, tagline, summary
  *   and chain names, matched case-insensitively as whole words or phrases. A new alias or a new pack is covered
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053, D060, D066): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title, as a store
- * brand says it; one per game that has one) are cut out of the text before both matchers run, so `findRestricted` and everything built on it (the
- * repo guard, the public build scan and `pnpm scan:dist`) let them through. Only the whole phrase, spelled exactly:
- * the title alone, in another case or inside another word is still caught.
+ * One exception (D053, D060, D066, D078): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
+ * as a store brand says it; one per game that has one) are cut out of the text before both matchers run, so
+ * `findRestricted` and everything built on it (the repo guard, the public build scan and `pnpm scan:dist`) let them
+ * through. Only the whole phrase, spelled exactly: the title alone, in another case or inside another word is still
+ * caught.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const RESTRICTED_NAMES: readonly string[] = [
+const FIXED_NAMES: readonly string[] = [
   'Acquire',
   'Sackson',
   'Tower',
@@ -69,6 +75,47 @@ export const RESTRICTED_NAMES: readonly string[] = [
   'Alan_Moon',
 ];
 
+/**
+ * The spaced, joined, hyphenated and underscored forms of `name`, with and without its periods ("Mrs. White" gives
+ * "Mrs. White", "Mrs White", "MrsWhite", "Mrs-White" and "Mrs_White"), each once. A single word gives itself.
+ */
+export function nameForms(name: string): string[] {
+  const words = name.split(/\s+/).map((w) => w.replaceAll('.', ''));
+  return [...new Set([name, words.join(' '), words.join(''), words.join('-'), words.join('_')])];
+}
+
+/** Room for Doubt's reference game (D074): its old title, publishers, designer, victim and the suspects' full names. */
+const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
+  'Cluedo',
+  'Hasbro',
+  'Parker Brothers',
+  'Waddington',
+  'Anthony Pratt',
+  'Anthony E. Pratt',
+  'Tudor Mansion',
+  'Boddy',
+  'Colonel Mustard',
+  'Miss Scarlett',
+  'Miss Scarlet',
+  'Professor Plum',
+  'Mrs. Peacock',
+  'Mrs. White',
+  'Mr. Green',
+  'Reverend Green',
+  'Dr. Orchid',
+];
+
+export const RESTRICTED_NAMES: readonly string[] = [
+  ...FIXED_NAMES,
+  ...ROOM_FOR_DOUBT_REFERENCE.flatMap(nameForms),
+];
+
+/**
+ * Words restricted only as a whole word in exactly this case (D074, spec §8): Room for Doubt's reference title is
+ * an everyday English word, so lowercase `clue`, `clues` and `ClueAction` are not restricted.
+ */
+export const RESTRICTED_EXACT_WORDS: readonly string[] = ['Clue', 'CLUE'];
+
 /** Ordinary words that contain a restricted name (lower case). Keep this short: each entry is a hole. */
 export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
   'hydrate',
@@ -79,15 +126,17 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066), case-sensitive:
- * one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which a guard test
- * checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's compare phrase
- * is not here: its reference title is not on the restricted list (D072). A whole-word scan covers that package.
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078),
+ * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
+ * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's
+ * compare phrase is not here: its reference title is not on the restricted list (D072). A whole-word scan covers
+ * that package.
  */
 export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/chain-reaction/src/compare.ts': 'Compare to Acquire',
   'packages/games/luster/src/compare.ts': 'Compare to Splendor',
   'packages/games/right-of-way/src/compare.ts': 'Compare to Ticket to Ride',
+  'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */
@@ -125,6 +174,15 @@ export function restrictedIn(text: string): string[] {
   return [...out];
 }
 
+/** The exact-case words (RESTRICTED_EXACT_WORDS) that `text` holds as whole words, each once. */
+export function exactWordsIn(text: string): string[] {
+  const re = new RegExp(
+    `(?<![A-Za-z0-9_])(?:${RESTRICTED_EXACT_WORDS.map(escapeRegExp).join('|')})(?![A-Za-z0-9_])`,
+    'g',
+  );
+  return [...new Set([...text.matchAll(re)].map((m) => m[0]))];
+}
+
 /** The licensed strings `text` holds, each matched case-insensitively as a whole word or phrase. */
 export function licensedIn(text: string, strings: readonly string[]): string[] {
   return strings.filter((s) =>
@@ -133,12 +191,12 @@ export function licensedIn(text: string, strings: readonly string[]): string[] {
 }
 
 /**
- * Everything restricted in `text`: names from the fixed list and licensed pack strings, once the allowed phrases
- * are cut out. Every scan goes through here.
+ * Everything restricted in `text`: names from the fixed list, exact-case words and licensed pack strings, once the
+ * allowed phrases are cut out. Every scan goes through here.
  */
 export function findRestricted(text: string, strings: readonly string[]): string[] {
   const t = withoutAllowedPhrases(text);
-  return [...new Set([...restrictedIn(t), ...licensedIn(t, strings)])];
+  return [...new Set([...restrictedIn(t), ...exactWordsIn(t), ...licensedIn(t, strings)])];
 }
 
 const SKIP = new Set(['node_modules', 'dist', 'dist-e2e', 'test-results', 'playwright-report', 'coverage']);

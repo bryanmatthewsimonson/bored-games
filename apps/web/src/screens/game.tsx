@@ -1,8 +1,8 @@
 /*
  * The Game route (#/g/<rootId>): one GameController for the life of the screen. The screen is generic (D045): it
  * shows the setup progress, the chrome every game shares (warnings, the result line, Resign) and dispatches the
- * play area to the registry's component for the table's game. The controller performs the automatic duties; the
- * player's decisions go to `act`.
+ * play area to the registry's component for the table's game. The controller performs the automatic duties, and the
+ * game's automatic move where the registry gives one (`autoMove`); the player's decisions go to `act`.
  */
 import type { SessionView } from '@bored-games/client';
 import type { ComponentChildren } from 'preact';
@@ -163,15 +163,23 @@ function lockedReason(status: GameStatus): string {
   return 'It is not your decision right now.';
 }
 
-/** The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). */
+/**
+ * The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). A
+ * deck with a second shuffle round (D076) is worded by round: "Shuffling the deck (round 2 of 2): 1 of 3 players
+ * done."
+ */
 export function setupStep(view: SessionView | null, copy: SetupCopy | null): string {
   if (view === null) return 'Looking for the game on your relays…';
   if (view.phase === 'shuffle') {
+    const shuffling = copy?.shuffling ?? 'Shuffling';
+    const progress = view.shuffleProgress ?? null;
+    if (progress !== null && progress.rounds > 1)
+      return `${shuffling} (round ${progress.round} of ${progress.rounds}): ${progress.seatsDone} of ${view.seats} players done.`;
     const completed =
       view.shuffleSteps > view.seats
         ? Math.floor(view.head.seq / (view.shuffleSteps / view.seats))
         : view.head.seq;
-    return `${copy?.shuffling ?? 'Shuffling'}: ${completed} of ${view.seats} players done.`;
+    return `${shuffling}: ${completed} of ${view.seats} players done.`;
   }
   if (view.phase === 'deal') return copy?.dealing ?? 'Dealing…';
   return 'Loading the game…';
@@ -306,9 +314,15 @@ export function placesText(view: SessionView, names: readonly string[]): string 
     .join(', ');
 }
 
+/** A game's automatic move, by module id, from the registry (only Room for Doubt has one). */
+const autoMoveOf = (game: string) => webGame(game)?.autoMove;
+
 export function GameScreen(props: { rootId: string }) {
   const { deps, profile, store, signer } = useApp();
-  const ctl = useMemo(() => new GameController(props.rootId, deps), [props.rootId, deps]);
+  const ctl = useMemo(
+    () => new GameController(props.rootId, deps, { autoMove: autoMoveOf }),
+    [props.rootId, deps],
+  );
   useEffect(() => {
     ctl.start();
     return () => ctl.dispose();

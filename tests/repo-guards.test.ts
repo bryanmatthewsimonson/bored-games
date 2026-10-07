@@ -14,6 +14,8 @@ import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
 import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog.ts';
 import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
+import { ROOM_FOR_DOUBT_CATALOG } from '../packages/games/room-for-doubt/src/catalog.ts';
+import * as ROOM_FOR_DOUBT_COMPARE from '../packages/games/room-for-doubt/src/compare.ts';
 import {
   ALLOWED_PHRASE_HOMES,
   ALLOWED_PHRASES,
@@ -95,24 +97,19 @@ describe('engine purity', () => {
   }
 });
 
-describe('promptShares (D050, D059 item 8, D066)', () => {
-  // The automatic share duty in play is an owner-authorized exception for Luster and Right of Way only. Outside
-  // the type that declares the flag and the session that reads it, only their deck specs may name it, so no other
-  // game can switch it on, registered in the web app or not (apps/web/test/prompt-shares.test.ts checks the modules).
-  const ALLOWED = [
-    'packages/game-kit/src/types.ts',
-    'packages/client/src/session.ts',
-    'packages/games/luster/src/transport.ts',
-    'packages/games/right-of-way/src/module.ts',
-    'packages/games/driftwrights/src/module.ts',
-  ];
-  it('is named only by the type, the session, Luster and Right of Way in any package source', () => {
+describe('promptShares (D050, D075)', () => {
+  // Any game may switch on the automatic share and seal duties in play: a standing exception to D050 (D075). Outside
+  // the type that declares the flag and the session that reads it, only game modules may name it, so no shared code
+  // can switch it on for every game (apps/web/test/prompt-shares.test.ts records which registered games set it).
+  const CORE = ['packages/game-kit/src/types.ts', 'packages/client/src/session.ts'];
+  const GAME_SOURCE = /^packages\/games\/[^/]+\/src\//;
+  it('is named only by the type, the session and game modules in any package source', () => {
     const named = srcDirs()
       .flatMap((d) => files(d, /\.(ts|tsx)$/))
       .filter((f) => /\bpromptShares\b/.test(stripComments(readFileSync(f, 'utf8'))))
-      .map((f) => relative(root, f))
-      .sort();
-    expect(named).toEqual([...ALLOWED].sort());
+      .map((f) => relative(root, f));
+    for (const f of CORE) expect(named, f).toContain(f);
+    expect(named.filter((f) => !CORE.includes(f) && !GAME_SOURCE.test(f))).toEqual([]);
   });
 });
 
@@ -212,7 +209,86 @@ describe('branding', () => {
     expect(findRestricted('Right of Way: a ticket, a ride, days of play', [])).toEqual([]);
   });
 
-  describe('the allowed phrases (D053, D060)', () => {
+  it("catches Room for Doubt's reference publisher, designer, victim and suspects as commonly written (D074)", () => {
+    for (const text of [
+      'Cluedo',
+      'CLUEDO',
+      'cluedo-rules',
+      'ClueDoBoard',
+      'Hasbro',
+      'by hasbro games',
+      'Parker Brothers',
+      'parker-brothers',
+      'ParkerBrothers',
+      'parker_brothers',
+      'Waddingtons',
+      'waddington',
+      'Anthony Pratt',
+      'AnthonyPratt',
+      'Anthony E. Pratt',
+      'anthony-e-pratt',
+      'Tudor Mansion',
+      'tudor_mansion',
+      'Mr. Boddy',
+      'boddy',
+      'Colonel Mustard',
+      'COLONEL MUSTARD',
+      'colonel_mustard',
+      'ColonelMustard',
+      'Miss Scarlett',
+      'Miss Scarlet',
+      'miss-scarlett',
+      'Professor Plum',
+      'professorPlum',
+      'Mrs. Peacock',
+      'Mrs Peacock',
+      'MrsPeacock',
+      'Mrs. White',
+      'Mrs White',
+      'mrs_white',
+      'Mr. Green',
+      'Mr Green',
+      'MrGreen',
+      'Reverend Green',
+      'reverend-green',
+      'Dr. Orchid',
+      'dr_orchid',
+    ])
+      expect(findRestricted(text, []), text).not.toEqual([]);
+  });
+
+  it('restricts the bare title only as an exact-case whole word (D074)', () => {
+    for (const [text, found] of [
+      ['Clue', 'Clue'],
+      ['CLUE', 'CLUE'],
+      ['a Clue board', 'Clue'],
+      ['"Clue"', 'Clue'],
+      ['Clue.', 'Clue'],
+      ['Clue-style', 'Clue'],
+      ['Clue’s', 'Clue'],
+    ] as const)
+      expect(findRestricted(text, []), text).toEqual([found]);
+    for (const text of [
+      'clue',
+      'clues',
+      'a clue to the bug',
+      'ClueAction',
+      'HintClue',
+      'clue_token',
+      'unclued',
+      'Clues',
+      'CLUES',
+    ])
+      expect(findRestricted(text, []), text).toEqual([]);
+  });
+
+  it('leaves ordinary colour words and other games alone (D074)', () => {
+    expect(
+      findRestricted('plum, green, white, black, peacock, mustard, scarlet; Plum cargo; Right of Way', []),
+    ).toEqual([]);
+  });
+
+  describe('the allowed phrases (D053, D060, D066, D078)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -276,6 +352,26 @@ describe('branding', () => {
           'AlanMoon',
         ],
       },
+      {
+        game: 'Room for Doubt',
+        home: 'packages/games/room-for-doubt/src/compare.ts',
+        phrase: 'Compare to Clue',
+        compare: ROOM_FOR_DOUBT_COMPARE,
+        entry: ROOM_FOR_DOUBT_CATALOG,
+        bggId: 1294,
+        companies: [
+          'Hasbro',
+          'HASBRO',
+          'Parker Brothers',
+          'parker-brothers',
+          'ParkerBrothers',
+          'Waddington',
+          'Anthony Pratt',
+          'Anthony E. Pratt',
+        ],
+        // An everyday word, restricted only as the exact-case whole words `Clue` and `CLUE` (D074).
+        exactCase: true,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -284,6 +380,7 @@ describe('branding', () => {
         'Compare to Acquire',
         'Compare to Splendor',
         'Compare to Ticket to Ride',
+        'Compare to Clue',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });
@@ -325,29 +422,47 @@ describe('branding', () => {
         expect(ALLOWED_WORDS.has(title.toLowerCase())).toBe(false);
         const upper = title.toUpperCase();
         const lower = title.toLowerCase();
-        for (const text of [
-          title,
-          lower,
-          upper,
-          `${lower}s`,
-          `re${lower}d`,
-          `${title}Rules`,
-          `cr-${lower}-x`,
-          `compare to ${title}`,
-          `Compare to ${lower}`,
-          `COMPARE TO ${upper}`,
-          `Compare  to ${title}`,
-          `Compare to ${title}d`,
-          `Compare to ${title}_x`,
-          `xCompare to ${title}`,
-          `${phrase}, the ${title} company`,
-          // An unrestricted word run into the phrase: caught only because the cut needs a word boundary.
-          `${phrase}Duel`,
-          `${phrase}-style`,
-          `${phrase}’s`,
-          `${title} Duel`,
-        ])
-          expect(findRestricted(text, strings), text).not.toEqual([]);
+        // A title on the fixed list is caught in any case and inside a word; an everyday word that is a title
+        // (`exactCase`) only as the exact-case whole word, so it stays an ordinary word in lower case (D074).
+        const caught = g.exactCase
+          ? [
+              title,
+              upper,
+              `compare to ${title}`,
+              `COMPARE TO ${upper}`,
+              `Compare  to ${title}`,
+              `xCompare to ${title}`,
+              `${phrase}, the ${title} company`,
+              `${phrase}-style`,
+              `${phrase}’s`,
+              `${title} Duel`,
+            ]
+          : [
+              title,
+              lower,
+              upper,
+              `${lower}s`,
+              `re${lower}d`,
+              `${title}Rules`,
+              `cr-${lower}-x`,
+              `compare to ${title}`,
+              `Compare to ${lower}`,
+              `COMPARE TO ${upper}`,
+              `Compare  to ${title}`,
+              `Compare to ${title}d`,
+              `Compare to ${title}_x`,
+              `xCompare to ${title}`,
+              `${phrase}, the ${title} company`,
+              // An unrestricted word run into the phrase: caught only because the cut needs a word boundary.
+              `${phrase}Duel`,
+              `${phrase}-style`,
+              `${phrase}’s`,
+              `${title} Duel`,
+            ];
+        for (const text of caught) expect(findRestricted(text, strings), text).not.toEqual([]);
+        if (g.exactCase)
+          for (const text of [lower, `${lower}s`, `${title}Action`])
+            expect(findRestricted(text, strings), text).toEqual([]);
         for (const name of g.companies) {
           expect(findRestricted(name, strings), name).not.toEqual([]);
           expect(findRestricted(`Compare to ${name}`, strings), name).not.toEqual([]);
@@ -371,6 +486,8 @@ describe('branding', () => {
       expect(findRestricted('Compare to Acquire Splendor', strings)).toEqual(['Splendor']);
       expect(findRestricted('Compare to Splendor Acquire', strings)).toEqual(['Acquire']);
       expect(findRestricted('Compare to Splendor and Compare to Acquire', strings)).toEqual([]);
+      expect(findRestricted('Compare to Clue Splendor', strings)).toEqual(['Splendor']);
+      expect(findRestricted('Compare to Splendor Clue', strings)).toEqual(['Clue']);
     });
   });
 

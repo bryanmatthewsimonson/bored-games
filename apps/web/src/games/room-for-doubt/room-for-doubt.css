@@ -1,0 +1,615 @@
+/* Room for Doubt (D078): the letterpress look of the art (RULES.md "Art direction"), its nine colours as tokens. Tints
+   are a palette colour with opacity, never a new colour. At 390 px everything wraps or scrolls inside its own frame
+   (the board, the Docket), so the page never scrolls sideways; nothing here uses overflow-x: hidden. */
+
+main:has(.rfd-game) {
+  max-width: 1180px;
+}
+
+.rfd-game,
+.rfd-card {
+  --rfd-ink: #241f2b;
+  --rfd-parchment: #f0e6d0;
+  --rfd-oxblood: #7a1f2b;
+  --rfd-brass: #b08d3a;
+  --rfd-slate: #4a5a6a;
+  --rfd-teal: #2f6f73;
+  --rfd-ochre: #c58a1f;
+  --rfd-umber: #6b4a32;
+  --rfd-ivory: #f6f1e4;
+  --rfd-serif: Georgia, "Times New Roman", Times, serif;
+}
+
+.rfd-game {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  color: var(--rfd-ink);
+}
+
+/* Head */
+.rfd-head {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rfd-status {
+  margin: 0;
+  font-family: var(--rfd-serif);
+  font-size: 1.15rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.rfd-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 0.9rem;
+  color: var(--rfd-slate);
+  overflow-wrap: anywhere;
+}
+
+/* Layout: the table, then the players beside it; one column under 860 px. */
+.rfd-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: start;
+}
+
+.rfd-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rfd-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  background: var(--rfd-ivory);
+  border: 1px solid rgb(176 141 58 / 55%);
+  border-radius: 10px;
+}
+
+.rfd-panel h3 {
+  margin: 0;
+  font-family: var(--rfd-serif);
+  font-size: 1.05rem;
+}
+
+.rfd-rebut,
+.rfd-verdict {
+  border: 2px solid var(--rfd-oxblood);
+}
+
+.rfd-note {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--rfd-slate);
+  overflow-wrap: anywhere;
+}
+
+.rfd-error {
+  margin: 0;
+  color: var(--rfd-oxblood);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* A dismissed seat's notice: its app is still needed, so it sits at the top of the main column. */
+.rfd-dismissed {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--rfd-ivory);
+  border: 2px solid var(--rfd-oxblood);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+/* Controls: every button and list at least 44 px high. */
+.rfd-game button,
+.rfd-game select,
+.rfd-indict-summary {
+  min-height: 44px;
+}
+
+.rfd-btn {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.rfd-game .rfd-primary {
+  color: var(--rfd-ivory);
+  background: var(--rfd-oxblood);
+  border-color: var(--rfd-oxblood);
+}
+
+.rfd-game .rfd-primary:hover:not(:disabled) {
+  background: var(--rfd-ink);
+  border-color: var(--rfd-ink);
+}
+
+.rfd-game button:disabled,
+.rfd-game select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.rfd-game :focus-visible {
+  outline: 3px solid var(--rfd-oxblood);
+  outline-offset: 2px;
+}
+
+.rfd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The board: it scrolls inside its frame when enlarged, never the page. */
+.rfd-board-box {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rfd-board-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.rfd-board-wrap {
+  max-width: 720px;
+  overflow: auto;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgb(36 31 43 / 30%);
+}
+
+.rfd-board {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.rfd-board-expanded {
+  min-width: 720px;
+}
+
+.rfd-target {
+  cursor: pointer;
+  animation: rfd-pulse 1.6s ease-in-out infinite;
+}
+
+.rfd-target[aria-disabled="true"] {
+  cursor: default;
+  animation: none;
+  opacity: 0.6;
+}
+
+.rfd-target:focus-visible {
+  outline: none;
+}
+
+.rfd-target:hover .rfd-target-shape,
+.rfd-target:focus-visible .rfd-target-shape {
+  fill-opacity: 0.45;
+  stroke: var(--rfd-ink);
+}
+
+@keyframes rfd-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.rfd-dice {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.rfd-die {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  background: var(--rfd-ivory);
+  border: 2px solid var(--rfd-ink);
+  border-radius: 6px;
+}
+
+/* Cards, in the art's look: a band in the card's colour, the glyph, the name. */
+.rfd-card {
+  --rfd-band: var(--rfd-slate);
+  --rfd-on-band: var(--rfd-ivory);
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  width: 104px;
+  min-height: 140px;
+  padding: 0 0 8px;
+  overflow: hidden;
+  color: var(--rfd-ink);
+  text-align: center;
+  background: var(--rfd-parchment);
+  border: 2px solid var(--rfd-ink);
+  border-radius: 10px;
+}
+
+.rfd-card-band {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  justify-self: stretch;
+  padding: 2px 8px;
+  color: var(--rfd-on-band);
+  background: var(--rfd-band);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rfd-card-glyph {
+  width: 48px;
+  height: 48px;
+  margin-top: 6px;
+}
+
+.rfd-card-name {
+  padding: 0 6px;
+  font-family: var(--rfd-serif);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.rfd-card-note {
+  padding: 0 6px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  color: var(--rfd-slate);
+  overflow-wrap: anywhere;
+}
+
+.rfd-card-back {
+  --rfd-band: var(--rfd-ink);
+  --rfd-on-band: var(--rfd-parchment);
+}
+
+.rfd-hand,
+.rfd-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rfd-answers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.rfd-answer {
+  padding: 0;
+  font: inherit;
+  background: none;
+  border: 3px solid transparent;
+  border-radius: 13px;
+  cursor: pointer;
+}
+
+.rfd-answer:hover:not(:disabled) {
+  border-color: var(--rfd-oxblood);
+}
+
+/* Forms */
+.rfd-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.rfd-field {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 160px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.rfd-field select {
+  width: 100%;
+  max-width: 100%;
+  padding: 4px 8px;
+  font: inherit;
+  font-weight: 400;
+  color: var(--rfd-ink);
+  background: #fff;
+  border: 1px solid rgb(36 31 43 / 40%);
+  border-radius: 8px;
+}
+
+/* A details element: a block, so its hidden form leaves no grid gap under the summary. */
+.rfd-indict {
+  display: block;
+}
+
+.rfd-indict-summary {
+  padding: 10px 0;
+  font-family: var(--rfd-serif);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rfd-indict form {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.rfd-confirm {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgb(122 31 43 / 8%);
+  border-left: 4px solid var(--rfd-oxblood);
+}
+
+.rfd-confirm p {
+  margin: 0;
+}
+
+/* The Docket: a grid that scrolls inside its frame if a narrow screen cannot hold it. */
+.rfd-docket-frame {
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.rfd-docket-grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.rfd-docket-grid th,
+.rfd-docket-grid td {
+  padding: 0;
+  text-align: center;
+  border-bottom: 1px solid rgb(36 31 43 / 12%);
+}
+
+.rfd-docket-grid thead th {
+  padding: 4px 2px;
+  font-size: 0.8rem;
+}
+
+.rfd-docket-grid tbody th {
+  padding: 2px 6px 2px 0;
+  text-align: left;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rfd-docket-grid .rfd-docket-group th {
+  padding: 10px 0 2px;
+  font-family: var(--rfd-serif);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rfd-docket-me {
+  color: var(--rfd-oxblood);
+}
+
+.rfd-docket-glyph {
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.rfd-cell {
+  width: 100%;
+  min-width: 34px;
+  padding: 0;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--rfd-ink);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.rfd-cell:hover {
+  background: rgb(176 141 58 / 20%);
+}
+
+.rfd-mark {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.rfd-mark-shown {
+  color: var(--rfd-oxblood);
+}
+
+.rfd-record {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.6em;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+/* Players */
+.rfd-players {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+}
+
+.rfd-player-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rfd-player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--rfd-ivory);
+  border: 1px solid rgb(176 141 58 / 55%);
+  border-radius: 10px;
+}
+
+.rfd-player-turn {
+  border: 2px solid var(--rfd-oxblood);
+}
+
+.rfd-emblem {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: var(--rfd-band);
+  border: 2px solid var(--rfd-ink);
+  border-radius: 50%;
+}
+
+.rfd-emblem img {
+  width: 26px;
+  height: 26px;
+}
+
+.rfd-player-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rfd-player-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rfd-player-name strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rfd-player-party,
+.rfd-player-facts {
+  font-size: 0.85rem;
+  color: var(--rfd-slate);
+}
+
+.rfd-monogram,
+.rfd-place {
+  font-weight: 700;
+  color: var(--rfd-ink);
+}
+
+/* The rules page (#/rules/room-for-doubt): the sample cards, the table of seats and the board's picture. The page's
+   own list rules (rules.css) pad a list and space its items, which a row of cards must not take. */
+.rfd-rules .rfd-samples {
+  gap: 6px;
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.rfd-rules .rfd-samples .rfd-card {
+  width: 100px;
+}
+
+.rfd-rules .rfd-samples li + li {
+  margin-top: 0;
+}
+
+.rfd-rules-table {
+  width: 100%;
+  max-width: 70ch;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.rfd-rules-table caption {
+  padding-bottom: 4px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.rfd-rules .rfd-rules-table th,
+.rfd-rules .rfd-rules-table td {
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--border);
+}
+
+.rfd-rules .rfd-rules-table thead th {
+  background: var(--bg);
+}
+
+.rfd-rules-figure {
+  margin: 0 0 12px;
+}
+
+.rfd-rules-figure figcaption {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+@media (max-width: 860px) {
+  .rfd-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rfd-players {
+    position: static;
+  }
+
+  .rfd-player-list {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rfd-target {
+    animation: none;
+  }
+}

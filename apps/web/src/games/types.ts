@@ -4,6 +4,7 @@
  */
 import type { SessionView } from '@bored-games/client';
 import type { ComponentChildren, ComponentType } from 'preact';
+import type { AutoMove } from '../game-controller.ts';
 import type { ShareWords } from '../waiting-model.ts';
 
 /** A game's names: light, so cards and pickers can use them without loading the game's components. */
@@ -72,4 +73,10 @@ export interface WebGame extends GameMeta {
   RulesPage: ComponentType<{ section: string | null }>;
   /** Copy for the shuffle and deal steps, or null when the game has no deck. */
   setupCopy(hasDeck: boolean): SetupCopy | null;
+  /**
+   * The move the app sends for the player without a click, if the game has one (`AutoMove`): the game controller
+   * sends it once the decision is the seat's, and retries a failed send on its tick. Only Room for Doubt has one, a
+   * lone none (D078 ruling 7, amended); every other game leaves it out and sends nothing by itself.
+   */
+  autoMove?: AutoMove;
 }

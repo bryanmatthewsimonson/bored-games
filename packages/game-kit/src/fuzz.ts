@@ -2,15 +2,17 @@ import { assertJsonSafe, jsonEqual } from './canonical.ts';
 import { stateHash } from './hash.ts';
 import { createRng, type Rng, range, shuffle } from './prng.ts';
 import { replay } from './replay.ts';
-import type {
-  DealtPosition,
-  DeckSpec,
-  GameModule,
-  Learn,
-  LogEntry,
-  Outcome,
-  RevealAction,
-  Seat,
+import {
+  type DealtPosition,
+  type DeckSpec,
+  type GameModule,
+  type Learn,
+  type LogEntry,
+  type Outcome,
+  type PrivateShow,
+  type RevealAction,
+  type Seat,
+  SHOW_DECK,
 } from './types.ts';
 
 /**
@@ -28,6 +30,10 @@ import type {
  *    positions dealt to their seat or to the public, `revealsOf` claims match
  *    the deck and the actor's positions, and `standings` is the same in every
  *    view and equals the final scores;
+ *  - a private show (D077) stands in for the session: a chosen marker must name
+ *    a position the shower holds, and becomes the wire; the shown card is
+ *    learned into the full state and into the shower's and the submitter's
+ *    views only, so a view that keeps it for anyone else fails;
  * and at the end that replaying the public log reproduces the final state.
  * It is a test tool only; it is never a player.
  */
@@ -99,6 +105,11 @@ function learnKey(l: Learn): string {
 function who(to: Seat | null | undefined): string {
   if (to === undefined) return 'undealt';
   return to === null ? 'public' : `seat ${to}`;
+}
+
+/** A private show's marker (D077): a legal action of type `show` with a `pos` key, never applied as it is. */
+function isShowMarker(a: unknown): a is { readonly type: 'show'; readonly pos: unknown } {
+  return typeof a === 'object' && a !== null && (a as { type?: unknown }).type === 'show' && 'pos' in a;
 }
 
 /** Epoch positions sit at `EPOCH_STRIDE * epoch + index`, past the opening deck. */
@@ -188,8 +199,9 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
     coverage[tag] = (coverage[tag] ?? 0) + 1;
   };
 
+  const decks = module.decks(opts.rules);
   const deckOrders: Record<string, number[]> = {};
-  for (const deck of module.decks(opts.rules)) {
+  for (const deck of decks) {
     deckOrders[deck.id] = opts.deckOrder ? opts.deckOrder(deck, deckRng) : shuffle(range(deck.size), deckRng);
   }
   // Cards placed by a shuffle epoch. Opening positions stay in `deckOrders`. Card 0 is real, so presence is `Map.has`.
@@ -355,6 +367,8 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       step++;
 
       let action: unknown;
+      /** The private show this step makes (D077): its plan, and the learn its shower and submitter get. */
+      let shown: { readonly plan: PrivateShow; readonly learn: Learn } | null = null;
       const selection = module.privateSelection?.(full);
       if (selection) {
         // The pure fuzzer models private delivery; signed sessions separately verify its encryption and audit.
@@ -423,8 +437,11 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       } else if (pending.type === 'player') {
         const legal = module.legalActions(full, pending.seat);
         if (legal.length === 0) return fail(`seat ${pending.seat} has no legal action (${pending.decision})`);
+        const show = module.privateShow?.(full) ?? null;
         for (let k = 0; k < sample; k++) {
           const probe = moveRng.pick(legal);
+          // A show marker is never applied as it is: the session builds the wire from it (PROTOCOL §14).
+          if (show !== null && isShowMarker(probe)) continue;
           const res = module.apply(full, probe);
           if (!res.ok) {
             lastAction = probe;
@@ -433,6 +450,24 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
         }
         const policy = seatPolicies[pending.seat] ?? (uniformPolicy as FuzzPolicy<S>);
         action = policy.choose(full, pending.seat, legal, moveRng);
+        if (show !== null && isShowMarker(action)) {
+          // The session's build: the marker becomes the wire, which names neither the position nor the card.
+          lastAction = action;
+          const deck = decks.length === 1 ? decks[0] : undefined;
+          if (deck === undefined) return fail('a private show needs exactly one deck');
+          const seatTo = Number.isInteger(show.to) && show.to >= 0 && show.to < opts.seats;
+          if (show.from !== pending.seat || show.to === show.from || !seatTo)
+            return fail(
+              `private show from seat ${show.from} to seat ${show.to} while seat ${pending.seat} decides`,
+            );
+          const pos = action.pos;
+          const key = `${deck.id}:${String(pos)}`;
+          const card = typeof pos === 'number' ? deckOrders[deck.id]?.[pos] : undefined;
+          if (card === undefined || owner.get(key) !== show.from)
+            return fail(`show marker for ${key}, which is dealt to ${who(owner.get(key))}`);
+          shown = { plan: show, learn: { deck: SHOW_DECK, pos: show.id, card } };
+          action = { type: 'show', actor: show.from, id: show.id, packet: 'fuzz-only' };
+        }
         if (opts.seats > 1 && action !== null && typeof action === 'object' && 'actor' in action) {
           const impostor = { ...(action as object), actor: (pending.seat + 1) % opts.seats };
           if (module.apply(full, impostor).ok) {
@@ -453,6 +488,13 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       actions.push(action);
       fullLog.push({ kind: 'action', action });
       full = deepFreeze(res.state);
+      if (shown !== null) {
+        // The shown card, learned after the wire as the audit learns it; logged, so the replay reproduces it.
+        const learned = module.learn(full, shown.learn);
+        if (!learned.ok) return fail(`private show learn rejected: ${learned.error.message}`);
+        full = deepFreeze(learned.state);
+        fullLog.push({ kind: 'learn', learn: shown.learn });
+      }
 
       const violations = module.invariants(full);
       if (violations.length > 0) return fail(`invariant: ${violations.join('; ')}`);
@@ -472,6 +514,15 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
           }
           views[i] = deepFreeze(vr.state);
           viewLogs[i]?.push({ kind: 'action', action });
+        }
+        if (shown !== null) {
+          // Only the shower and the submitter learn the card, after the wire; every other view must not hold it.
+          for (const seat of [shown.plan.from, shown.plan.to]) {
+            const vr = module.learn(views[seat] as S, shown.learn);
+            if (!vr.ok) return fail(`private show learn rejected for seat ${seat}: ${vr.error.message}`);
+            views[seat] = deepFreeze(vr.state);
+            viewLogs[seat]?.push({ kind: 'learn', learn: shown.learn });
+          }
         }
         const sync = syncViews();
         if (sync) return fail(sync);

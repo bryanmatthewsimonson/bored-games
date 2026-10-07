@@ -33,7 +33,9 @@ import {
   type GameModule,
   type Outcome as ModuleOutcome,
   type Pending,
+  type PrivateShow,
   type RevealAction,
+  SHOW_DECK,
 } from '@bored-games/game-kit';
 import {
   attestTemplate as attestEventTemplate,
@@ -76,13 +78,8 @@ import {
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
 import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
-import {
-  type DeckPartition,
-  deckPartitions,
-  parsePartitionMove,
-  shuffleStepGroup,
-  shuffleStepSeat,
-} from './partitioned-deck.ts';
+import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
+import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
@@ -179,8 +176,10 @@ const MAX_ACK_DEPTH = 32;
 const MAX_AUDITS = 8;
 
 /**
- * Epoch positions are `128 * k + i` (D073). Hardcoded so this package does not import a game. Opening positions
- * stay below the deck size, which is at most 108, so the ranges do not meet.
+ * Epoch positions are `128 * k + i` (D073). Hardcoded so this package does not import a game. What makes a position
+ * an epoch's is that it lies at or above the deck size, never its value: an opening position is any position below
+ * the deck size, and Right of Way's packet has 580 of them. The two ranges meet when the deck has more than 128
+ * cards, so only a game of at most 128 cards can reshuffle (Holler's deck has 108).
  */
 const EPOCH_STRIDE = 128;
 
@@ -333,6 +332,16 @@ function playerSentDice(action: unknown): boolean {
   return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'rolled';
 }
 
+/** An action of type `show`. While a private show is pending, it must be the show's wire (PROTOCOL §14, D077). */
+function isShowAction(action: unknown): boolean {
+  return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'show';
+}
+
+/** A private show's marker (D077): a legal action of type `show` with a `pos` key. It never goes on the wire. */
+function isShowMarker(action: unknown): action is { readonly type: 'show'; readonly pos: unknown } {
+  return isShowAction(action) && 'pos' in (action as object);
+}
+
 export class GameSession {
   private readonly module: AnyModule;
   private readonly root: ParsedRoot;
@@ -341,12 +350,19 @@ export class GameSession {
   private readonly deckId: string | null;
   /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
-  private readonly partitions: readonly DeckPartition[];
+  /**
+   * The shuffle schedule (PROTOCOL §5.5, D076): the seat that signs each step and the positions it shuffles, in chain
+   * order. Empty for a deckless game. A legacy deck is one group; a partitioned deck is one step per group per seat;
+   * a second round adds one per second-round group per seat after every first-round step.
+   */
+  private readonly schedule: readonly ShuffleStep[];
+  /** 2 when the deck has a second round, else 1. */
+  private readonly shuffleRounds: 1 | 2;
   private readonly promptShares: boolean;
   private readonly seats: number;
   /**
-   * The shuffle steps at the start of the chain (PROTOCOL §6.1): one per group per seat when the game has a deck, none
-   * when it is deckless. Legacy decks have one group. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
+   * The shuffle steps at the start of the chain (PROTOCOL §6.1): the length of `schedule`, none when the game is
+   * deckless. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
    */
   private readonly shuffleSteps: number;
   /** Seat deck keys `X_k` and their sum, the joint key `X`. */
@@ -420,6 +436,11 @@ export class GameSession {
   private readonly rejected = new Map<Hex, string>();
   /** Game actions' share and reveal checks, by event id: null when every proof verifies, else the reason. */
   private readonly actionChecked = new Map<Hex, string | null>();
+  /**
+   * The card each private show's packet showed this seat (D077), by `show:<event id>`, or null when it showed none:
+   * trial folds check a show again, and the packet is opened once.
+   */
+  private readonly showCards = new Map<string, number | null>();
 
   /**
    * Every well-formed move (it parsed and passed `moveShape`), grouped by `prev:seq:seat`, as possible
@@ -550,9 +571,10 @@ export class GameSession {
     this.deckId = deck?.id ?? null;
     this.deckSize = deck?.size ?? 0;
     this.seats = root.seats.length;
-    this.partitions = deckPartitions(deck);
+    this.schedule = shuffleSchedule(deck, this.seats);
+    this.shuffleRounds = this.schedule.some((step) => step.round === 2) ? 2 : 1;
     this.promptShares = deck?.promptShares === true;
-    this.shuffleSteps = this.partitions.length * this.seats;
+    this.shuffleSteps = this.schedule.length;
     // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
     this.X = jointKey(this.keys);
@@ -577,8 +599,9 @@ export class GameSession {
 
   /**
    * A session for the game started by `input.root`. Throws `ClientError` when the table or root does not parse,
-   * the root is not a valid start of the game (`validateRoot`), the module has more than one deck, or `me` does
-   * not hold the seat it names. Joins that do not parse are ignored; `validateRoot` reports the ones it misses.
+   * the root is not a valid start of the game (`validateRoot`), the module has more than one deck or a deck whose
+   * partitions or second round are invalid (PROTOCOL §5.5), or `me` does not hold the seat it names. Joins that do
+   * not parse are ignored; `validateRoot` reports the ones it misses.
    */
   static create(input: SessionInput): GameSession {
     let table: ReturnType<typeof parseTable>;
@@ -698,7 +721,7 @@ export class GameSession {
     try {
       // A deckless game parses with a 1-card deck so that a shuffle step gets moveShape's clear rejection.
       if (kind === KIND.move)
-        parsed = { kind: 'move', m: parsePartitionMove(ev, this.deckSize, this.partitions) };
+        parsed = { kind: 'move', m: parsePartitionMove(ev, this.deckSize, this.schedule) };
       else if (kind === KIND.shares) parsed = { kind: 'shares', s: parseShares(ev) };
       else return { status: 'rejected', reason: `kind ${String(kind)} is not an in-game event` };
     } catch (e) {
@@ -857,11 +880,10 @@ export class GameSession {
     const c = m.content;
     if (m.seq <= this.shuffleSteps) {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
-      const expectedSeat = shuffleStepSeat(m.seq - 1, this.partitions);
-      if (expectedSeat === null) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
-      if (seat !== expectedSeat) return `shuffle step ${m.seq} must be signed by seat ${expectedSeat}`;
-      if (c.deck.length !== this.partitionAt(m.seq - 1).size)
-        return 'shuffle output has the wrong group size';
+      const step = this.schedule[m.seq - 1];
+      if (step === undefined) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
+      if (seat !== step.seat) return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
+      if (c.deck.length !== step.group.positions.length) return 'shuffle output has the wrong group size';
     } else if (c.type === 'epoch') {
       // Chess has no deck, so an epoch step is still "a game action" and the deckless rejection stays put.
       if (!this.hasDeck()) return `move ${m.seq} must be a game action`;
@@ -1499,20 +1521,18 @@ export class GameSession {
     if (m.seq !== this.chain.length + 1) return reject(`seq ${m.seq} does not follow the head`);
     const c = m.content;
     if (c.type === 'shuffle') {
-      const step = m.seq - 1;
-      const expectedSeat = shuffleStepSeat(step, this.partitions);
-      if (expectedSeat === null) return reject('the game has no deck to shuffle');
-      if (seat !== expectedSeat)
-        return reject(`shuffle step ${m.seq} must be signed by seat ${expectedSeat}`);
-      if (!this.shuffleVerifies(m.id, step, c.deck, c.proof))
+      const at = m.seq - 1;
+      const step = this.schedule[at];
+      if (step === undefined) return reject('the game has no deck to shuffle');
+      if (seat !== step.seat) return reject(`shuffle step ${m.seq} must be signed by seat ${step.seat}`);
+      if (!this.shuffleVerifies(m.id, at, c.deck, c.proof))
         return reject('the shuffle proof does not verify');
-      const group = this.partitionAt(step);
-      const previous = this.decks[step] as Ciphertext[];
-      this.decks.push([
-        ...previous.slice(0, group.offset),
-        ...c.deck,
-        ...previous.slice(group.offset + group.size),
-      ]);
+      // The output goes back to the group's positions, in ascending order; every other position is unchanged.
+      const next = (this.decks[at] as Ciphertext[]).slice();
+      step.group.positions.forEach((p, i) => {
+        next[p] = c.deck[i] as Ciphertext;
+      });
+      this.decks.push(next);
       this.link(m);
       if (m.seq === this.shuffleSteps) this.startDeal();
       return 'accepted';
@@ -1616,28 +1636,34 @@ export class GameSession {
     return out;
   }
 
-  /** The ciphertext at `pos`: an accepted epoch's output, or the opening deck below `deckSize`. */
+  /** The ciphertext at `pos`: the opening deck below `deckSize`, else an accepted epoch's output. */
   private ciphertextAt(pos: number): Ciphertext | undefined {
     return this.ciphertextFrom(pos, this.epochDecks);
   }
 
+  /**
+   * The ciphertext at `pos`, looking in `decks` for an epoch's. Below `deckSize` a position is an opening one,
+   * whatever its value (Right of Way's charters sit at 550–579), and is read from the opening deck. From `deckSize`
+   * on it is an epoch's `128 * k + i`: epoch `floor(pos / 128)`, index `pos % 128`. Holler's deck has 108 cards, so
+   * 108–127 hold nothing and its epoch positions start at 128.
+   */
   private ciphertextFrom(
     pos: number,
     decks: ReadonlyMap<number, readonly Ciphertext[]>,
   ): Ciphertext | undefined {
     if (!Number.isSafeInteger(pos) || pos < 0) return undefined;
-    if (pos >= EPOCH_STRIDE) {
-      const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
-      return deck?.[pos % EPOCH_STRIDE];
+    if (pos < this.deckSize) {
+      const opening = this.finalDeck();
+      if (opening === null || pos >= opening.length) return undefined;
+      return opening[pos];
     }
-    const opening = this.finalDeck();
-    if (opening === null || pos >= opening.length) return undefined;
-    return opening[pos];
+    const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
+    return deck?.[pos % EPOCH_STRIDE];
   }
 
-  /** An accepted epoch output owns `128 * k + i`. */
+  /** An accepted epoch output owns `128 * k + i`, from the deck size on. */
   private epochOwns(pos: number): boolean {
-    return pos >= EPOCH_STRIDE && this.ciphertextAt(pos) !== undefined;
+    return pos >= this.deckSize && this.ciphertextAt(pos) !== undefined;
   }
 
   /**
@@ -1703,9 +1729,10 @@ export class GameSession {
 
   /**
    * Check a game action against `state` on everything but R1, in order: the signer is the pending seat; every
-   * share and reveal verifies; the module accepts the action; and the reveals are exactly the positions
-   * `revealsOf` names, each decrypting to the claimed card. A pending reveal, or another seat's missing share of a
-   * revealed position, means not yet.
+   * share and reveal verifies; a private show's wire has its public shape (`showEnvelope`); the module accepts the
+   * action; and the reveals are exactly the positions `revealsOf` names, each decrypting to the claimed card. A
+   * pending reveal, or another seat's missing share of a revealed position, means not yet. After a private show's
+   * `apply`, its shower and its submitter learn the card (`learnShow`); a packet that shows nothing never rejects.
    */
   private checkAction(
     state: unknown,
@@ -1749,6 +1776,11 @@ export class GameSession {
         }
       }
     }
+    // A private show (PROTOCOL §14, D077): every client checks the wire's public shape before `apply`.
+    const show = this.module.privateShow?.(state) ?? null;
+    const showing = show !== null && isShowAction(c.action);
+    if (showing && !showEnvelope(c.action, show, this.deckSize))
+      return reject('the private show is malformed');
     const r = this.module.apply(state, c.action);
     if (!r.ok) return reject(`the module rejects the action: ${r.error.code}: ${r.error.message}`);
 
@@ -1777,6 +1809,7 @@ export class GameSession {
       (pos) => !c.shares.some((share) => share.pos === pos) && !this.shares.has(seat, pos),
     );
     if (omitted.length > 0) return reject('the move omits a share for a card it deals');
+    if (showing) return this.learnShow(m, state, show, c.action, r.state, r.events);
     return { next: r.state, events: r.events };
   }
 
@@ -1795,6 +1828,85 @@ export class GameSession {
     }
     out.sort((a, b) => a - b);
     return out;
+  }
+
+  /**
+   * After a private show's `apply` (PROTOCOL §14, D077): the shower and the submitter learn the card, as
+   * `{deck: SHOW_DECK, pos: <show id>, card}`, and nobody else learns anything. A packet that shows this seat no card
+   * skips the learn and never rejects the move, so every client keeps one chain; the audit fails the shower.
+   */
+  private learnShow(
+    m: ParsedMove,
+    before: unknown,
+    show: PrivateShow,
+    action: unknown,
+    next: unknown,
+    events: readonly unknown[],
+  ): { next: unknown; events: readonly unknown[] } {
+    const me = this.me;
+    if (me === null || (me.seat !== show.from && me.seat !== show.to)) return { next, events };
+    const card = this.shownCard(m, before, show, action, me);
+    if (card === null) return { next, events };
+    const learned = this.module.learn(next, { deck: SHOW_DECK, pos: show.id, card });
+    return learned.ok ? { next: learned.state, events: [...events, ...learned.events] } : { next, events };
+  }
+
+  /**
+   * The card a private show's packet shows this seat, or null. Open the packet and check its context (`readShow`),
+   * check that the latest `dealt` entry of its position (in `before`, the state the show applied to) names the
+   * shower, put the packet's share into a copy of the position's slots at the shower's, and decrypt, which verifies
+   * every share's proof: every other seat's share of a hand position is public since the deal. Cached per event id,
+   * since trial folds check the move again; a position that still lacks another seat's share is not, so a later fold
+   * of the move tries again.
+   */
+  private shownCard(
+    m: ParsedMove,
+    before: unknown,
+    show: PrivateShow,
+    action: unknown,
+    me: Identity,
+  ): number | null {
+    const key = `show:${m.id}`;
+    const cached = this.showCards.get(key);
+    if (cached !== undefined) return cached;
+    const deck = this.finalDeck();
+    if (deck === null) return null;
+    let card: number | null = null;
+    try {
+      const keys = this.xOnlyKeys();
+      const { pos, share } = readShow(
+        action,
+        show,
+        me.seat,
+        me.deckSecret,
+        keys,
+        this.root.id,
+        m.prevId,
+        this.deckSize,
+      );
+      if (this.holderOf(before, pos) === show.from) {
+        if (!this.shares.covered(pos, show.from)) return null;
+        const slots = this.shares.slots(pos, show.from);
+        slots[show.from] = share;
+        card = decryptPosition(deck[pos] as Ciphertext, this.shareCtx(pos), this.keys, slots, this.cards);
+      }
+    } catch {
+      card = null;
+    }
+    this.showCards.set(key, card);
+    return card;
+  }
+
+  /** The seat the latest `dealt` entry of deck position `pos` in `state` names: null when public or never dealt. */
+  private holderOf(state: unknown, pos: number): number | null {
+    let to: number | null = null;
+    for (const d of this.module.dealt(state)) if (d.deck === this.deckId && d.pos === pos) to = d.to;
+    return to;
+  }
+
+  /** Each seat's deck key in x-only hex, as NIP-44 conversation keys take it (D070, D077). */
+  private xOnlyKeys(): string[] {
+    return this.keys.map((key) => key.toHex(true).slice(2));
   }
 
   /**
@@ -1892,29 +2004,33 @@ export class GameSession {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
-    const group = this.partitionAt(step);
-    const input = (this.decks[step] as Ciphertext[]).slice(group.offset, group.offset + group.size);
+    const input = this.shuffleInput(step);
     const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step));
     this.shuffleChecked.set(id, ok);
     return ok;
   }
 
-  /** Only called in a game with a deck, on a shuffle step; throws rather than divide by zero otherwise. */
-  private partitionAt(step: number): DeckPartition {
-    const group = shuffleStepGroup(step, this.partitions);
-    if (group === null) throw new ClientError(`no deck group for shuffle step ${step}`);
-    return group;
+  /** Shuffle step `step` (0-based) of the schedule; throws past its end, and in a deckless game, which has none. */
+  private stepAt(step: number): ShuffleStep {
+    const s = this.schedule[step];
+    if (s === undefined) throw new ClientError(`no shuffle step ${step}`);
+    return s;
   }
 
-  /** The seat that signs the next shuffle step, or null in a deckless game (which never shuffles). */
+  /** The ciphertexts that shuffle step `step` takes in: the positions of its group in the deck before it, ascending. */
+  private shuffleInput(step: number): Ciphertext[] {
+    const deck = this.decks[step] as Ciphertext[];
+    return this.stepAt(step).group.positions.map((p) => deck[p] as Ciphertext);
+  }
+
+  /** The seat that signs the next shuffle step, or null once the shuffle is over and in a deckless game. */
   private nextShuffler(): number | null {
-    return shuffleStepSeat(this.chain.length, this.partitions);
+    return this.schedule[this.chain.length]?.seat ?? null;
   }
 
   private shuffleCtx(step: number): ShuffleCtx {
-    // partitionAt throws first in a deckless game, so the seat below is always a number.
-    const group = this.partitionAt(step);
-    return { rootId: this.root.id, seat: shuffleStepSeat(step, this.partitions) ?? -1, deckId: group.id };
+    const { seat, group } = this.stepAt(step);
+    return { rootId: this.root.id, seat, deckId: group.id };
   }
 
   private link(m: ParsedMove): void {
@@ -2947,6 +3063,7 @@ export class GameSession {
       rootId: this.root.id,
       seats: this.seats,
       shuffleSteps: this.shuffleSteps,
+      shuffleProgress: status.phase === 'shuffle' ? this.progressOfShuffle() : null,
       mySeat: this.me?.seat ?? null,
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
@@ -2968,6 +3085,17 @@ export class GameSession {
       attested: this.attested(),
       events: this.events,
     };
+  }
+
+  /**
+   * Where the shuffle stands (PROTOCOL §5.5): the round the next step belongs to, and the seats that have finished
+   * that round. A round runs seat after seat, each shuffling all of the round's groups, so the seats done are those
+   * before the next step's seat. Null when no step is left.
+   */
+  private progressOfShuffle(): SessionView['shuffleProgress'] {
+    const next = this.schedule[this.chain.length];
+    if (next === undefined) return null;
+    return { round: next.round, rounds: this.shuffleRounds, seatsDone: next.seat };
   }
 
   private logHash(): Hex {
@@ -3245,11 +3373,7 @@ export class GameSession {
    */
   buildShuffle(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('shuffle');
-    const group = this.partitionAt(this.chain.length);
-    const input = (this.decks[this.chain.length] as Ciphertext[]).slice(
-      group.offset,
-      group.offset + group.size,
-    );
+    const input = this.shuffleInput(this.chain.length);
     const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
     const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(this.chain.length), rnd);
     const t = moveTemplate(
@@ -3425,7 +3549,8 @@ export class GameSession {
 
   /**
    * My game-action move: `action` (one of `legalActions()`), every share I owe as of the head (R1) and my reveal
-   * shares for the cards it shows (`revealsOf`), each sorted by position. Throws `ClientError` unless a decision
+   * shares for the cards it shows (`revealsOf`), each sorted by position. A private show's marker goes out as the
+   * show's wire, which names neither the position nor the card (D077). Throws `ClientError` unless a decision
    * is mine and the action is legal. Build it once per decision: a second move on the same prev is equivocation.
    */
   buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
@@ -3445,7 +3570,10 @@ export class GameSession {
     return this.actionEvent(me, legal, rnd, createdAt);
   }
 
-  /** The signed move for `action`, with the shares that action owes. The caller has already checked the duty. */
+  /**
+   * The signed move for `action`, with the shares that action owes. The caller has already checked the duty. A
+   * private selection's move is its transfer, and a private show's marker becomes the show's wire (D077).
+   */
   private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
     const plan = this.module.privateSelection?.(this.state);
     if (plan) {
@@ -3461,6 +3589,8 @@ export class GameSession {
         rnd,
       );
     }
+    const show = this.module.privateShow?.(this.state) ?? null;
+    if (show !== null && isShowMarker(legal)) legal = this.showWire(me, show, legal.pos, rnd);
     let shares: PosShare[] = [];
     let reveals: PosShare[] = [];
     if (this.hasDeck()) {
@@ -3499,6 +3629,34 @@ export class GameSession {
     this.actionChecked.set(`cards:${ev.id}`, null);
     this.actionChecked.set(`roll:${ev.id}`, null);
     return ev;
+  }
+
+  /**
+   * A private show's wire (PROTOCOL §14, D077) for the marker's position `pos`: this seat's decryption share of it,
+   * sealed with the move's context in a packet that only the shower and the submitter can open. Throws unless this
+   * seat is the shower and the latest `dealt` entry of `pos` names it.
+   */
+  private showWire(me: Identity, show: PrivateShow, pos: unknown, rnd: RandomBytes): unknown {
+    const deck = this.finalDeck();
+    if (
+      deck === null ||
+      me.seat !== show.from ||
+      typeof pos !== 'number' ||
+      this.holderOf(this.state, pos) !== me.seat
+    )
+      throw new ClientError('the show marker names no position this seat holds');
+    const share = makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd);
+    return makeShow(
+      show,
+      pos,
+      me.deckSecret,
+      share,
+      this.xOnlyKeys(),
+      this.root.id,
+      this.headId(),
+      this.deckSize,
+      rnd,
+    );
   }
 
   /**

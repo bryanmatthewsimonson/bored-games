@@ -29,6 +29,11 @@ describe('game registry', () => {
     expect(pickerGames().map((g) => g.id)).toEqual([...GAME_IDS]);
   });
 
+  it('gives an automatic move only to Room for Doubt: every other game sends nothing by itself', () => {
+    // The controller sends a lone none for Room for Doubt (D078 ruling 7, amended); no other game opts in.
+    expect(GAMES.filter((g) => g.autoMove !== undefined).map((g) => g.id)).toEqual(['room-for-doubt']);
+  });
+
   it('takes titles from the themes', () => {
     expect(gameTitle('chain-reaction')).toBe(CHAIN_REACTION_THEME.title);
     expect(gameTitle('chess')).toBe(CHESS_THEME.title);

@@ -68,6 +68,9 @@ importers:
       '@bored-games/right-of-way':
         specifier: workspace:*
         version: link:../../packages/games/right-of-way
+      '@bored-games/room-for-doubt':
+        specifier: workspace:*
+        version: link:../../packages/games/room-for-doubt
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)
@@ -181,6 +184,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/room-for-doubt:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/protocol:
     dependencies:
       '@bored-games/deck':
@@ -248,6 +257,9 @@ importers:
       '@bored-games/right-of-way':
         specifier: workspace:*
         version: link:../../packages/games/right-of-way
+      '@bored-games/room-for-doubt':
+        specifier: workspace:*
+        version: link:../../packages/games/room-for-doubt
 
   tools/protocol-model: {}
 

@@ -20,7 +20,7 @@ describe('D052: every registered module with a deck pends public reveals only be
   it('covers every registered module with a deck, and exempts exactly those that never allow a Resign', () => {
     expect(deckModules.map((m) => m.id)).toContain('chain-reaction');
     const exempt = deckModules.filter((m) => resignSeatCounts(m).length === 0).map((m) => m.id);
-    expect(exempt).toEqual(['luster', 'right-of-way', 'driftwrights']);
+    expect(exempt).toEqual(['luster', 'right-of-way', 'driftwrights', 'room-for-doubt']);
     for (const id of exempt) {
       const m = MODULES.get(id) as AnyModule;
       const { min, max } = m.seatRange(m.defaultRules());
@@ -35,6 +35,14 @@ describe('D052: every registered module with a deck pends public reveals only be
       if (module.id === 'driftwrights') {
         it('driftwrights: keeps Resign disabled for private supply transfers and mixed card/dice operations', () => {
           expect(module.privateSelection).toBeTypeOf('function');
+          expect(module.rolls).toBeTypeOf('function');
+          expect(resignSeatCounts(module)).toEqual([]);
+        });
+        continue;
+      }
+      if (module.id === 'room-for-doubt') {
+        it('room-for-doubt: keeps Resign disabled for private shows and for the dice beacon', () => {
+          expect(module.privateShow).toBeTypeOf('function');
           expect(module.rolls).toBeTypeOf('function');
           expect(resignSeatCounts(module)).toEqual([]);
         });

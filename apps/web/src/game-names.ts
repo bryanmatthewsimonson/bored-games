@@ -6,6 +6,7 @@ import { DRIFTWRIGHTS_META } from './games/driftwrights/meta.ts';
 import { HOLLER_META } from './games/holler/meta.ts';
 import { LUSTER_META } from './games/luster/meta.ts';
 import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
+import { ROOM_FOR_DOUBT_META } from './games/room-for-doubt/meta.ts';
 import type { GameMeta } from './games/types.ts';
 
 /** Every game's names, by module id. Light: no game components, so cards and the lobby can use it. */
@@ -17,6 +18,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [RIGHT_OF_WAY_META.id, RIGHT_OF_WAY_META],
   [DRIFTWRIGHTS_META.id, DRIFTWRIGHTS_META],
   [HOLLER_META.id, HOLLER_META],
+  [ROOM_FOR_DOUBT_META.id, ROOM_FOR_DOUBT_META],
 ]);
 
 /**
