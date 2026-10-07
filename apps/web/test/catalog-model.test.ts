@@ -59,6 +59,7 @@ describe('catalog filters', () => {
       'right-of-way',
       'driftwrights',
       'holler',
+      'room-for-doubt',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -67,8 +68,9 @@ describe('catalog filters', () => {
       'right-of-way',
       'driftwrights',
       'holler',
+      'room-for-doubt',
     ]);
-    expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler']);
+    expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler', 'room-for-doubt']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 5)).toBe(false);
@@ -80,7 +82,7 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'abstract' })).toEqual(['chess']);
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
-    expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way']);
+    expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way', 'room-for-doubt']);
     expect(ids({ genre: 'strategy' })).toEqual(['driftwrights']);
     expect(ids({ genre: 'card' })).toEqual(['holler']);
     expect(ids({ mode: 'competitive' })).toEqual([
@@ -91,15 +93,30 @@ describe('catalog filters', () => {
       'right-of-way',
       'driftwrights',
       'holler',
+      'room-for-doubt',
     ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
     expect(ids({ length: 'under-30' })).toEqual(['chess', 'bank', 'holler']);
-    expect(ids({ length: '60-120' })).toEqual(['chain-reaction', 'chess', 'right-of-way', 'driftwrights']);
+    // 45 to 90 minutes reaches into both the 30-60 and the 60-120 bucket.
+    expect(ids({ length: '30-60' })).toContain('room-for-doubt');
+    expect(ids({ length: '60-120' })).toEqual([
+      'chain-reaction',
+      'chess',
+      'right-of-way',
+      'driftwrights',
+      'room-for-doubt',
+    ]);
     expect(ids({ length: 'over-120' })).toEqual([]);
     expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction', 'driftwrights']);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
-    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster', 'right-of-way', 'holler']);
+    expect(ids({ complexity: 'light' })).toEqual([
+      'bank',
+      'luster',
+      'right-of-way',
+      'holler',
+      'room-for-doubt',
+    ]);
     expect(ids({ players: 2, genre: 'economic' })).toEqual([]);
     expect(activeFilters({ ...NO_FILTERS, players: 2, mode: 'team' })).toBe(2);
   });
@@ -154,7 +171,7 @@ describe('catalog search', () => {
   });
 
   it('matches the title of the game a game compares to (D053, D060), and only for that game', () => {
-    for (const id of ['chain-reaction', 'luster', 'holler']) {
+    for (const id of ['chain-reaction', 'luster', 'holler', 'room-for-doubt']) {
       const compare = CATALOG.get(id)?.entry.compareTo;
       if (compare == null) throw new Error(`${id} compares to a published game`);
       expect(ids({ query: compare.title })).toEqual([id]);

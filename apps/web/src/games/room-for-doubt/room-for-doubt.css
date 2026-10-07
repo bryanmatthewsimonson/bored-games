@@ -531,6 +531,59 @@ main:has(.rfd-game) {
   color: var(--rfd-ink);
 }
 
+/* The rules page (#/rules/room-for-doubt): the sample cards, the table of seats and the board's picture. The page's
+   own list rules (rules.css) pad a list and space its items, which a row of cards must not take. */
+.rfd-rules .rfd-samples {
+  gap: 6px;
+  max-width: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.rfd-rules .rfd-samples .rfd-card {
+  width: 100px;
+}
+
+.rfd-rules .rfd-samples li + li {
+  margin-top: 0;
+}
+
+.rfd-rules-table {
+  width: 100%;
+  max-width: 70ch;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.rfd-rules-table caption {
+  padding-bottom: 4px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.rfd-rules .rfd-rules-table th,
+.rfd-rules .rfd-rules-table td {
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--border);
+}
+
+.rfd-rules .rfd-rules-table thead th {
+  background: var(--bg);
+}
+
+.rfd-rules-figure {
+  margin: 0 0 12px;
+}
+
+.rfd-rules-figure figcaption {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 @media (max-width: 860px) {
   .rfd-table {
     grid-template-columns: minmax(0, 1fr);

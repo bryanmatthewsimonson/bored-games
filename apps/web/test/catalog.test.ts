@@ -9,6 +9,10 @@ import {
   COMPARE_PHRASE as LUSTER_COMPARE_PHRASE,
   COMPARE_TITLE as LUSTER_COMPARE_TITLE,
 } from '@bored-games/luster/compare';
+import {
+  COMPARE_PHRASE as ROOM_FOR_DOUBT_PHRASE,
+  COMPARE_TITLE as ROOM_FOR_DOUBT_TITLE,
+} from '@bored-games/room-for-doubt/compare';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { catalogItems, GameCard } from '../src/components/game-catalog.tsx';
@@ -110,6 +114,8 @@ describe('game catalog', () => {
     expect(card('luster')).not.toContain(COMPARE_PHRASE);
     expect(card('holler')).toContain(HOLLER_PHRASE);
     expect(`Compare to ${HOLLER_TITLE}`).toBe(HOLLER_PHRASE);
+    expect(card('room-for-doubt')).toContain(ROOM_FOR_DOUBT_PHRASE);
+    expect(`Compare to ${ROOM_FOR_DOUBT_TITLE}`).toBe(ROOM_FOR_DOUBT_PHRASE);
     expect(card('chess')).not.toContain('Compare to');
     expect(card('bank')).not.toContain('Compare to');
   });

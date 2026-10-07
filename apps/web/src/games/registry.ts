@@ -26,6 +26,9 @@ import { LusterRulesPage } from './luster/rules-page.tsx';
 import { RightOfWayGame } from './right-of-way/game.tsx';
 import { RIGHT_OF_WAY_META } from './right-of-way/meta.ts';
 import { RightOfWayRulesPage } from './right-of-way/rules-page.tsx';
+import { ROOM_FOR_DOUBT_SETUP_COPY, RoomForDoubtGame } from './room-for-doubt/game.tsx';
+import { ROOM_FOR_DOUBT_META } from './room-for-doubt/meta.ts';
+import { RoomForDoubtRulesPage } from './room-for-doubt/rules-page.tsx';
 import type { WebGame } from './types.ts';
 
 export const GAMES: readonly WebGame[] = [
@@ -90,6 +93,12 @@ export const GAMES: readonly WebGame[] = [
     RulesPage: HollerRulesPage,
     setupCopy: (hasDeck) =>
       hasDeck ? { shuffling: 'Shuffling the deck', dealing: 'Dealing the cards…' } : null,
+  },
+  {
+    ...ROOM_FOR_DOUBT_META,
+    Component: RoomForDoubtGame,
+    RulesPage: RoomForDoubtRulesPage,
+    setupCopy: () => ROOM_FOR_DOUBT_SETUP_COPY,
   },
 ];
 

@@ -18,6 +18,8 @@ import { LUSTER_CATALOG } from '@bored-games/luster/catalog';
 import { LUSTER_BRAND } from '@bored-games/luster/theme';
 import { RIGHT_OF_WAY_CATALOG } from '@bored-games/right-of-way/catalog';
 import { RIGHT_OF_WAY_BRAND } from '@bored-games/right-of-way/theme';
+import { ROOM_FOR_DOUBT_CATALOG } from '@bored-games/room-for-doubt/catalog';
+import { ROOM_FOR_DOUBT_BRAND } from '@bored-games/room-for-doubt/theme';
 import { GAME_IDS } from './ids.ts';
 
 /** One hosted game in the catalog: its facts and its trademark-safe names. */
@@ -34,6 +36,7 @@ const GAMES: readonly CatalogGame[] = [
   { entry: RIGHT_OF_WAY_CATALOG, safe: RIGHT_OF_WAY_BRAND },
   { entry: DRIFTWRIGHTS_CATALOG, safe: DRIFTWRIGHTS_BRAND },
   { entry: HOLLER_CATALOG, safe: HOLLER_BRAND },
+  { entry: ROOM_FOR_DOUBT_CATALOG, safe: ROOM_FOR_DOUBT_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));

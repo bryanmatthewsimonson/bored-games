@@ -1,13 +1,32 @@
 /*
  * The Room for Doubt game screen (D078), without a browser: the status line (Review Focus 3 and 5), the public record
  * and its privacy (Review Focus 1), the Docket's automatic marks, the card faces and the board's move targets. The
- * states come from the engine's own test helpers, so every case is a position the rules can reach.
+ * states come from the engine's own test helpers, so every case is a position the rules can reach. Then the rules
+ * page, the registry entry and the table option, which the game's registration adds.
  */
 import { readFileSync } from 'node:fs';
-import { cardOf, type RfdAction, type RfdState, roomForDoubt } from '@bored-games/room-for-doubt';
+import {
+  BOARD_SIZE,
+  CORRIDOR,
+  cardOf,
+  DEFAULT_RULES,
+  DOORS,
+  ENTRANCES,
+  EXHIBITS,
+  HAND_POSITIONS,
+  PARTIES,
+  passageTo,
+  type RfdAction,
+  type RfdState,
+  roomForDoubt,
+  SCENES,
+  SEAT_PARTIES,
+  validateRules,
+} from '@bored-games/room-for-doubt';
 import { EXHIBIT_GLYPHS } from '@bored-games/room-for-doubt/art';
+import { ROOM_FOR_DOUBT_THEME } from '@bored-games/room-for-doubt/theme';
 import { h } from 'preact';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
   act,
   dismiss,
@@ -24,6 +43,9 @@ import {
   withPawns,
 } from '../../../packages/games/room-for-doubt/test/helpers.ts';
 import { ON_ACCENT as ART_ON_ACCENT, PALETTE as ART_PALETTE } from '../../../scripts/room-for-doubt/data.ts';
+import { findRestricted, licensedPackStrings } from '../../../tests/restricted-names.ts';
+import { SUBMIT_CHOICES } from '../src/components/new-table-form.tsx';
+import { webGame } from '../src/games/registry.ts';
 import { Board } from '../src/games/room-for-doubt/board.tsx';
 import { CardFace } from '../src/games/room-for-doubt/cards.tsx';
 import {
@@ -43,6 +65,13 @@ import {
   recordLines,
   statusText,
 } from '../src/games/room-for-doubt/model.ts';
+import {
+  ROOM_FOR_DOUBT_RULES_SECTIONS,
+  RoomForDoubtRulesContent,
+  RoomForDoubtRulesPage,
+} from '../src/games/room-for-doubt/rules-page.tsx';
+import { MODULES } from '../src/net.ts';
+import { parseRoute, rulesHref } from '../src/router.ts';
 import { classOf, findAll, renderTree, spokenText, textOf } from './render-tree.ts';
 
 const NAMES = ['Ann', 'Bob', 'Cleo'];
@@ -341,5 +370,187 @@ describe('the screen', () => {
     );
     expect(classes.length).toBeGreaterThan(10);
     expect(classes.filter((c) => !c?.startsWith('rfd-'))).toEqual([]);
+  });
+});
+
+describe('the rules page', () => {
+  const root = new URL('../../..', import.meta.url).pathname;
+  let strings: string[] = [];
+  beforeAll(async () => {
+    strings = await licensedPackStrings(root);
+  });
+
+  const tree = renderTree(h(RoomForDoubtRulesContent, null));
+  const text = spokenText(tree);
+  const section = (id: string) =>
+    findAll(tree, (e) => e.tag === 'section' && e.attrs['aria-labelledby'] === `rules-${id}`);
+  const theme = ROOM_FOR_DOUBT_THEME;
+  /** The cells of every table row, as text. */
+  const rows = findAll(tree, (e) => e.tag === 'tr').map((tr) =>
+    findAll(tr.children, (c) => c.tag === 'th' || c.tag === 'td').map((c) => textOf(c.children).trim()),
+  );
+
+  it('renders the rules from the engine’s numbers', () => {
+    for (const phrase of ['21 cards', '3 to 6 players', '6, 6, 6', 'Old Gaol Passage'])
+      expect(text, phrase).toContain(phrase);
+    // The phrases above are the engine's numbers: 6 + 6 + 9 cards, its seat range and its names.
+    expect(PARTIES.length + EXHIBITS.length + SCENES.length).toBe(21);
+    expect(roomForDoubt.seatRange(DEFAULT_RULES)).toEqual({ min: 3, max: 6 });
+    expect(theme.passage).toBe('Old Gaol Passage');
+    // One h2 for the contents and one for each section id, in order.
+    expect(ROOM_FOR_DOUBT_RULES_SECTIONS.map((s) => s.id)).toEqual([
+      'goal',
+      'setup',
+      'turn',
+      'rebut',
+      'indict',
+      'end',
+      'board',
+      'online',
+    ]);
+    const h2 = findAll(tree, (e) => e.tag === 'h2');
+    expect(h2.map((e) => spokenText([e]))).toEqual([
+      'Contents',
+      ...ROOM_FOR_DOUBT_RULES_SECTIONS.map((s) => s.title),
+    ]);
+    expect(h2.slice(1).map((e) => e.attrs.id)).toEqual(
+      ROOM_FOR_DOUBT_RULES_SECTIONS.map((s) => `rules-${s.id}`),
+    );
+    expect(ROOM_FOR_DOUBT_RULES_SECTIONS.find((s) => s.id === 'online')?.title).toBe('Playing on this site');
+  });
+
+  it('links every section from its contents list', () => {
+    const links = findAll(
+      findAll(tree, (e) => e.tag === 'nav'),
+      (e) => e.tag === 'a',
+    );
+    expect(links.map((a) => a.attrs.href)).toEqual(
+      ROOM_FOR_DOUBT_RULES_SECTIONS.map((s) => rulesHref('room-for-doubt', s.id)),
+    );
+    for (const s of ROOM_FOR_DOUBT_RULES_SECTIONS) expect(section(s.id), s.id).toHaveLength(1);
+  });
+
+  it('deals each table size as the engine does: the Parties played and the cards of each hand', () => {
+    for (const seats of [3, 4, 5, 6] as const) {
+      const row = rows.find((r) => r[0] === String(seats));
+      expect(row, `${seats} players`).toBeDefined();
+      // Hand position k goes to seat k mod n, from the first seat (P2).
+      const sizes = Array.from(
+        { length: seats },
+        (_, seat) => HAND_POSITIONS.filter((_p, k) => k % seats === seat).length,
+      );
+      expect(row?.[2]).toBe(sizes.join(', '));
+      const played = new Set(SEAT_PARTIES[seats]);
+      for (const [party, p] of theme.parties.entries())
+        expect(row?.[1]?.includes(p.name), `${seats} players, ${p.name}`).toBe(played.has(party));
+    }
+    expect(rows.find((r) => r[0] === '4')?.[2]).toBe('5, 5, 4, 4');
+    expect(rows.find((r) => r[0] === '5')?.[2]).toBe('4, 4, 4, 3, 3');
+    expect(text).toContain(`${HAND_POSITIONS.length} other cards`);
+  });
+
+  it('describes the board from the engine: its totals, rooms, Entrances and passages', () => {
+    const board = spokenText(section('board'));
+    expect(board).toContain(`${BOARD_SIZE} × ${BOARD_SIZE}`);
+    expect(board).toContain(`${DOORS.length} doors`);
+    expect(board).toContain(`${CORRIDOR.size} corridor squares`);
+    expect(ENTRANCES).toHaveLength(6);
+    for (const scene of theme.scenes) expect(board, scene).toContain(scene);
+    for (const p of theme.parties) {
+      expect(board, p.door).toContain(p.door);
+      expect(board, p.name).toContain(p.name);
+    }
+    const passages = SCENES.flatMap((room, i) => {
+      const to = passageTo(room);
+      return to !== null && i < SCENES.indexOf(to) ? [[room, to] as const] : [];
+    });
+    expect(passages).toHaveLength(2);
+    for (const [a, b] of passages)
+      expect(board).toContain(
+        `the ${theme.scenes[SCENES.indexOf(a)]} with the ${theme.scenes[SCENES.indexOf(b)]}`,
+      );
+  });
+
+  it('shows one card of each kind and the board at the start, as pictures with no controls', () => {
+    const cards = findAll(tree, (e) => classOf(e).includes('rfd-card'));
+    expect(cards.map((c) => c.attrs['data-kind'])).toEqual(['party', 'exhibit', 'scene']);
+    const boards = findAll(tree, (e) => e.tag === 'svg');
+    expect(boards).toHaveLength(1);
+    expect(boards[0]?.attrs.viewBox).toBe('0 0 24 24');
+    expect(findAll(tree, (e) => classOf(e).includes('rfd-pawn'))).toHaveLength(6);
+    expect(findAll(tree, (e) => e.attrs.role === 'button' || e.attrs['data-action'] !== undefined)).toEqual(
+      [],
+    );
+  });
+
+  it('explains playing on this site: the automatic steps, the private show, the Docket, the board and Resign', () => {
+    const online = section('online');
+    const labels = findAll(online, (e) => e.tag === 'strong').map((e) => spokenText([e]));
+    expect(labels).toEqual([
+      'Dice shares.',
+      'Verdict shares.',
+      'Sealed shares.',
+      'Forced rebuttals.',
+      'A shown card.',
+      'The Docket.',
+      'Enlarge board.',
+      'Resign.',
+      'Deadlines.',
+      'The check.',
+    ]);
+    const words = spokenText(online);
+    expect(words).toContain('Only the submitter sees which card');
+    expect(words).toContain('Resign is not offered');
+    expect(words).toContain('Enlarge board');
+    expect(words).toContain('Docket');
+  });
+
+  it('names no reference game, designer or publisher', () => {
+    expect(strings.length).toBeGreaterThan(0);
+    expect(findRestricted(JSON.stringify(tree), strings)).toEqual([]);
+  });
+});
+
+describe('the registration', () => {
+  it('hosts the game: its module, its names, its screen, its rules page and its setup copy', () => {
+    expect(MODULES.get('room-for-doubt')).toBe(roomForDoubt);
+    const game = webGame('room-for-doubt');
+    expect(game?.title()).toBe(ROOM_FOR_DOUBT_THEME.title);
+    expect(game?.tagline()).toBe(ROOM_FOR_DOUBT_THEME.tagline);
+    expect(game?.Component).toBe(RoomForDoubtGame);
+    expect(game?.RulesPage).toBe(RoomForDoubtRulesPage);
+    expect(game?.setupCopy(true)).toEqual(ROOM_FOR_DOUBT_SETUP_COPY);
+  });
+
+  it('routes its game page and its rules page, whole and by section', () => {
+    expect(parseRoute('#/games/room-for-doubt')).toEqual({ name: 'game-page', game: 'room-for-doubt' });
+    expect(parseRoute(rulesHref('room-for-doubt'))).toEqual({
+      name: 'rules',
+      game: 'room-for-doubt',
+      section: null,
+    });
+    expect(parseRoute(rulesHref('room-for-doubt', 'online'))).toEqual({
+      name: 'rules',
+      game: 'room-for-doubt',
+      section: 'online',
+    });
+  });
+
+  it('offers the submit option and validates it', () => {
+    expect(validateRules({ submit: 'required' }).ok).toBe(true);
+    expect(validateRules({ submit: 'optional' }).ok).toBe(true);
+    expect(validateRules({ submit: 'sometimes' }).ok).toBe(false);
+    expect(validateRules({}).ok).toBe(false);
+    // The New table form offers exactly these two choices, named as the legend "Submissions on entering a room"
+    // sets them, and each is a rule the engine accepts; the first is the engine's default.
+    expect(SUBMIT_CHOICES.map((c) => c.label)).toEqual(['Optional', 'Required']);
+    for (const c of SUBMIT_CHOICES) expect(validateRules({ submit: c.value }).ok, c.label).toBe(true);
+    expect(SUBMIT_CHOICES[0]?.value).toBe(DEFAULT_RULES.submit);
+    // The table's rules are what the module accepts, and a table made without the option plays the default.
+    expect(DEFAULT_RULES).toEqual({ submit: 'optional' });
+    expect(roomForDoubt.validateRules({ submit: 'required' })).toEqual({
+      ok: true,
+      value: { submit: 'required' },
+    });
   });
 });
