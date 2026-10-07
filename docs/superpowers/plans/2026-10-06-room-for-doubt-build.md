@@ -218,7 +218,7 @@ Task 9 writes each of these into RULES.md "as built" and into D076.
 - [ ] **Step 3: Implement `packetOrder` and `packetOrderFits` in `packages/game-kit/src/packet.ts`; add `secondRound` to `DeckSpec`**
 
   - `packetOrder` shuffles each partition in list order exactly as `railOrder` does (one `shuffle` call per group, in group order). It then permutes the cards at each second-round group's positions with one more `shuffle` per group.
-  - `packetOrderFits` checks the order is a permutation of `0..size−1`. A position outside every second-round group must hold a card of its own partition. Each second-round group must hold exactly the cards that `identity` holds at its positions.
+  - `packetOrderFits` checks the order is a permutation of `0..size−1`. A position outside every second-round group must hold a card of its own partition. Each second-round group must hold, for each partition, as many cards of that partition as it has positions in it. That is exactly the set of orders the two rounds can produce (ruled in Task 1: the earlier wording, "the cards identity holds at its positions", contradicted the tests).
   - Export both from `index.ts`. Document `secondRound` on `DeckSpec` with the validity rules above.
 
 - [ ] **Step 4: Implement `shuffleSchedule` in `packages/client/src/partitioned-deck.ts`, and switch the session to it**
