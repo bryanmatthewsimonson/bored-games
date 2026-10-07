@@ -37,6 +37,12 @@ const url = (profile: string, from?: string) => {
 const seqOf = async (p: Page) => Number(await root(p).getAttribute('data-seq'));
 const record = (p: Page) => root(p).locator('ol.rfd-record > li');
 
+/** A card as the record names it ("the Gavel", "the Rosalind Ashdown card") and as its face does ("Gavel", …). */
+function faceName(told: string): string {
+  const name = told.replace(/^the /, '');
+  return THEME.parties.some((x) => `${x.name} card` === name) ? name.slice(0, -' card'.length) : name;
+}
+
 async function open(browser: Browser, profile: string, errors: string[], from?: string) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   const page = await context.newPage();
@@ -280,6 +286,8 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   /** The shows checked so far, by record line: who submitted, and the card named to it. */
   const shows = new Map<number, { submitter: Page; card: string }>();
   let firstShow: { line: number; submitter: Page; card: string } | null = null;
+  /** Times the submitter's "showed you" panel was seen drawing the card it was told. */
+  let panels = 0;
   let reloaded: Page | null = null;
   let lateSpectator = false;
   let required = 0;
@@ -371,6 +379,25 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
     }
     await expect(root(spectator).locator('.rfd-mark-shown')).toHaveCount(0);
     await expect(spectator.locator('.rfd-hand')).toHaveCount(0);
+    // The "<name> showed you" panel is the one place a shown card is drawn: on the submitter's page alone, at
+    // `answered` (its own turn), with the card it was told, or "Nobody could rebut"; never on any other page.
+    const turn = Number(await root(page).getAttribute('data-turn'));
+    for (const p of everyone)
+      await expect(root(p).locator('.rfd-shown')).toHaveCount(
+        stage === 'answered' && p === players[turn] ? 1 : 0,
+      );
+    if (stage === 'answered') {
+      const last =
+        (await record(spectator).allTextContents()).filter((t) => t.includes(' submitted ')).length - 1;
+      const show = shows.get(last);
+      const panel = root(page).locator('.rfd-shown');
+      if (show === undefined) await expect(panel).toContainText('Nobody could rebut your submission.');
+      else {
+        expect(show.submitter).toBe(page);
+        await expect(panel.locator('.rfd-card-name')).toHaveText(faceName(show.card));
+        panels++;
+      }
+    }
 
     // 5. The reload, after the 10th action: the first show's submitter if there was one, whose cards stay named.
     if (actions >= 10 && reloaded === null) {
@@ -399,6 +426,7 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
       }
       await expect(late.locator('.rfd-hand')).toHaveCount(0);
       await expect(root(late).locator('.rfd-mark-shown')).toHaveCount(0);
+      await expect(root(late).locator('.rfd-shown')).toHaveCount(0);
       await late.context().close();
       lateSpectator = true;
       console.log(`[rfd] a late spectator reads ${shows.size} show(s) as "showed a card."`);
@@ -512,7 +540,10 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   expect(finished).toBe(true);
   console.log(`[rfd] ${actions} actions: ${JSON.stringify(Object.fromEntries(done))}`);
   expect(firstShow).not.toBeNull();
-  console.log(`[rfd] privacy checked at ${shows.size} show(s)`);
+  console.log(
+    `[rfd] privacy checked at ${shows.size} show(s); the shown-card panel checked ${panels} time(s)`,
+  );
+  expect(panels).toBeGreaterThan(0);
   expect(reloaded).not.toBeNull();
   expect(lateSpectator).toBe(true);
   expect(required).toBeGreaterThan(0);
