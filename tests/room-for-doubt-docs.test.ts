@@ -104,3 +104,9 @@ it('says how the hidden information stays exact', () => {
 });
 
 it('has no attend action', () => expect(rules).not.toContain('`attend`'));
+
+it('says when a pawn is trapped as the engine does: a pawn on a doorstep always has its own door (P5)', () => {
+  const trapped = rules.split(/^### A turn with no possible move$/m)[1]?.split(/^#/m)[0] ?? '';
+  expect(trapped).toMatch(/a pawn on a doorstep always has its own door/);
+  expect(trapped).toMatch(/no free square beside it/);
+});
