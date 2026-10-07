@@ -1,7 +1,7 @@
 /**
  * pnpm sim [--game chain-reaction|chess] [--games 4] [--seats 3-6] [--seed sim] [--adversary name]
  *          [--adversary-seat 1] [--vanish-at n]
- *          [--policy quick|<fuzz policy>] [--deadline 86400] [--max-rounds 20000] [--full-sync]
+ *          [--policy quick|<fuzz policy>] [--deadline <seconds>] [--max-rounds 20000] [--full-sync]
  *          [--workers n] [--json]
  *
  * Plays whole games between independent clients over an in-memory relay (`simulateGame` in @bored-games/client):
@@ -10,7 +10,9 @@
  * --policy names one, the fuzz policy i % (policy count). With --adversary one seat cheats, and each game is also
  * checked for that adversary's expected result. --game picks the game (any fuzz target); --seats defaults to its
  * seat counts (3-6 for Chain Reaction, 2 for Chess). Prints one line per game and the totals; exits 1 on any
- * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns.
+ * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns. --deadline is the move
+ * deadline in seconds: the game's own (`simDeadline` in its fuzz target, for a game long enough that the random
+ * scheduler leaves some seat unscheduled for a day), else one day.
  */
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
@@ -28,6 +30,8 @@ import {
 } from '../../../packages/client/test/adversaries.ts';
 
 const DEFAULT_GAME = 'chain-reaction';
+/** The move deadline when neither --deadline nor the game's fuzz target names one: one day, the protocol's shortest. */
+const DEFAULT_DEADLINE = 86400;
 
 interface Job {
   game: string;
@@ -151,7 +155,7 @@ async function main(): Promise<void> {
       'adversary-seat': { type: 'string', default: '1' },
       'vanish-at': { type: 'string' },
       policy: { type: 'string' },
-      deadline: { type: 'string', default: '86400' },
+      deadline: { type: 'string' },
       'max-rounds': { type: 'string', default: '20000' },
       'full-sync': { type: 'boolean', default: false },
       workers: { type: 'string' },
@@ -180,7 +184,7 @@ async function main(): Promise<void> {
     adversarySeat: Number(values['adversary-seat']),
     vanishAt: values['vanish-at'] === undefined ? null : Number(values['vanish-at']),
     policy: values.policy ?? null,
-    deadline: Number(values.deadline),
+    deadline: Number(values.deadline ?? target.simDeadline ?? DEFAULT_DEADLINE),
     maxRounds: Number(values['max-rounds']),
     fullSync: values['full-sync'] as boolean,
   };

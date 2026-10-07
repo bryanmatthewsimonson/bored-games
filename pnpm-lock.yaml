@@ -254,6 +254,9 @@ importers:
       '@bored-games/right-of-way':
         specifier: workspace:*
         version: link:../../packages/games/right-of-way
+      '@bored-games/room-for-doubt':
+        specifier: workspace:*
+        version: link:../../packages/games/room-for-doubt
 
   tools/protocol-model: {}
 
