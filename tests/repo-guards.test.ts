@@ -9,6 +9,7 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { COMPARE_PHRASE as HOLLER_PHRASE } from '../packages/games/holler/src/compare.ts';
 import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
 import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog.ts';
@@ -26,6 +27,7 @@ import {
   licensedPackStrings,
   packStrings,
   restrictedIn,
+  withoutAllowedPhrases,
 } from './restricted-names.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -487,6 +489,24 @@ describe('branding', () => {
       expect(findRestricted('Compare to Clue Splendor', strings)).toEqual(['Splendor']);
       expect(findRestricted('Compare to Splendor Clue', strings)).toEqual(['Clue']);
     });
+  });
+
+  it('the shedding package does not name the commercial titles as whole words (D072)', () => {
+    const tokens = ['Uno', 'DOS', 'Phase 10', 'Skip-Bo'];
+    const boundary = (word: string): RegExp =>
+      new RegExp(`(?<![A-Za-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i');
+    expect(boundary('Uno').test('Unofficial')).toBe(false);
+    expect(boundary('Phase 10').test('Phase')).toBe(false);
+    const offenders: string[] = [];
+    for (const dir of [join(root, 'packages/games/holler'), join(root, 'apps/web/src/games/holler')]) {
+      for (const file of files(dir)) {
+        // The one compare phrase is the allowed mention. The title is not on the restricted list (D072).
+        const text = withoutAllowedPhrases(readFileSync(file, 'utf8')).replaceAll(HOLLER_PHRASE, ' ');
+        const hits = tokens.filter((token) => boundary(token).test(text));
+        if (hits.length > 0) offenders.push(`${relative(root, file)}: ${hits.join(', ')}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it('exempts only licensed/ directories, and the fixed list covers every name in the packs', () => {

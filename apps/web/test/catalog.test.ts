@@ -4,6 +4,7 @@
  */
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
 import { catalogProblems } from '@bored-games/game-kit';
+import { COMPARE_PHRASE as HOLLER_PHRASE, COMPARE_TITLE as HOLLER_TITLE } from '@bored-games/holler/compare';
 import {
   COMPARE_PHRASE as LUSTER_COMPARE_PHRASE,
   COMPARE_TITLE as LUSTER_COMPARE_TITLE,
@@ -107,6 +108,8 @@ describe('game catalog', () => {
     expect(card('luster')).toContain(LUSTER_COMPARE_PHRASE);
     expect(card('chain-reaction')).not.toContain(LUSTER_COMPARE_PHRASE);
     expect(card('luster')).not.toContain(COMPARE_PHRASE);
+    expect(card('holler')).toContain(HOLLER_PHRASE);
+    expect(`Compare to ${HOLLER_TITLE}`).toBe(HOLLER_PHRASE);
     expect(card('chess')).not.toContain('Compare to');
     expect(card('bank')).not.toContain('Compare to');
   });

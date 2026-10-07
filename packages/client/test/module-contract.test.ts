@@ -5,7 +5,8 @@ import { checkRevealContract, resignSeatCounts } from './reveal-contract.ts';
 /*
  * Contract checks the session relies on for every module with a deck that these tests register (PROTOCOL §8.3,
  * D052; reveal-contract.ts). The web tests run the same check over every module the app registers
- * (apps/web/test/module-contract.test.ts), which is the list that ships.
+ * (apps/web/test/module-contract.test.ts), which is the list that ships. Holler is the reviewed exception
+ * inside the helper (D073): a scoring reveal, an epoch, and a grant may pend during play.
  */
 
 describe('modules with a deck pend public reveals only before the first player action', () => {

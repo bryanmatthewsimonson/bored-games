@@ -3,6 +3,7 @@ import { type ChainReactionRules, chainReaction } from '@bored-games/chain-react
 import { chess } from '@bored-games/chess';
 import { G, type RandomBytes, randomScalar } from '@bored-games/deck';
 import { createRng, type GameModule } from '@bored-games/game-kit';
+import { holler } from '@bored-games/holler';
 import {
   finalizeEvent,
   getPublicKey,
@@ -47,11 +48,15 @@ export const ROOT_SEEN = T0 + 10;
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 type AnyModule = GameModule<any, any, any>;
 
-/** Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045) and Bank (dice beacon, D058). */
+/**
+ * Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045), Bank (dice beacon, D058) and
+ * Holler (epoch shuffle, D073). Luster stays out: a green client suite does not load it.
+ */
 export const MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],
   [chess.id, chess],
   [bank.id, bank],
+  [holler.id, holler],
 ]);
 
 export interface TestGame {

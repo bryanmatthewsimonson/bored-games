@@ -3,6 +3,7 @@ import { BANK_META } from './games/bank/meta.ts';
 import { CHAIN_REACTION_META } from './games/chain-reaction/meta.ts';
 import { CHESS_META } from './games/chess/meta.ts';
 import { DRIFTWRIGHTS_META } from './games/driftwrights/meta.ts';
+import { HOLLER_META } from './games/holler/meta.ts';
 import { LUSTER_META } from './games/luster/meta.ts';
 import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
 import type { GameMeta } from './games/types.ts';
@@ -15,6 +16,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [LUSTER_META.id, LUSTER_META],
   [RIGHT_OF_WAY_META.id, RIGHT_OF_WAY_META],
   [DRIFTWRIGHTS_META.id, DRIFTWRIGHTS_META],
+  [HOLLER_META.id, HOLLER_META],
 ]);
 
 /**

@@ -11,6 +11,7 @@ export const GAME_IDS: readonly string[] = [
   'luster',
   'right-of-way',
   'driftwrights',
+  'holler',
 ];
 
 /** The game of the old `#/rules[/<section>]` links, and the picker's first choice. */

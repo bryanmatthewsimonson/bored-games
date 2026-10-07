@@ -8,6 +8,7 @@ import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { driftwrights } from '@bored-games/driftwrights';
 import type { GameModule } from '@bored-games/game-kit';
+import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import type { NostrEvent } from '@bored-games/protocol';
 import {
@@ -38,6 +39,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [luster.id, luster],
   [rightOfWay.id, rightOfWay],
   [driftwrights.id, driftwrights],
+  [holler.id, holler],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

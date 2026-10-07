@@ -18,6 +18,7 @@
   "devDependencies": {
     "@bored-games/bank": "workspace:*",
     "@bored-games/chain-reaction": "workspace:*",
-    "@bored-games/chess": "workspace:*"
+    "@bored-games/chess": "workspace:*",
+    "@bored-games/holler": "workspace:*"
   }
 }

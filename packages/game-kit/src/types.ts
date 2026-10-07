@@ -96,6 +96,18 @@ export type Pending =
    * action once every seat's beacon share for `id` is in (D058). The fuzzer supplies the faces itself.
    */
   | { readonly type: 'beacon'; readonly id: number }
+  /**
+   * A play-phase reshuffle. `epoch` is the new index and `from` is the positions whose ciphertexts are shuffled.
+   * The order is not in this value. Full mode learns it through `installDeckOrder`.
+   */
+  | {
+      readonly type: 'shuffle';
+      readonly deck: string;
+      readonly epoch: number;
+      readonly from: readonly { readonly deck: string; readonly pos: number }[];
+    }
+  /** Between rounds, after the new hands and starter are dealt and before the starter is revealed. */
+  | { readonly type: 'grant' }
   | { readonly type: 'over' };
 
 /**
@@ -257,6 +269,18 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
    * Absent on a game that does not roll. Never throws.
    */
   beaconOf?(state: S, action: unknown): number | null;
+  /**
+   * Full mode only. Stores the plaintext order of a pending shuffle epoch and emits nothing. A view rejects it.
+   * Absent on a game that does not reshuffle.
+   */
+  installDeckOrder?(state: S, epoch: number, order: readonly number[]): ApplyResult<S, E>;
+  /** The plaintexts of a pending shuffle, in `from` order. Empty outside full mode. Absent when a game has no epochs. */
+  shufflePlaintexts?(state: S): readonly number[];
+  /**
+   * True while a scoring reveal may publish cards that are still dealt to a seat. Absent means a reveal of an
+   * owned position is a bug, which is every game but the one that scores by revealing hands.
+   */
+  handsReveal?(state: S): boolean;
   /**
    * Whether a seat may resign a game with these rules and seats (PROTOCOL §4.9, D052). Absent means yes. A game
    * whose hidden cards the resigner's published deck secret would expose to others (a co-op game, or one where

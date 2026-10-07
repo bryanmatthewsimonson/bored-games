@@ -53,6 +53,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../../packages/games/holler
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
@@ -111,6 +114,9 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../games/chess
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../games/holler
 
   packages/deck:
     dependencies:
@@ -152,6 +158,12 @@ importers:
         version: link:../../game-kit
 
   packages/games/driftwrights:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
+  packages/games/holler:
     dependencies:
       '@bored-games/game-kit':
         specifier: workspace:*
@@ -233,6 +245,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/holler':
+        specifier: workspace:*
+        version: link:../../packages/games/holler
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
