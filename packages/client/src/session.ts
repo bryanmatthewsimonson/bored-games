@@ -33,7 +33,9 @@ import {
   type GameModule,
   type Outcome as ModuleOutcome,
   type Pending,
+  type PrivateShow,
   type RevealAction,
+  SHOW_DECK,
 } from '@bored-games/game-kit';
 import {
   attestTemplate as attestEventTemplate,
@@ -77,6 +79,7 @@ import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits
 import { ClientError } from './errors.ts';
 import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
 import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
+import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
@@ -321,6 +324,16 @@ function playerSentDice(action: unknown): boolean {
   return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'rolled';
 }
 
+/** An action of type `show`. While a private show is pending, it must be the show's wire (PROTOCOL §14, D075). */
+function isShowAction(action: unknown): boolean {
+  return action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'show';
+}
+
+/** A private show's marker (D075): a legal action of type `show` with a `pos` key. It never goes on the wire. */
+function isShowMarker(action: unknown): action is { readonly type: 'show'; readonly pos: unknown } {
+  return isShowAction(action) && 'pos' in (action as object);
+}
+
 export class GameSession {
   private readonly module: AnyModule;
   private readonly root: ParsedRoot;
@@ -406,6 +419,11 @@ export class GameSession {
   private readonly rejected = new Map<Hex, string>();
   /** Game actions' share and reveal checks, by event id: null when every proof verifies, else the reason. */
   private readonly actionChecked = new Map<Hex, string | null>();
+  /**
+   * The card each private show's packet showed this seat (D075), by `show:<event id>`, or null when it showed none:
+   * trial folds check a show again, and the packet is opened once.
+   */
+  private readonly showCards = new Map<string, number | null>();
 
   /**
    * Every well-formed move (it parsed and passed `moveShape`), grouped by `prev:seq:seat`, as possible
@@ -1528,9 +1546,10 @@ export class GameSession {
 
   /**
    * Check a game action against `state` on everything but R1, in order: the signer is the pending seat; every
-   * share and reveal verifies; the module accepts the action; and the reveals are exactly the positions
-   * `revealsOf` names, each decrypting to the claimed card. A pending reveal, or another seat's missing share of a
-   * revealed position, means not yet.
+   * share and reveal verifies; a private show's wire has its public shape (`showEnvelope`); the module accepts the
+   * action; and the reveals are exactly the positions `revealsOf` names, each decrypting to the claimed card. A
+   * pending reveal, or another seat's missing share of a revealed position, means not yet. After a private show's
+   * `apply`, its shower and its submitter learn the card (`learnShow`); a packet that shows nothing never rejects.
    */
   private checkAction(
     state: unknown,
@@ -1574,6 +1593,11 @@ export class GameSession {
         }
       }
     }
+    // A private show (PROTOCOL §14, D075): every client checks the wire's public shape before `apply`.
+    const show = this.module.privateShow?.(state) ?? null;
+    const showing = show !== null && isShowAction(c.action);
+    if (showing && !showEnvelope(c.action, show, this.deckSize))
+      return reject('the private show is malformed');
     const r = this.module.apply(state, c.action);
     if (!r.ok) return reject(`the module rejects the action: ${r.error.code}: ${r.error.message}`);
 
@@ -1597,7 +1621,87 @@ export class GameSession {
       if (card !== claim.card) return reject(`the reveal of position ${claim.pos} is not the claimed card`);
     }
     if (missingShares) return 'wait';
+    if (showing) return this.learnShow(m, state, show, c.action, r.state, r.events);
     return { next: r.state, events: r.events };
+  }
+
+  /**
+   * After a private show's `apply` (PROTOCOL §14, D075): the shower and the submitter learn the card, as
+   * `{deck: SHOW_DECK, pos: <show id>, card}`, and nobody else learns anything. A packet that shows this seat no card
+   * skips the learn and never rejects the move, so every client keeps one chain; the audit fails the shower.
+   */
+  private learnShow(
+    m: ParsedMove,
+    before: unknown,
+    show: PrivateShow,
+    action: unknown,
+    next: unknown,
+    events: readonly unknown[],
+  ): { next: unknown; events: readonly unknown[] } {
+    const me = this.me;
+    if (me === null || (me.seat !== show.from && me.seat !== show.to)) return { next, events };
+    const card = this.shownCard(m, before, show, action, me);
+    if (card === null) return { next, events };
+    const learned = this.module.learn(next, { deck: SHOW_DECK, pos: show.id, card });
+    return learned.ok ? { next: learned.state, events: [...events, ...learned.events] } : { next, events };
+  }
+
+  /**
+   * The card a private show's packet shows this seat, or null. Open the packet and check its context (`readShow`),
+   * check that the latest `dealt` entry of its position (in `before`, the state the show applied to) names the
+   * shower, put the packet's share into a copy of the position's slots at the shower's, and decrypt, which verifies
+   * every share's proof: every other seat's share of a hand position is public since the deal. Cached per event id,
+   * since trial folds check the move again; a position that still lacks another seat's share is not, so a later fold
+   * of the move tries again.
+   */
+  private shownCard(
+    m: ParsedMove,
+    before: unknown,
+    show: PrivateShow,
+    action: unknown,
+    me: Identity,
+  ): number | null {
+    const key = `show:${m.id}`;
+    const cached = this.showCards.get(key);
+    if (cached !== undefined) return cached;
+    const deck = this.finalDeck();
+    if (deck === null) return null;
+    let card: number | null = null;
+    try {
+      const keys = this.xOnlyKeys();
+      const { pos, share } = readShow(
+        action,
+        show,
+        me.seat,
+        me.deckSecret,
+        keys,
+        this.root.id,
+        m.prevId,
+        this.deckSize,
+      );
+      if (this.holderOf(before, pos) === show.from) {
+        if (!this.shares.covered(pos, show.from)) return null;
+        const slots = this.shares.slots(pos, show.from);
+        slots[show.from] = share;
+        card = decryptPosition(deck[pos] as Ciphertext, this.shareCtx(pos), this.keys, slots, this.cards);
+      }
+    } catch {
+      card = null;
+    }
+    this.showCards.set(key, card);
+    return card;
+  }
+
+  /** The seat the latest `dealt` entry of deck position `pos` in `state` names: null when public or never dealt. */
+  private holderOf(state: unknown, pos: number): number | null {
+    let to: number | null = null;
+    for (const d of this.module.dealt(state)) if (d.deck === this.deckId && d.pos === pos) to = d.to;
+    return to;
+  }
+
+  /** Each seat's deck key in x-only hex, as NIP-44 conversation keys take it (D070, D075). */
+  private xOnlyKeys(): string[] {
+    return this.keys.map((key) => key.toHex(true).slice(2));
   }
 
   /**
@@ -3065,7 +3169,8 @@ export class GameSession {
 
   /**
    * My game-action move: `action` (one of `legalActions()`), every share I owe as of the head (R1) and my reveal
-   * shares for the cards it shows (`revealsOf`), each sorted by position. Throws `ClientError` unless a decision
+   * shares for the cards it shows (`revealsOf`), each sorted by position. A private show's marker goes out as the
+   * show's wire, which names neither the position nor the card (D075). Throws `ClientError` unless a decision
    * is mine and the action is legal. Build it once per decision: a second move on the same prev is equivocation.
    */
   buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
@@ -3085,7 +3190,10 @@ export class GameSession {
     return this.actionEvent(me, legal, rnd, createdAt);
   }
 
-  /** The signed move for `action`, with the shares that action owes. The caller has already checked the duty. */
+  /**
+   * The signed move for `action`, with the shares that action owes. The caller has already checked the duty. A
+   * private selection's move is its transfer, and a private show's marker becomes the show's wire (D075).
+   */
   private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
     const plan = this.module.privateSelection?.(this.state);
     if (plan) {
@@ -3101,6 +3209,8 @@ export class GameSession {
         rnd,
       );
     }
+    const show = this.module.privateShow?.(this.state) ?? null;
+    if (show !== null && isShowMarker(legal)) legal = this.showWire(me, show, legal.pos, rnd);
     let shares: PosShare[] = [];
     let reveals: PosShare[] = [];
     if (this.hasDeck()) {
@@ -3133,6 +3243,34 @@ export class GameSession {
     this.actionChecked.set(`cards:${ev.id}`, null);
     this.actionChecked.set(`roll:${ev.id}`, null);
     return ev;
+  }
+
+  /**
+   * A private show's wire (PROTOCOL §14, D075) for the marker's position `pos`: this seat's decryption share of it,
+   * sealed with the move's context in a packet that only the shower and the submitter can open. Throws unless this
+   * seat is the shower and the latest `dealt` entry of `pos` names it.
+   */
+  private showWire(me: Identity, show: PrivateShow, pos: unknown, rnd: RandomBytes): unknown {
+    const deck = this.finalDeck();
+    if (
+      deck === null ||
+      me.seat !== show.from ||
+      typeof pos !== 'number' ||
+      this.holderOf(this.state, pos) !== me.seat
+    )
+      throw new ClientError('the show marker names no position this seat holds');
+    const share = makeShare(me.deckSecret, deck[pos] as Ciphertext, this.shareCtx(pos), rnd);
+    return makeShow(
+      show,
+      pos,
+      me.deckSecret,
+      share,
+      this.xOnlyKeys(),
+      this.root.id,
+      this.headId(),
+      this.deckSize,
+      rnd,
+    );
   }
 
   /**

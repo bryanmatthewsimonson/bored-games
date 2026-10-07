@@ -657,6 +657,7 @@ It MUST also meet these contract rules, which the session relies on:
 - **Postponement by fresh shares (closed by Ruling 11).** Only events that change the stalled set count as progress (§8.1), so a stalled seat cannot restart its own deadline by publishing shares it was not stalled on.
 - **Alternative endings.** Fork choice ranks a branch that reaches `over` with settled branches, above every other (§6.6), so a finished game cannot be reopened unless every seat but the ender played on a rival branch (none whose client held the end would). When two branches both reach `over`, length and then id decide, so the last mover can still choose between alternative endings it signed. That can change the other seats' relative order and the `logHash`. Signing two endings is equivocation, which costs that seat its own place, so this is accepted.
 - **Re-signed old moves** never cancel a game (§6.6): they flag the signer, who forfeits at the end. They rewind it only when the rival branch reaches `over`, the chain has not, and some other seat has not played on the chain since the fork (below, "A stale rival").
+- **An equivocating shower (§14)** can show the submitter two cards: two `show` moves on one parent are valid-looking rivals (§6.6), and the submitter's client can open both packets. The shower is flagged and ranked last, which detects the leak but does not prevent it: the residual of D071.
 - **A stale rival (the stale outbox, D056).** A seat's own old device may hold a move it saved offline for a turn the seat then played otherwise on another device. If that device republished the move, v1 would treat it as any re-signed old move (`packages/client/test/stale-rival.test.ts` pins this):
   - **Flagged, always.** The two moves are valid-looking rivals on one prev, so the seat is an equivocator and forfeits: ranked last at the end, during play and after it. In a finished game its place, and so the attested result, change after the attestations were signed (they no longer match, and must be signed again).
   - **No reorganization for an ordinary rival.** A rival on an old prev is shorter than the chain and never displaces it, in play or after the end (equal-length ties only arise for a rival of the last move).
@@ -701,3 +702,55 @@ Supply identities are concealed claims, with public hand counts. A theft request
 The victim signs an action `{type:'transfer',actor,id,root,anchor,after,packets}`. `anchor` is the theft request's id; `after` equals the signed Move's `prev`; `id` is its roll counter. `packets` holds exactly two entries `{to,ciphertext}`, sorted by seat, addressed to victim and thief. Each NIP-44 plaintext is canonical JSON `{root,anchor,after,id,from,to,index,card}` with the same selection context and resource label. Conversation keys use the victim's deck secret and each recipient's x-only deck public key. Each affected player opens only their own packet and learns the supply before applying the count/resource transfer. Other seats apply only count changes. No other private resource hand is broadcast.
 
 At the end, full replay retains signed request/parent ids. Every audit derives the same private permutation from the released victim key and full hand, opens **both** packets with the released recipient keys, checks their exact context and resource, and fails the victim if either differs. Payments, half-hand discards and named-resource requisitions are likewise checked against full hands in replay; dishonest claims fail the signer. These checks give end-game attribution, not a live inventory proof. Resignation is disabled. Prompt venture shares retain the v1 fork/rollback residuals authorized by D069.
+
+## 14. Private shows (D075)
+
+A rules module MAY offer a **private show**: one seat shows one card it holds to one other seat, and no other seat or spectator learns the card or even its deck position. Room for Doubt's rebuttal is the first use. A show adds no event kind, no Move field and no tag, and `proto` stays `"1"` (D071): its payload is the module's own action (§4.4). A module with private shows has a deck (§10).
+
+**The hook.** `privateShow(state)` returns `{id, from, to}` while seat `from` is deciding whether to show seat `to` a card, and null otherwise. `id` names the show and is never reused; `from` and `to` are different seats.
+
+**The marker.** Meanwhile `legalActions(state, from)` lists a marker `{"actor":<from>,"pos":<n>,"type":"show"}` for each deck position `from` holds and may show, besides any other answer the rules allow (in Room for Doubt, `none`). While a show is pending the action type `show` is reserved: a legal action of type `show` with a `pos` key is a marker. A marker names its position, so it never goes on the wire, and `apply` never accepts one.
+
+**The wire.** The client turns the chosen marker into the Move's action, with exactly these keys:
+```json
+{"actor":<from>,"id":<id>,"packet":"<NIP-44 v2 payload>","type":"show"}
+```
+It does so only for a position whose latest `dealt` entry names `from`. `revealsOf` of the wire is `[]`, so the Move carries no reveal, and its `shares` are only those the seat owes (§6.2), which never include its own position.
+
+**The packet** is one NIP-44 v2 payload under the conversation key `getConversationKey(x_from, X_to)`: the shower's deck secret as a 32-byte big-endian secret key, and the submitter's deck key in x-only form (as in §13). The key is symmetric, so `to` opens the packet with `getConversationKey(x_to, X_from)`. Deck keys are used, not session keys, because they are released at the end for the audit (§7). The plaintext is canonical JSON with exactly these keys:
+```json
+{"after":"<prevId>","c":"<c>","d":"<D>","from":<from>,"id":<id>,"pos":"<pos>","root":"<rootId>","s":"<s>","to":<to>}
+```
+- `after` is the Move's `prev`, and `root` the game root's id.
+- `pos` is the shown position as a decimal string, zero-padded to the digit count of `deckSize − 1` (two digits for a deck of 11 to 100 cards).
+- `d`, `c` and `s` are `encodePoint(D)`, `encodeScalar(c)` and `encodeScalar(s)` of the shower's decryption share of `pos` with its proof (§5.4): `makeShare(x_from, deck[pos], {rootId, deckId, pos})`.
+
+**The exact length.** The plaintext's length depends on public data only: the two ids have 64 characters, a point 44 and a scalar 43, and `pos` is padded. Every client checks `isNip44Payload(packet, n)`, where `n` is the length of that plaintext with placeholders of the same lengths. Two shows of one position cannot be told from two shows of two positions: their packets differ (a fresh nonce and fresh proof randomness) and have the same length.
+
+**Folding a show** (adds to §6.5 step 4). While `privateShow(state)` is set at the Move's parent, a game action of type `show`:
+1. **before `apply`** must be the wire above: exact keys, `actor` equal to `from`, `id` equal to the show's id, and a packet of the exact length. Otherwise the Move is invalid.
+2. **after a successful `apply`**, on the clients of `from` and `to` only (no other client learns anything):
+   1. open the packet, and check that the plaintext is canonical with exactly the keys above, and that its `root` is the game's, its `after` the Move's `prev`, and its `id`, `from` and `to` the show's;
+   2. check that the latest `dealt` entry of `pos` at the parent names `from`;
+   3. put the packet's share in `from`'s slot of a copy of the position's shares (every other seat's share of a hand position is public since the deal, §6.1) and decrypt the position with `decryptPosition`, which verifies every proof;
+   4. call `learn(state, {deck: "shown", pos: id, card})`: `"shown"` is `SHOW_DECK`, a pseudo-deck that is never a real deck's id, and `pos` is the show's id.
+
+   On any failure the client skips the learn and does **not** reject the Move. Only `from` and `to` can open the packet: if their clients rejected a Move that every other client accepts, the clients would follow two chains. With one chain, a bad packet costs the submitter its card during play, and the audit fails the shower at the end. The learn depends only on the event, so a client may cache it per event id (fork choice checks a Move again in trial folds), and a client that reloads learns the card again.
+
+**The audit** (adds to §7 step 2). After the replay applies a `show` action while `privateShow` was set at the state before it, the auditor:
+1. opens the packet with the released secret `x_from`, and checks the envelope, the plaintext and its context as above;
+2. checks that the latest `dealt` entry of `pos` before the show names `from`;
+3. checks that the share is the shower's own, `D = x_from · a_pos`, and that its proof verifies (§5.4), as the submitter's client checked it in play;
+4. decrypts the position with all the secrets, and learns `{deck: "shown", pos: id, card}` in full mode, where the module checks that the card may be shown (in Room for Doubt, one of the cards named) and is held by `from`.
+
+Any failure fails `from` alone, with reason `move N private show fails: …`.
+
+**Module duties** (add to §10). `view` keeps a shown card for `from` and `to` only, `knownTo` never lists a `shown` learn, and `dealt` does not change when a card is shown. The fuzzer stands in for the session: it never applies a marker, checks that the chosen marker's position is held by `from`, builds the wire from it, and learns the card into the full state and into the views of `from` and `to` only, so a module whose `view` shows the card to any other viewer fails.
+
+**Resign stays disabled** for a module with private shows (`resignAllowed` returns false). A Resign carries the resigner's deck secret (§8.3), and that secret opens every packet the resigner sent or received: the cards it showed and was shown, and their positions, would be public during play.
+
+**Residuals.**
+- Every packet opens once the secrets are released at the end, as every hidden card does.
+- A shower that equivocates can show the submitter two cards; it is flagged and ranked last (§6.6, §11), not prevented (D071).
+- A packet the submitter cannot use (sealed to another key, a share of another position, a broken proof) costs the submitter that card until the end, when the audit fails the shower.
+- A show of a position dealt during play, folded before every other seat's share of it is in, teaches nothing until the Move is folded again (after a reload). A hand dealt at setup always has every share.

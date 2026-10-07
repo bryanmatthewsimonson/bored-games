@@ -1,6 +1,7 @@
 import { type Ciphertext, cardOf, decryptWithSecrets } from '@bored-games/deck';
 import { canonicalJson, type GameModule, type Outcome as ModuleOutcome } from '@bored-games/game-kit';
 import type { Audit, Outcome } from '@bored-games/protocol';
+import { auditShow } from './private-show.ts';
 import { auditTransfer } from './private-transfer.ts';
 
 /*
@@ -17,7 +18,7 @@ export interface LoggedAction {
   action: unknown;
   /** The chain `seq` of the move that carried the action, or of the head a derived reveal followed. */
   seq: number;
-  /** Signed request and parent ids, retained when a module uses private selections. */
+  /** The move's id and its `prev`, which a private selection's and a private show's audit check (D070, D075). */
   id?: string;
   prev?: string;
 }
@@ -58,6 +59,17 @@ const everyone = (seats: number, reason: string): Audit => ({
 
 /** Everything the audit reads but the declared outcome: what a partial audit (`auditPrefix`) gets. */
 export type PrefixInput = Omit<AuditInput, 'outcome'>;
+
+/** An action of type `show`: while a private show is pending, its wire (PROTOCOL §14, D075). */
+const isShowAction = (action: unknown): boolean =>
+  action !== null && typeof action === 'object' && (action as { type?: unknown }).type === 'show';
+
+/** The seat the latest `dealt` entry of `pos` in deck `deckId` names in `state`: null when public or never dealt. */
+function holderIn(module: AnyModule, state: unknown, deckId: string | null, pos: number): number | null {
+  let to: number | null = null;
+  for (const d of module.dealt(state)) if (d.deck === deckId && d.pos === pos) to = d.to;
+  return to;
+}
 
 /**
  * Decrypt the deck, set the module up in full mode and replay the log (PROTOCOL §7 steps 2–3): the full-mode state
@@ -102,12 +114,45 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
         };
       }
     }
+    const show = module.privateShow?.(state) ?? null;
+    const held = state;
     const before = module.rolls?.(state) ?? [];
     const r = module.apply(state, entry.action);
     if (r.ok) {
       for (const roll of module.rolls?.(r.state) ?? [])
         if (!before.some((old) => old.id === roll.id) && entry.id) origins.set(roll.id, entry.id);
       state = r.state;
+      if (show !== null && isShowAction(entry.action)) {
+        // A private show (PROTOCOL §14, D075): open its packet with the released secrets, and learn the card in
+        // full mode, where the module checks that it may be shown and is held.
+        try {
+          if (!input.rootId || !entry.prev || input.deckId === null)
+            throw new Error('The private show is missing its signed context.');
+          const learn = auditShow(
+            entry.action,
+            show,
+            input.secrets,
+            input.rootId,
+            entry.prev,
+            input.deck,
+            input.cards,
+            (pos) => holderIn(module, held, input.deckId, pos),
+            input.deckId,
+          );
+          const learned = module.learn(state, learn);
+          if (!learned.ok) throw new Error(learned.error.message);
+          state = learned.state;
+        } catch (e) {
+          return {
+            fail: {
+              fail: [show.from],
+              reason: clipReason(
+                `move ${entry.seq} private show fails: ${e instanceof Error ? e.message : 'invalid show'}`,
+              ),
+            },
+          };
+        }
+      }
       continue;
     }
     const why = `${r.error.code}: ${r.error.message}`;
@@ -131,6 +176,8 @@ function replay(input: PrefixInput): { state: unknown } | { fail: Audit } {
  * is set up in full mode with `deckOrders: {}` and replays its log the same way.
  * - The first action the full-mode engine rejects fails its actor. A rejected derived reveal, a position that
  *   decrypts to no card, or a module that refuses the order fails every seat: no single seat is to blame.
+ * - A private show whose packet does not open with the released secrets, or does not show the shower's own share of
+ *   a position it holds, or whose card the full-mode module refuses, fails the shower (PROTOCOL §14, D075).
  * - If the replay's outcome differs from the declared one, every seat fails ("outcome mismatch").
  * - Otherwise the audit passes.
  */

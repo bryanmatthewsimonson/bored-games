@@ -36,8 +36,10 @@ export type {
   Outcome,
   Pending,
   PrivateSelection,
+  PrivateShow,
   Result,
   RevealAction,
   Seat,
   SetupInput,
 } from './types.ts';
+export { SHOW_DECK } from './types.ts';
