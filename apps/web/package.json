@@ -24,6 +24,7 @@
     "@bored-games/protocol": "workspace:*",
     "@bored-games/relay": "workspace:*",
     "@bored-games/right-of-way": "workspace:*",
+    "@bored-games/room-for-doubt": "workspace:*",
     "@preact/signals": "2.11.3",
     "preact": "11.0.0"
   },

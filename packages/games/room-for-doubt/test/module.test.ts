@@ -99,6 +99,7 @@ describe('the brand pack, the catalog entry and the phrase', () => {
       './catalog': './src/catalog.ts',
       './compare': './src/compare.ts',
       './brand': './src/theme.ts',
+      './art': './src/art.ts',
     });
     for (const file of Object.values(manifest.exports))
       expect(existsSync(join(import.meta.dirname, '..', file)), file).toBe(true);
