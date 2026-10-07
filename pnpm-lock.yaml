@@ -169,6 +169,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/room-for-doubt:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/protocol:
     dependencies:
       '@bored-games/deck':
