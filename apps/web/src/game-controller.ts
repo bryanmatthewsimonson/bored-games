@@ -512,6 +512,15 @@ export class GameController {
    * in flight, when the session refuses the action, or when the game is not ready.
    */
   async act(action: unknown): Promise<void> {
+    return this.#act(action, false);
+  }
+
+  /**
+   * `act`, and the send of an automatic move (`#autoMove`, `automatic`), which is dated at the head as the automatic
+   * duties are (`#autoDate`), not now: two open devices of this seat that send it at the same moment then sign one
+   * event, not two rival moves.
+   */
+  async #act(action: unknown, automatic: boolean): Promise<void> {
     if (this.busy.value) throw new Error('A move is already being sent.');
     const session = this.#session;
     if (session === null || !this.#synced) throw new Error('The game is still loading.');
@@ -535,7 +544,8 @@ export class GameController {
           throw new Error(
             'checking that you have not already played this turn on another device: not every relay has answered yet. Try again in a moment',
           );
-        ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, this.#d.now());
+        const at = automatic ? this.#autoDate(session, head.id) : this.#d.now();
+        ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, at);
       }
       this.#commit(slot, ev);
       this.error.value = null;
@@ -1835,12 +1845,29 @@ export class GameController {
     if (this.status.value !== 'your-turn') return;
     const v = session.view();
     if (v.mySeat === null || this.#autoTried.has(v.head.id)) return;
+    // A head dated ahead of this device's clock is waited for, as a deterministic duty's is: a later tick sends.
+    const plan = this.#buildDate(session, v.head.id);
+    if (plan !== null && plan.wait > 0) return;
     const action = pick(this.legal.value, v.state, v.mySeat);
     if (action === null || action === undefined) return;
     this.#autoTried.add(v.head.id);
-    this.act(action).catch(() => {
+    this.#act(action, true).catch(() => {
       // `act` has set `error`; the next tick tries again while the move is still this seat's to make.
     });
+  }
+
+  /**
+   * The date of an automatic move on `headId`: the head's, as a deterministic build's (`#buildDate`, D063), so that
+   * two open devices of this seat that both send it sign one event. An event id covers the content and the date, not
+   * the signature, so a move whose content the head fixes (a lone none carries no proof) is then the same event. Its
+   * randomness stays fresh: `#buildRnd` is only for statements its label fixes, never a decision. A head dated too
+   * far ahead falls back to now, as a duty's does; one dated less far ahead is waited for (`#autoMove`).
+   */
+  #autoDate(session: GameSession, headId: string): number {
+    const plan = this.#buildDate(session, headId);
+    if (plan === null) return this.#d.now();
+    if (plan.wait > 0) throw new Error("the last move is dated ahead of this device's clock; waiting for it");
+    return plan.at;
   }
 
   /**
