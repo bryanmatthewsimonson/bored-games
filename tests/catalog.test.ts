@@ -3,10 +3,10 @@
  * in packages/games/<id>/test/catalog/ whose title starts with its id (`it('Cnn …')`), and every such test is
  * documented. Ids have 2 or 3 digits, and a heading or test title in any other form fails. A game with a RULES.md
  * must have a package and a catalog, except the games listed in SPEC_ONLY: a rules spec written before its engine
- * (Hanabi, D054; Room for Doubt, D072). A spec-only game must have no `test/catalog/` directory yet: its package
- * may exist, holding the engine's foundations and their own tests (Room for Doubt's board and movement land before
- * its 45 catalog tests). The entry fails once the directory appears and must then be removed, and the game's
- * catalog is checked for well-formed, unique ids only until then.
+ * (Hanabi, D054). A spec-only game must have no `test/catalog/` directory yet: its package may exist, holding the
+ * engine's foundations and their own tests, as Room for Doubt's board and movement landed before its 45 catalog
+ * tests (D076). The entry fails once the directory appears and must then be removed, and the game's catalog is
+ * checked for well-formed, unique ids only until then.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,7 +16,7 @@ const root = join(import.meta.dirname, '..');
 const docs = join(root, 'docs/games');
 const games = readdirSync(docs).filter((id) => existsSync(join(docs, id, 'RULES.md')));
 /** Games with a rules spec and no catalog tests yet. Remove an id here the moment its `test/catalog/` is created. */
-const SPEC_ONLY: readonly string[] = ['hanabi', 'room-for-doubt'];
+const SPEC_ONLY: readonly string[] = ['hanabi'];
 
 describe('rules catalogs', () => {
   it('covers every game with a RULES.md, Chain Reaction and Chess at least', () => {

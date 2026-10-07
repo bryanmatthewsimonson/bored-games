@@ -13,6 +13,8 @@ import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
 import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog.ts';
 import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
+import { ROOM_FOR_DOUBT_CATALOG } from '../packages/games/room-for-doubt/src/catalog.ts';
+import * as ROOM_FOR_DOUBT_COMPARE from '../packages/games/room-for-doubt/src/compare.ts';
 import {
   ALLOWED_PHRASE_HOMES,
   ALLOWED_PHRASES,
@@ -284,7 +286,7 @@ describe('branding', () => {
     ).toEqual([]);
   });
 
-  describe('the allowed phrases (D053, D060)', () => {
+  describe('the allowed phrases (D053, D060, D066, D076)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -348,6 +350,26 @@ describe('branding', () => {
           'AlanMoon',
         ],
       },
+      {
+        game: 'Room for Doubt',
+        home: 'packages/games/room-for-doubt/src/compare.ts',
+        phrase: 'Compare to Clue',
+        compare: ROOM_FOR_DOUBT_COMPARE,
+        entry: ROOM_FOR_DOUBT_CATALOG,
+        bggId: 1294,
+        companies: [
+          'Hasbro',
+          'HASBRO',
+          'Parker Brothers',
+          'parker-brothers',
+          'ParkerBrothers',
+          'Waddington',
+          'Anthony Pratt',
+          'Anthony E. Pratt',
+        ],
+        // An everyday word, restricted only as the exact-case whole words `Clue` and `CLUE` (D072).
+        exactCase: true,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -356,6 +378,7 @@ describe('branding', () => {
         'Compare to Acquire',
         'Compare to Splendor',
         'Compare to Ticket to Ride',
+        'Compare to Clue',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });
@@ -397,29 +420,47 @@ describe('branding', () => {
         expect(ALLOWED_WORDS.has(title.toLowerCase())).toBe(false);
         const upper = title.toUpperCase();
         const lower = title.toLowerCase();
-        for (const text of [
-          title,
-          lower,
-          upper,
-          `${lower}s`,
-          `re${lower}d`,
-          `${title}Rules`,
-          `cr-${lower}-x`,
-          `compare to ${title}`,
-          `Compare to ${lower}`,
-          `COMPARE TO ${upper}`,
-          `Compare  to ${title}`,
-          `Compare to ${title}d`,
-          `Compare to ${title}_x`,
-          `xCompare to ${title}`,
-          `${phrase}, the ${title} company`,
-          // An unrestricted word run into the phrase: caught only because the cut needs a word boundary.
-          `${phrase}Duel`,
-          `${phrase}-style`,
-          `${phrase}’s`,
-          `${title} Duel`,
-        ])
-          expect(findRestricted(text, strings), text).not.toEqual([]);
+        // A title on the fixed list is caught in any case and inside a word; an everyday word that is a title
+        // (`exactCase`) only as the exact-case whole word, so it stays an ordinary word in lower case (D072).
+        const caught = g.exactCase
+          ? [
+              title,
+              upper,
+              `compare to ${title}`,
+              `COMPARE TO ${upper}`,
+              `Compare  to ${title}`,
+              `xCompare to ${title}`,
+              `${phrase}, the ${title} company`,
+              `${phrase}-style`,
+              `${phrase}’s`,
+              `${title} Duel`,
+            ]
+          : [
+              title,
+              lower,
+              upper,
+              `${lower}s`,
+              `re${lower}d`,
+              `${title}Rules`,
+              `cr-${lower}-x`,
+              `compare to ${title}`,
+              `Compare to ${lower}`,
+              `COMPARE TO ${upper}`,
+              `Compare  to ${title}`,
+              `Compare to ${title}d`,
+              `Compare to ${title}_x`,
+              `xCompare to ${title}`,
+              `${phrase}, the ${title} company`,
+              // An unrestricted word run into the phrase: caught only because the cut needs a word boundary.
+              `${phrase}Duel`,
+              `${phrase}-style`,
+              `${phrase}’s`,
+              `${title} Duel`,
+            ];
+        for (const text of caught) expect(findRestricted(text, strings), text).not.toEqual([]);
+        if (g.exactCase)
+          for (const text of [lower, `${lower}s`, `${title}Action`])
+            expect(findRestricted(text, strings), text).toEqual([]);
         for (const name of g.companies) {
           expect(findRestricted(name, strings), name).not.toEqual([]);
           expect(findRestricted(`Compare to ${name}`, strings), name).not.toEqual([]);
@@ -443,6 +484,8 @@ describe('branding', () => {
       expect(findRestricted('Compare to Acquire Splendor', strings)).toEqual(['Splendor']);
       expect(findRestricted('Compare to Splendor Acquire', strings)).toEqual(['Acquire']);
       expect(findRestricted('Compare to Splendor and Compare to Acquire', strings)).toEqual([]);
+      expect(findRestricted('Compare to Clue Splendor', strings)).toEqual(['Splendor']);
+      expect(findRestricted('Compare to Splendor Clue', strings)).toEqual(['Clue']);
     });
   });
 
