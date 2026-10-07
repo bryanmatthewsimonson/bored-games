@@ -277,6 +277,8 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   const startSeqs = new Set<number>();
   const indicted: (RfdAction | null)[] = [null, null];
   let actions = 0;
+  /** The shows checked so far, by record line: who submitted, and the card named to it. */
+  const shows = new Map<number, { submitter: Page; card: string }>();
   let firstShow: { line: number; submitter: Page; card: string } | null = null;
   let reloaded: Page | null = null;
   let lateSpectator = false;
@@ -286,8 +288,8 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   /** Whether an answer has gone out with no click (ruling 7): a "none" (always forced), or a show not clicked. */
   const autoAnswered = async (): Promise<boolean> => {
     const lines = await record(spectator).allTextContents();
-    const shows = lines.filter((line) => line.includes(' showed a card.')).length;
-    return lines.some((line) => line.includes(' had none.')) || shows > clicked;
+    const shown = lines.filter((line) => line.includes(' showed a card.')).length;
+    return lines.some((line) => line.includes(' had none.')) || shown > clicked;
   };
   let finished = false;
   for (let step = 0; step < 400; step++) {
@@ -329,71 +331,77 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
     // Nothing moves until this decision is made: every page and the spectator reach the same point.
     for (const p of everyone) await expect.poll(() => seqOf(p), { timeout: 120_000 }).toBe(seq);
 
-    // 4. Privacy, at the first show (Review Focus 1). The record lists the submissions first, one line each.
-    if (firstShow === null) {
-      const lines = await record(spectator).allTextContents();
-      const line = lines.findIndex((t) => t.includes('showed a card.'));
-      if (line >= 0) {
-        const texts = await Promise.all(players.map((p) => record(p).nth(line).textContent()));
-        const submitters = players.filter((_, i) => texts[i]?.includes('showed you'));
-        const showers = players.filter((_, i) => texts[i]?.includes('You showed'));
-        expect(submitters).toHaveLength(1);
-        expect(showers).toHaveLength(1);
-        const submitter = submitters[0] as Page;
-        const shower = showers[0] as Page;
-        const third = players.find((p) => p !== submitter && p !== shower) as Page;
-        expect(third).toBeDefined();
-        // The submitter reads the card (its packet opened); the shower reads what it showed, to whom.
-        await expect(record(submitter).nth(line)).toContainText(/ showed you the [^.]+\.$/);
-        await expect(record(shower).nth(line)).toContainText(/You showed .+ the [^.]+\.$/);
-        const told = (await record(submitter).nth(line).textContent())?.match(
-          / showed you (the [^.]+)\.$/,
-        )?.[1];
-        const showed = (await record(shower).nth(line).textContent())?.match(/ (the [^.]+)\.$/)?.[1];
-        expect(told).toBeDefined();
-        expect(showed).toBe(told);
-        // The third seat and the spectator read only that a card was shown, and mark nothing as shown.
-        for (const other of [third, spectator]) {
-          await expect(record(other).nth(line)).toContainText('showed a card.');
-          await expect(record(other).nth(line)).not.toContainText('showed you');
-          await expect(record(other).nth(line)).not.toContainText('You showed');
-          await expect(root(other).locator('.rfd-mark-shown')).toHaveCount(0);
-        }
-        await expect(root(submitter).locator('.rfd-mark-shown')).toHaveCount(1);
-        await expect(spectator.locator('.rfd-hand')).toHaveCount(0);
-        firstShow = { line, submitter, card: told as string };
-        console.log(`[rfd] privacy checked at the first show: "${told}", record line ${line + 1}`);
+    // 4. Privacy at every show (Review Focus 1). The record lists the submissions first, one line each. On a show's
+    // line the submitter reads "showed you the <card>." (its packet opened) and the shower "You showed <name> the
+    // <card>.", the same card; the third seat and the spectator read only "showed a card.".
+    for (const [line, text] of (await record(spectator).allTextContents()).entries()) {
+      if (!text.includes(' showed a card.') || shows.has(line)) continue;
+      const texts = await Promise.all(
+        players.map(async (p) => (await record(p).nth(line).textContent()) ?? ''),
+      );
+      const submitters = players.filter((_, i) => texts[i]?.includes('showed you'));
+      const showers = players.filter((_, i) => texts[i]?.includes('You showed'));
+      expect([submitters.length, showers.length]).toEqual([1, 1]);
+      const submitter = submitters[0] as Page;
+      const shower = showers[0] as Page;
+      expect(shower).not.toBe(submitter);
+      await expect(record(submitter).nth(line)).toContainText(/ showed you the [^.]+\.$/);
+      await expect(record(shower).nth(line)).toContainText(/You showed .+ the [^.]+\.$/);
+      const told = (await record(submitter).nth(line).textContent())?.match(
+        / showed you (the [^.]+)\.$/,
+      )?.[1];
+      const showed = (await record(shower).nth(line).textContent())?.match(/ (the [^.]+)\.$/)?.[1];
+      expect(told).toBeDefined();
+      expect(showed).toBe(told);
+      for (const other of [...players.filter((p) => p !== submitter && p !== shower), spectator]) {
+        await expect(record(other).nth(line)).toContainText('showed a card.');
+        await expect(record(other).nth(line)).not.toContainText('showed you');
+        await expect(record(other).nth(line)).not.toContainText('You showed');
       }
+      shows.set(line, { submitter, card: told as string });
+      firstShow ??= { line, submitter, card: told as string };
+      console.log(`[rfd] privacy checked at show ${shows.size}: "${told}", record line ${line + 1}`);
     }
+    // Each Docket marks only the cards shown to its own seat, and the spectator's none; no spectator hand.
+    for (const p of players) {
+      const told = (await record(p).allTextContents()).flatMap(
+        (t) => t.match(/ showed you (the [^.]+)\.$/)?.[1] ?? [],
+      );
+      await expect(root(p).locator('.rfd-mark-shown')).toHaveCount(new Set(told).size);
+    }
+    await expect(root(spectator).locator('.rfd-mark-shown')).toHaveCount(0);
+    await expect(spectator.locator('.rfd-hand')).toHaveCount(0);
 
-    // 5. The reload, after the 10th action: the first show's submitter if there was one, whose card stays named.
+    // 5. The reload, after the 10th action: the first show's submitter if there was one, whose cards stay named.
     if (actions >= 10 && reloaded === null) {
       reloaded = firstShow?.submitter ?? a;
       await reloaded.reload();
       await expect(root(reloaded)).toBeVisible({ timeout: 300_000 });
       await expect.poll(() => seqOf(reloaded as Page), { timeout: 300_000 }).toBe(seq);
-      if (firstShow !== null)
-        await expect(record(reloaded).nth(firstShow.line)).toContainText(` showed you ${firstShow.card}.`);
+      for (const [line, show] of shows)
+        if (show.submitter === reloaded)
+          await expect(record(reloaded).nth(line)).toContainText(` showed you ${show.card}.`);
       await mobile(reloaded, 'mid');
       console.log(`[rfd] reloaded seat ${players.indexOf(reloaded)} at seq ${seq}`);
       // The loop looks again: the reloaded page's controls come back once it has caught up.
       continue;
     }
 
-    // A spectator who joins after the first show folds it from the relay, and reads only that a card was shown.
+    // A spectator who joins after the first show folds the shows from the relay, and reads only "showed a card.".
     if (firstShow !== null && reloaded !== null && !lateSpectator) {
       const late = await open(browser, 'rfd-late', errors, a.url());
       await expect(root(late)).toBeVisible({ timeout: 300_000 });
       await expect.poll(() => seqOf(late), { timeout: 300_000 }).toBe(seq);
-      const line = record(late).nth(firstShow.line);
-      await expect(line).toContainText('showed a card.');
-      await expect(line).not.toContainText('showed you');
-      await expect(line).not.toContainText('You showed');
+      for (const line of shows.keys()) {
+        await expect(record(late).nth(line)).toContainText('showed a card.');
+        await expect(record(late).nth(line)).not.toContainText('showed you');
+        await expect(record(late).nth(line)).not.toContainText('You showed');
+      }
       await expect(late.locator('.rfd-hand')).toHaveCount(0);
       await expect(root(late).locator('.rfd-mark-shown')).toHaveCount(0);
       await late.context().close();
       lateSpectator = true;
-      console.log(`[rfd] a late spectator reads the first show as "showed a card."`);
+      console.log(`[rfd] a late spectator reads ${shows.size} show(s) as "showed a card."`);
     }
 
     // The indictments: seat 0 at its third turn start, once the rebuttals above have been seen (later otherwise),
@@ -504,6 +512,7 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   expect(finished).toBe(true);
   console.log(`[rfd] ${actions} actions: ${JSON.stringify(Object.fromEntries(done))}`);
   expect(firstShow).not.toBeNull();
+  console.log(`[rfd] privacy checked at ${shows.size} show(s)`);
   expect(reloaded).not.toBeNull();
   expect(lateSpectator).toBe(true);
   expect(required).toBeGreaterThan(0);
