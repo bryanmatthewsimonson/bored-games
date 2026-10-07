@@ -1829,9 +1829,15 @@ export class GameController {
       // too far ahead) it is dated now with fresh randomness, as before; the check above still applies.
       const det = plan === null ? rnd : this.#buildRnd(`${kind}:${head.id}`);
       const at = plan?.at ?? now();
+      const view = session.view();
+      // A play-phase shuffle is an epoch. The opening shuffle stays `buildShuffle` (D073).
       const built =
         this.#reusable(slot, head.id) ??
-        (kind === 'shuffle' ? session.buildShuffle(det, at) : session.buildBeacon(det, at));
+        (kind === 'beacon'
+          ? session.buildBeacon(det, at)
+          : view.phase === 'play' && view.pending.type === 'shuffle'
+            ? session.buildEpoch(det, at)
+            : session.buildShuffle(det, at));
       return this.#commit(slot, built);
     }
     if (

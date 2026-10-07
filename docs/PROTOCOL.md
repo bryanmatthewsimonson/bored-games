@@ -200,6 +200,15 @@ The hash-chained log.
 - `deck` holds the output ciphertexts, one per card (108 for Chain Reaction).
 - `proof` is the shuffle proof (§5.3).
 
+**Epoch step (D073).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to the module deck, and an epoch does not start a deal. No `proto` bump.
+```json
+{"deck":[["<a>","<b>"], …],"epoch":<k>,"proof":{…},"type":"epoch"}
+```
+- `epoch` is an integer of at least 1.
+- `deck` is that step's output. Its length is the pending pile, from 1 to 108, not the opening deck size.
+- `proof` is the shuffle proof (§5.3) under the context deck id `pile.<k>` (a dot, not a colon). Card points stay `card:pile:<m>`.
+- The seats publish one step each, in seat order. The last step applies `{"type":"epoch","actor":"deck","epoch":<k>,"size":<n>}`. The order is not in that action.
+
 **Game action.**
 ```json
 {"action":{…},"reveals":[{"d":"…","pos":<n>,"proof":{"c":"…","s":"…"}}, …],"shares":[{"d":"…","pos":<n>,"proof":{…}}, …],"type":"action"}
@@ -410,6 +419,8 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
+**Child-deal shares, Holler only (D073).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster, Right of Way, and Driftwrights keep the prompt duty in §6.2a. None of them emit `epoch`.
+
 ### 6.2a The Luster share duty (shipped under the owner's exception)
 **Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only these three production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
 
@@ -459,7 +470,7 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
 1. Its `prev` is the current head and its `seq` is head + 1, or it is on the branch that fork choice selects (§6.6).
 2. Its type and signer fit its `seq`:
    - `seq` ≤ N: a shuffle step signed by seat `seq−1`
-   - otherwise: a game action signed by `pending()`'s seat.
+   - otherwise: a game action signed by `pending()`'s seat, or, while a play-phase shuffle is pending, an epoch step signed by the next shuffler in seat order (D073).
 3. For a shuffle step, the proof verifies against the deck at `prev` (§5.3).
 4. For a game action, judged on the parent state, in this order:
    - The game is in play. If the deal is not complete, or a public reveal is pending, the move **waits**.
@@ -471,7 +482,7 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
 
 A move that waits stays pooled and is judged again as events arrive. A move that fails any other check is invalid. A pooled move is judged when its `prev` links (a shuffle step only while it is a candidate, §6.6), and an invalid one is dropped for good, since its `prev` fixes its whole ancestry.
 
-**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move, unless it has already published more than 3 shuffle steps on that `prev` (§6.6). A second well-formed shuffle step still flags its seat (§6.6).
+**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move, unless it has already published more than 3 shuffle steps on that `prev` (§6.6). Epoch steps are under that same cap of 3 unacknowledged steps on one `prev` (D073). They do not count toward the opening-deal stall. A second well-formed shuffle step, or a second epoch step, still flags its seat (§6.6).
 
 **When to act (the decide gate).** A seat's client MUST offer a decision exactly when the play phase pends a player decision for that seat and the module's `legalActions(state, seat)` is non-empty. A non-empty list is exact (§10), so the client MUST NOT also wait for the seat's whole hand to decrypt. Waiting for the hand deadlocks honest games: a merger disposal is an out-of-turn decision, and it can come before the other seats have shared the seat's last-drawn tile.
 

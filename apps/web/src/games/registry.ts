@@ -16,6 +16,9 @@ import { ChessRulesPage } from './chess/rules-page.tsx';
 import { DriftwrightsGame } from './driftwrights/game.tsx';
 import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
 import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
+import { HollerGame } from './holler/game.tsx';
+import { HOLLER_META } from './holler/meta.ts';
+import { HollerRulesPage } from './holler/rules-page.tsx';
 import { GAME_IDS } from './ids.ts';
 import { LusterGame } from './luster/game.tsx';
 import { LUSTER_META } from './luster/meta.ts';
@@ -80,6 +83,13 @@ export const GAMES: readonly WebGame[] = [
       dealing: 'Opening the island chart…',
       share: { act: 'deliver a venture contribution', owed: 'a venture contribution' },
     }),
+  },
+  {
+    ...HOLLER_META,
+    Component: HollerGame,
+    RulesPage: HollerRulesPage,
+    setupCopy: (hasDeck) =>
+      hasDeck ? { shuffling: 'Shuffling the deck', dealing: 'Dealing the cards…' } : null,
   },
 ];
 

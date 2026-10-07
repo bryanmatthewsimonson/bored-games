@@ -81,7 +81,8 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 /**
  * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066), case-sensitive:
  * one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which a guard test
- * checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS.
+ * checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's compare phrase
+ * is not here: its reference title is not on the restricted list (D072). A whole-word scan covers that package.
  */
 export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/chain-reaction/src/compare.ts': 'Compare to Acquire',
@@ -103,10 +104,14 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * own compare.ts, which a guard test checks.
  */
 export function withoutAllowedPhrases(text: string): string {
-  return ALLOWED_PHRASES.reduce(
-    (t, p) => t.replace(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(p)}(?![A-Za-z0-9_\\-\u2019])`, 'g'), ' '),
-    text,
-  );
+  let out = text;
+  for (const phrase of ALLOWED_PHRASES) {
+    out = out.replace(
+      new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(phrase)}(?![A-Za-z0-9_\\-\u2019])`, 'g'),
+      ' ',
+    );
+  }
+  return out;
 }
 
 /** The words of `text` (letters and digits, joined by `_`) that contain a restricted name, not allowed ones. */

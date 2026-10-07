@@ -12,6 +12,8 @@ import { CHESS_CATALOG } from '@bored-games/chess/catalog';
 import { DRIFTWRIGHTS_CATALOG } from '@bored-games/driftwrights/catalog';
 import { DRIFTWRIGHTS_BRAND } from '@bored-games/driftwrights/theme';
 import type { BrandNames, CatalogEntry } from '@bored-games/game-kit';
+import { HOLLER_BRAND } from '@bored-games/holler/brand';
+import { HOLLER_CATALOG } from '@bored-games/holler/catalog';
 import { LUSTER_CATALOG } from '@bored-games/luster/catalog';
 import { LUSTER_BRAND } from '@bored-games/luster/theme';
 import { RIGHT_OF_WAY_CATALOG } from '@bored-games/right-of-way/catalog';
@@ -31,6 +33,7 @@ const GAMES: readonly CatalogGame[] = [
   { entry: LUSTER_CATALOG, safe: LUSTER_BRAND },
   { entry: RIGHT_OF_WAY_CATALOG, safe: RIGHT_OF_WAY_BRAND },
   { entry: DRIFTWRIGHTS_CATALOG, safe: DRIFTWRIGHTS_BRAND },
+  { entry: HOLLER_CATALOG, safe: HOLLER_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));

@@ -167,6 +167,32 @@ describe('Move (7452)', () => {
     expect(m.content.type === 'shuffle' && m.content.deck.length).toBe(108);
   });
 
+  it('round-trips an epoch step at its own length, not the opening deck size', () => {
+    const small = fixture(4);
+    const ev = sign(
+      moveTemplate(moveSpec({ type: 'epoch', epoch: 2, deck: small.out, proof: small.proof }, 9), T0),
+    );
+    const m = parseMove(ev, 108);
+    if (m.content.type !== 'epoch') throw new Error('expected an epoch');
+    expect(m.content.epoch).toBe(2);
+    expect(m.content.deck).toHaveLength(4);
+    expect(
+      verifyShuffle(small.input, m.content.deck, small.X, m.content.proof, {
+        rootId: ROOT,
+        seat: 0,
+        deckId: DECK,
+      }),
+    ).toBe(true);
+    expect(
+      code(() =>
+        parseMove(
+          sign(moveTemplate(moveSpec({ type: 'shuffle', deck: small.out, proof: small.proof }), T0)),
+          8,
+        ),
+      ),
+    ).toBe('bad-content');
+  });
+
   it('rejects an oversized event before anything else', () => {
     const t = { ...actionTpl, content: ' '.repeat(MAX_EVENT_BYTES) };
     expect(code(() => parse(t))).toBe('too-large');
@@ -236,6 +262,14 @@ describe('Move (7452)', () => {
     bad('content that is not canonical', JSON.stringify(good, null, 1));
     bad('a non-object', []);
     bad('an unknown type', { ...good, type: 'other' });
+    bad('an epoch number of 0', { deck: good.deck, epoch: 0, proof: good.proof, type: 'epoch' });
+    bad('an empty epoch deck', { deck: [], epoch: 1, proof: good.proof, type: 'epoch' });
+    bad('an epoch deck past 108', {
+      deck: Array.from({ length: 109 }, () => ['x', 'y']),
+      epoch: 1,
+      proof: good.proof,
+      type: 'epoch',
+    });
     bad('a missing type', { deck: good.deck, proof: good.proof });
     bad('an extra key on a shuffle', { ...good, extra: 1 });
     bad('a deck of the wrong size', { ...good, deck: (good.deck as unknown[]).slice(1) });

@@ -71,6 +71,19 @@ describe('waiting for (D057)', () => {
     );
   });
 
+  it('play: a reshuffle names the next shuffler, before the share line', () => {
+    const pending: Pending = {
+      type: 'shuffle',
+      deck: 'pile',
+      epoch: 1,
+      from: [{ deck: 'pile', pos: 3 }],
+    };
+    expect(waitingLine(input({ phase: 'play', pending, waiting: [1], mySeat: 0 }))).toBe(
+      `Waiting for ${NAMES[1]} to shuffle. Their app must be open on this game.`,
+    );
+    expect(waitingLine(input({ phase: 'play', pending, waiting: [1], mySeat: 1 }))).toBeNull();
+  });
+
   it('the end: the seats whose secret is not in; nothing once the game waits on nobody', () => {
     const end = input({ phase: 'end', pending: { type: 'over' }, waiting: [1], mySeat: 0 });
     expect(waitingLine(end)).toBe(

@@ -41,7 +41,9 @@ export type ReceiveResult =
 /**
  * What this seat must publish next:
  * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
- * - `share`: `buildShares` supplies public reveals during play and new non-owner layers in grouped decks; it never shares an owner's private layer.
+ * - `share`: `buildShares` supplies public reveals during play and new non-owner layers in grouped decks. It never
+ *   shares an owner's private layer, except in Holler, where a scoring reveal asks every seat, owner included,
+ *   and the grant between rounds asks only for cards dealt to someone else (D073). Kind stays `share`.
  * - `seal`: `buildSealed` seals this seat's share of a re-dealt private position it first held to each later holder
  *   (D066); only that holder can open it.
  * - `beacon`: `buildBeacon` publishes this seat's share of a public dice roll. Every seat decides on the same

@@ -117,9 +117,10 @@ export function ownRevealLine(
  * or null when it waits on nobody else:
  * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game.";
  * - deal: every seat still missing its deal shares, "… to send their deal shares. Their apps must be open …";
- * - play: only when the game waits on seats other than the one whose decision it is (the game's own status line
- *   names that one): the seats whose share of a card the decision or a reveal needs, "Waiting for Ann to reveal a
- *   card", with when they can be timed out for it (D060);
+ * - play: a pending reshuffle names the next shuffler ("to shuffle"). Otherwise only when the game waits on
+ *   seats other than the one whose decision it is (the game's own status line names that one): the seats whose
+ *   share of a card the decision or a reveal needs, "Waiting for Ann to reveal a card", with when they can be
+ *   timed out for it (D060);
  * - end: the seats whose end-of-game secret is not in.
  */
 export function waitingLine(input: WaitingInput): string | null {
@@ -137,6 +138,7 @@ export function waitingLine(input: WaitingInput): string | null {
     case 'deal':
       return `Waiting for ${who} to send their deal shares. ${open}`;
     case 'play':
+      if (p.type === 'shuffle') return `Waiting for ${who} to shuffle. ${open}`;
       // A card reveal owed out of turn (D060): who owes it, and when they can be timed out for it.
       return input.secondsLeft === undefined
         ? `Waiting for ${who} to ${(input.share ?? NEUTRAL_SHARE).act}. ${open}`

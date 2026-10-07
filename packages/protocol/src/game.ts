@@ -41,7 +41,11 @@ export interface PosShare {
 
 export type MoveContent =
   | { type: 'shuffle'; deck: Ciphertext[]; proof: ShuffleProof }
+  | { type: 'epoch'; epoch: number; deck: Ciphertext[]; proof: ShuffleProof }
   | { type: 'action'; action: unknown; reveals: PosShare[]; shares: PosShare[] };
+
+/** An epoch proof is shorter than the opening deck. The session checks it against the pending pile. */
+const MAX_EPOCH_CARDS = 108;
 
 export interface MoveSpec {
   rootId: Hex;
@@ -217,12 +221,14 @@ export function moveTemplate(m: MoveSpec, createdAt: number): EventTemplate {
   const content =
     c.type === 'shuffle'
       ? { deck: encodeDeck(c.deck), proof: encodeShuffleProof(c.proof), type: 'shuffle' }
-      : {
-          action: c.action,
-          reveals: encodeShares(c.reveals),
-          shares: encodeShares(c.shares),
-          type: 'action',
-        };
+      : c.type === 'epoch'
+        ? { deck: encodeDeck(c.deck), epoch: c.epoch, proof: encodeShuffleProof(c.proof), type: 'epoch' }
+        : {
+            action: c.action,
+            reveals: encodeShares(c.reveals),
+            shares: encodeShares(c.shares),
+            type: 'action',
+          };
   return template(
     KIND.move,
     createdAt,
@@ -232,9 +238,10 @@ export function moveTemplate(m: MoveSpec, createdAt: number): EventTemplate {
 }
 
 /**
- * Parse a Move event. `deckSize` is the module's deck size: it sizes the shuffle decoders, and a shuffle step
- * with any other number of cards is rejected. Returns decoded deck types, never wire strings. It parses only:
- * it does not verify the proof or the shares, and the `action` (any JSON object) is left to the module.
+ * Parse a Move event. `deckSize` is the module's deck size: it sizes the opening shuffle decoders, and a
+ * shuffle step with any other number of cards is rejected. An epoch step carries its own length, 1 to 108, and
+ * is not sized to `deckSize`. Returns decoded deck types, never wire strings. It parses only: it does not
+ * verify the proof or the shares, and the `action` (any JSON object) is left to the module.
  */
 export function parseMove(ev: unknown, deckSize: number): ParsedMove {
   return parseEvent(ev, KIND.move, (e) => {
@@ -262,6 +269,22 @@ export function parseMove(ev: unknown, deckSize: number): ParsedMove {
         action: c.action,
         reveals: posShares(c.reveals, 'reveals'),
         shares: posShares(c.shares, 'shares'),
+      };
+    } else if (type === 'epoch') {
+      const c = record(raw, 'content', ['deck', 'epoch', 'proof', 'type']);
+      const epoch = c.epoch;
+      if (typeof epoch !== 'number' || !Number.isSafeInteger(epoch) || epoch < 1) {
+        badContent('epoch: expected an integer of at least 1');
+      }
+      if (!Array.isArray(c.deck) || c.deck.length < 1 || c.deck.length > MAX_EPOCH_CARDS) {
+        badContent(`deck: expected 1 to ${MAX_EPOCH_CARDS} cards`);
+      }
+      const n = (c.deck as unknown[]).length;
+      content = {
+        type: 'epoch',
+        epoch: epoch as number,
+        deck: wire(() => decodeDeck(c.deck, n)),
+        proof: wire(() => decodeShuffleProof(c.proof, n)),
       };
     } else {
       return badContent('type must be "shuffle" or "action"');
