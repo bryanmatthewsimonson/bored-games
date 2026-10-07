@@ -176,8 +176,10 @@ const MAX_ACK_DEPTH = 32;
 const MAX_AUDITS = 8;
 
 /**
- * Epoch positions are `128 * k + i` (D073). Hardcoded so this package does not import a game. Opening positions
- * stay below the deck size, which is at most 108, so the ranges do not meet.
+ * Epoch positions are `128 * k + i` (D073). Hardcoded so this package does not import a game. What makes a position
+ * an epoch's is that it lies at or above the deck size, never its value: an opening position is any position below
+ * the deck size, and Right of Way's packet has 580 of them. The two ranges meet when the deck has more than 128
+ * cards, so only a game of at most 128 cards can reshuffle (Holler's deck has 108).
  */
 const EPOCH_STRIDE = 128;
 
@@ -1634,28 +1636,34 @@ export class GameSession {
     return out;
   }
 
-  /** The ciphertext at `pos`: an accepted epoch's output, or the opening deck below `deckSize`. */
+  /** The ciphertext at `pos`: the opening deck below `deckSize`, else an accepted epoch's output. */
   private ciphertextAt(pos: number): Ciphertext | undefined {
     return this.ciphertextFrom(pos, this.epochDecks);
   }
 
+  /**
+   * The ciphertext at `pos`, looking in `decks` for an epoch's. Below `deckSize` a position is an opening one,
+   * whatever its value (Right of Way's charters sit at 550–579), and is read from the opening deck. From `deckSize`
+   * on it is an epoch's `128 * k + i`: epoch `floor(pos / 128)`, index `pos % 128`. Holler's deck has 108 cards, so
+   * 108–127 hold nothing and its epoch positions start at 128.
+   */
   private ciphertextFrom(
     pos: number,
     decks: ReadonlyMap<number, readonly Ciphertext[]>,
   ): Ciphertext | undefined {
     if (!Number.isSafeInteger(pos) || pos < 0) return undefined;
-    if (pos >= EPOCH_STRIDE) {
-      const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
-      return deck?.[pos % EPOCH_STRIDE];
+    if (pos < this.deckSize) {
+      const opening = this.finalDeck();
+      if (opening === null || pos >= opening.length) return undefined;
+      return opening[pos];
     }
-    const opening = this.finalDeck();
-    if (opening === null || pos >= opening.length) return undefined;
-    return opening[pos];
+    const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
+    return deck?.[pos % EPOCH_STRIDE];
   }
 
-  /** An accepted epoch output owns `128 * k + i`. */
+  /** An accepted epoch output owns `128 * k + i`, from the deck size on. */
   private epochOwns(pos: number): boolean {
-    return pos >= EPOCH_STRIDE && this.ciphertextAt(pos) !== undefined;
+    return pos >= this.deckSize && this.ciphertextAt(pos) !== undefined;
   }
 
   /**
