@@ -465,6 +465,19 @@ export function answerTo(
   return sub.card === null ? null : { by: sub.shownBy, card: sub.card };
 }
 
+/**
+ * What a dismissed seat is told while the game is in play (RULES "Dismissed"): it takes no more turns, yet every roll
+ * still needs its app's dice share, it still rebuts, and, if it indicted first, its app seals its share of the
+ * Verdict to each later indicter. A closed page stalls the game until a timeout ends it. Null for a seat that is not
+ * dismissed, a spectator, and once the game is over.
+ */
+export function dismissedNotice(s: RfdState, me: number | null): string | null {
+  if (me === null || s.stage === 'over' || s.players[me]?.dismissed !== true) return null;
+  const seal =
+    s.indictments[0]?.by === me ? ` and seals your share of ${THEME.verdict} for each later indicter` : '';
+  return `Your indictment was dismissed, but the game still needs this page open: your app adds your share to every roll of the dice${seal}, and you still show a card when asked. A closed page holds the game up until the others may claim a timeout and end it.`;
+}
+
 /** The room another seat's submission moved `me`'s pawn into, while `me` may submit there without moving. */
 export function summonedTo(s: RfdState, me: number | null): SceneId | null {
   if (me === null || s.stage !== 'start' || s.turn !== me || s.players[me]?.summoned !== true) return null;

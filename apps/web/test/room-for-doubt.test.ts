@@ -59,6 +59,7 @@ import {
   answerTo,
   automaticAnswer,
   choicesOf,
+  dismissedNotice,
   docketRows,
   nextMark,
   ON_ACCENT,
@@ -179,6 +180,40 @@ describe('statusText (Review Focus 3 and 5)', () => {
     const bdi = findAll(tree, (e) => e.tag === 'bdi');
     expect(bdi.map((e) => textOf(e.children))).toEqual([long]);
     expect(spokenText(tree)).toBe(`${long}'s turn: roll the dice or take an action.`);
+  });
+});
+
+describe('dismissedNotice (a dismissed seat is still needed)', () => {
+  const sealing =
+    'Your indictment was dismissed, but the game still needs this page open: your app adds your share to every roll of the dice and seals your share of the Verdict for each later indicter, and you still show a card when asked. A closed page holds the game up until the others may claim a timeout and end it.';
+  const plainNotice =
+    'Your indictment was dismissed, but the game still needs this page open: your app adds your share to every roll of the dice, and you still show a card when asked. A closed page holds the game up until the others may claim a timeout and end it.';
+
+  it('tells the first indicter, once dismissed, that its app also seals the Verdict for later indicters', () => {
+    const s = dismiss(start());
+    expect(s.players[0]?.dismissed).toBe(true);
+    expect(s.stage).toBe('start');
+    expect(dismissedNotice(view(s, 0), 0)).toBe(sealing);
+    // Nothing for a seat still in the running, or for a spectator.
+    expect(dismissedNotice(view(s, 1), 1)).toBeNull();
+    expect(dismissedNotice(view(s, null), null)).toBeNull();
+  });
+
+  it('tells a later dismissed seat about its dice shares and its rebuttals only', () => {
+    // At four seats a second wrong indictment dismisses Bob as well, and the game goes on.
+    const s = dismiss(dismiss(started(4)));
+    expect(s.players.map((p) => p.dismissed)).toEqual([true, true, false, false]);
+    expect(s.stage).toBe('start');
+    expect(dismissedNotice(view(s, 1), 1)).toBe(plainNotice);
+    expect(dismissedNotice(view(s, 0), 0)).toBe(sealing);
+    expect(dismissedNotice(view(s, 2), 2)).toBeNull();
+  });
+
+  it('says nothing once the game is over', () => {
+    // At three seats two dismissals leave Cleo standing alone, and she wins.
+    const over = dismiss(dismiss(start()));
+    expect(over.stage).toBe('over');
+    for (const seat of [0, 1, 2]) expect(dismissedNotice(view(over, seat), seat)).toBeNull();
   });
 });
 
@@ -554,7 +589,7 @@ describe('the rules page', () => {
     );
   });
 
-  it('explains playing on this site: the automatic steps, the private show, the Docket, the board and Resign', () => {
+  it('explains playing on this site: the automatic steps, the private show, a dismissed seat, the Docket, the board and Resign', () => {
     const online = section('online');
     const labels = findAll(online, (e) => e.tag === 'strong').map((e) => spokenText([e]));
     expect(labels).toEqual([
@@ -563,6 +598,7 @@ describe('the rules page', () => {
       'Sealed shares.',
       'Rebuttals.',
       'A shown card.',
+      'Dismissed.',
       'The Docket.',
       'Enlarge board.',
       'Resign.',
@@ -574,6 +610,8 @@ describe('the rules page', () => {
     // A none goes out by itself; a show, even of the only card, waits for its player (ruling 7, amended).
     expect(words).toContain('your app says so for you, without a click');
     expect(words).toContain('even when only one is possible');
+    // A dismissed player's app is still needed.
+    expect(words).toContain('After a wrong indictment you take no more turns, but keep the game open');
     expect(words).toContain('Resign is not offered');
     expect(words).toContain('Enlarge board');
     expect(words).toContain('Docket');

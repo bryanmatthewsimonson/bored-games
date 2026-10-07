@@ -305,6 +305,8 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   let panels = 0;
   let reloaded: Page | null = null;
   let lateSpectator = false;
+  /** Whether the dismissed seat's notice was checked. */
+  let dismissedNotice = false;
   let required = 0;
   /** Shows clicked where the player chose which of two or more named cards to show. */
   let chose = 0;
@@ -566,6 +568,22 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
       await expect(root(page).locator('[data-action*="endTurn"]')).toHaveCount(0);
       required++;
     }
+    if (action.type === 'verdict' && !action.upheld) {
+      // The dismissed seat is told that its app is still needed, at the top of the main column, where a phone
+      // shows it on the first screen; no other page says so.
+      const notice = root(page).locator('.rfd-dismissed');
+      await expect(notice).toContainText(
+        'Your indictment was dismissed, but the game still needs this page open',
+      );
+      await expect(notice).toContainText('seals your share of the Verdict for each later indicter');
+      for (const p of everyone)
+        if (p !== page) await expect(root(p).locator('.rfd-dismissed')).toHaveCount(0);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await expect(notice).toBeInViewport();
+      await mobile(page, 'dismissed');
+      dismissedNotice = true;
+    }
   }
   expect(finished).toBe(true);
   console.log(`[rfd] ${actions} actions: ${JSON.stringify(Object.fromEntries(done))}`);
@@ -583,6 +601,7 @@ test('three players play Room for Doubt to the end', async ({ browser }) => {
   expect(await autoAnswered()).toBe(true);
   expect(indicted[0]).not.toBeNull();
   expect(indicted[1]).not.toBeNull();
+  expect(dismissedNotice).toBe(true);
 
   // 6. The end: seat 1's indictment was upheld after seat 0's was dismissed.
   for (const [seat, p] of everyone.entries()) {

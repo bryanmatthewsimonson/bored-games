@@ -30,6 +30,7 @@ import {
   cardAt,
   charge,
   choicesOf,
+  dismissedNotice,
   handOf,
   type Line,
   type NoneAction,
@@ -180,6 +181,8 @@ export function RoomForDoubtGame(props: GameViewProps) {
   const walk = choices.moves.length > 0 ? walkOf(s) : null;
   const rebutting = choices.shows.length > 0 || choices.none !== null;
   const announcing = s.stage === 'verdict' && indictment !== undefined && indictment.by === me;
+  // A dismissed seat's app is still needed (dice shares, rebuttals, the first indicter's seal): say so in play.
+  const dismissed = ended ? null : dismissedNotice(s, me);
   const button = (a: RfdAction, label: string, primary = false) => (
     <button
       type="button"
@@ -218,6 +221,12 @@ export function RoomForDoubtGame(props: GameViewProps) {
 
       <div class="rfd-table">
         <div class="rfd-main">
+          {dismissed !== null && (
+            <p class="rfd-dismissed" role="status">
+              {dismissed}
+            </p>
+          )}
+
           {rebutting && me !== null && (
             <AnswerPanel
               state={s}

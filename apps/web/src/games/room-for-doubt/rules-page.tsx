@@ -400,6 +400,12 @@ export function RoomForDoubtRulesContent() {
             or tell whether the same card was shown before.
           </li>
           <li>
+            <strong>Dismissed.</strong> After a wrong indictment you take no more turns, but keep the game
+            open: your app still adds your share to every roll and, if you indicted first, seals your share of{' '}
+            {THEME.verdict} for each later indicter, and you still show a card when asked. A closed window
+            holds the game up until the others may claim a timeout and end it.
+          </li>
+          <li>
             <strong>The Docket.</strong> Your private notes grid has a row for each of the {cards} cards and a
             column for each player. Your own cards (●) and the cards shown to you (✓) are marked for you. Tap
             any other box to mark it ✗, tap again for ?, and again to clear it. The marks stay in this

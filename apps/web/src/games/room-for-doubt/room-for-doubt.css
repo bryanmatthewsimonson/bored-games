@@ -102,6 +102,16 @@ main:has(.rfd-game) {
   overflow-wrap: anywhere;
 }
 
+/* A dismissed seat's notice: its app is still needed, so it sits at the top of the main column. */
+.rfd-dismissed {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--rfd-ivory);
+  border: 2px solid var(--rfd-oxblood);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
 /* Controls: every button and list at least 44 px high. */
 .rfd-game button,
 .rfd-game select,
