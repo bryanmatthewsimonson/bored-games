@@ -9,20 +9,25 @@ import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
-import { joinGate, keyProblem } from '../identity.ts';
+import { webGame } from '../games/registry.ts';
+import { joinGate, keptKeys, keyProblem } from '../identity.ts';
 import type { MyTable, TableEntry } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
-import { attentionBadge, cardGameStatus, joinButtonLabel, joinCheck, tableChip } from '../lobby-model.ts';
+import {
+  attentionBadge,
+  cardGameStatus,
+  joinButtonLabel,
+  joinCheck,
+  revealDetail,
+  tableChip,
+} from '../lobby-model.ts';
+import { otherKeyDetail, SAVED_KEYS_DETAIL } from '../other-keys.ts';
 import { gameHref, tableHref } from '../router.ts';
-import { requestPersistenceOnce, storageManager } from '../storage.ts';
+import { loadSecrets, requestPersistenceOnce, storageManager, tableOwner } from '../storage.ts';
 import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
 
-/** A listed table of another player key whose seat this browser's saved game keys play (D057). */
-export const SAVED_KEYS_DETAIL = 'Playable with saved game keys';
-
-/** A listed table of another player key this profile used (D041). */
-export const OTHER_KEY_DETAIL = 'Under another key: switch to it in Settings to play';
+export { SAVED_KEYS_DETAIL } from '../other-keys.ts';
 
 /** The open tables `me` can still sit at: not mine, not joined, and open to all or inviting me. */
 export function joinableTables(
@@ -42,7 +47,9 @@ export function joinableTables(
 }
 
 export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentChildren }) {
+  const { profile, store } = useApp();
   const lobby = useLobby();
+  const kept = new Set(keptKeys(profile, store).map((k) => k.pubkey));
   if (props.tables.length === 0) return <p class="empty">{props.empty}</p>;
   return (
     <ul class="cards">
@@ -53,12 +60,31 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
           const blocked = t.otherKey && !t.savedKeys;
           // A started game's status comes from what its game screen saved; Home never runs a game session.
           const started = t.rootId !== null || t.table.status === 'started';
+          const cached = started && t.rootId !== null ? lobby.gameStatus(t.rootId) : null;
           const known =
             started && t.table.status !== 'cancelled'
-              ? cardGameStatus(t.rootId === null ? null : lobby.gameStatus(t.rootId), lobby.now())
+              ? cardGameStatus(cached, lobby.now())
               : { status: null, check: false };
+          // A card reveal owed out of turn (D060): this player's app must be open, or who the game waits for.
+          const reveal =
+            blocked || t.table.status === 'cancelled'
+              ? null
+              : revealDetail(cached, lobby.now(), webGame(t.table.game)?.setupCopy(true)?.share);
           const chip = tableChip(t.table, t.lobby, known.status);
           const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
+          // Another key's table: what can be done about it here, never a switch to a key this browser lacks (D065).
+          const owner = t.otherKey ? tableOwner(profile, store, t.address) : null;
+          const otherLine =
+            owner === null
+              ? null
+              : otherKeyDetail({
+                  owner: owner as Hex,
+                  kept: kept.has(owner),
+                  matched: t.savedKeys,
+                  savedKeys: loadSecrets(profile, store, t.address) !== null,
+                  started,
+                  creator: t.table.creator === owner,
+                });
           return (
             <TableCard
               key={t.address}
@@ -71,13 +97,15 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               chip={chip}
               badge={blocked ? null : attentionBadge(t.role, chip, known.status)}
               detail={
-                blocked
-                  ? OTHER_KEY_DETAIL
-                  : known.check
-                    ? 'Open to check'
-                    : t.savedKeys
-                      ? SAVED_KEYS_DETAIL
-                      : seated
+                blocked && otherLine !== null
+                  ? otherLine
+                  : reveal !== null
+                    ? reveal
+                    : known.check
+                      ? 'Open to check'
+                      : t.savedKeys
+                        ? SAVED_KEYS_DETAIL
+                        : seated
               }
               action={
                 <a

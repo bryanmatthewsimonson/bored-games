@@ -6,6 +6,8 @@ This document specifies how players run a turn-based multiplayer board game with
 
 - Games are asynchronous. A player is never required to be online outside their own turn.
 - The design was approved by the owner on 2026-10-01; decisions D018–D022 in `docs/DECISIONS.md` record it. The game-session rulings of Phase 2d (D030) amend §6–§8 and §11. D045 adds deckless games (§6.1, §10) and Resign (§4.9, §8.3).
+- **Luster's partitioned deck and share duty** (§5.5, §6.2a) shipped in v1 under the owner's Luster-only exception to D050 (D059, D060). They are documented here so an independent client can fold a v1 Luster game; they are not part of the general v1 design.
+- **Protocol version 2** is specified in [`PROTOCOL-v2.md`](PROTOCOL-v2.md) (D059, D060). A game keeps the version its root declares (§12).
 
 The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -51,11 +53,15 @@ Each player has:
 | **session key** | one game | All in-game events (kinds 7452–7455), and the Join's `sessionSig` proving possession (below). Clients generate it locally; no signer prompt per move. |
 | **deck key** `x_k`, `X_k = x_k·G` | one game | ElGamal secret share; must be distinct from the session key. |
 
-**Backup.** Clients SHOULD back up the session key and deck key as a NIP-78 event:
-- kind 30078, `d` tag `bored-games:<rootId>`
-- content NIP-44-encrypted to the player's own npub.
+**Backup (D065).** Clients SHOULD back up a seat's session key and deck key as a NIP-78 app-data event, so another device holding the same npub can play the seat:
+- kind 30078 (addressable), signed by the player's npub, with the single tag `["d","bored-games/keys/<tableAddress>"]` (the table address of §3's context strings). One `d` per table: the keys exist from the Join, before any root, and a table has one root, so a later backup at the same table replaces the earlier one.
+- content: NIP-44 version 2 (https://github.com/nostr-protocol/nips/blob/master/44.md) encrypted by the npub to its own pubkey (the conversation key of the player's secret key and own public key), with a fresh 32-byte nonce. The plaintext is the JSON `{"v":1,"table":"<tableAddress>","session":"<session secret key hex>","deck":"<x_k, 64 hex>","root":"<rootId>"|null,"seat":<n>|null}`; `root` and `seat` are null in a backup made at the Join.
+- published to the table's (root's) relays and the player's own, after the Join. This client publishes it in the background once the Join is out, and counts it as made only when one of the table's relays accepted it (the player's own relays may differ between devices). Its game screen then looks for it on the root's relays and, with a local key, decrypts it and checks it like a restore (below) against the keys it holds; one that is missing, does not decrypt or fails the check is published again (with a NIP-07 extension, which would prompt to decrypt, it checks only that the backup it published is there, and offers **Back up this game's keys** otherwise; **Back up again** stays available).
+- an encryptor that is not the client's own code (a NIP-07 extension's `window.nostr.nip44`) is not trusted: before signing, the client checks that the content is a NIP-44 v2 payload of exactly the plaintext's padded length that contains neither secret, and, where the extension allows it, decrypts it once and compares.
 
-That lets another device resume the game. Before the root exists, the table address substitutes for `rootId`.
+A client whose npub is seated in a root but which holds no game keys for it MAY restore them: it asks the root's relays and its own (an answer counts as complete, so that "no backup" can be said, only when every root relay sent EOSE before any deadline) for `{"kinds":[30078],"authors":[npub],"#d":["bored-games/keys/<tableAddress>"]}`, drops any event that is not a valid signed event of that author with that `d`, decrypts the newest first, and accepts one only if `table` is the root's table address, `root` is null or the root's id, and both keys are that npub's seat in the root: `getPublicKey(session)` is the seat's `session` and `deck`·G is its `deckKey` (`backupSeat`, the check of seat recovery, D057). Anything else (no event, a payload that does not decrypt or fails the MAC, another seat's or game's keys) is refused and the client watches. A restored client is one more device of the seat: §9's outbox rule, the check before signing and the deterministic builds apply to it as to any device; its player should still play on one device at a time (§9's residuals: two devices acting within seconds can sign rival moves). Each decryption by an extension is bounded in time, and a refused prompt is reported as such, not as a bad backup.
+
+**What the backup changes (review L3).** Without it, the npub signs only the Joins, roots, Tables and Result attestations, and a seat's moves need its session key, which never leaves the device that joined. With it, the npub's secret key, and anything allowed to decrypt with it (a NIP-07 extension's per-site `nip44.decrypt` permission, a NIP-46 signer later), can read the backup and so take full control of the seat in every live game and see its hidden cards. That is the price of a second device. Clients SHOULD tell extension users to allow decryption only for sites they trust (this client does, in Settings and next to its backup button).
 
 **Proof of knowledge.** `X_k` is published with a Schnorr proof of knowledge `pok = (c, s)`, which defeats rogue-key attacks on the joint key:
 - the prover picks `w`, computes `T = w·G` and `c = HS("pok", tableAddress, npub, sessionPub, X_k, T)`, then `s = w + c·x_k`
@@ -82,7 +88,8 @@ All game kinds are unused in the NIPs registry as of 2026-10-01. The owner's res
 | 7455 | Secret reveal | regular | session key |
 | 7456 | Result attestation | regular | player npub |
 | 7457 | Resign | regular | session key |
-| 30078 | Key backup (NIP-78) | addressable | player npub |
+| 7458 | Sealed shares (§4.10) | regular | session key |
+| 30078 | Key backup (NIP-78, §3) | addressable | player npub |
 
 Every game event (all kinds above except 30078) carries `["proto", "1"]`.
 
@@ -193,7 +200,7 @@ The hash-chained log.
 - `deck` holds the output ciphertexts, one per card (108 for Chain Reaction).
 - `proof` is the shuffle proof (§5.3).
 
-**Epoch step (D060).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to the module deck, and an epoch does not start a deal. No `proto` bump.
+**Epoch step (D073).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to the module deck, and an epoch does not start a deal. No `proto` bump.
 ```json
 {"deck":[["<a>","<b>"], …],"epoch":<k>,"proof":{…},"type":"epoch"}
 ```
@@ -259,6 +266,15 @@ A seat gives up the game (D045, D052). **Allowed in every game,** whatever its n
 A Resign that lacks the secret in a game with a deck, carries one in a deckless game, or carries a secret that does not match its seat's deck key is **invalid**, and clients reject it. The secret in a valid Resign is the seat's Secret reveal (§4.7), whether or not the Resign counts: the resigning seat owes nothing afterwards, and the remaining seats owe their secrets (§8.3). The secret is public from the moment the Resign is; §8.3 ("The early secret") explains what that reveals.
 
 A client builds at most one Resign per game, persists it before publishing and rebroadcasts that same event (§9).
+
+### 4.10 Sealed shares (7458)
+Decryption shares of **re-dealt private positions** (§6.2), each encrypted to one seat (D066). A position is re-dealt when `dealt` assigns it privately to one seat (its **first holder**) and later privately to another seat, and never to the public: Right of Way's charter returned to the bottom and drawn by another player. Every other seat published its share when the first holder got the card, so the first holder's share is the only one not public. The first holder never publishes it while the position stays private; it seals it to each later holder instead, and only that holder can open it.
+
+**Tags:** `["e", <rootId>, "", "root"]`.
+
+**Content:** `{"sealed":[<sealed share>, ...],"type":"sealed"}`, at least one, strictly ascending by position, then recipient. A sealed share is `{"a","b","pos","proof":{"c","s1","s2"},"to"}`, the wire form of `docs/proposals/prompt-reveal.md` §7.1: the signer's decryption share `x_k·R` of position `pos`, ElGamal-encrypted to seat `to`'s deck key, with a proof of knowledge bound to the root, the deck, the position, the whole ciphertext and both keys. `to` is another seat.
+
+**Folding.** Clients check the signer is a seat, each `to` another seat and each `pos` in the deck, and, once the final deck is known, that every proof verifies; otherwise they reject the event. A kept sealed share counts only for its recipient's private learn (§6.4: the recipient opens it with `openAndVerify` and decrypts with the other seats' public shares and its own layer) and for stall attribution (§8.1: the first holder is stalled while a later holder waits for its sealed share). It never affects the move chain or fork choice. A Sealed event that removes its signer from the stall set is progress, like a Shares event.
 
 ## 5. Deck cryptography
 
@@ -346,13 +362,38 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 
+### 5.5 Partitioned decks (Luster; shipped under the owner's exception)
+**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
+
+**The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
+- the list holds 1 to 16 groups;
+- group ids are distinct, non-empty strings;
+- every size is a positive safe integer, and the sizes sum to the deck's `size`.
+
+Group g's **offset** is the sum of the sizes of the groups before it, so the groups tile positions `0..size−1` in list order. Its **domain** is `<deck id>/<group id>` (for Luster: `glass/tier-1`, `glass/tier-2`, `glass/tier-3`, `glass/patrons`, sizes 40, 30, 20, 10, offsets 0, 40, 70, 90). A deck without `partitions` is one group with id and domain equal to the deck id, offset 0 and the deck's size.
+
+**Card points and the initial packet.** Unchanged (§5.1): card `m` is `H2C("card:" + deckId + ":" + m)` with the deck id (`glass`), for `m = 0..size−1`, and `E_0` is the trivial encryption of every card in card order. So group g's slice of `E_0` holds cards `offset_g .. offset_g + size_g − 1`, and a card never leaves its group. The module maps its logical decks and positions onto this packet (Luster's `transport.ts`).
+
+**Shuffle steps.** With G groups and S seats there are **N = G·S** steps. Step `s` (0-based; it is move `s+1`):
+- shuffles group `g = s mod G`;
+- is signed by seat `k = floor(s / G)`. Each seat shuffles every group, in group order, before the next seat starts;
+- takes the slice `[offset_g, offset_g + size_g)` of the previous packet `E_s` as its input, and its `deck` holds exactly `size_g` output ciphertexts;
+- yields `E_{s+1}`: `E_s` with that slice replaced by the output, every other position unchanged;
+- is proven as in §5.3 with `n = size_g`, the input slice and output, `k = floor(s / G)`, and `deckId` the group's domain. A proof for one group therefore fails for another group, or at another step. For a deck without `partitions` the domain is the deck id and `k = s`, exactly as §5.3.
+
+The final deck is `E_N`. Shares, reveals, `dealt`, `revealsOf`, the deal round and the audit all use **global packet positions** and the **deck id** (`glass`), unchanged (§5.4, §6, §7): `ShareCtx` is `{rootId, deckId: "glass", pos}`.
+
+**Parsing.** The Move format is unchanged (§4.4); a shuffle step carries one group. A client parses a shuffle step by trying each size in the set {the deck's `size`, every group's size} (`parsePartitionMove`) and keeps the first parse that succeeds; the session then requires the step's `deck` to have exactly `size_g` ciphertexts for its step (`shuffle output has the wrong group size`). Stall attribution in the shuffle names seat `floor(chain length / G)`.
+
+**Fork choice and the deal** are unchanged (§6.1, §6.6): two well-formed steps by one seat on one prev are equivocation, and a seat deals once.
+
 ## 6. Game flow
 
 ### 6.1 Phases
-**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). Game actions are moves N+1 onward.
+**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats. Game actions are moves N+1 onward.
 
 1. **Table:** Table, Joins, then Game root.
-2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order.
+2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order (with a partitioned deck, one step per seat and group, §5.5).
 3. **Deal:** every seat publishes one Shares event (7453) covering every position that is either:
    - assigned to *another* seat in the module's initial deal, or
    - a public position (the setup positions that `pending()` will request as reveals).
@@ -372,13 +413,37 @@ A timeout claim (§8) or a Resign (§8.3) can end the game in any phase before t
 Dealing order has no effect on fairness: positions are uniformly shuffled. RULES.md C03 states it.
 
 ### 6.2 Owed shares (liveness rule)
-- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position). A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
+- **What is owed.** At a state `S`, seat `k` owes a share for every position that `dealt(S)` assigns to another seat or to `null` (a public position), **except** a re-dealt private position whose first holder is `k` (§4.10): there `k` owes a sealed share to each later holder instead, and no public share until the position is dealt to `null`. A share is paid once the client holds a verified share by `k` for that position, from a Shares event (7453) or from any of `k`'s moves. Clients keep at most one share per seat and position, the first valid one (§5.4).
 - **The rule (monotone).** A game-action move by seat `k` on parent state `S` is acceptable only if, counting `k`'s verified shares the client already holds plus those in the move, `k` has a share for every position it owes at `S`. The rule counts only what is held, never what is absent.
 - **Buffering.** A move that fails only this rule MUST be buffered, not rejected. The missing shares may still arrive, for example in a Shares event published earlier that reaches this client later. The move links once they are held. Clients therefore converge whatever order events arrive in.
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
-**Child-deal shares, Holler only (D060).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster's public refill stays the prompt share its client already publishes after the move. Chain Reaction, Chess, and Bank attach nothing extra.
+**Child-deal shares, Holler only (D073).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster, Right of Way, and Driftwrights keep the prompt duty in §6.2a. None of them emit `epoch`.
+
+### 6.2a The Luster share duty (shipped under the owner's exception)
+**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2 replaces it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Only these three production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
+
+**The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
+- no timeout claim was accepted and no Resign ended the game;
+- the deck sets `promptShares`;
+- the game is in the play phase;
+- its seat holds no Shares event that fails against the current final deck (it did not deal on a rival deck, §6.1);
+- the positions below are not empty.
+
+The positions: every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2), with either one or multiple deck groups. A seat never publishes a share of a position dealt to itself.
+
+**Publishing.** The open app builds one Shares event (§4.5, v1 format: the root tag only, no anchor) holding a share for every such position, sorted by position, and publishes it at once, with no human action and no check for a held fork. The duty comes before `decide`. Receivers fold it as any Shares event (§5.4, §6.2): a verified share counts once per seat and position. In Luster this releases:
+- **public refills:** after a buy or a reserve from the display, the engine assigns the next card of that tier to `null` and pends its public reveal. Every seat, the actor included, releases its share, and every client derives the reveal (§6.3) once all are held. Moves wait meanwhile (§6.5), so without this duty no seat could move to carry the shares, and a v1 Luster game would deadlock at its first refill;
+- **blind reservations:** a reserve from a tier deck assigns the top card to the actor. Every other seat releases its share, so the owner learns the card (§6.4) within about one relay round trip.
+
+**Stall attribution** is §8.1's: while a public reveal is pending, every seat missing a share of a listed position is stalled, whether or not it is that seat's turn, and can be timed out. D060 keeps this timeout; the game screen and Home must say who owes the reveal and when the deadline passes.
+
+**Known residuals** (Luster audit, accepted by the owner's exception until v2):
+- **F1, a lone equivocator reads a later blind reservation (D039).** E signs a blind reserve A, collects every other seat's automatic share and reads the card, then signs a same-length rival B on the same prev with a lower id. Fork choice moves every client to B; the next seat later draws that card, and its owner's share already went out on A, so the card is public. E is flagged and ranked last, and play goes on.
+- **F2, two devices of one honest seat** that each sign a move for one turn make the same exposure with no adversary.
+- **F3, stale share outbox entries are not vetted:** a saved, unconfirmed Shares event built on a branch that lost fork choice can later publish a share of a position that is now the seat's own card.
+- Resign is disabled for Luster (`resignAllowed` returns false): its mid-game public reveals have no Resign rule (§8.3, D052).
 
 ### 6.3 Public reveals
 - **When.** Once the deal is complete, whenever `pending()` requests a public reveal and every listed position has all N verified shares, every client derives, for each listed position in ascending order, the module action `{"type":"reveal","actor":"deck","deck":…,"pos":p,"card":m}` and applies it. It repeats while the module requests reveals it can satisfy. The setup reveals are the first.
@@ -405,7 +470,7 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
 1. Its `prev` is the current head and its `seq` is head + 1, or it is on the branch that fork choice selects (§6.6).
 2. Its type and signer fit its `seq`:
    - `seq` ≤ N: a shuffle step signed by seat `seq−1`
-   - otherwise: a game action signed by `pending()`'s seat, or, while a play-phase shuffle is pending, an epoch step signed by the next shuffler in seat order (D060).
+   - otherwise: a game action signed by `pending()`'s seat, or, while a play-phase shuffle is pending, an epoch step signed by the next shuffler in seat order (D073).
 3. For a shuffle step, the proof verifies against the deck at `prev` (§5.3).
 4. For a game action, judged on the parent state, in this order:
    - The game is in play. If the deal is not complete, or a public reveal is pending, the move **waits**.
@@ -417,7 +482,7 @@ Clients keep every well-formed Move from a seated session key in a pool keyed by
 
 A move that waits stays pooled and is judged again as events arrive. A move that fails any other check is invalid. A pooled move is judged when its `prev` links (a shuffle step only while it is a candidate, §6.6), and an invalid one is dropped for good, since its `prev` fixes its whole ancestry.
 
-**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move, unless it has already published more than 3 shuffle steps on that `prev` (§6.6). Epoch steps are under that same cap of 3 unacknowledged steps on one `prev` (D060). They do not count toward the opening-deal stall. A second well-formed shuffle step, or a second epoch step, still flags its seat (§6.6).
+**Invalid events are ignored.** They don't block the game: the seat can still publish a valid move, unless it has already published more than 3 shuffle steps on that `prev` (§6.6). Epoch steps are under that same cap of 3 unacknowledged steps on one `prev` (D073). They do not count toward the opening-deal stall. A second well-formed shuffle step, or a second epoch step, still flags its seat (§6.6).
 
 **When to act (the decide gate).** A seat's client MUST offer a decision exactly when the play phase pends a player decision for that seat and the module's `legalActions(state, seat)` is non-empty. A non-empty list is exact (§10), so the client MUST NOT also wait for the seat's whole hand to decrypt. Waiting for the hand deadlocks honest games: a merger disposal is an out-of-turn decision, and it can come before the other seats have shared the seat's last-drawn tile.
 
@@ -551,14 +616,17 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
   - a move: discarded if another move of its seat on that parent is held, or if its parent is on the chain below the head; published if its parent is the current head (or the client already folded it in); otherwise (its parent is not held yet) it waits;
   - a deal: published if no other Shares event of its seat is held and the session accepts it; otherwise **kept** unpublished, and no other deal is ever built (§6.1: a seat deals once). A client never discards a deal its seat signed; it feeds it to its session, which then owes no deal;
   - a Resign: discarded if another Resign of its seat is held, or the game is no longer live; otherwise published. It need not name the current head: it counts once its head is held, and is scored at the scoring position (§8.3).
+  - a Shares event of prompt shares (Luster's owner-approved exception to D050; D063): published only if every position it carries is dealt on the current head, is not its own seat's private card, and is still owed by its seat (the session's share duty lists it, or, for one the client already folded in, no other Shares event of its seat carrying it is held); otherwise discarded. A Shares event names no head, so one built on a branch that lost fork choice verifies on the winner too, where its card may be undrawn or the seat's own blind reservation. A client never publishes a share of its own seat's private card, whatever path leads there.
 
   A discarded event is removed from storage and logged. The seat's other device may have played that turn otherwise in the meantime, and republishing would be an equivocation the player never intended (§11, "A stale rival"). A saved Timeout claim, Secret reveal or attestation cannot conflict with anything and is republished as before. A client SHOULD publish the shuffle steps of its deck, and wait for the relays' answers, before its deal (§6.1); when it keeps a refused deal, it SHOULD republish the rival shuffle steps it holds on the forked prev, so a client that never saw the deck it dealt on holds the fork and stalls the equivocator, not this seat (§8.1). A saved move whose parent is on a branch that lost fork choice is discarded too.
+- **The check before signing (D059 item 2, D063; a SHOULD).** Before it signs a new move (a decision, a shuffle step, a dice contribution), a Shares event (a deal or a prompt reveal) or a Resign, a client asks every counted relay for its own seat's moves on the current head and its seat's Shares events and Resigns, folds in what comes, and signs only if nothing of its seat's is found for that slot: an event its seat signed on another device is adopted, never answered with a rival. An own event its session refuses outright is not a rival. It needs every counted relay that is alive to answer (a dead one, root relays included, is left out: the other device published moments ago, to the same root relays); while one is silent the client holds, asks again on each tick, and stops waiting after 10 minutes (counted per slot and head) or on Send anyway. Residual: an event the other device sent only to a root relay that is now dead for this one is missed. Two devices that sign within the same seconds still race. For a shuffle step and a dice contribution, whose statement the head fixes, the client draws every random value from a stream keyed on its seat's session key and deck secret and labelled with the game, the head and the slot (HMAC-SHA256), and dates the event at the head's `created_at`, so two devices that build it at once sign the very same event (one id) and no fork arises. The head's date is the previous mover's choice, so the date is chosen only from events both devices hold alike: the head's `created_at`, raised to the latest `created_at` of the seat's own moves on the chain (or the root's). The local clock decides only when to sign, never what: a date more than 60 s ahead of it is waited for, until 60 s before it, as long as it is at most a quarter of the table's deadline (and at most a day) ahead; a date further ahead falls back to now with fresh randomness. Two devices that straddle that bound are then hours apart, so the later one's check finds the earlier one's event. A decision's random values stay fresh: its reveals depend on the action chosen.
+- **Relays of the player's own choosing (D059 item 2, F2).** The vetting queries, the check before signing and the game subscription go to the root's relays and the player's own (Settings) relays alike.
 - **The Secret reveal waits for a full view (D056, fix round 2).** A client publishes its Secret reveal only once every counted relay has answered a query for the whole game and it is not visibly behind (above), or after 10 minutes of waiting (timed apart from saved events' holds), or on Send anyway: a client that saw an ending branch win on a partial view would otherwise reveal, freezing the fork for everyone (§6.6).
 - **Subscribing.** Clients subscribe with `{"kinds":[7452,7453,7454,7455,7457],"authors":[the seats' session keys],"#e":[rootId]}` and `{"kinds":[7456],"authors":[the seats' npubs],"#e":[rootId]}`, so strangers' events cannot crowd a relay's capped answer, and they still drop any event from another key. Stored events are paged: while a page brings an event not seen before, clients ask again with `until` set to that page's oldest `created_at`.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4).
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck may be split into contiguous groups shuffled apart (`partitions`, §5.5).
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)
@@ -616,3 +684,14 @@ It MUST also meet these contract rules, which the session relies on:
 - This is protocol version 1, carried in the `proto` tag. The rules module id and version are pinned in the root.
 - A game is always replayed with the engine version it started on.
 - Incompatible protocol changes bump `proto`.
+- **Protocol version 2** (`PROTOCOL-v2.md`) replaces fork choice with the fork stop and adds prompt release, anchored Shares events, end attestations and the move-bound dice beacon. A game declares its version in its Table, Joins and root, and keeps it for good: a v1 game is always folded by these v1 rules, also by a client that implements v2.
+
+## 13. Driftwrights mixed proofs and private supplies (D069, D070)
+
+This game-specific v1 extension combines a 25-position `ventures` deck with the public beacon. Existing deckless beacon games keep §6.3a's wire positions and root-only domain. Driftwrights uses card positions 0–24 and beacon wire positions `25 + rollId`. A beacon proof still uses counter `rollId`, with domain string `rootId:requestMoveId`. The request is the signed action that appends the roll to the module's `rolls`; it carries no beacon share. Each seat then sends its `contribute` action, in the module's order, with one proof. All other owed card shares and reveals are independently checked and may ride the same action. Once all contributions arrive, dice or a one-die hand index are derived using §6.3a's seed and rejection sampling. A one-card hand has the deterministic face 1.
+
+Supply identities are concealed claims, with public hand counts. A theft request fixes thief, victim and hand size before contributions. The victim's deck secret, already committed at Join, fixes a Fisher–Yates permutation of the sorted resource labels (0–4, repeated for each card). For descending swap step `i`, the seed is the encoded scalar from `hs('driftwrights/private-hand/v1', secret, rootId, requestMoveId, rollId, i)`; use one unbiased die with `i+1` sides and subtract one. The derived public index selects that private permutation. The delivery parent, encryption nonces and selected index do not affect the permutation.
+
+The victim signs an action `{type:'transfer',actor,id,root,anchor,after,packets}`. `anchor` is the theft request's id; `after` equals the signed Move's `prev`; `id` is its roll counter. `packets` holds exactly two entries `{to,ciphertext}`, sorted by seat, addressed to victim and thief. Each NIP-44 plaintext is canonical JSON `{root,anchor,after,id,from,to,index,card}` with the same selection context and resource label. Conversation keys use the victim's deck secret and each recipient's x-only deck public key. Each affected player opens only their own packet and learns the supply before applying the count/resource transfer. Other seats apply only count changes. No other private resource hand is broadcast.
+
+At the end, full replay retains signed request/parent ids. Every audit derives the same private permutation from the released victim key and full hand, opens **both** packets with the released recipient keys, checks their exact context and resource, and fails the victim if either differs. Payments, half-hand discards and named-resource requisitions are likewise checked against full hands in replay; dishonest claims fail the signer. These checks give end-game attribution, not a live inventory proof. Resignation is disabled. Prompt venture shares retain the v1 fork/rollback residuals authorized by D069.

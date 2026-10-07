@@ -47,6 +47,9 @@ importers:
       '@bored-games/deck':
         specifier: workspace:*
         version: link:../../packages/deck
+      '@bored-games/driftwrights':
+        specifier: workspace:*
+        version: link:../../packages/games/driftwrights
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
@@ -62,6 +65,9 @@ importers:
       '@bored-games/relay':
         specifier: workspace:*
         version: link:../../packages/relay
+      '@bored-games/right-of-way':
+        specifier: workspace:*
+        version: link:../../packages/games/right-of-way
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)
@@ -151,6 +157,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/driftwrights:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/holler:
     dependencies:
       '@bored-games/game-kit':
@@ -158,6 +170,12 @@ importers:
         version: link:../../game-kit
 
   packages/games/luster:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
+  packages/games/right-of-way:
     dependencies:
       '@bored-games/game-kit':
         specifier: workspace:*
@@ -215,6 +233,9 @@ importers:
       '@bored-games/chess':
         specifier: workspace:*
         version: link:../../packages/games/chess
+      '@bored-games/driftwrights':
+        specifier: workspace:*
+        version: link:../../packages/games/driftwrights
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
@@ -224,6 +245,9 @@ importers:
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
+      '@bored-games/right-of-way':
+        specifier: workspace:*
+        version: link:../../packages/games/right-of-way
 
   tools/protocol-model: {}
 

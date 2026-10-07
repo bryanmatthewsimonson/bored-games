@@ -102,6 +102,11 @@ test('three players play five rounds of Bank and see one public roll', async ({ 
   await expect(a.page).toHaveURL(/#\/games\/bank$/);
   await expect(a.page.getByRole('heading', { name: 'New table' })).toBeVisible();
   await expect(a.page.getByText('Compare to', { exact: false })).toHaveCount(0);
+  // A folk game with its own BoardGameGeek entry, linked as Chess's is (D060).
+  await expect(a.page.getByRole('link', { name: 'BoardGameGeek', exact: true })).toHaveAttribute(
+    'href',
+    'https://boardgamegeek.com/boardgame/412804',
+  );
   await a.page.getByLabel('Players', { exact: true }).selectOption('3');
   await a.page.getByLabel('Rounds').selectOption('5');
   await expect(a.page.getByRole('radio', { name: 'Everyone may bank' })).toBeChecked();

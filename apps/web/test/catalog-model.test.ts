@@ -51,8 +51,23 @@ describe('catalog filters', () => {
 
   it('filters by player count, 6 meaning 6 or more', () => {
     expect(ids({ players: 1 })).toEqual([]);
-    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster', 'holler']);
-    expect(ids({ players: 3 })).toEqual(['chain-reaction', 'bank', 'luster', 'holler']);
+    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster', 'right-of-way', 'holler']);
+    expect(ids({ players: 3 })).toEqual([
+      'chain-reaction',
+      'bank',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'holler',
+    ]);
+    expect(ids({ players: 4 })).toEqual([
+      'chain-reaction',
+      'bank',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'holler',
+    ]);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 6)).toBe(true);
@@ -65,17 +80,26 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'abstract' })).toEqual(['chess']);
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
-    expect(ids({ genre: 'family' })).toEqual(['luster']);
+    expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way']);
+    expect(ids({ genre: 'strategy' })).toEqual(['driftwrights']);
     expect(ids({ genre: 'card' })).toEqual(['holler']);
-    expect(ids({ mode: 'competitive' })).toEqual(['chain-reaction', 'chess', 'bank', 'luster', 'holler']);
+    expect(ids({ mode: 'competitive' })).toEqual([
+      'chain-reaction',
+      'chess',
+      'bank',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'holler',
+    ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
     expect(ids({ length: 'under-30' })).toEqual(['chess', 'bank', 'holler']);
-    expect(ids({ length: '60-120' })).toEqual(['chain-reaction', 'chess']);
+    expect(ids({ length: '60-120' })).toEqual(['chain-reaction', 'chess', 'right-of-way', 'driftwrights']);
     expect(ids({ length: 'over-120' })).toEqual([]);
-    expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction']);
+    expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction', 'driftwrights']);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
-    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster', 'holler']);
+    expect(ids({ complexity: 'light' })).toEqual(['bank', 'luster', 'right-of-way', 'holler']);
     expect(ids({ players: 2, genre: 'economic' })).toEqual([]);
     expect(activeFilters({ ...NO_FILTERS, players: 2, mode: 'team' })).toBe(2);
   });
@@ -115,6 +139,7 @@ describe('catalog search', () => {
     expect(ids({ query: 'capture' })).toEqual(['chess']);
     expect(ids({ query: 'classic' })).toEqual(['chain-reaction', 'chess']);
     expect(ids({ query: 'luster' })).toEqual(['luster']);
+    expect(ids({ query: 'Driftwrights' })).toEqual(['driftwrights']);
     expect(ids({ query: 'emeralds' })).toEqual(['luster']);
     expect(ids({ query: '  ' })).toEqual(items.map((item) => item.entry.id));
     expect(ids({ query: 'chess mergers' })).toEqual([]);
@@ -128,15 +153,14 @@ describe('catalog search', () => {
     expect(normalize('  Tile-Placement  x ')).toBe('tile placement x');
   });
 
-  it('matches the title of the game a game compares to (D053), and only for that game', () => {
-    const compare = CATALOG.get('chain-reaction')?.entry.compareTo;
-    if (compare == null) throw new Error('Chain Reaction compares to a published game');
-    expect(ids({ query: compare.title })).toEqual(['chain-reaction']);
-    expect(ids({ query: compare.title.toUpperCase() })).toEqual(['chain-reaction']);
-    const shedding = CATALOG.get('holler')?.entry.compareTo;
-    if (shedding == null) throw new Error('Holler compares to a published game');
-    expect(ids({ query: shedding.title })).toEqual(['holler']);
-    expect(matchesQuery(made({ compareTo: null }), compare.title)).toBe(false);
+  it('matches the title of the game a game compares to (D053, D060), and only for that game', () => {
+    for (const id of ['chain-reaction', 'luster', 'holler']) {
+      const compare = CATALOG.get(id)?.entry.compareTo;
+      if (compare == null) throw new Error(`${id} compares to a published game`);
+      expect(ids({ query: compare.title })).toEqual([id]);
+      expect(ids({ query: compare.title.toUpperCase() })).toEqual([id]);
+      expect(matchesQuery(made({ compareTo: null }), compare.title)).toBe(false);
+    }
     expect(matchesQuery(made({ compareTo: { title: 'Elder Game', bggId: 9 } }), 'elder')).toBe(true);
   });
 

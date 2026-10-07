@@ -106,6 +106,114 @@ export function WorkshopCard(props: {
   );
 }
 
+/** A hand stays face down for everyone except its owner, including cards taken from the market. */
+export function ReservedCards(props: {
+  slots: readonly CardSlot[];
+  owner: boolean;
+  onSelect?: ((slot: CardSlot) => void) | undefined;
+  affordable?: ((slot: CardSlot) => boolean) | undefined;
+}) {
+  return (
+    <div class="luster-reservations">
+      {props.slots.map((slot) =>
+        props.owner ? (
+          <WorkshopCard
+            key={`${slot.deck}:${slot.pos}`}
+            slot={slot}
+            onSelect={slot.card !== null && props.onSelect ? () => props.onSelect?.(slot) : undefined}
+            affordable={props.affordable?.(slot) ?? false}
+          />
+        ) : (
+          <article
+            key={`${slot.deck}:${slot.pos}`}
+            class={`luster-card luster-reservation-back luster-tier-${TIER_DECKS.indexOf(slot.deck)}`}
+            data-card="hidden"
+            data-deck={slot.deck}
+            data-pos={slot.pos}
+            data-private={slot.private}
+            aria-label={`Reserved tier ${TIER_DECKS.indexOf(slot.deck) + 1} card, face down`}
+          >
+            <span aria-hidden="true">✦</span>
+            <small>Tier {TIER_DECKS.indexOf(slot.deck) + 1}</small>
+          </article>
+        ),
+      )}
+    </div>
+  );
+}
+
+export function PlayerSidebar(
+  props: Pick<GameViewProps, 'mySeat' | 'names' | 'avatars' | 'ended'> & {
+    state: LusterState;
+  },
+) {
+  const s = props.state;
+  return (
+    <aside class="luster-player-section" aria-labelledby="luster-players-title">
+      <div class="luster-section-heading">
+        <h3 id="luster-players-title">Players</h3>
+        <span>15 prestige</span>
+      </div>
+      <div class="luster-players">
+        {s.players.map((p, seat) => (
+          <section
+            key={seat}
+            class={`luster-player ${s.turn === seat && !props.ended ? 'luster-active' : ''} ${seat === props.mySeat ? 'luster-you' : ''}`}
+            data-seat={seat}
+            data-tokens={p.tokens.join(',')}
+            data-patrons={p.patrons.join(',')}
+            aria-label={props.names[seat] ?? `Player ${seat + 1}`}
+          >
+            <header>
+              <h4>
+                {props.avatars[seat]}{' '}
+                <span>
+                  {props.names[seat] ?? `Player ${seat + 1}`}
+                  {seat === props.mySeat ? ' (you)' : ''}
+                </span>
+              </h4>
+              <span class="luster-player-score">
+                {score(p)}
+                <span class="sr-only"> prestige</span>
+                <small aria-hidden="true"> / 15</small>
+              </span>
+            </header>
+            <p class="sr-only">{playerSummary(s, seat)}</p>
+            {s.result && <p class="luster-place">Place {s.result.places[seat]}</p>}
+            <div class="luster-player-counts">
+              <span>Gems</span>
+              <LightCounts counts={p.tokens} />
+            </div>
+            <div class="luster-player-counts luster-discounts">
+              <span>Discounts</span>
+              <LightCounts counts={bonuses(p)} />
+            </div>
+            {p.patrons.length > 0 && (
+              <p class="luster-earned-nobles">
+                Nobles: {p.patrons.map((id) => LUSTER_THEME.patrons[id]).join(', ')}
+              </p>
+            )}
+            <h5>
+              Reserved <span>{p.reserved.length}/3</span>
+            </h5>
+            <ReservedCards slots={p.reserved} owner={false} />
+            <details>
+              <summary>
+                Developments <b>{p.bought.length}</b>
+              </summary>
+              <div class="luster-reservations">
+                {p.bought.map((slot) => (
+                  <WorkshopCard key={`${slot.deck}:${slot.pos}`} slot={slot} />
+                ))}
+              </div>
+            </details>
+          </section>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 export function LusterGame(props: GameViewProps) {
   const s = props.view.state as LusterState;
   const legal = props.legal as readonly LusterAction[];
@@ -227,312 +335,265 @@ export function LusterGame(props: GameViewProps) {
           {error}
         </p>
       )}
-      <section class="luster-bank" aria-labelledby="luster-supply-title" data-supply={s.supply.join(',')}>
-        <div class="luster-section-heading">
-          <h3 id="luster-supply-title">{returning ? 'Return from your hand' : 'Gem bank'}</h3>
-          <span>{returning ? `Return ${excess} to keep 10` : 'Take 3 different · or 2 of one'}</span>
-        </div>
-        <fieldset disabled={!enabled || (s.phase !== 'turn' && !returning)} class="luster-token-form">
-          <legend class="sr-only">{returning ? 'Choose gems to return' : 'Choose gems to take'}</legend>
-          <div class="luster-token-grid">
-            {LUSTER_THEME.colors.map((color, i) => {
-              const next = nextTokens(legal, takeOrReturn, tokens, i);
-              const count = returning ? (my?.tokens[i] ?? 0) : (s.supply[i] ?? 0);
-              const changes = next.some((n, j) => n !== tokens[j]);
-              return (
-                <button
-                  key={color}
-                  type="button"
-                  class={`luster-token-stack luster-color-${i} ${tokens[i] ? 'luster-token-selected' : ''}`}
-                  disabled={!changes || (!returning && i === 5)}
-                  aria-label={`${returning ? 'Return' : 'Take'} ${color}`}
-                  aria-pressed={Boolean(tokens[i])}
-                  aria-describedby={`luster-gem-description-${i}`}
-                  title={
-                    i === 5 && !returning
-                      ? 'Receive gold by reserving a card'
-                      : `${color}: ${count} available. Click to select; click again for a pair or to clear.`
-                  }
-                  onClick={() => {
-                    setPurchase(null);
-                    setTokens(next);
-                  }}
-                >
-                  <span class="luster-token-disc">
-                    <GemIcon color={i} />
-                    <b class="luster-token-count">{count}</b>
-                    {Boolean(tokens[i]) && <span class="luster-token-picked">{tokens[i]} selected</span>}
-                  </span>
-                  <span class="luster-token-name">{color}</span>
-                  <span id={`luster-gem-description-${i}`} class="sr-only">
-                    {count} available, {tokens[i]} selected
-                  </span>
-                  <small>
-                    {i === 5 && !returning
-                      ? 'Reserve to receive'
-                      : returning
-                        ? `Bank: ${s.supply[i]}`
-                        : 'Click to select'}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-        </fieldset>
-        <p class="luster-bank-rule">
-          {returning
-            ? 'Gold counts toward your ten-token limit.'
-            : `${s.seats}-player setup: ${s.seats === 2 ? 4 : s.seats === 3 ? 5 : 7} of each gem · 5 gold. A pair needs at least 4 in the bank before taking.`}
-        </p>
-        {my && (
-          <section class="luster-bank-hand" aria-label="Your resources">
-            <div>
-              <span>Your gems</span>
-              <LightCounts counts={my.tokens} />
+      <div class="luster-table">
+        <div class="luster-table-main">
+          <section class="luster-bank" aria-labelledby="luster-supply-title" data-supply={s.supply.join(',')}>
+            <div class="luster-section-heading">
+              <h3 id="luster-supply-title">{returning ? 'Return from your hand' : 'Gem bank'}</h3>
+              <span>{returning ? `Return ${excess} to keep 10` : 'Take 3 different · or 2 of one'}</span>
             </div>
-            <div>
-              <span>Your discounts</span>
-              <LightCounts counts={bonuses(my)} />
-            </div>
-          </section>
-        )}
-      </section>
-      <div class="luster-board">
-        <div class="luster-tiers">
-          {[...TIER_DECKS].reverse().map((deck) => {
-            const i = TIER_DECKS.indexOf(deck);
-            const remaining = DECK_SIZES[deck] - s.decks[deck].next;
-            const blind = legal.find(
-              (a) => a.type === 'reserve' && a.deck === deck && a.pos === s.decks[deck].next,
-            );
-            return (
-              <section
-                class={`luster-tier luster-tier-${i}`}
-                key={deck}
-                aria-label={`${LUSTER_THEME.tiers[i]} market`}
-              >
-                <div class="luster-market">
-                  <button
-                    type="button"
-                    class="luster-deck"
-                    disabled={!enabled || !blind}
-                    aria-label={`Reserve blind tier ${i + 1}`}
-                    onClick={() => selectCard({ deck, pos: s.decks[deck].next, card: null, private: true })}
-                  >
-                    <span class="luster-deck-level">{'ⅠⅡⅢ'[i]}</span>
-                    <span class="luster-deck-mark" aria-hidden="true">
-                      ✦
-                    </span>
-                    <strong>{remaining}</strong>
-                    <small>cards</small>
-                    <span class="luster-deck-caption">{LUSTER_THEME.tiers[i]}</span>
-                  </button>
-                  {s.market[i]?.map((slot, j) =>
-                    slot === null ? (
-                      <div key={`empty-${j}`} class="luster-card luster-empty">
-                        Exhausted
-                      </div>
-                    ) : (
-                      <WorkshopCard
-                        key={slot.pos}
-                        slot={slot}
-                        onSelect={slot.card === null ? undefined : () => selectCard(slot)}
-                        affordable={affordable(slot)}
-                        selected={purchase?.deck === slot.deck && purchase.pos === slot.pos}
-                      />
-                    ),
-                  )}
+            <fieldset disabled={!enabled || (s.phase !== 'turn' && !returning)} class="luster-token-form">
+              <legend class="sr-only">{returning ? 'Choose gems to return' : 'Choose gems to take'}</legend>
+              <div class="luster-token-grid">
+                {LUSTER_THEME.colors.map((color, i) => {
+                  const next = nextTokens(legal, takeOrReturn, tokens, i);
+                  const count = returning ? (my?.tokens[i] ?? 0) : (s.supply[i] ?? 0);
+                  const changes = next.some((n, j) => n !== tokens[j]);
+                  return (
+                    <button
+                      key={color}
+                      type="button"
+                      class={`luster-token-stack luster-color-${i} ${tokens[i] ? 'luster-token-selected' : ''}`}
+                      disabled={!changes || (!returning && i === 5)}
+                      aria-label={`${returning ? 'Return' : 'Take'} ${color}`}
+                      aria-pressed={Boolean(tokens[i])}
+                      aria-describedby={`luster-gem-description-${i}`}
+                      title={
+                        i === 5 && !returning
+                          ? 'Receive gold by reserving a card'
+                          : `${color}: ${count} available. Click to select; click again for a pair or to clear.`
+                      }
+                      onClick={() => {
+                        setPurchase(null);
+                        setTokens(next);
+                      }}
+                    >
+                      <span class="luster-token-disc">
+                        <GemIcon color={i} />
+                        <b class="luster-token-count">{count}</b>
+                        {Boolean(tokens[i]) && <span class="luster-token-picked">{tokens[i]} selected</span>}
+                      </span>
+                      <span class="luster-token-name">{color}</span>
+                      <span id={`luster-gem-description-${i}`} class="sr-only">
+                        {count} available, {tokens[i]} selected
+                      </span>
+                      <small>
+                        {i === 5 && !returning
+                          ? 'Reserve to receive'
+                          : returning
+                            ? `Bank: ${s.supply[i]}`
+                            : 'Click to select'}
+                      </small>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <p class="luster-bank-rule">
+              {returning
+                ? 'Gold counts toward your ten-token limit.'
+                : `${s.seats}-player setup: ${s.seats === 2 ? 4 : s.seats === 3 ? 5 : 7} of each gem · 5 gold. A pair needs at least 4 in the bank before taking.`}
+            </p>
+            {my && (
+              <section class="luster-bank-hand" aria-label="Your resources">
+                <div>
+                  <span>Your gems</span>
+                  <LightCounts counts={my.tokens} />
+                </div>
+                <div>
+                  <span>Your discounts</span>
+                  <LightCounts counts={bonuses(my)} />
                 </div>
               </section>
-            );
-          })}
-        </div>
-        <section class="luster-nobles" aria-labelledby="luster-patrons-title">
-          <div class="luster-section-heading">
-            <h3 id="luster-patrons-title">Nobles</h3>
-            <span>3 prestige each</span>
-          </div>
-          <div class="luster-patrons">
-            {s.patrons.map((p) => {
-              const a = legal.find((a) => a.type === 'patron' && a.card === p.card);
-              return (
-                <article
-                  key={p.pos}
-                  class={`luster-patron ${a ? 'luster-patron-eligible' : ''}`}
-                  data-card={p.card ?? 'hidden'}
-                  data-pos={p.pos}
-                >
-                  <NobleArt variant={p.card ?? 0} />
-                  <div>
-                    <strong>{p.card === null ? 'Revealing…' : LUSTER_THEME.patrons[p.card]}</strong>
-                    <span class="luster-noble-score">3 ✦</span>
-                    <LightCounts counts={p.card === null ? EMPTY : (PATRONS[p.card] ?? EMPTY)} omitZero />
-                  </div>
-                  {a && (
-                    <button
-                      type="button"
-                      class="luster-noble-select"
-                      disabled={!enabled}
-                      aria-label={`Choose ${LUSTER_THEME.patrons[p.card as number]}`}
-                      onClick={() => void send(a)}
+            )}
+          </section>
+          <div class="luster-board">
+            <div class="luster-tiers">
+              {[...TIER_DECKS].reverse().map((deck) => {
+                const i = TIER_DECKS.indexOf(deck);
+                const remaining = DECK_SIZES[deck] - s.decks[deck].next;
+                const blind = legal.find(
+                  (a) => a.type === 'reserve' && a.deck === deck && a.pos === s.decks[deck].next,
+                );
+                return (
+                  <section
+                    class={`luster-tier luster-tier-${i}`}
+                    key={deck}
+                    aria-label={`${LUSTER_THEME.tiers[i]} market`}
+                  >
+                    <div class="luster-market">
+                      <button
+                        type="button"
+                        class="luster-deck"
+                        disabled={!enabled || !blind}
+                        aria-label={`Reserve blind tier ${i + 1}`}
+                        onClick={() =>
+                          selectCard({ deck, pos: s.decks[deck].next, card: null, private: true })
+                        }
+                      >
+                        <span class="luster-deck-level">{'ⅠⅡⅢ'[i]}</span>
+                        <span class="luster-deck-mark" aria-hidden="true">
+                          ✦
+                        </span>
+                        <strong>{remaining}</strong>
+                        <small>cards</small>
+                        <span class="luster-deck-caption">{LUSTER_THEME.tiers[i]}</span>
+                      </button>
+                      {s.market[i]?.map((slot, j) =>
+                        slot === null ? (
+                          <div key={`empty-${j}`} class="luster-card luster-empty">
+                            Exhausted
+                          </div>
+                        ) : (
+                          <WorkshopCard
+                            key={slot.pos}
+                            slot={slot}
+                            onSelect={slot.card === null ? undefined : () => selectCard(slot)}
+                            affordable={affordable(slot)}
+                            selected={purchase?.deck === slot.deck && purchase.pos === slot.pos}
+                          />
+                        ),
+                      )}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+            <section class="luster-nobles" aria-labelledby="luster-patrons-title">
+              <div class="luster-section-heading">
+                <h3 id="luster-patrons-title">Nobles</h3>
+                <span>3 prestige each</span>
+              </div>
+              <div class="luster-patrons">
+                {s.patrons.map((p) => {
+                  const a = legal.find((a) => a.type === 'patron' && a.card === p.card);
+                  return (
+                    <article
+                      key={p.pos}
+                      class={`luster-patron ${a ? 'luster-patron-eligible' : ''}`}
+                      data-card={p.card ?? 'hidden'}
+                      data-pos={p.pos}
                     >
-                      <span class="sr-only">Choose noble</span>
-                    </button>
-                  )}
-                </article>
-              );
-            })}
+                      <NobleArt variant={p.card ?? 0} />
+                      <div>
+                        <strong>{p.card === null ? 'Revealing…' : LUSTER_THEME.patrons[p.card]}</strong>
+                        <span class="luster-noble-score">3 ✦</span>
+                        <LightCounts counts={p.card === null ? EMPTY : (PATRONS[p.card] ?? EMPTY)} omitZero />
+                      </div>
+                      {a && (
+                        <button
+                          type="button"
+                          class="luster-noble-select"
+                          disabled={!enabled}
+                          aria-label={`Choose ${LUSTER_THEME.patrons[p.card as number]}`}
+                          onClick={() => void send(a)}
+                        >
+                          <span class="sr-only">Choose noble</span>
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
-      <section
-        class={`luster-selection ${enabled ? 'luster-selection-ready' : ''} ${selectionCount || returning ? 'luster-selection-active' : ''}`}
-        aria-label="Gem selection"
-      >
-        <div class="luster-selection-copy">
-          <strong>
-            {props.ended
-              ? 'Game complete'
-              : !enabled
-                ? 'Waiting for the next move'
-                : returning
-                  ? `Return ${excess} gems`
-                  : selectionCount
-                    ? `${selectionCount} gem${selectionCount === 1 ? '' : 's'} selected`
-                    : 'Make your move'}
-          </strong>
-          <span>
-            {props.ended
-              ? 'Click cards to inspect the final board.'
-              : !enabled
-                ? 'You can inspect cards while you wait.'
-                : returning
-                  ? 'Click gems from your hand above.'
-                  : selectionCount
-                    ? 'Click a selected gem here to remove it.'
-                    : 'Click gems to take them, or a card to buy or reserve.'}
-          </span>
-        </div>
-        <div class="luster-selection-gems" aria-live="polite">
-          {tokens.flatMap((n, color) =>
-            Array.from({ length: n }, (_, i) => (
+          <section
+            class={`luster-selection ${enabled ? 'luster-selection-ready' : ''} ${selectionCount || returning ? 'luster-selection-active' : ''}`}
+            aria-label="Gem selection"
+          >
+            <div class="luster-selection-copy">
+              <strong>
+                {props.ended
+                  ? 'Game complete'
+                  : !enabled
+                    ? 'Waiting for the next move'
+                    : returning
+                      ? `Return ${excess} gems`
+                      : selectionCount
+                        ? `${selectionCount} gem${selectionCount === 1 ? '' : 's'} selected`
+                        : 'Make your move'}
+              </strong>
+              <span>
+                {props.ended
+                  ? 'Click cards to inspect the final board.'
+                  : !enabled
+                    ? 'You can inspect cards while you wait.'
+                    : returning
+                      ? 'Click gems from your hand above.'
+                      : selectionCount
+                        ? 'Click a selected gem here to remove it.'
+                        : 'Click gems to take them, or a card to buy or reserve.'}
+              </span>
+            </div>
+            <div class="luster-selection-gems" aria-live="polite">
+              {tokens.flatMap((n, color) =>
+                Array.from({ length: n }, (_, i) => (
+                  <button
+                    key={`${color}-${i}`}
+                    type="button"
+                    class={`luster-selected-gem luster-color-${color}`}
+                    aria-label={`Remove selected ${LUSTER_THEME.colors[color]}`}
+                    disabled={!enabled}
+                    onClick={() => setTokens((xs) => xs.map((x, j) => (j === color ? x - 1 : x)))}
+                  >
+                    <GemIcon color={color} />
+                    <span aria-hidden="true">×</span>
+                  </button>
+                )),
+              )}
+            </div>
+            <div class="luster-selection-actions">
               <button
-                key={`${color}-${i}`}
                 type="button"
-                class={`luster-selected-gem luster-color-${color}`}
-                aria-label={`Remove selected ${LUSTER_THEME.colors[color]}`}
-                disabled={!enabled}
-                onClick={() => setTokens((xs) => xs.map((x, j) => (j === color ? x - 1 : x)))}
+                class="luster-clear"
+                disabled={!enabled || !selectionCount}
+                onClick={() => setTokens(EMPTY)}
               >
-                <GemIcon color={color} />
-                <span aria-hidden="true">×</span>
+                Clear
               </button>
-            )),
+              <button
+                type="button"
+                class="luster-primary"
+                disabled={!enabled || !selected}
+                onClick={() => selected && void send(selected)}
+              >
+                {returning ? 'Return gems' : 'Take gems'}
+              </button>
+            </div>
+            {legal.find((a) => a.type === 'pass') && (
+              <button
+                type="button"
+                disabled={!enabled}
+                onClick={() => {
+                  const a = legal.find((a) => a.type === 'pass');
+                  if (a) void send(a);
+                }}
+              >
+                Pass — no main action available
+              </button>
+            )}
+          </section>
+          {my && (
+            <section class="luster-your-hand" aria-labelledby="luster-hand-title" data-seat={props.mySeat}>
+              <div class="luster-section-heading">
+                <h3 id="luster-hand-title">Your reserved cards</h3>
+                <span>{my.reserved.length}/3 · visible only in your hand</span>
+              </div>
+              <ReservedCards slots={my.reserved} owner onSelect={selectCard} affordable={affordable} />
+              {my.reserved.length === 0 && (
+                <p>Reserve a market card or draw from a tier deck to hold it for later.</p>
+              )}
+            </section>
           )}
         </div>
-        <div class="luster-selection-actions">
-          <button
-            type="button"
-            class="luster-clear"
-            disabled={!enabled || !selectionCount}
-            onClick={() => setTokens(EMPTY)}
-          >
-            Clear
-          </button>
-          <button
-            type="button"
-            class="luster-primary"
-            disabled={!enabled || !selected}
-            onClick={() => selected && void send(selected)}
-          >
-            {returning ? 'Return gems' : 'Take gems'}
-          </button>
-        </div>
-        {legal.find((a) => a.type === 'pass') && (
-          <button
-            type="button"
-            disabled={!enabled}
-            onClick={() => {
-              const a = legal.find((a) => a.type === 'pass');
-              if (a) void send(a);
-            }}
-          >
-            Pass — no main action available
-          </button>
-        )}
-      </section>
-      <section class="luster-player-section" aria-labelledby="luster-players-title">
-        <div class="luster-section-heading">
-          <h3 id="luster-players-title">Merchants</h3>
-          <span>15 prestige starts the final round</span>
-        </div>
-        <div class="luster-players">
-          {s.players.map((p, seat) => (
-            <section
-              key={seat}
-              class={`luster-player ${s.turn === seat && !props.ended ? 'luster-active' : ''} ${seat === props.mySeat ? 'luster-you' : ''}`}
-              data-seat={seat}
-              data-tokens={p.tokens.join(',')}
-              data-patrons={p.patrons.join(',')}
-              aria-label={props.names[seat] ?? `Player ${seat + 1}`}
-            >
-              <header>
-                <h4>
-                  {props.avatars[seat]}{' '}
-                  <span>
-                    {props.names[seat] ?? `Player ${seat + 1}`}
-                    {seat === props.mySeat ? ' (you)' : ''}
-                  </span>
-                </h4>
-                <span class="luster-player-score" title="Prestige">
-                  {score(p)}
-                  <small> / 15</small>
-                </span>
-              </header>
-              <p class="sr-only">{playerSummary(s, seat)}</p>
-              {s.result && <p class="luster-place">Place {s.result.places[seat]}</p>}
-              <div class="luster-player-counts">
-                <span>Gems</span>
-                <LightCounts counts={p.tokens} />
-              </div>
-              <div class="luster-player-counts luster-discounts">
-                <span>Discounts</span>
-                <LightCounts counts={bonuses(p)} />
-              </div>
-              {p.patrons.length > 0 && (
-                <p class="luster-earned-nobles">
-                  Nobles: {p.patrons.map((id) => LUSTER_THEME.patrons[id]).join(', ')}
-                </p>
-              )}
-              <h5>
-                Reserved <span>{p.reserved.length}/3</span>
-              </h5>
-              <div class="luster-reservations">
-                {p.reserved.map((slot) => (
-                  <WorkshopCard
-                    key={`${slot.deck}:${slot.pos}`}
-                    slot={slot}
-                    onSelect={
-                      seat === props.mySeat && slot.card !== null ? () => selectCard(slot) : undefined
-                    }
-                    affordable={seat === props.mySeat && affordable(slot)}
-                  />
-                ))}
-              </div>
-              <details>
-                <summary>
-                  Developments <b>{p.bought.length}</b>
-                </summary>
-                <div class="luster-reservations">
-                  {p.bought.map((slot) => (
-                    <WorkshopCard key={`${slot.deck}:${slot.pos}`} slot={slot} />
-                  ))}
-                </div>
-              </details>
-            </section>
-          ))}
-        </div>
-      </section>
+        <PlayerSidebar
+          state={s}
+          mySeat={props.mySeat}
+          names={props.names}
+          avatars={props.avatars}
+          ended={props.ended}
+        />
+      </div>
       {props.audit === 'pass' && (
         <p class="luster-note" role="status">
           Deck audit passed.

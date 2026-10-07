@@ -5,8 +5,24 @@ export default defineConfig({
     projects: [
       {
         test: {
+          name: 'driftwrights',
+          root: 'packages/games/driftwrights',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
           name: 'luster',
           root: 'packages/games/luster',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
+          name: 'right-of-way',
+          root: 'packages/games/right-of-way',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
         },

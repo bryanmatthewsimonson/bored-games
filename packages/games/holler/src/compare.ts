@@ -1,5 +1,5 @@
 /*
- * The phrase "Compare to" the published game whose mechanics Holler implements (D053, D059), the only form in
+ * The phrase "Compare to" the published game whose mechanics Holler implements (D053, D072), the only form in
  * which the public site names that game. The title is cut from the phrase at run time so it is not a second
  * literal. A regular-expression replace is used because the minifier does not fold it into a literal.
  */

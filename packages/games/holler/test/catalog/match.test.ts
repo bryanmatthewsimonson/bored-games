@@ -49,9 +49,7 @@ describe('matching', () => {
   });
 
   it('C12 a Levy may be played when the hand has none of the active suit', () => {
-    const hand = [104, 2, 1, 3, 4, 6, 7].map((rank, index) =>
-      index === 0 ? 104 : numberCard(1, rank, 0),
-    );
+    const hand = [104, 2, 1, 3, 4, 6, 7].map((rank, index) => (index === 0 ? 104 : numberCard(1, rank, 0)));
     const placed: Record<number, number> = {};
     hand.forEach((card, index) => {
       placed[handPos(2, 0, index)] = card;
@@ -72,7 +70,15 @@ describe('matching', () => {
   });
 
   it('C14 a Mark in hand does not block a Levy', () => {
-    const hand = [104, 100, numberCard(1, 1, 0), numberCard(1, 2, 0), numberCard(1, 3, 0), numberCard(1, 4, 0), numberCard(1, 6, 0)];
+    const hand = [
+      104,
+      100,
+      numberCard(1, 1, 0),
+      numberCard(1, 2, 0),
+      numberCard(1, 3, 0),
+      numberCard(1, 4, 0),
+      numberCard(1, 6, 0),
+    ];
     const placed: Record<number, number> = {};
     hand.forEach((card, index) => {
       placed[handPos(2, 0, index)] = card;
@@ -81,7 +87,15 @@ describe('matching', () => {
   });
 
   it('C15 an off-suit card of the same rank does not block a Levy', () => {
-    const hand = [104, numberCard(2, 5, 0), numberCard(2, 1, 0), numberCard(2, 2, 0), numberCard(2, 3, 0), numberCard(2, 4, 0), numberCard(2, 6, 0)];
+    const hand = [
+      104,
+      numberCard(2, 5, 0),
+      numberCard(2, 1, 0),
+      numberCard(2, 2, 0),
+      numberCard(2, 3, 0),
+      numberCard(2, 4, 0),
+      numberCard(2, 6, 0),
+    ];
     const placed: Record<number, number> = {};
     hand.forEach((card, index) => {
       placed[handPos(2, 0, index)] = card;

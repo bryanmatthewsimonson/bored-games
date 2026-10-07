@@ -4,7 +4,15 @@
  */
 
 /** Every game this app can host, in the order the game picker lists them. */
-export const GAME_IDS: readonly string[] = ['chain-reaction', 'chess', 'bank', 'luster', 'holler'];
+export const GAME_IDS: readonly string[] = [
+  'chain-reaction',
+  'chess',
+  'bank',
+  'luster',
+  'right-of-way',
+  'driftwrights',
+  'holler',
+];
 
 /** The game of the old `#/rules[/<section>]` links, and the picker's first choice. */
 export const DEFAULT_GAME = 'chain-reaction';

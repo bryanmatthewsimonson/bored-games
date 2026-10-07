@@ -6,6 +6,7 @@
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
+import { driftwrights } from '@bored-games/driftwrights';
 import type { GameModule } from '@bored-games/game-kit';
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
@@ -17,6 +18,7 @@ import {
   RelayPool,
   type SubscribeOptions,
 } from '@bored-games/relay';
+import { rightOfWay } from '@bored-games/right-of-way';
 import { effect } from '@preact/signals';
 import type { Timers } from './clock.ts';
 import type { Signer } from './identity.ts';
@@ -35,6 +37,8 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [chess.id, chess],
   [bank.id, bank],
   [luster.id, luster],
+  [rightOfWay.id, rightOfWay],
+  [driftwrights.id, driftwrights],
   [holler.id, holler],
 ]);
 

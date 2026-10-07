@@ -3,7 +3,7 @@ import { createRng } from '@bored-games/game-kit';
 import { finalizeEvent, KIND, type NostrEvent, tableTemplate } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { MemoryRelay } from '../src/memory-relay.ts';
-import { type SimReport, simulateGame } from '../src/sim.ts';
+import { GAME_KINDS, type SimReport, simulateGame } from '../src/sim.ts';
 import { type AdversaryName, adversary, lastAlone, quickPolicy, unexpected } from './adversaries.ts';
 import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
 
@@ -32,6 +32,17 @@ function sim(seed: string, name: AdversaryName | null, vanishAt = SEATS, seats =
     ...(name === null ? {} : { adversary: adversary(name, CHEAT, seats, vanishAt) }),
   });
 }
+
+describe('the simulated clients', () => {
+  it('sync every in-game kind: all but the lobby kinds and the key backup', () => {
+    const lobby: number[] = [KIND.table, KIND.join, KIND.root, KIND.backup];
+    expect([...GAME_KINDS].sort()).toEqual(
+      Object.values(KIND)
+        .filter((k) => !lobby.includes(k))
+        .sort(),
+    );
+  });
+});
 
 describe('MemoryRelay', () => {
   const game = makeGame(3, 'memory-relay');

@@ -50,7 +50,7 @@ type AnyModule = GameModule<any, any, any>;
 
 /**
  * Every game the tests play: Chain Reaction (one deck), Chess (deckless, D045), Bank (dice beacon, D058) and
- * Holler (epoch shuffle, D060). Luster stays out: a green client suite does not load it.
+ * Holler (epoch shuffle, D073). Luster stays out: a green client suite does not load it.
  */
 export const MODULES: ReadonlyMap<string, AnyModule> = new Map<string, AnyModule>([
   [chainReaction.id, chainReaction],

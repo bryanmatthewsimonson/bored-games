@@ -35,7 +35,7 @@ import {
 } from './helpers.ts';
 
 /*
- * Epoch shuffle and play-phase shares (D060). One 2-seat deck is proved once. Its order is stacked so the first
+ * Epoch shuffle and play-phase shares (D073). One 2-seat deck is proved once. Its order is stacked so the first
  * starter is a set-aside Levy and the draw pile can run out before anyone goes out. Scripts are player actions
  * only: the session derives reveals, and a test calls `buildEpoch` when a shuffle is pending.
  */
@@ -496,7 +496,7 @@ class Table {
   }
 }
 
-describe('holler session (D060)', { timeout: 180_000 }, () => {
+describe('holler session (D073)', { timeout: 180_000 }, () => {
   beforeAll(() => {
     const scripts = findScripts();
     const game = makeModuleGame(holler, SEATS, 'holler-session');

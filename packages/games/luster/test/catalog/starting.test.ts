@@ -2,7 +2,7 @@ import { deepFreeze, range } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
 import { luster } from '../../src/module.ts';
 import type { LusterState } from '../../src/types.ts';
-import { collection, holding, ORDERS, player, ready, step } from '../helpers.ts';
+import { ANY, collection, holding, ORDERS, player, ready, step } from '../helpers.ts';
 
 const reveal = (s: LusterState, pos: number, card: number) =>
   step(s, { type: 'reveal', actor: 'deck', deck: 'tier-1', pos, card });
@@ -77,7 +77,7 @@ describe('random starting player and rotated rounds', () => {
     for (const seats of [2, 3, 4])
       for (const startingSeat of range(seats))
         for (const triggerOffset of range(seats)) {
-          let s: LusterState = { ...ready(seats), startingSeat, turn: startingSeat };
+          let s: LusterState = { ...ready(seats, ANY), startingSeat, turn: startingSeat };
           for (const offset of range(seats)) {
             if (offset === triggerOffset) s = player(s, s.turn, { bought: valued });
             expect(s.turn).toBe((startingSeat + offset) % seats);
@@ -94,7 +94,7 @@ describe('random starting player and rotated rounds', () => {
   });
 
   it('advances round numbers only on return to the starter and completes token returns before scoring', () => {
-    let s: LusterState = { ...ready(4), startingSeat: 2, turn: 2 };
+    let s: LusterState = { ...ready(4, ANY), startingSeat: 2, turn: 2 };
     for (const offset of range(4)) {
       s = take(s);
       expect(s.round).toBe(offset === 3 ? 2 : 1);
@@ -110,7 +110,7 @@ describe('random starting player and rotated rounds', () => {
   });
 
   it('waits for the final player’s compulsory patron choice before ending a rotated round', () => {
-    let s = player({ ...ready(4), startingSeat: 2, turn: 1 }, 1, {
+    let s = player({ ...ready(4, ANY), startingSeat: 2, turn: 1 }, 1, {
       bought: [...valued, ...collection([4, 4, 4, 4, 4])],
     });
     s = take(s);

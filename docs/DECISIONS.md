@@ -840,7 +840,7 @@ The incident: in a 3-player Chain Reaction game, every client showed only "Shuff
 
 ## D058: Bank, and the key-committed dice beacon (owner request, 2026-10-03)
 The owner asked for **Bank**, a folk push-your-luck dice game, as a hosted game beside Chain Reaction and Chess. Hanabi stays spec only (D054): its build is still blocked on Phase K. Bank does not use a card prompt duty (D050). The same day, the owner corrected the first reading of that decision: a public dice roll is not analogous to a hidden card, and the other shares are sent automatically.
-- **What it is.** Public title Bank, module id `bank`, package `packages/games/bank`. The rules are `docs/games/bank/RULES.md` (catalog C01–C31), taken from Family Game Shelf's "How to Play the Bank Dice Game" (2024), BoardGameGeek 412804, and ThunderHive's public scoring description. This is the folk game: no Shield, no secret simultaneous banking, no timer, no Bank Run and no Speed Banker. No licensed pack and no `compareTo` (D053). The catalog tile stays the generated initials; the table is original SVG dice on a CSS felt. `bggId` is null.
+- **What it is.** Public title Bank, module id `bank`, package `packages/games/bank`. The rules are `docs/games/bank/RULES.md` (catalog C01–C31), taken from Family Game Shelf's "How to Play the Bank Dice Game" (2024), BoardGameGeek 412804, and ThunderHive's public scoring description. This is the folk game: no Shield, no secret simultaneous banking, no timer, no Bank Run and no Speed Banker. No licensed pack and no `compareTo` (D053). The catalog tile stays the generated initials; the table is original SVG dice on a CSS felt. `bggId` was null at first; D060 sets it to 412804.
 - **Rules of play.** Two dice, seats 2–6 (best 3–5). The default is 10 rounds; a new table may pick 5, 10 or 20, and a banking variant. The first three rolls of a round are safe: a 7 adds 70, and any other sum, doubles included, is added. From the fourth roll a 7 busts (the pot goes to 0 and seats still in score nothing more that round); a double replaces the add with the pot doubled; any other sum is added. A 7 is never a double. **Bank** adds the current pot to that seat's score, and that seat sits out the rest of the round. The pot stays for the others. A round opens on the roller, who rolls before anyone is asked to bank; an empty pot cannot be banked (corrected the same day, after the opening poll asked a seat to stay on a blank table). **Table** (the default) then asks every seat still in, in order, starting at the seat after the roller and ending with the roller. A non-roller chooses Bank or Stay; the roller chooses Bank or Roll. The pot does not change during that poll. **Turn** asks only the roller, for Bank or Roll. The variant is a named option on the table. A round ends on a bust, when every seat has banked, or after 30 rolls (D015): if the 30th resolution is a bust, the bust stands; otherwise every seat still in banks that pot, in seat order, and the round ends. The highest total wins. Equal totals share a place (1, 1, 3). `standings` is the point totals, so a forfeit ranks a higher score first. The next round's roller is the seat after the last human action of the round: the roller who busted, the last seat who chose to bank, or the roller of the capping roll.
 - **Resign.** The deckless path (D045, D052). The Resign carries no deck secret. Two seats: a rated loss, and the resigner is last. Three or more: unrated, and the resigner is last. A Resign before any roll cancels, because that is before the first game action.
 - **Fair dice, option 1b (GAME-SYSTEMS §4.3).** A contribution to roll `i` is `x·H_i` with `H_i = h2c('roll:' + rootId + ':' + i)`, the same Chaum–Pedersen share a card decryption uses, bound to the reserved deck id `roll` (`packages/deck/src/beacon.ts`: `makeRollShare`, `verifyRollShare`). The seed is the SHA-256 of each share's `D` as compressed SEC1 bytes (`D.toBytes(true)`), in seat order: the bytes, where §4.3's sketch hashed the base64 text. `packages/dice` `faces(seed, count, sides)` draws the faces by rejection sampling over a SHA-256 stream, so a remainder never favours a face. The engine imports neither package. The session derives `{type:'rolled', actor:'beacon', id, dice:[a,b]}` and applies it, as it derives a public reveal (PROTOCOL §6.3a). A player who sends that action is rejected (`a player does not send the dice`).
@@ -862,23 +862,280 @@ Follow-up: the owner requested random starts instead of the tabletop youngest-pl
 
 Luster interface follow-up (owner, 2026-10-04): use conventional Diamond, Sapphire, Emerald, Ruby, Onyx and Gold names; original artwork remains required. The owner clarified "Use whatever the rules dictate" for supply after observing a two-player game, so the standard 4/5/7 per-color setup and five Gold remain unchanged. Large clickable gem stacks, removable selection gems, clickable card/deck/noble faces and a card panel with discounted prices and direct Gold swaps replace numeric arrows and payment dropdowns. Only Luster's theme, art, UI, setup copy, catalog search expectation and tests change; engine 0.2.0 and Bank's implementation are preserved. The D050 exception stays limited to Luster.
 
-## D059: Holler, a shedding game under its own names (owner request, 2026-10-05)
+Luster hand/sidebar follow-up: every reserved card is displayed face down outside the owner’s separate hand, including previously exposed market cards. This hides artwork, cost, discount and prestige from the hand presentation without changing immutable public deck assignments or concealing identities already present in signed public history. Blind cards retain engine-level owner-only knowledge. The desktop board now has a sticky right-hand score/resource sidebar; narrow screens stack the player panels below it. Styles and presentation components remain Luster-specific; no Bank, shared runtime or protocol changes.
 
-The owner asked for a trademark-safe and copyright-safe shedding game with the ordinary commercial mechanics, its own name, and its own artwork. This decision records the rules package. The table session and the screen are later work and are not registered here.
+## D059: The owner approves the Phase K recommendations (owner, 2026-10-04)
+The owner answered the eight questions of `docs/proposals/prompt-reveal.md` §10: *"Proceed with all recommendations."* Each answer below is the recommendation as written there.
+1. **A1 (one card readable after a stop):**
+   - one active device per seat per game is required in games with audit `'none'`;
+   - accepted elsewhere, where every card is public at the end.
+2. **Devices:**
+   - **Everywhere:**
+     - the outbox rule (required);
+     - the check before signing (SHOULD);
+     - devices also query relays of their own choosing, not only the root's (F2).
+   - **In audit-`'none'` games:** one designated playing device per seat; the others are view-only until handed over with a signed "this device now plays" note.
+3. **No clock-based time limit on stops.**
+4. **A stop with 3 or more seats:** the equivocator is rated last and recorded, and the game is unrated for the others.
+5. **Roll binding:** when the dice beacon is built for protocol v2, each roll's point is bound to the move that requests it: `h2c('roll:' + rootId + ':' + moveId + ':' + n)`.
+6. **F1 is accepted for now:** a finished game stays voidable while a seat is absent. Each void costs the equivocator a rated loss and exposes nothing.
+7. **F4, result identity:**
+   - results are keyed on (kind, head, forfeiting seat);
+   - an end attestation, published as a content variant of kind 7456, excludes the audit;
+   - the audit verdict is computed from the events, so it needs no attestation;
+   - the PROTOCOL §7 attestation is kept for stats only.
+8. **Candidate (e), as amended (round 3 with F1–F5), is approved** as the prompt-reveal design for protocol version 2.
+   - It is to be specified in PROTOCOL and then built.
+   - The unproven model scopes (§6.7) must be finished, or re-run on a bigger machine, before the build.
+   - Until it is built, D050 stands: no game ships a prompt duty, apart from the owner's Luster exception below. A public dice roll (Bank) is not a prompt duty (D050, D060).
+
+**Luster exception (owner, 2026-10-04).** The owner told the author of Luster to override D050 for Luster only, so its "isolated prompt shares" are an owner-approved exception. No other game may ship a prompt duty before protocol v2. The owner's next step is to implement protocol version 2, and Luster moves onto v2's prompt-reveal design when it lands.
+
+## D060: Owner rulings on the Bank and Luster audits (owner, 2026-10-04)
+Read-only audits of Bank and Luster (built by other assistants) went to the owner. The owner ruled:
+- **Bank's dice are public, so there is nothing to reveal.** *"Everybody makes their own decision based on the exact same publicly known dice roll. Before you assume something is a problem, you need to evaluate it against the game mechanics."*
+  - The automatic contribution stays, as D050's public-dice ruling already says.
+  - The one mechanics-relevant residual is foreknowledge of the next roll before a bank decision. Rolls are bound to the round's roll counter, so a rival Roll on another branch computes the same faces early. It is closed by D059 item 5 (bind each roll to its requesting move) in protocol v2.
+  - A false equivocation flag from two devices contributing to one roll is fixed client-side by the check before signing (D059 item 2).
+- **No interim fork-stop before v2.** Luster and Bank keep v1 fork choice until protocol v2 ships.
+- **Luster: an owed reveal keeps its timeout.** A seat whose share blocks a refill can still be timed out, but the game screen and Home must say clearly who owes a reveal and when the deadline passes.
+- **Luster gets "Compare to Splendor"** (amends D053: a second allowed phrase, stored once in the Luster package; "Splendor" and its publisher go on the restricted list). Its BoardGameGeek id is 148228.
+- **Bank stays a folk game,** with public name "Bank" and no Compare-to phrase. Its BoardGameGeek link is 412804. Neither 412804 nor Luster's 148228 could be checked against BoardGameGeek, which refused automated requests; both are the owner's ids.
+
+## D061: Protocol version 2 specified (`docs/PROTOCOL-v2.md`), reviewed and approved (2026-10-04)
+D059 approved candidate (e), "plain stop", for protocol v2. `docs/PROTOCOL-v2.md` now specifies it as a delta on v1, and `docs/PROTOCOL.md` §5.5 and §6.2a document Luster's partitioned deck and share duty as shipped v1 (owner exception, D059). The spec went through an independent adversarial review: NOT APPROVED (H1, H2, M1–M3, L1–L3), then NOT APPROVED (N1–N3), then APPROVED (review text in the session scratchpad; outcomes below).
+
+**The main choices:**
+- **Versioning:** `["proto","2"]` on every event of a game. v1 games stay v1 forever, clients fold both, and new tables are proto 2. v2 clients MUST NOT create or join new v1 Luster or Bank tables, and they keep folding v1 games in progress.
+- **Events:**
+  - Shares 7453 gains an `anchor` e tag (the releaser's head), plus a roll variant keyed by (seat, move, n).
+  - The end attestation is a content variant of 7456 keyed on (kind, head, forfeiting seats); `forfeit` is a list.
+  - The "this device now plays" note is a new kind, 7458.
+- **Dice (Q5):** each roll's point is `h2c('roll:' + rootId + ':' + moveId + ':' + n)`. Contributions are unordered: a last contributor can withhold and so kingmake, at the cost of a timeout forfeit, which matches v1's fixed last seat.
+- **Fork stop and cutoff (review H1, M1):**
+  - A fork cancels the game only if no game action is held at or past P on any line; otherwise it is a stop.
+  - Every seat with two valid-looking moves on one prev, on any held line, is recorded and rated last. The topmost fork still fixes P.
+  - With 2 seats, double equivocation is a tie.
+- **After a stop (H2, N3):**
+  - Places are fixed at the stop, and no Timeout claims count afterwards.
+  - A withheld secret never forfeits. It is recorded as "secret withheld" and counts as an anti-cheat mark, and the game shows as "audit incomplete".
+  - A partial audit runs once every position decrypts, and only a proven failure demotes a seat.
+- **A standing result (N1):** it is played out as if no fork were held. v1's End rules apply at the result's head (S for a resign), so a cheater cannot fork to dodge its own audit.
+- **Own forfeit (L2, N2):** a client never auto-accepts, before its own deadline, a claim that forfeits only its own seat. It asks the player instead, shows the question only on a device that was not watching that head, and makes "play" the default.
+- **Clients:**
+  - MUST rebroadcast every move on their chain, plus their own Shares events and end attestations (M2);
+  - MUST apply the outbox rule to Shares events and end attestations;
+  - SHOULD make the check before signing;
+  - query their own relays too.
+  - A device that loses its storage starts view-only.
+- **Prompt release** applies to every deck game in v2: only while no fork is held, no result stands and the final deck is complete, and only for positions dealt to another seat or to the table.
+
+**Before the build (PLAN, Phase v2 task 0):**
+- give the protocol model a cancel case (H1);
+- align the model's resign identity with the spec's named-head identity (M3);
+- finish or re-run the unproven scopes;
+- check kind 7458 against the NIPs registry.
+
+## D062: D060 follow-ups: Luster's "Compare to", Bank's link, Luster guards and the gem rule (2026-10-04)
+- **Luster "Compare to".**
+  - `packages/games/luster/src/compare.ts` holds the one literal. The catalog has `bggId: null` and `compareTo {title, bggId: 148228}`, as Chain Reaction does (D053).
+  - The guard restricts "Splendor", its publisher "Space Cowboys" and its designer "Marc André", with ASCII, hyphenated, underscored and run-together variants.
+  - `ALLOWED_PHRASE_HOMES` keys each allowed phrase by its home `compare.ts`. Each phrase is spelled once there and nowhere else in the packages, and the public build must hold both phrases.
+  - **Accepted gap**, documented by a test: "Compare to <Title> <unrestricted word>" (for example a sequel's name) passes the phrase cut, for both games.
+  - CLAUDE.md names both exceptions.
+- **Bank:** `bggId` 412804, shown on the game page as Chess's is; `compareTo` null.
+- **The D052 contract over the shipped registry.**
+  - `apps/web/test/module-contract.test.ts` runs the reveal contract over every module in `apps/web/src/net.ts`.
+  - A module is exempt only when `resignAllowed` is false at every seat count. Today that is Luster, and the test proves Luster would fail the contract.
+- **promptShares allowlist.**
+  - Only `luster` may set `DeckSpec.promptShares`, enforced by a web test and a repo guard.
+  - Protocol v2 ignores the flag and gates prompt release for every deck game (D061).
+- **Shuffle-step arithmetic.** `shuffleStepSeat` and `shuffleStepGroup` return null when there are no groups, so the session never divides by the group count.
+- **The Luster gem rule (C11).**
+  - Following the owner's "use whatever the rules dictate", new tables take three different colours, or fewer only when fewer are left (rulebook plus the publisher's FAQ).
+  - `gems: 'any'`, and any rules object without the field (every earlier table), keeps 0.2.0's any-number rule.
+  - The engine version is not bumped. A root pins the module version, so a bump would orphan games in progress. Legacy rules validate to themselves, so their folds and hashes are unchanged.
+  - The forced pass is a platform rule (D015/D016); the published rules have no pass.
+
+## D063: Client safety for a seat's devices, and owed card reveals (fix-ctrl, 2026-10-04)
+Client-side fixes for D059 item 2, D060 and the audits (audit-luster F2–F4, audit-bank F2/F3). **No consensus or wire-format change** (D060: none before protocol v2): the session's fold, fork choice, event formats and parsers are untouched. Everything is in the web controller (`apps/web/src/game-controller.ts`), two pure helpers (`share-vet.ts`, `det-random.ts`) and the screens. PROTOCOL §9 states the client rules. (Numbered D063 because main holds D061, protocol v2, and D062.)
+- **Luster's saved reveals are vetted (audit-luster F3).** `share:<positions>` outbox slots were republished without vetting, and a Shares event names no head: one built on a branch that later lost fork choice verifies on the winner, where its card may be undrawn, or this seat's own blind reservation (publishing it hands out the owner's private layer, which the owner never releases). They now follow D056: held on load until every counted relay answered (`#fullAnswer`, the same rule as moves, hold cap and Send anyway), then published only if every position is dealt on the current head, is not this seat's own card, and is still owed (`shareVerdict`: the session's `share` duty lists it, or, once folded in, no other Shares event of this seat carrying it is at the relays); otherwise discarded and logged under Sync notes ("A card reveal saved on this device was never sent, and it was discarded: …"), and an open tab that had folded it in rebuilds its session. Vetted after moves and the deal, since they can change the head. While a saved reveal is unvetted, only share duties for its own positions wait. `#publish` refuses any `share:` event that would reveal this seat's own card, whatever path led there. Test (`luster-outbox.test.ts`, fails on the old controller): a 2-seat game where E forks (A reserves from the market, so the top of tier 1 is refilled; B, with the lower id, takes gems); two offline tablets of H save their share of that card on A; after the switch to B the open tablet's reveal is discarded (not drawn on B), H then blind-reserves that card from its phone, and the reloaded tablet's reveal is discarded (H's own card); H never publishes a share of it.
+- **The check before signing (D059 item 2, prompt-reveal §5.1 rule 9; a SHOULD).** Before signing a new move (a decision, a shuffle step, a Bank contribution), a Shares event (the deal, a Luster reveal) or a Resign, the controller looks at the events it holds (a move of this seat on the current head that the session has not refused is never answered with a rival) and asks the relays for this seat's moves on the head and its Shares events and Resigns, folding in what comes: an event the seat signed on another device is adopted. `act` then refuses with "you already played this turn on another device". Own moves the session refuses outright (a bug or an outdated client) are not rivals (`#refused`), so an invalid own move cannot lock the seat out of its turn; this applies to moves only: a refused own Shares event (a deal on a rival deck) still counts, so a seat on two devices never deals on two decks (F7). The answer must come from every live counted relay (`#liveAnswer`: dead relays, root ones included, are left out, since the other device published moments ago to the same root relays; with none alive the D056 outbox rule still vets the event before any republish); otherwise an automatic duty is held until the next tick and `act` asks the player to try again, for at most `HOLD_CAP_S` (10 minutes) from the first partial answer for that slot and head (each slot has its own bound), or until Send anyway. Each query also has its own 15 s cap (`CHECK_TIMEOUT_MS`), so a check never blocks for ever.
+- **Deterministic automatic builds (audit-bank F3).** The check cannot close the race of two devices that receive a Roll at the same moment and both contribute at once, which is the usual case for Bank (every open device contributes by itself). A shuffle step and a dice contribution are each one statement fixed by the head, so the controller builds them from a stream keyed on the seat's session key and deck secret (`seatStreamKey`) and labelled with the game, the head and the slot (HMAC-SHA256, `deterministicRandom`), dated at the head's `created_at`: two devices sign byte-identical events, one id, no fork. A nonce is never reused for another statement, because the label fixes the statement. **The head's date is signed by the previous mover,** and relays with `created_at` limits refuse a date far ahead (or very old), with the stall blamed on this seat. The date is therefore chosen only from events both devices hold alike, and the local clock decides only when to sign, never what (`#buildDate`; review round 2: a first clamp on each device's own clock let E date its move at the clamp's edge, so one device built the deterministic event and the other fell back, two rival moves): the head's `created_at`, raised to the latest `created_at` of this seat's own moves on the chain, or the root's (no old-age test); a date more than 60 s ahead of the local clock is waited for, until 60 s before it, if it is at most a quarter of the table's deadline and at most a day ahead (a quarter, so the wait never nears a timeout); beyond that the event is dated now with fresh randomness. Two devices that straddle that bound are hours apart, so the later one's check before signing adopts the earlier one's event. Head dates are kept for every event (`#dates`), past the `MAX_BUFFER` cap on held events. Decisions keep fresh randomness (their reveals depend on the action, which the label does not cover), as do the deal and Luster reveals (a duplicate Shares event is not a fork). Tests (`two-devices.test.ts`): two devices of White, one whose live feed lags, play one move on one parent (the second adopts the first's); a move held only by the player's own relay is found (F2); an invalid own move does not lock the seat out; a silent own relay holds `act` until the cap; two open devices of a Bank contributor publish one contribution and nobody is flagged; a device that opens after the other contributed adopts it and signs nothing; two devices with clocks seconds apart sign the identical contribution for a Roll dated 62 s ahead (one waits for it) and for one dated in 1970 (both take the root's date; this one fails on the first clamp); a Roll dated two days ahead falls back to now. `deal-two-devices.test.ts`: E forks its final shuffle step, the tablet deals on A unsent, the phone deals on B and publishes, fork choice settles on A, and the reloaded tablet keeps its A deal unsent (it fails when refused own Shares events are exempted, review round 2).
+- **Devices query relays of their own choosing (D059 item 2, F2): verified, no change needed.** The pool holds the Settings relays and the controller adds the root's and the player's (`addRelays`, D056 fix round 2), so vetting, the check before signing and the game subscription all reach them; the own-relay test above pins it. A seat recovered from saved game keys (D057) now knows its session key for vetting and the check, which used to look for its npub only.
+- **Owed shares are stated (D060).** An owed reveal keeps its timeout; the screens now say who owes it and when the deadline passes. `owedReveal` (`waiting-model.ts`, pure, from `waitingFor()`, `pendingSince` and `deadline`, D057) is, in play, the seats whose share a public reveal or the deciding seat waits for, the decider excluded. Each game names the share in its own words (`SetupCopy.share`, `ShareWords`): Luster "reveal a card" / "a card reveal", Chain Reaction "send their share of a tile" / "a share of a tile", otherwise "send their share" / "a share". The game screen's waiting line reads, for Luster, "Waiting for Ann to reveal a card. Their app must be open on this game. If it is not sent within 2d 4h, Ann can be timed out." (or "The deadline has passed: Ann can be timed out."), and the owing player, when its app is not sending right now (held, stuck or undelivered), sees "You owe a card reveal: keep this game open until it is sent. …". The controller publishes it as `owed` (this seat counts while a reveal of its own reached no relay) and saves it with the Home status (`GameStatusCache.reveal`: npubs, mine, until). Home's card says "Your app must be open: you owe a card reveal (2d 4h left)." however old the entry, or "Waiting for npub1… to reveal a card (…)" while the entry is fresh. Tests: `waiting-model.test.ts`, `lobby-model.test.ts`, `registry.test.ts`, `storage.test.ts`, and the Luster test checks `owed` and the saved entry.
+- **Residuals.**
+  - Two devices that sign a decision within the same seconds (fresh randomness) still equivocate, as do two devices dealing at once; the check only sees what the relays already hold.
+  - **Dead root relays in the check:** the phone published M′ to root relay R1 only while R2 was down for it; later R1 is dead for the tablet and R2 lacks M′, so the check clears and the tablet signs a rival. D056's outbox vetting still counts dead root relays; the check does not, so that one down root relay cannot block every move for 10 minutes. The deterministic shuffle and contribution builds make it moot for those two.
+  - A relay that answered the check without the other device's event (while another relay that has it was dead) is the D056 residual.
+  - Home learns of an owed share only from a game screen that was open; nothing tells a closed app that its seat owes one (that needs notifications).
+  - **E can delay a seat's automatic build by up to B** (B = the smaller of a day and a quarter of the deadline): by dating its move just under B ahead, E makes the next seat's shuffle step or contribution wait that long. That is minor griefing (it costs E nothing, and the game stalls that long), and meanwhile the screens show the victim as the seat the game waits on. A waiting duty arms one wake timer (`#waits`) and is not re-run by ticks (test: `two-devices.test.ts`).
+  - **Two devices of one seat whose clocks are B or more apart** (6 hours with a 1-day deadline) can still sign two different events: for a head dated near B ahead, the device whose clock is behind sees it beyond B and falls back to now with fresh randomness at once, while the other waits and builds the deterministic event. They sign at times as far apart as their clocks, so the later one's check before signing normally finds the earlier one's event; it misses it only if the relays it counts do not hold it.
+  - An old head date (a device contributing hours after the roll) gives an old-dated event; no rule reads a move's date.
+  - `#vetDeal` still reads any other Shares event of the seat as "another deal" (pre-existing): only an unconfirmed deal in Luster once play-phase reveals exist is affected.
+  - A controller disposed right after folding its own deal can leave it unpublished until the next load (`#publish` awaits the deck echo, then sees `disposed`; pre-existing).
+  - Luster's own exposure across forks (audit-luster F1, F2) and Bank's foreknowledge across rival Rolls (audit-bank F2) wait for protocol v2's stop and roll binding.
+- **No new dependencies** (HMAC is built on the protocol package's SHA-256).
+- **Verified:** after review round 2, `pnpm check` passes (1805 tests in 120 files, 34 skipped); `pnpm e2e` passes all 10 tests (13.1 minutes).
+
+## D064: Protocol v2 build, task 0: the model is aligned with the spec, and A3 is enforced by rebroadcast (2026-10-04)
+- **T0a and T0b** (`tools/protocol-model`): the model now covers the spec's fixes from the D061 review rounds:
+  - setup steps;
+  - the H1 cancel rule;
+  - M1 (every equivocator rated last);
+  - M3 (resign identity at the named head);
+  - claims that forfeit several seats;
+  - blocking public reveals (`reveal-block`) and unordered rolls;
+  - unresolved anchors;
+  - the Secret phase with a cheat, with v1's End rules at a standing result (N1) and no claims after a stop (H2);
+  - no automatic acceptance of a claim that forfeits only the client's own seat (N2).
+- **Regression variants.** Each of these reproduces the attack it closes: `cancelRule: 'position'`, `topmostOnly`, `stopClaims`, `noStandingEnd` and `autoOwnForfeit`.
+- **Results.** The fixed design shows no safety kind in CI or in nine larger scopes (up to 24.6 M states). Two of the model's own checks were corrected; review confirmed both corrections were honest.
+- **The review approved T0a and T0b.**
+- **The spec amendment: A3 is now enforced.** The model assumes every event an honest client holds reaches every other honest client (A3). Three traces split one honest seat's two devices without it: `a3gap`, `rv-a3resign` and `rv-cap`. §9.1 therefore now requires every client to rebroadcast every event of the game it holds that the fold, the cutoff or the audit reads: Moves, Shares events, end attestations, Timeout claims, Resigns and Secret reveals.
+  - **Bounds:** only events that pass the session's checks, where a Shares event qualifies if it parses with a seated signer even when its shares don't verify; at most two Moves per signer and prev, except that every Move a held event names (an anchor, a roll's requesting move, an end attestation's head, a prev, a claim's or a Resign's head) is always rebroadcast; and after each sync, only what a relay lacks.
+  - **Rule (b)** counts a Shares event once it is held and parses with a seated signer.
+  - §12.2 gains 7a, the rebroadcast fold vectors.
+- **Next: T0c, the gate.** Re-run the full battery with the updated model: the 20 scope groups in the T0 report, plus five the review added:
+  - setup steps with two devices and a stale outbox;
+  - setup steps with the Secret phase, a cheat and a resign;
+  - roll mode at 4 seats;
+  - reveal-block and roll with resigns and with devices;
+  - the `resignAt: counted` comparison.
+- **Older battery figures** (round 3) predate these model changes and are superseded once T0c reports.
+
+## D065: The encrypted backup of a seat's game keys, and Other keys for keys this browser no longer holds (fix-keys, 2026-10-04)
+The owner's two reports of 2026-10-03 (PLAN, "Known bugs"). **No consensus change:** a new NIP-78 app-data event outside the game's events (PROTOCOL §3 already reserved kind 30078), plus client code.
+- **Bug 1, cause.** A seat's session key and deck secret were made and kept only in the browser that joined. The same nsec in another browser found its npub seated and no keys, and watched. Not a regression from D056/D057: the controller did this from its first version. ARCHITECTURE §Backup's promise was never built (Phase 2e).
+- **NIP-44 v2, no new dependency.** `packages/protocol/src/nip44.ts` implements the spec (HKDF-extract over the unhashed ECDH x with salt "nip44-v2", HKDF-expand to the ChaCha20 key, nonce and HMAC key, padding, HMAC-SHA256 over nonce and ciphertext, version byte 2, strict base64 and UTF-8). ChaCha20 (RFC 8439) is written out, since @noble/ciphers is not in the repo and the cipher is 60 lines. HKDF, HMAC and SHA-256 come from @noble/hashes and ECDH from @noble/curves, both already dependencies. It is pinned by the official vector file (whose SHA-256 is the one NIP-44 publishes; every valid and invalid set) and RFC 8439's ChaCha20 test.
+- **The backup event (PROTOCOL §3).** Kind 30078 by the player's npub, `["d","bored-games/keys/<tableAddress>"]`, content NIP-44 v2 from the npub to itself of `{"v":1,"table","session","deck","root","seat"}` (root and seat are null before the start).
+  - One `d` per table rather than per root: the keys exist from the Join, before any root, and a table has one root.
+  - Published to the table's relays and the player's own after each Join or table creation, in the background (a failure does not undo the join).
+  - Published again from the game screen when the check below finds it missing or wrong: automatically with a local key; on **Back up this game's keys** with a NIP-07 extension, since each backup is an encrypt and a sign prompt and should not be asked unprompted mid-game. Games joined before this are covered as soon as their joining browser opens them.
+  - `Signer.nip44` is the local key's, or `window.nostr.nip44` when the extension has it. Without it, backup and restore are unavailable and the screen says so.
+- **The backup is checked, not just marked (review M1).** A backup counts as made only when one of the table's relays accepted it; the record keeps its id. On every load, the game screen of a seat held with its own npub looks for it on the root's relays.
+  - With a local key, it decrypts the backup and checks it like a restore, against the keys saved here (`backupHealthy`).
+  - With an extension, which would prompt, it checks only that the recorded backup is there.
+  - A missing, unreadable or wrong backup is published again. **Back up again** stays available.
+  - A query counts as complete only when every root relay answered before any deadline (review L1), so a slow relay reads as "try again", not "no backup".
+- **The encryptor is not trusted (review L2).** Before signing, the content must be a NIP-44 v2 payload of exactly the plaintext's padded length (`isNip44Payload`) and contain neither secret. Where the signer allows, it is decrypted once and must give the plaintext back. Encryption and each decryption are bounded in time (60 s, review L4).
+- **Restore.** When the npub holds a seat and no game keys are saved:
+  - The game screen says "Restoring your game keys from your backup…" and watches meanwhile.
+  - It asks the root's relays and the player's own for the backup, and drops events that are not validly signed by the npub with that `d`.
+  - It decrypts the newest first, and keeps one only if its table is the root's, its root is null or the root's id, and `backupSeat` holds: `seatForGameKeys` finds a seat for both keys, and that seat is the npub's (D057's check).
+  - The keys are saved like keys made here (owner the npub, the table listed, the backup recorded), and the session is rebuilt with the seat.
+  - Otherwise the screen says why: no backup on the game's relays, relays that did not answer, a backup that does not decrypt, one that is not this seat's, an extension that refused or did not answer (its own states, review L4), or storage that refused the keys. It also says what to do: open the game on the device that joined, whose game screen checks the backup and publishes it again if it is missing or wrong, then **Try again**.
+- **Two devices.** A restored device is one more device of the seat: the check before signing and the deterministic shuffle and contribution builds apply (D063), and the other device's saved-but-unsent events go through the outbox rule (D056). The restored notice tells the player to play on one device at a time, because two devices acting within seconds can still sign rival moves (D063's residuals; review L5). Protocol v2's view-only restored device (PROTOCOL-v2 §9.5) is not v1 behaviour.
+- **Security (corrected after review L3).** Before this, the npub signed only Tables, Joins, roots and Result attestations, and a seat's moves needed its session key, which never left the joining device. With the backup, the npub's secret key, and anything allowed to decrypt with it (a NIP-07 extension's per-site `nip44.decrypt` permission, later a NIP-46 signer), can read the backup. That gives full control of the seat in every live game, and sight of its hidden cards. This is the price of playing from a second device.
+  - PROTOCOL §3 says so. The app tells extension users, in Settings and next to the backup button, to allow decryption only for sites they trust.
+  - A tampered backup fails the MAC; a forged one (another seat's or game's keys) fails `backupSeat`; another author's event is dropped.
+  - The `d` tag names the table publicly, which the Join already does.
+  - An old backup stays on the relays after the game, when its keys are worthless.
+  - A seat recovered with saved keys after its key was lost (D057) cannot back up: the backup is by and to the joining npub.
+- **Bug 2, cause.** Settings → Other keys listed only `sk-history`. The key race kept key A in memory only, so storage held seat 3's game keys (owner A) but never key A. Home said "Under another key: switch to it in Settings to play", and Settings had nothing to switch to.
+- **Bug 2, fix.** `otherKeys` (`apps/web/src/other-keys.ts`) lists the kept keys and every other owner of this profile's listed tables and saved game keys, kept or not, with its games in progress.
+  - Settings shows each one. A key that is not kept is marked "not kept in this browser", with a note that its games play with this browser's saved game keys (only signing the final result needs the key; import it to sign too). Each game has **Open game**, which plays the seat through `seatForGameKeys` (D057).
+  - Home's line comes from `otherKeyDetail`. The switch is offered only for a kept key. Otherwise it says "Playable with saved game keys", or that the game can be opened and played with this browser's saved game keys, or (before the start) that they will play the seat or that only the creating key can start it, or that the key is not kept here.
+- **Tests.**
+  - Protocol: `nip44.test.ts` (official vectors, `isNip44Payload`), `backup.test.ts`. Client: `recover.test.ts` (`backupSeat`).
+  - `apps/web/test/key-backup.test.ts`: round trip; refusals; restore and play on a second device; a game joined before backups; extensions; the owner's report replayed in a 3-seat Chain Reaction game through the shuffle and the deal; a missing or wrong backup republished and only a game relay's acceptance recorded; an extension's backup checked without a prompt.
+  - `key-backup-unit.test.ts`: complete answers, refused and timed-out extension decrypts, lying encryptors.
+  - `key-backup-render.test.ts`, `other-keys.test.ts`.
+  - e2e `keys.spec.ts`: two browser contexts with the same nsec; join on one, restore and play on the other.
+- **No new dependencies.**
+- **Verified:** after the review fixes, `pnpm check` passes (1892 tests in 129 files, 40 skipped); `pnpm e2e` passes all 11 tests (20.3 minutes).
+
+## D066: Right of Way rules spec, an original map and art; build waits on mid-turn reveals (owner request, 2026-10-06)
+The owner asked for "a trademark & copyright safe version of Ticket To Ride with a clever name and original artwork and rewritten rules, which follows the exact same gameplay mechanics". `docs/games/right-of-way/RULES.md` is the source of truth for a future engine, with a 39-entry catalog (C01–C39). Only the spec and art are written: no engine, UI, fuzz target or package.
+- **Name: Right of Way** (a railway's strip of land, and who goes first), set in Ferrovia (Italian for "railway"). A web search on 2026-10-06 found no railway board game published under that name; that is not trademark clearance, which stays with a lawyer before release (as for Luster). Fallback name: "Iron Ribbon".
+- **Mechanics kept exactly; expression replaced.** Mechanics and the numbers that are part of them are kept: 110 cards (12 × 8 colours + 14 wilds), 45 pieces, 4-card hands, a 5-card market with the three-wild wipe, two-card draws with the face-up wild rule, route points 1/2/4/7/10/15, twin routes closed at 2–3 players, tickets 3-keep-2 at setup and 3-keep-1 later, returns to the bottom, the ≤ 2-piece end and one more turn, the 10-point longest path and the tie-breaks. All of these are checked against two secondary sources and marked **verified** or **recalled** in the spec. Replaced: every name (freight cards with cargo themes, the Engine, track, charters, the Iron Ribbon), the rules prose (new, not paraphrased), and the map. The map has 36 invented towns and 85 routes (22 twins, 107 sides, 332 spaces), checked by script for no crossing routes and no route grazing a town, with colours balanced to 28–30 spaces each and 99 unmarked. There are 30 charters, valued by a stated rule (the shortest connection in spaces; values 4–22). Nothing reproduces the reference map, card art or rulebook text.
+- **Original art, CC0-1.0:** `docs/games/right-of-way/art/` holds the cover, the board (drawn from the route table), the card sheet and the 30 charters, in a flat travel-poster style deliberately unlike the reference game's look. Each colour has a cargo symbol on cards and route spaces for colour-blind play.
+- **Platform rules** (marked as such; the forced-pass end and the wipe limit are **OPEN** for the owner):
+  - a random first player, as in Luster;
+  - first charters chosen in seat order;
+  - a forced pass when no action is possible, ending the game when every seat passes in a row (D015 needs an end);
+  - no wipe when fewer than 3 non-wild cards remain outside hands (the published wipe could loop forever);
+  - a one-card draw when no second card is legal;
+  - returns kept in drawn order;
+  - ties beyond the published tie-breaks share the place.
+
+  OPEN options logged: `firstPlayer`, and `chartersAtStart` (simultaneous, once GAME-SYSTEMS §4.8 exists).
+- **Build gate.** Blind draws, market refills and wipes reveal cards **mid-turn**, after the player's choice, and the discard reshuffle is a mid-game reshuffle (GAME-SYSTEMS §4.1.4, missing). Turn-piggybacked, each costs an extra async round, and D050 forbids prompt duties. The build therefore needs an owner choice: dealer tables (`docs/proposals/dealer-relay.md`, recommended), Phase K prompt reveals, or a Luster-style `promptShares` exception. No rule is changed to avoid the latency. Resign stays disabled until its D052 review for public reveals, as Luster's is.
+- **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
+- **No new dependencies.**
+
+## D067: Right of Way built and released as beta (owner, 2026-10-06)
+The owner asked: "If the game is finished and ready to play, then merge and deploy. If it is not ready, finish it up and then do so." The spec of D066 needed a build. Two decisions were the owner's, asked and answered the same day:
+- **Prompt shares, like Luster (D050 exception).** Blind draws, refills, wipes and sifts reveal cards mid-turn, so Right of Way's deck sets `DeckSpec.promptShares`. It is the second module allowed to (web allowlist and repo guard updated), with Luster's residual risk: a seat that forks after reading a released card is detected, not prevented.
+- **Sealed shares for re-dealt charters.** A returned charter drawn by another seat is a position privately dealt twice. Public shares cannot keep it private (shares belong to positions, not recipients), so the first holder seals its share to each later holder with the reviewed reference primitive `packages/deck/src/sealed.ts` (prompt-reveal §7). The owner chose this over setting returned charters aside, which would have changed the rules. It is new session code without a fresh adversarial review, the cost the owner accepted.
+
+How it is built:
+- **One packet, no protocol shuffle changes.** Deck `rail` (580 cards) in partitions (D060's mechanism): `freight` 110, `spare-1`…`spare-4` (110 each), `charters` 30. All are shuffled at setup; nothing is shuffled during play.
+- **Reshuffles from spare index decks.** A reshuffle of n discards uses the next spare: its card v < n is the v-th discard (ascending), and others are skipped. Members come up in a uniformly random order, which is a fair shuffle of the discards, and skipped cards reveal nothing. A refill skips publicly. A blind draw is dealt to the drawer, who sifts it: keeping reveals nothing, and skipping reveals the card, which the session verifies at once. Measured on 4000 fuzzed games: at most three reshuffles (five seats); none ever needed a fifth spare. Running out is a platform limit (RULES.md).
+- **Contract change: re-dealt positions** (game-kit `dealt`, the fuzzer, PROTOCOL §6.2). A private position may be dealt again: privately to another seat, or to the public. A public position never is. Owed shares exclude the first holder of a still-private re-dealt position. New event **Sealed (kind 7458, PROTOCOL §4.10)** with strict parsing, a `seal` duty (session, simulator, web controller with D056 vetting), stall attribution naming a withholding first holder, and private learns that open the sealed share. Existing games never re-deal, so nothing changes for them. The web vetting rule "never share your own private card" now applies only while the position's latest assignment is private, so the end-of-game charter reveal can go out.
+- **Platform rules (OPEN for the owner):**
+  - reshuffle when a card is needed from the empty pile (a blind draw, a refill after a take or a wipe); empty yard slots refill at a turn's start when the pile has cards;
+  - at most three wipes in a row;
+  - a forced pass, and the end when every seat passes in a row;
+  - a random first player, chosen from the setup yard;
+  - first charters kept in seat order.
+- **Resign** is disabled (`resignAllowed` false), like Luster's, pending a review of public reveals during play.
+- **Name and "Compare to".** `src/compare.ts` holds the one allowed phrase (`ALLOWED_PHRASE_HOMES`), linked to BoardGameGeek 9209.
+- **Verified:**
+  - 42 catalog tests (C01–C42);
+  - 4000 fuzzed games with no failure, all ending on the line, with re-dealt charters, sifts, wipes and reshuffles all covered, and 2000 more under the `charterer` policy (it draws charters whenever it may, so the charter pile cycles and charters are re-dealt to other seats);
+  - `pnpm sim` of whole games with real cryptography: 3- and 5-seat games, all done with the audit passing. Under `--policy charterer`, each 3-seat game exchanged 16 Sealed events and no timeout was claimed. That run found that the simulator did not sync kind 7458, so re-dealt charters stalled; `GAME_KINDS` now holds it, and a client test checks the list against `KIND`;
+  - session and protocol tests for sealed shares;
+  - the e2e spec (`apps/web/e2e/right-of-way.spec.ts`), with results in PLAN.
+- **No new dependencies.**
+
+## D068: Driftwrights reference implementation and multiplayer release gate (2026-10-06)
+
+Historical reference-only gate, superseded by the owner's D069 exception and the D070 transport implementation below.
+
+- The owner requested Driftwrights implementation, end-to-end tests, and merge/deployment once ready. The reference engine and board target the classic three/four-player mechanics with original art and rewritten text.
+- The current session cannot securely combine dice with a private deck, transfer hidden resource cards, prove complete resource requisitions, or guarantee immediate private venture learning. A redacted authoritative state is not a private multiplayer protocol.
+- Keep the reference fixture separate from the production lobby until those requirements work through the real session. Its coordinator inputs and test policy are development tooling, not signed actions or a production referee.
+- D050's hidden-share release gate and Luster-only exception remain in force. The owner is asked to choose decentralized protocol support or the unadopted trusted-dealer proposal; no trust-model amendment is inferred from conditional merge authorization.
+- No new external dependencies. Detailed architecture gaps and acceptance gates are in `docs/games/driftwrights/IMPLEMENTATION.md`.
+
+## D069: Driftwrights-specific D050 exception (owner, 2026-10-06)
+
+The owner instructed: **“Make an exception to D050 like you did for Luster, then merge and deploy when ready.”**
+
+- This authorizes Driftwrights' immediate hidden-card shares and private theft deliveries, including out-of-turn duties, with the existing v1 fork/rollback limits. It does not authorize prompt duties for other games.
+- D003 remains: player-and-relay tables, no trusted dealer. The exception removes the policy gate; missing transport and audit support still must be implemented and verified before release.
+- Mixed card/dice proofs must be isolated, and new rolls bound to their requesting move. Private theft must remain concealed from spectators and other seats, and both encrypted deliveries must match a uniform selection during the final full-information audit. Dishonest private claims must fail their sender's audit.
+- Resignation stays disabled pending analysis of transferred secrets. No merge/deployment until independent three/four-seat multiplayer games, privacy/reload/audit cases, existing regression tests and repository checks pass.
+
+## D070: Driftwrights transport and scarce-bank rule option (2026-10-06)
+
+- Resource identities remain private; public counts and bank balances follow signed actions. Payments, discards and all-of-a-resource claims are checked against full hands in the final audit, as hidden claims in the existing architecture are. A false claim fails its signer; it is not a live zero-knowledge proof of inventory.
+- One encrypted venture deck coexists with the beacon. Card wire positions are 0–24; roll slots are 25 + counter. Card and beacon verification caches are separate. A roll request carries no entropy share; every seat contributes only after it links, with the proof domain `rootId:requestMoveId`. Deckless Bank retains its existing wire positions and domain.
+- The victim's deck key, committed at Join, fixes a cryptographic Fisher–Yates permutation of its sorted resource hand, domain-separated by root/request/selection id. The public beacon selects a uniform index. Neither delivery parent nor encryption nonce changes the selected resource. Two NIP-44 packets deliver the same identity to victim and thief using their deck keys; no other seat decrypts during play. Once the deck secrets are released, every audit verifies both packets, their root/request/parent bindings, and the exact selected resource. Resign remains disabled. This uses existing dependencies.
+- OPEN interpretation: the publisher's Windfall instruction specifies two supplies; its general shortage exception says a sole recipient receives the remaining supply. No explicit Windfall-specific scarce-bank clarification was found. Apply the repository's rules-option convention: `windfall: 'available' | 'two'`, default `available`, exposed at table creation and covered by C33. Both interpretations take exactly two in ordinary cases. The owner was asked for a preference; the default is an explicit inference, not a claim of publisher confirmation.
+
+## D071: Protocol version 2 abandoned; protocol 1 until trusted dealers (owner, 2026-10-06)
+- **Owner:** "Trash version 2. Everything will use version 1 until we move to trusted dealers."
+- **What was discarded.** A complete v2 build (the "plain stop" fork rule of `docs/PROTOCOL-v2.md`, roll binding to moves, a second session class, controller and screens) reached a green PR and was closed unmerged, along with its model battery. Main moved on with games built on protocol 1 (Right of Way, Driftwrights), and integrating them with v2 would have needed further protocol work.
+- **Consequence.** Every game, existing and new, uses protocol 1. The known fork weaknesses of prompt reveals under protocol 1 stay as accepted residuals for the games allowed them (Luster, Bank's automatic dice, Right of Way, Driftwrights): a seat that forks after reading a released value is detected and ranked last, not prevented. `docs/PROTOCOL-v2.md` and PLAN's Phase v2 are kept for reference only; no session should resume that work. The next step for hidden-information safety is the trusted-dealer direction (`docs/proposals/dealer-relay.md`).
+
+## D072: Holler, a shedding game under its own names (owner request, 2026-10-05)
+
+The owner asked for a trademark-safe and copyright-safe shedding game with the ordinary commercial mechanics, its own name, and its own artwork. This decision records the rules package. The session wire and the screen are D073. Numbered D072 because D059 on main is the Phase K approval.
 
 - **What it is.** Public title Holler, module id `holler`, package `packages/games/holler`. The declaration is Holler!. Suits are Notch, Tide, Seed, and Kiln, each with a pattern so hue is never the only signal. Actions are Halt, Swing, Pull, Mark, and Levy. The rules are `docs/games/holler/RULES.md` (catalog C01–C60). Holler plays the shedding game Uno (BoardGameGeek 2223) under its own names. The catalog compare line may carry that title once, with id 2223 (D046, D053). The word is not added to the restricted-name list, because that matcher fires inside a longer word. A separate whole-word scan covers the package. `promptShares` stays off. Hanabi stays spec only.
 - **Play.** 108 cards, seats 2–10, seven each. Match suit, rank, or action kind. Mark and Levy name the next suit and play on anything. A Levy is legal only with none of the active suit in hand; the next seat accepts (draws 4 and misses) or challenges. A clean challenge draws 6 to the challenger. An unclean one draws 4 back to the player, which the engine can check only when that hand was known. A hidden hand stores a blind claim and may answer either way. Say Holler on the play that leaves one card, or the other seats may catch, in index order, and the first catch draws 2. The last card needs that declaration. First to 500 scores the other hands: face value, 20 for an action, 50 for a Mark or Levy. Places share a gap.
 - **Engine.** Pure: `apply` never throws or mutates, and it does not import the deck, the dice, or the theme. An empty pile shuffles every discard except the top; with nothing under the top, the draw takes what exists and does not shuffle an empty list. A new round shuffles all 108 live cards. Resign is not a module action. A two-seat table refuses it in the platform, whatever `resignAllowed` says.
-- **Out of scope here.** Stacking, jump-in, swapping ranks, custom wilds, a shot clock, partnerships, and solo. No website registration and no session wiring in this change.
+- **Out of scope.** Stacking, jump-in, swapping ranks, custom wilds, a shot clock, partnerships, and solo. Phase K is not started.
 
-## D060: Holler epochs, play-phase shares, and the reveal review (2026-10-06)
+## D073: Holler epochs, play-phase shares, the reveal review, and the screen (2026-10-06)
 
-The rules package is D059. This decision is the session wire. The screen is still later work and is not registered. `promptShares` stays off. Hanabi stays spec only. No `proto` bump, and D058 is not the precedent: `rolled` stays inside a game action, while an epoch is its own Move content.
+The rules package is D072. This decision is the session wire and the site registration. `promptShares` stays off. Hanabi stays spec only. No `proto` bump, and D058 is not the precedent: `rolled` stays inside a game action, while an epoch is its own Move content. Numbered D073 because D060 on main is the Bank and Luster audit ruling.
 
 - **What a scoring reveal shows.** After a seat goes out, the other seats' remaining hands are revealed, including cards a terminal Pull, an accepted Levy, or a clean answer just dealt, so the score is a function of public cards. A played card was already public. A card still in a live hand is not revealed early. PROTOCOL §8.3 already folds a derived reveal that is pending when a Resign counts. That needs no new resign rule. The module-contract exemption is `module.id === 'holler'` only. Every other deck module still rejects a public reveal after the first player action.
 - **Epoch wire.** One deck, the opening card points `card:pile:<m>`, new positions at `128 * k + i`. Content type `epoch` carries `epoch`, `deck`, and `proof`, decoded at its own length, 1 to 108. The context deck id is `pile.<k>` (a dot). The public action is `{type:'epoch', actor:'deck', epoch, size}` and carries no order. Full mode learns the order through `installDeckOrder`, which a view rejects. The audit decrypts each epoch output and installs it before applying that action. A missing output fails every seat with a derived-epoch reason. Opening shuffles stay content type `shuffle` and still start the deal. A live session does not install an order: it is in view mode.
 - **The D056 rule for epochs.** One epoch contribution per seat per `(prev, epoch)`. A second output from the same seat on the same prev is equivocation. A client never rebuilds shares against a rival output. `epochGrantedElsewhere` is that check for epoch positions: a share of a position past the opening deck that fails against the accepted output means that seat already granted elsewhere and is not asked again. While two outputs are held, the stall names the equivocator, not the next shuffler. Epoch steps use the same cap of three unacknowledged steps as an opening shuffle, and they do not count toward the opening-deal stall. Fork choice still accepts each proof on its own output.
 - **Shares.** The play-phase duty is kind `share`, and it does not read `promptShares`. On a reveal it asks every seat who has not shared a listed position, owner included. On a grant between rounds it asks for positions dealt to someone else, the same owed-position rule as the opening deal. The owner's own new hand is learned, not published. A share's position is the store key, including `128 * k + i`. An epoch position's proof context is `pile.<k>`; an opening position stays on the module deck id.
-- **Child-deal attachment.** Only when the module id is `holler`, the move that deals a card whose ciphertext already exists carries the actor's share of each new position assigned to another seat. Omitting one drops the move. It is not buffered and it is not equivocation. Luster's refill share stays on the prompt duty it already has. Chain Reaction, Chess, and Bank keep the parent-dealt rule. None of them pend `shuffle` or `grant` or emit `epoch`.
-- **Not in this change.** No website registration, no sealed shares, and no second deck.
-
+- **Child-deal attachment.** Only when the module id is `holler`, the move that deals a card whose ciphertext already exists carries the actor's share of each new position assigned to another seat. Omitting one drops the move. It is not buffered and it is not equivocation. Luster, Right of Way, and Driftwrights keep the prompt duties they already have. Chain Reaction, Chess, and Bank keep the parent-dealt rule. None of them emit `epoch`.
+- **Screen.** Holler is registered after Driftwrights. Cards are inline SVG. Suited cards, actions included, draw a left-column pattern. Mark and Levy use an ink frame. The compare link is the catalog's, id-only. A 390px page does not scroll sideways. The catalog status is `experimental` until a match has been played on the public relays.

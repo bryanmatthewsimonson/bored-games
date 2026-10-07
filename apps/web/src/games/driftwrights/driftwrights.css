@@ -1,0 +1,182 @@
+.drift-game {
+  color: #182f43;
+  background: #f7f0e1;
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 1200px;
+  margin: auto;
+  font-family: system-ui, sans-serif;
+}
+.drift-game h2 {
+  font-family: Georgia, serif;
+  font-size: 2rem;
+  margin: 0;
+}
+.drift-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 20px;
+}
+.drift-map-wrap {
+  min-width: 0;
+  overflow: auto;
+}
+.drift-map-expanded {
+  min-width: 760px;
+}
+.drift-map {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.drift-map text {
+  text-anchor: middle;
+  pointer-events: none;
+}
+.drift-island-label {
+  font-size: 11px;
+  font-weight: 700;
+  fill: white;
+  paint-order: stroke;
+  stroke: #182f43;
+  stroke-width: 3px;
+}
+.drift-yield {
+  font-size: 20px;
+  font-weight: 700;
+  fill: #182f43;
+}
+.drift-squall {
+  font-size: 30px;
+}
+.drift-seat-letter {
+  fill: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+.drift-mooring-marker {
+  pointer-events: none;
+}
+.drift-mooring {
+  font-size: 8px;
+  font-weight: 700;
+}
+.drift-target {
+  cursor: pointer;
+}
+.drift-target:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 5px #ac7a23);
+}
+.drift-player {
+  padding: 10px;
+  border-left: 5px solid;
+  margin-bottom: 10px;
+  background: #fff9;
+}
+.drift-player p,
+.drift-sidebar p {
+  font-size: 0.85rem;
+  margin: 6px 0;
+}
+.drift-game header p {
+  margin: 8px 0;
+}
+.drift-goods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.drift-goods > span {
+  white-space: nowrap;
+}
+.drift-hand,
+.drift-decisions {
+  background: #fff9;
+  padding: 16px;
+  border-radius: 10px;
+  margin-top: 16px;
+}
+.drift-ventures {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.drift-ventures article {
+  padding: 12px;
+  border: 1px solid #ac7a23;
+  border-radius: 8px;
+  max-width: 300px;
+}
+.drift-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.drift-game button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #182f43;
+  border-radius: 6px;
+  background: #182f43;
+  color: #fff;
+  cursor: pointer;
+}
+.drift-game button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.drift-game button:focus-visible {
+  outline: 3px solid #ac7a23;
+  outline-offset: 3px;
+}
+.drift-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.drift-fields label {
+  display: grid;
+  gap: 5px;
+  width: 90px;
+}
+.drift-fields input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+}
+.drift-game select {
+  min-height: 44px;
+  max-width: 100%;
+}
+.drift-decisions form {
+  border-top: 1px solid #ac7a23;
+  padding-top: 16px;
+  margin-top: 16px;
+}
+.drift-decisions form button {
+  margin-top: 14px;
+}
+@media (max-width: 760px) {
+  .drift-game {
+    padding: 10px;
+  }
+  .drift-layout {
+    grid-template-columns: 1fr;
+  }
+  .drift-sidebar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .drift-sidebar > h3,
+  .drift-sidebar > .drift-goods {
+    width: 100%;
+  }
+  .drift-player {
+    flex: 1 1 145px;
+  }
+  .drift-game h2 {
+    font-size: 1.6rem;
+  }
+}

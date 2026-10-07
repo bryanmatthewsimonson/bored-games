@@ -1,9 +1,11 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats, positions and deck orders.
+
+import { chess } from '@bored-games/chess';
 import { G, initialDeck, jointKey, proveShuffle, shuffleDeck } from '@bored-games/deck';
 import { finalizeEvent, moveTemplate } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { createToy } from '../../game-kit/test/toy.ts';
-import { deckPartitions } from '../src/partitioned-deck.ts';
+import { deckPartitions, shuffleStepGroup, shuffleStepSeat } from '../src/partitioned-deck.ts';
 import { makeModuleGame, NOW, newSession } from './helpers.ts';
 
 const toy = {
@@ -25,6 +27,47 @@ function table(seed: string, promptShares = false) {
   game.modules = new Map([[module.id, module]]);
   return { game, players: [newSession(game, 0), newSession(game, 1)], spectator: newSession(game, null) };
 }
+describe('shuffle step arithmetic', () => {
+  const legacy = deckPartitions({ id: 'cards', size: 12 });
+  const two = deckPartitions(toy.decks()[0]!);
+
+  it('maps each step to its seat and group, one group or several', () => {
+    expect([0, 1, 2].map((s) => shuffleStepSeat(s, legacy))).toEqual([0, 1, 2]);
+    expect([0, 1, 2].map((s) => shuffleStepGroup(s, legacy)?.id)).toEqual(['cards', 'cards', 'cards']);
+    expect([0, 1, 2, 3].map((s) => shuffleStepSeat(s, two))).toEqual([0, 0, 1, 1]);
+    expect([0, 1, 2, 3].map((s) => shuffleStepGroup(s, two)?.id)).toEqual([
+      'cards/a',
+      'cards/b',
+      'cards/a',
+      'cards/b',
+    ]);
+  });
+
+  it('never divides by zero: a deckless game (no groups) has no shuffler and no group', () => {
+    const none = deckPartitions(null);
+    expect(none).toEqual([]);
+    for (const step of [0, 1, 5]) {
+      expect(shuffleStepSeat(step, none)).toBeNull();
+      expect(shuffleStepGroup(step, none)).toBeNull();
+    }
+    for (const step of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(shuffleStepSeat(step, two)).toBeNull();
+      expect(shuffleStepGroup(step, two)).toBeNull();
+    }
+  });
+
+  it('a deckless session starts in play with whole-number seats and no shuffle duty', () => {
+    const game = makeModuleGame(chess, 2, 'deckless-shuffle-guard');
+    const sessions = [newSession(game, 0), newSession(game, 1), newSession(game, null)];
+    for (const s of sessions) {
+      expect(s.view().shuffleSteps).toBe(0);
+      for (const seat of s.waitingFor()) expect(Number.isInteger(seat)).toBe(true);
+      expect(s.duties().some((d) => d.kind === 'shuffle')).toBe(false);
+    }
+    expect(sessions[2]!.waitingFor()).toEqual([0]);
+  });
+});
+
 describe('opt-in partitioned encrypted shuffles', () => {
   it('keeps legacy deck domains and rejects invalid partition specifications', () => {
     expect(deckPartitions(null)).toEqual([]);

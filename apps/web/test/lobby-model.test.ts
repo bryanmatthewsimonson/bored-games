@@ -1,6 +1,6 @@
 import type { Hex } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
-import { npubEncode, nsecEncode } from '../src/bech32.ts';
+import { npubEncode, nsecEncode, shortNpub } from '../src/bech32.ts';
 import {
   attentionBadge,
   cardGameStatus,
@@ -16,6 +16,7 @@ import {
   openSeats,
   parseInvitees,
   REQUEST_PENDING,
+  revealDetail,
   STATUS_FRESH_S,
   seatListFor,
   seatOptions,
@@ -193,6 +194,33 @@ describe('a game status saved by the game screen, on a Home card', () => {
     expect(cardGameStatus(entry('your-turn', 86_400), at)).toEqual({ status: 'your-turn', check: false });
     expect(cardGameStatus(entry('done', 86_400), at)).toEqual({ status: 'done', check: false });
     expect(cardGameStatus(entry('cancelled', 86_400), at)).toEqual({ status: 'cancelled', check: false });
+  });
+  it('says on Home who owes a card reveal (D060): the owing player always, others while the entry is fresh', () => {
+    const owner = 'c'.repeat(64);
+    const reveal = (mine: boolean) => ({
+      npubs: mine ? [] : [owner],
+      mine,
+      until: at + 2 * 86400 + 4 * 3600,
+    });
+    const LUSTER = { act: 'reveal a card', owed: 'a card reveal' };
+    expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(true) }, at, LUSTER)).toBe(
+      'Your app must be open: you owe a card reveal (2d 4h left).',
+    );
+    // Only this player's app can send it, so the line stays however old the entry.
+    expect(revealDetail({ ...entry('working', 86_400), reveal: reveal(true) }, at)).toMatch(
+      /^Your app must be open/,
+    );
+    expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(false) }, at, LUSTER)).toBe(
+      `Waiting for ${shortNpub(npubEncode(owner as Hex))} to reveal a card (2d 4h left).`,
+    );
+    // Neutral words for a game that names none.
+    expect(revealDetail({ ...entry('waiting', 5), reveal: reveal(false) }, at)).toBe(
+      `Waiting for ${shortNpub(npubEncode(owner as Hex))} to send their share (2d 4h left).`,
+    );
+    expect(revealDetail({ ...entry('waiting', STATUS_FRESH_S + 1), reveal: reveal(false) }, at)).toBeNull();
+    expect(revealDetail({ ...entry('done', 5), reveal: reveal(true) }, at)).toBeNull();
+    expect(revealDetail(entry('waiting', 5), at)).toBeNull();
+    expect(revealDetail(null, at)).toBeNull();
   });
   it('ignores a status it does not know', () => {
     expect(cardGameStatus(entry('syncing', 1), at)).toEqual({ status: null, check: true });

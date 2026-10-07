@@ -1,8 +1,21 @@
 import type { DealtPosition, Outcome } from '@bored-games/game-kit';
 import type { DeckId, TierDeck } from './data.ts';
 
+/**
+ * How many different colors "take gems" takes (docs/games/luster/RULES.md C11):
+ * - `published`: three, or as many as there are colors left when fewer than three are (the published rule, as the
+ *   publisher's FAQ reads it; the owner ruled "use whatever the rules dictate");
+ * - `any`: one, two or three at any time (Luster 0.2.0's original behaviour).
+ */
+export type LusterGemRule = 'published' | 'any';
+
 export interface LusterRules {
   readonly target: 15;
+  /**
+   * Absent in every table created before the option existed, which must keep folding exactly as it did: an absent
+   * field means `any`. New tables set it (the default is `published`).
+   */
+  readonly gems?: LusterGemRule;
 }
 export interface CardSlot {
   readonly deck: TierDeck;

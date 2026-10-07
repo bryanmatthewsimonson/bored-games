@@ -3,12 +3,15 @@ import {
   DeckWireError,
   decodeDeck,
   decodeScalar,
+  decodeSealedShare,
   decodeShare,
   decodeShuffleProof,
   encodeDeck,
   encodeScalar,
+  encodeSealedShare,
   encodeShare,
   encodeShuffleProof,
+  type SealedShare,
   type Share,
   type ShuffleProof,
 } from '@bored-games/deck';
@@ -310,6 +313,51 @@ export function parseShares(ev: unknown): ParsedShares {
     const c = record(canonicalContent(e.content), 'content', ['shares', 'type']);
     if (c.type !== 'shares') badContent('type must be "shares"');
     return { ...parsedOf(e), rootId: ids.root as Hex, shares: posShares(c.shares, 'shares') };
+  });
+}
+
+/* ------------------------------------------------------------------------------------------ sealed */
+
+/** A sealed share: the signer's decryption share of `pos`, encrypted to seat `to` (PROTOCOL §4.10). */
+export interface PosSealed {
+  pos: number;
+  to: number;
+  sealed: SealedShare;
+}
+
+export interface SealedSpec {
+  rootId: Hex;
+  sealed: PosSealed[];
+}
+
+export type ParsedSealed = Parsed & SealedSpec;
+
+/**
+ * The Sealed event (kind 7458), unsigned: decryption shares of re-dealt private positions, each encrypted to the
+ * seat it was dealt to (PROTOCOL §4.10, D066). Sorted by position, then recipient.
+ */
+export function sealedTemplate(s: SealedSpec, createdAt: number): EventTemplate {
+  return template(KIND.sealed, createdAt, [rootTag(s.rootId)], {
+    sealed: s.sealed.map(encodeSealedShare),
+    type: 'sealed',
+  });
+}
+
+/** Parse a Sealed event: the root tag only, and at least one sealed share, strictly ascending by (pos, to). */
+export function parseSealed(ev: unknown): ParsedSealed {
+  return parseEvent(ev, KIND.sealed, (e) => {
+    const ids = markedIds(e.tags, ['root']);
+    const c = record(canonicalContent(e.content), 'content', ['sealed', 'type']);
+    if (c.type !== 'sealed') badContent('type must be "sealed"');
+    const sealed = list(c.sealed, 'sealed').map((x) => wire(() => decodeSealedShare(x)));
+    if (sealed.length === 0) badContent('sealed: expected at least one sealed share');
+    for (let i = 1; i < sealed.length; i++) {
+      const a = sealed[i - 1] as PosSealed;
+      const b = sealed[i] as PosSealed;
+      if (b.pos < a.pos || (b.pos === a.pos && b.to <= a.to))
+        badContent('sealed: shares must be strictly ascending by position, then recipient');
+    }
+    return { ...parsedOf(e), rootId: ids.root as Hex, sealed };
   });
 }
 

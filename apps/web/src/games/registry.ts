@@ -13,6 +13,9 @@ import { ChainReactionScreen } from './chain-reaction/screen.tsx';
 import { ChessGame } from './chess/game.tsx';
 import { CHESS_META } from './chess/meta.ts';
 import { ChessRulesPage } from './chess/rules-page.tsx';
+import { DriftwrightsGame } from './driftwrights/game.tsx';
+import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
+import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
 import { HollerGame } from './holler/game.tsx';
 import { HOLLER_META } from './holler/meta.ts';
 import { HollerRulesPage } from './holler/rules-page.tsx';
@@ -20,6 +23,9 @@ import { GAME_IDS } from './ids.ts';
 import { LusterGame } from './luster/game.tsx';
 import { LUSTER_META } from './luster/meta.ts';
 import { LusterRulesPage } from './luster/rules-page.tsx';
+import { RightOfWayGame } from './right-of-way/game.tsx';
+import { RIGHT_OF_WAY_META } from './right-of-way/meta.ts';
+import { RightOfWayRulesPage } from './right-of-way/rules-page.tsx';
 import type { WebGame } from './types.ts';
 
 export const GAMES: readonly WebGame[] = [
@@ -28,7 +34,13 @@ export const GAMES: readonly WebGame[] = [
     Component: ChainReactionScreen,
     RulesPage: ChainReactionRulesPage,
     setupCopy: (hasDeck) =>
-      hasDeck ? { shuffling: 'Shuffling the deck', dealing: 'Dealing the tiles…' } : null,
+      hasDeck
+        ? {
+            shuffling: 'Shuffling the deck',
+            dealing: 'Dealing the tiles…',
+            share: { act: 'send their share of a tile', owed: 'a share of a tile' },
+          }
+        : null,
   },
   {
     ...CHESS_META,
@@ -49,6 +61,27 @@ export const GAMES: readonly WebGame[] = [
     setupCopy: () => ({
       shuffling: 'Shuffling the developments and nobles',
       dealing: 'Opening the gem market…',
+      share: { act: 'reveal a card', owed: 'a card reveal' },
+    }),
+  },
+  {
+    ...RIGHT_OF_WAY_META,
+    Component: RightOfWayGame,
+    RulesPage: RightOfWayRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Shuffling the freight, spare decks and charters',
+      dealing: 'Dealing freight and charters…',
+      share: { act: 'reveal a card', owed: 'a card reveal' },
+    }),
+  },
+  {
+    ...DRIFTWRIGHTS_META,
+    Component: DriftwrightsGame,
+    RulesPage: DriftwrightsRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Shuffling ventures',
+      dealing: 'Opening the island chart…',
+      share: { act: 'deliver a venture contribution', owed: 'a venture contribution' },
     }),
   },
   {

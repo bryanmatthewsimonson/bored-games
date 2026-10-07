@@ -4,6 +4,7 @@
  */
 import type { SessionView } from '@bored-games/client';
 import type { ComponentChildren, ComponentType } from 'preact';
+import type { ShareWords } from '../waiting-model.ts';
 
 /** A game's names: light, so cards and pickers can use them without loading the game's components. */
 export interface GameMeta {
@@ -56,6 +57,11 @@ export interface SetupCopy {
   shuffling: string;
   /** "Dealing the tiles…". */
   dealing: string;
+  /**
+   * How a share owed out of turn is named (D060): "send their share of a tile" / "a share of a tile". Neutral
+   * wording when left out.
+   */
+  share?: ShareWords;
 }
 
 /** One game in the web registry. */

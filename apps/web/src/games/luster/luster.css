@@ -1,3 +1,6 @@
+main:has(.luster-game) {
+  max-width: 1280px;
+}
 .luster-game {
   --luster-ink: #18343c;
   --luster-gold: #b38842;
@@ -5,6 +8,36 @@
   display: grid;
   gap: 1rem;
   color: var(--luster-ink);
+}
+/* Keep the shared site header and a board/score-sidebar layout like the other games. */
+.luster-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: start;
+}
+.luster-table-main {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.luster-player-section {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 3px;
+}
+.luster-your-hand {
+  padding: 1rem;
+  background: var(--luster-paper);
+  border: 1px solid #ddd5c2;
+  border-radius: 12px;
+}
+.luster-your-hand > p {
+  font-size: 0.8rem;
+  color: #60756d;
 }
 .luster-game h2,
 .luster-game h3,
@@ -84,6 +117,9 @@
   justify-content: space-between;
   gap: 0.75rem;
 }
+.luster-your-hand > .luster-section-heading {
+  margin-bottom: 0.75rem;
+}
 .luster-section-heading h3 {
   font-family: Georgia, serif;
   font-size: 1.05rem;
@@ -128,6 +164,10 @@
   height: 1.4rem;
   flex: none;
   display: block;
+}
+.luster-player-counts .luster-gem-icon {
+  width: 1rem;
+  height: 1rem;
 }
 .luster-bank {
   padding: 1rem 1.2rem 1.15rem;
@@ -328,6 +368,30 @@
   border-radius: 7px;
   background: #fffaf0;
   box-shadow: 0 3px 5px #091a224d;
+}
+.luster-reservation-back {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.3rem;
+  min-height: 74px;
+  max-width: 58px;
+  border: 1px solid #dac89d;
+  color: #f3e6c5;
+  background-color: #466856;
+  background-image: repeating-linear-gradient(45deg, transparent 0 7px, #ffffff09 7px 9px);
+}
+.luster-reservation-back.luster-tier-1 {
+  background-color: #a58141;
+}
+.luster-reservation-back.luster-tier-2 {
+  background-color: #6e5b4b;
+}
+.luster-reservation-back > span {
+  font-size: 1.5rem;
+}
+.luster-reservation-back > small {
+  font-size: 0.65rem;
 }
 .luster-card-face {
   position: relative;
@@ -674,12 +738,12 @@ button.luster-card-face:hover {
 }
 .luster-players {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 .luster-player {
   min-width: 0;
-  padding: 0.85rem;
+  padding: 0.7rem;
   border: 1px solid #d3dcd3;
   border-radius: 10px;
   background: #fffdf8;
@@ -761,6 +825,9 @@ button.luster-card-face:hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.4rem;
+}
+.luster-your-hand > .luster-reservations {
+  grid-template-columns: repeat(3, minmax(0, 140px));
 }
 .luster-player details {
   margin-top: 0.65rem;
@@ -896,6 +963,19 @@ html:has(.luster-dialog[open]) {
   flex-wrap: wrap;
   gap: 1rem;
 }
+@media (max-width: 1000px) {
+  .luster-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .luster-player-section {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+  .luster-players {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 760px) {
   .luster-board {
     grid-template-columns: minmax(0, 1fr);
@@ -925,6 +1005,12 @@ html:has(.luster-dialog[open]) {
   }
 }
 @media (max-width: 540px) {
+  .luster-your-hand {
+    padding: 0.8rem;
+  }
+  .luster-your-hand > .luster-section-heading {
+    flex-wrap: wrap;
+  }
   .luster-status {
     padding: 0.9rem;
   }

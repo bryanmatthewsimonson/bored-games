@@ -28,7 +28,7 @@ export {
 export { G, generators, h2c, q } from './group.ts';
 export { type PokProof, provePok, verifyPok } from './pok.ts';
 export { type RandomBytes, randomScalar } from './random.ts';
-// Sealed shares: reference implementation, not used by the session or the protocol yet (D055).
+// Sealed shares: used by the session for re-dealt private positions only (D066); Phase K uses stay unwired (D055).
 export {
   openAndVerify,
   proveOpening,
