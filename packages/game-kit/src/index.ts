@@ -20,6 +20,7 @@ export type {
 } from './fuzz.ts';
 export { deepFreeze, fuzzBatch, fuzzGame, gameSeed, uniformPolicy } from './fuzz.ts';
 export { cyrb53, stateHash } from './hash.ts';
+export { packetOrder, packetOrderFits } from './packet.ts';
 export { createRng, type Rng, range, shuffle } from './prng.ts';
 export { actionEntries, type ReplayResult, replay } from './replay.ts';
 export type {

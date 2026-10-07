@@ -163,15 +163,23 @@ function lockedReason(status: GameStatus): string {
   return 'It is not your decision right now.';
 }
 
-/** The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). */
+/**
+ * The shuffle and deal progress, or the loading notice for a game not built yet (a deckless game has no setup). A
+ * deck with a second shuffle round (D074) is worded by round: "Shuffling the deck (round 2 of 2): 1 of 3 players
+ * done."
+ */
 export function setupStep(view: SessionView | null, copy: SetupCopy | null): string {
   if (view === null) return 'Looking for the game on your relays…';
   if (view.phase === 'shuffle') {
+    const shuffling = copy?.shuffling ?? 'Shuffling';
+    const progress = view.shuffleProgress ?? null;
+    if (progress !== null && progress.rounds > 1)
+      return `${shuffling} (round ${progress.round} of ${progress.rounds}): ${progress.seatsDone} of ${view.seats} players done.`;
     const completed =
       view.shuffleSteps > view.seats
         ? Math.floor(view.head.seq / (view.shuffleSteps / view.seats))
         : view.head.seq;
-    return `${copy?.shuffling ?? 'Shuffling'}: ${completed} of ${view.seats} players done.`;
+    return `${shuffling}: ${completed} of ${view.seats} players done.`;
   }
   if (view.phase === 'deal') return copy?.dealing ?? 'Dealing…';
   return 'Loading the game…';

@@ -31,6 +31,19 @@ export interface DeckSpec {
   readonly size: number;
   /** Optional contiguous groups shuffled independently; their sizes sum to `size`. */
   readonly partitions?: readonly { readonly id: string; readonly size: number }[];
+  /**
+   * Optional second shuffle round (D074, PROTOCOL §5.5): groups of positions that every seat shuffles together,
+   * after every seat has shuffled every first-round group (the `partitions`, or the whole deck). The groups may
+   * mix cards of different partitions. A position outside every group keeps a card of its own partition, so its
+   * kind stays public while the kinds of the mixed positions do not.
+   *
+   * Valid only if: it holds 1 to 16 groups; every `id` is a non-empty string, distinct from the others and from
+   * every partition id; every group's `positions` are safe integers in `[0, size)`, strictly ascending, at least
+   * 2 of them; and the groups share no position. The session refuses a deck that is not valid. Each group's
+   * proof domain is `<deck id>/<group id>`. `packetOrder` draws a deck order the rounds can produce and
+   * `packetOrderFits` says whether an order is one.
+   */
+  readonly secondRound?: readonly { readonly id: string; readonly positions: readonly number[] }[];
   /** Explicit release-policy opt-in; defaults off. Authorized per game in the owner decision log. */
   readonly promptShares?: boolean;
 }

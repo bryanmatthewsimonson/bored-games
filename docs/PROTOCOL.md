@@ -193,11 +193,11 @@ The hash-chained log.
 
 **Content** is one of the following.
 
-**Shuffle step.** Moves 1..N, where N is the number of shuffle steps (§6.1); move `k+1` is seat `k`'s shuffle.
+**Shuffle step.** Moves 1..N, where N is the number of shuffle steps (§6.1); move `s+1` is step `s`, signed by the seat §5.5 gives for that step (seat `s` when the deck has neither partitions nor a second round).
 ```json
 {"deck":[["<a>","<b>"], …],"proof":{…},"type":"shuffle"}
 ```
-- `deck` holds the output ciphertexts, one per card (108 for Chain Reaction).
+- `deck` holds the output ciphertexts, one per card the step shuffles (all 108 for Chain Reaction; the step's group in a partitioned deck or a second round, §5.5).
 - `proof` is the shuffle proof (§5.3).
 
 **Game action.**
@@ -354,7 +354,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 **Privacy.** Shares are public. A card stays hidden until its owner's own share is published, which happens only when the card is played or discarded.
 
 ### 5.5 Partitioned decks (Luster; shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
+**Status.** Shipped in v1 for Luster only, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). No other module sets `partitions`. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D074) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
 
 **The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
 - the list holds 1 to 16 groups;
@@ -363,9 +363,9 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 
 Group g's **offset** is the sum of the sizes of the groups before it, so the groups tile positions `0..size−1` in list order. Its **domain** is `<deck id>/<group id>` (for Luster: `glass/tier-1`, `glass/tier-2`, `glass/tier-3`, `glass/patrons`, sizes 40, 30, 20, 10, offsets 0, 40, 70, 90). A deck without `partitions` is one group with id and domain equal to the deck id, offset 0 and the deck's size.
 
-**Card points and the initial packet.** Unchanged (§5.1): card `m` is `H2C("card:" + deckId + ":" + m)` with the deck id (`glass`), for `m = 0..size−1`, and `E_0` is the trivial encryption of every card in card order. So group g's slice of `E_0` holds cards `offset_g .. offset_g + size_g − 1`, and a card never leaves its group. The module maps its logical decks and positions onto this packet (Luster's `transport.ts`).
+**Card points and the initial packet.** Unchanged (§5.1): card `m` is `H2C("card:" + deckId + ":" + m)` with the deck id (`glass`), for `m = 0..size−1`, and `E_0` is the trivial encryption of every card in card order. So group g's slice of `E_0` holds cards `offset_g .. offset_g + size_g − 1`, and a card never leaves its group until a second round (below). The module maps its logical decks and positions onto this packet (Luster's `transport.ts`).
 
-**Shuffle steps.** With G groups and S seats there are **N = G·S** steps. Step `s` (0-based; it is move `s+1`):
+**Shuffle steps.** With G groups and S seats and no second round there are **N = G·S** steps. Step `s` (0-based; it is move `s+1`):
 - shuffles group `g = s mod G`;
 - is signed by seat `k = floor(s / G)`. Each seat shuffles every group, in group order, before the next seat starts;
 - takes the slice `[offset_g, offset_g + size_g)` of the previous packet `E_s` as its input, and its `deck` holds exactly `size_g` output ciphertexts;
@@ -374,17 +374,34 @@ Group g's **offset** is the sum of the sizes of the groups before it, so the gro
 
 The final deck is `E_N`. Shares, reveals, `dealt`, `revealsOf`, the deal round and the audit all use **global packet positions** and the **deck id** (`glass`), unchanged (§5.4, §6, §7): `ShareCtx` is `{rootId, deckId: "glass", pos}`.
 
-**Parsing.** The Move format is unchanged (§4.4); a shuffle step carries one group. A client parses a shuffle step by trying each size in the set {the deck's `size`, every group's size} (`parsePartitionMove`) and keeps the first parse that succeeds; the session then requires the step's `deck` to have exactly `size_g` ciphertexts for its step (`shuffle output has the wrong group size`). Stall attribution in the shuffle names seat `floor(chain length / G)`.
+**Second round (D074).** A deck MAY also carry `secondRound`: a list of groups `{id, positions}` that every seat shuffles together once every seat has shuffled every first-round group above (the partitions, or the whole deck). Its groups may mix cards of different first-round groups. Clients MUST refuse the deck unless:
+- the list holds 1 to 16 groups;
+- group ids are non-empty strings, distinct from each other and from every partition id;
+- every `positions` list holds at least 2 safe integers in `[0, size)`, strictly ascending;
+- no position is in two groups.
+
+Positions need not be contiguous. A second-round group's **domain** is `<deck id>/<group id>` (Room for Doubt: `case/mix`). It differs from every first-round domain: the ids differ, or the first round's domain is the bare deck id.
+
+**Step order.** With G1 first-round groups (the partitions, or 1), G2 second-round groups and S seats there are **N = (G1 + G2)·S** steps. Steps `s < G1·S` are the first round, unchanged. For `t = s − G1·S`, step `s` is signed by seat `floor(t / G2)` and shuffles second-round group `t mod G2`: each seat shuffles every second-round group in list order before the next seat starts, and no second-round step can precede a first-round one, because moves chain by `seq` (§6.5). `shuffleSchedule` in `packages/client` is this table.
+
+**A step on positions p1 < … < pn** (a second-round group; a first-round group is the case `offset … offset + size − 1`):
+- its input is the ciphertexts at `p1 … pn` of the previous packet, in that order, and its `deck` holds exactly `n` output ciphertexts;
+- output `i` goes back to position `pi`, and every other position of the packet is unchanged;
+- the proof is §5.3 with that input and output, `k` the signing seat and `deckId` the group's domain.
+
+So a card at a position outside every second-round group stays in its first-round group. A second-round group ends up holding the cards the first round left at its positions, permuted among them: as many cards of each first-round group as it has positions in that group. The final packet is therefore one that `packetOrderFits` (`packages/game-kit`) accepts, and a module's full-mode `setup` MUST accept every such order (`packetOrder` draws one for fuzzing and tests). Shares, reveals, `dealt`, the deal round and the audit still use global packet positions and the deck id, unchanged.
+
+**Parsing.** The Move format is unchanged (§4.4); a shuffle step carries one group. A client parses a shuffle step by trying each size in the set {the deck's `size`, the size of every scheduled group, second-round groups included} (`parsePartitionMove`) and keeps the first parse that succeeds; the session then requires the step's `deck` to have exactly the size of its step's group (`shuffle output has the wrong group size`). Stall attribution in the shuffle names the seat that §5.5 gives for step `chain length`.
 
 **Fork choice and the deal** are unchanged (§6.1, §6.6): two well-formed steps by one seat on one prev are equivocation, and a seat deals once.
 
 ## 6. Game flow
 
 ### 6.1 Phases
-**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats. Game actions are moves N+1 onward.
+**N, the number of shuffle steps,** is the number of seats when the module has a deck (`decks(rules)` lists one), and **0 for a deckless game** (`decks(rules) = []`, for example Chess). With a partitioned deck (Luster, §5.5) it is the number of groups times the number of seats, and with a second round (§5.5, D074) the number of first-round groups plus second-round groups, times the number of seats. Game actions are moves N+1 onward.
 
 1. **Table:** Table, Joins, then Game root.
-2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order (with a partitioned deck, one step per seat and group, §5.5).
+2. **Shuffle:** moves 1..N, one shuffle step per seat, in seat order. With a partitioned deck each seat takes one step per group, and with a second round every first-round step comes before any second-round step, each seat again taking one step per group of the round (§5.5 gives the seat and group of every step).
 3. **Deal:** every seat publishes one Shares event (7453) covering every position that is either:
    - assigned to *another* seat in the module's initial deal, or
    - a public position (the setup positions that `pending()` will request as reveals).
@@ -458,9 +475,9 @@ A module that rolls dice exposes `rolls` and `beaconOf`. The session treats it a
 Clients keep every well-formed Move from a seated session key in a pool keyed by `prev` until it can be judged. A Move (7452) links to the chain as the next move if and only if all of the following hold:
 1. Its `prev` is the current head and its `seq` is head + 1, or it is on the branch that fork choice selects (§6.6).
 2. Its type and signer fit its `seq`:
-   - `seq` ≤ N: a shuffle step signed by seat `seq−1`
+   - `seq` ≤ N: a shuffle step signed by the seat §5.5 gives for step `seq−1`, whose `deck` has the size of that step's group
    - otherwise: a game action signed by `pending()`'s seat.
-3. For a shuffle step, the proof verifies against the deck at `prev` (§5.3).
+3. For a shuffle step, the proof verifies against the positions the step shuffles in the deck at `prev` (§5.3, §5.5).
 4. For a game action, judged on the parent state, in this order:
    - The game is in play. If the deal is not complete, or a public reveal is pending, the move **waits**.
    - Every share and reveal proof verifies against the signer's deck key.
@@ -479,7 +496,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
 
 ### 6.6 Equivocation and fork choice
 - **Equivocation.** Two distinct Moves with the same `prev`, `seq` and signer prove equivocation when `prev` is the chain's move at `seq − 1`. Any client can show both events.
-  - **Shuffle steps** (`seq ≤ N`): any two *well-formed* steps count, whether or not their proofs verify. Well-formed means the event parses and is signed by seat `seq − 1`. Only that seat's key can sign both, and an honest client signs one step per prev (D030 Ruling 12).
+  - **Shuffle steps** (`seq ≤ N`): any two *well-formed* steps count, whether or not their proofs verify. Well-formed means the event parses and is signed by the seat §5.5 gives for step `seq − 1`. Only that seat's key can sign both, and an honest client signs one step per prev (D030 Ruling 12).
   - **Game actions:** both must be *valid-looking*, that is, valid as of `prev` on every check of §6.5 except the owed-shares rule: the signer is pending, every share and reveal proof verifies, the reveals decrypt to the claimed cards, and `apply` accepts the action. An invalid action never counts.
 - **The seat is flagged, and play goes on.** Equivocation never stops or cancels the game, and it rewinds the game only for a rival branch that reaches the module's `over` (fork choice below; §11, "A stale rival"); otherwise one re-signed old move would let a seat void a finished game. The chain follows fork choice. When the game ends, the flagged seats forfeit with the end adjustment (§8.2), and the audit still runs.
 - **Shuffle candidates.** For each `prev`, `seq ≤ N` and signer, let C be the well-formed steps held. If C holds 3 steps or fewer, each is a candidate. Otherwise only *acknowledged* steps are: some well-formed Move signed by another seat lies 1 to 32 Moves below the step along `prev`, every Move on that path held. Fork choice considers only candidates. A step that is not one is kept, not verified and not rejected; it becomes a candidate if it is acknowledged later, and a step on the chain that stops being one is cut back off it, with the Moves after it. Both conditions depend only on the events held, so clients holding the same events agree. A seat that publishes more than 3 unacknowledged steps on one `prev` therefore stalls its own position, and the timeout falls on it (§8).
@@ -489,7 +506,7 @@ A move that waits stays pooled and is judged again as events arrive. A move that
   3. reaching the module's `over`;
   4. the lowest event id of the successor.
 
-  **Consensus change (D056, "the late ending rival").** Up to D056's fix round rank 1 was "reaching `over`" alone (D030 Ruling 9), with no rank 3. An ending side branch still beats a longer live chain, unless every other seat has played on that chain since the fork: then the live chain stays, and the ender, who signed both, is flagged (it equivocated). Before, a seat could sign a rival that ended the game at an old turn of its own and cut a game in play back to it: rated kingmaking at the cost of its own place. A finished game is still not reopened by an honest seat: a seat whose client holds the end never plays on the rival, so the rival is settled only if every seat but the ender played on it, having never seen the end or colluding with the ender (§11). **The freeze** keeps a game whose secrets are out from going on: clients publish their deck secret as soon as their chain is over (§7), so without it a colluder of the ender could withhold its move on the live chain until the honest seats had seen the ending branch win and revealed their secrets, then settle the live chain with that move and play on knowing their hands. The ender's own secret does not freeze the fork, or the ender could force its rewind alone. **A frozen end is unrated (fix round 2).** Any other seat can reveal its secret at any time, and nothing can tell an early reveal from an honest one made after the end won, so a colluder's reveal mid-game would give the ender its old rewind back at almost no cost (the colluder's hand stops mattering once the game ends). So when the chain is over and, at the lowest fork on it that is frozen, the best side branch ranked without the freeze would beat the chain's tail, the result is marked `"unrated":true` with `"endedBy":{"seat":<forker>,"type":"fork"}` in a game of 3 or more seats (§4.8); the forker forfeits as an equivocator either way. This is a function of the events held. With 2 seats the only other seat is the forker's opponent, and the forker is last whatever the branch, so the result stays rated. Ranking settled live branches above unsettled ones whatever their lengths is forced: with "ending beats unsettled" and "a longer settled branch beats an ending one", comparing live branches by length alone would be cyclic, so not a function of the events held. Every fork is a same-seat equivocation (only the seat `pending()` names, or seat `seq − 1` for a shuffle step, can sign a valid successor of a given move), so this ranking matters only once a seat equivocates. No event kind or tag changes; an attested outcome gains one `endedBy` type (§4.8).
+  **Consensus change (D056, "the late ending rival").** Up to D056's fix round rank 1 was "reaching `over`" alone (D030 Ruling 9), with no rank 3. An ending side branch still beats a longer live chain, unless every other seat has played on that chain since the fork: then the live chain stays, and the ender, who signed both, is flagged (it equivocated). Before, a seat could sign a rival that ended the game at an old turn of its own and cut a game in play back to it: rated kingmaking at the cost of its own place. A finished game is still not reopened by an honest seat: a seat whose client holds the end never plays on the rival, so the rival is settled only if every seat but the ender played on it, having never seen the end or colluding with the ender (§11). **The freeze** keeps a game whose secrets are out from going on: clients publish their deck secret as soon as their chain is over (§7), so without it a colluder of the ender could withhold its move on the live chain until the honest seats had seen the ending branch win and revealed their secrets, then settle the live chain with that move and play on knowing their hands. The ender's own secret does not freeze the fork, or the ender could force its rewind alone. **A frozen end is unrated (fix round 2).** Any other seat can reveal its secret at any time, and nothing can tell an early reveal from an honest one made after the end won, so a colluder's reveal mid-game would give the ender its old rewind back at almost no cost (the colluder's hand stops mattering once the game ends). So when the chain is over and, at the lowest fork on it that is frozen, the best side branch ranked without the freeze would beat the chain's tail, the result is marked `"unrated":true` with `"endedBy":{"seat":<forker>,"type":"fork"}` in a game of 3 or more seats (§4.8); the forker forfeits as an equivocator either way. This is a function of the events held. With 2 seats the only other seat is the forker's opponent, and the forker is last whatever the branch, so the result stays rated. Ranking settled live branches above unsettled ones whatever their lengths is forced: with "ending beats unsettled" and "a longer settled branch beats an ending one", comparing live branches by length alone would be cyclic, so not a function of the events held. Every fork is a same-seat equivocation (only the seat `pending()` names, or for a shuffle step the seat §5.5 gives for step `seq − 1`, can sign a valid successor of a given move), so this ranking matters only once a seat equivocates. No event kind or tag changes; an attested outcome gains one `endedBy` type (§4.8).
 
   A late rival on an old `prev` that no other seat has played on is shorter than the chain and never displaces it, and a finished game cannot be reopened by a branch that does not finish it unless that branch is settled. Moves on losing branches stay pooled; a branch switch replays the fold from the fork point.
 
@@ -615,7 +632,7 @@ A Resign (§4.9) is a voluntary forfeit (D045, D052), allowed in every game.
 
 ## 10. Requirements on rules modules
 A `GameModule` used with this protocol MUST provide:
-- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck may be split into contiguous groups shuffled apart (`partitions`, §5.5).
+- `decks(rules)`: one deck, or none (`[]`). A deckless game has N = 0 shuffle steps, no deal, no card shares and no secrets (§6.1). A deckless game may still roll dice (§6.3a): `rolls` and `beaconOf` present means each roll or contribution carries exactly one beacon share. Several decks are not supported yet (`docs/GAME-SYSTEMS.md` §4.1.4). One deck, which may be split into contiguous groups shuffled apart (`partitions`) and then have chosen positions mixed in a second round (`secondRound`, D074); both are in §5.5.
 - deterministic dealing of positions, with initial hands assigned at setup, before any reveal (§6.1)
 - `pending()` with public reveal requests
 - `learn`, `knownTo`, `view` and `outcome` (a deckless module's `learn` is never called)

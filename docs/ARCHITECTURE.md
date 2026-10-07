@@ -138,7 +138,7 @@ Event kinds are chosen in Phase 2 after checking the NIPs registry, avoiding 300
 
 ## More than one game (D045)
 
-- **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the seat count with a deck, else 0) marks where game actions start.
+- **Session.** `GameSession` runs any `GameModule` with one deck or none. `shuffleSteps` (the length of the shuffle schedule, PROTOCOL §5.5: the seat count for a plain deck, groups times seats for a partitioned one, a second round adding its groups times seats, and 0 without a deck) marks where game actions start.
 - **Web registry.** `apps/web/src/games/registry.ts` lists every hosted game: names (`meta.ts`, from the game's theme), the in-game component (`GameViewProps`), the rules page (`#/rules/<gameId>`) and the setup copy. `screens/game.tsx` is generic: the setup progress, the chrome every game shares (notices, final places, attestations, Resign) and the table's game component.
 - **Tools.** The fuzzer and the sim take `--game`; one meta-test checks the rules catalog of every `docs/games/*/RULES.md`.
 

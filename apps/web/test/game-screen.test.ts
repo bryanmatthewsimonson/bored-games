@@ -193,6 +193,34 @@ describe('game chrome helpers (D045)', () => {
     expect(setupStep(viewOf({ phase: 'play' }), null)).toBe('Loading the game…');
   });
 
+  it('words a two-round shuffle by round', () => {
+    const copy = { shuffling: 'Shuffling the deck', dealing: 'Dealing the tiles…' };
+    const shuffling = (shuffleProgress: SessionView['shuffleProgress'], seq = 1) =>
+      setupStep(
+        viewOf({ phase: 'shuffle', shuffleSteps: 15, shuffleProgress, head: { id: 'h', seq } }),
+        copy,
+      );
+    expect(shuffling({ round: 2, rounds: 2, seatsDone: 1 }, 11)).toBe(
+      'Shuffling the deck (round 2 of 2): 1 of 3 players done.',
+    );
+    expect(shuffling({ round: 1, rounds: 2, seatsDone: 0 }, 0)).toBe(
+      'Shuffling the deck (round 1 of 2): 0 of 3 players done.',
+    );
+    expect(shuffling({ round: 2, rounds: 2, seatsDone: 2 }, 13)).toBe(
+      'Shuffling the deck (round 2 of 2): 2 of 3 players done.',
+    );
+    expect(
+      setupStep(viewOf({ phase: 'shuffle', shuffleProgress: { round: 2, rounds: 2, seatsDone: 0 } }), null),
+    ).toBe('Shuffling (round 2 of 2): 0 of 3 players done.');
+    // A single round keeps the existing words: the head decides, whatever the progress says.
+    for (const shuffleProgress of [{ round: 1, rounds: 1, seatsDone: 2 }, null, undefined]) {
+      const view = viewOf({ phase: 'shuffle', shuffleSteps: 12, head: { id: 'h', seq: 8 } });
+      expect(setupStep({ ...view, shuffleProgress } as SessionView, copy)).toBe(
+        'Shuffling the deck: 2 of 3 players done.',
+      );
+    }
+  });
+
   it('offers Send anyway with a button that calls back (D056)', () => {
     let sent = 0;
     const tree = renderTree(SendAnyway({ onSend: () => sent++ }));

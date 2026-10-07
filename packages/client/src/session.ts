@@ -76,13 +76,7 @@ import {
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
 import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
-import {
-  type DeckPartition,
-  deckPartitions,
-  parsePartitionMove,
-  shuffleStepGroup,
-  shuffleStepSeat,
-} from './partitioned-deck.ts';
+import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
@@ -335,12 +329,19 @@ export class GameSession {
   private readonly deckId: string | null;
   /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
-  private readonly partitions: readonly DeckPartition[];
+  /**
+   * The shuffle schedule (PROTOCOL §5.5, D074): the seat that signs each step and the positions it shuffles, in chain
+   * order. Empty for a deckless game. A legacy deck is one group; a partitioned deck is one step per group per seat;
+   * a second round adds one per second-round group per seat after every first-round step.
+   */
+  private readonly schedule: readonly ShuffleStep[];
+  /** 2 when the deck has a second round, else 1. */
+  private readonly shuffleRounds: 1 | 2;
   private readonly promptShares: boolean;
   private readonly seats: number;
   /**
-   * The shuffle steps at the start of the chain (PROTOCOL §6.1): one per group per seat when the game has a deck, none
-   * when it is deckless. Legacy decks have one group. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
+   * The shuffle steps at the start of the chain (PROTOCOL §6.1): the length of `schedule`, none when the game is
+   * deckless. Moves `1..shuffleSteps` are shuffle steps; game actions start at `shuffleSteps + 1`.
    */
   private readonly shuffleSteps: number;
   /** Seat deck keys `X_k` and their sum, the joint key `X`. */
@@ -535,9 +536,10 @@ export class GameSession {
     this.deckId = deck?.id ?? null;
     this.deckSize = deck?.size ?? 0;
     this.seats = root.seats.length;
-    this.partitions = deckPartitions(deck);
+    this.schedule = shuffleSchedule(deck, this.seats);
+    this.shuffleRounds = this.schedule.some((step) => step.round === 2) ? 2 : 1;
     this.promptShares = deck?.promptShares === true;
-    this.shuffleSteps = this.partitions.length * this.seats;
+    this.shuffleSteps = this.schedule.length;
     // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
     this.X = jointKey(this.keys);
@@ -562,8 +564,9 @@ export class GameSession {
 
   /**
    * A session for the game started by `input.root`. Throws `ClientError` when the table or root does not parse,
-   * the root is not a valid start of the game (`validateRoot`), the module has more than one deck, or `me` does
-   * not hold the seat it names. Joins that do not parse are ignored; `validateRoot` reports the ones it misses.
+   * the root is not a valid start of the game (`validateRoot`), the module has more than one deck or a deck whose
+   * partitions or second round are invalid (PROTOCOL §5.5), or `me` does not hold the seat it names. Joins that do
+   * not parse are ignored; `validateRoot` reports the ones it misses.
    */
   static create(input: SessionInput): GameSession {
     let table: ReturnType<typeof parseTable>;
@@ -683,7 +686,7 @@ export class GameSession {
     try {
       // A deckless game parses with a 1-card deck so that a shuffle step gets moveShape's clear rejection.
       if (kind === KIND.move)
-        parsed = { kind: 'move', m: parsePartitionMove(ev, this.deckSize, this.partitions) };
+        parsed = { kind: 'move', m: parsePartitionMove(ev, this.deckSize, this.schedule) };
       else if (kind === KIND.shares) parsed = { kind: 'shares', s: parseShares(ev) };
       else return { status: 'rejected', reason: `kind ${String(kind)} is not an in-game event` };
     } catch (e) {
@@ -838,11 +841,10 @@ export class GameSession {
     const c = m.content;
     if (m.seq <= this.shuffleSteps) {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
-      const expectedSeat = shuffleStepSeat(m.seq - 1, this.partitions);
-      if (expectedSeat === null) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
-      if (seat !== expectedSeat) return `shuffle step ${m.seq} must be signed by seat ${expectedSeat}`;
-      if (c.deck.length !== this.partitionAt(m.seq - 1).size)
-        return 'shuffle output has the wrong group size';
+      const step = this.schedule[m.seq - 1];
+      if (step === undefined) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
+      if (seat !== step.seat) return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
+      if (c.deck.length !== step.group.positions.length) return 'shuffle output has the wrong group size';
     } else if (c.type !== 'action') {
       return `move ${m.seq} must be a game action`;
     } else if (!this.hasDeck() && (c.shares.length > 0 || c.reveals.length > 0)) {
@@ -1477,20 +1479,18 @@ export class GameSession {
     if (m.seq !== this.chain.length + 1) return reject(`seq ${m.seq} does not follow the head`);
     const c = m.content;
     if (c.type === 'shuffle') {
-      const step = m.seq - 1;
-      const expectedSeat = shuffleStepSeat(step, this.partitions);
-      if (expectedSeat === null) return reject('the game has no deck to shuffle');
-      if (seat !== expectedSeat)
-        return reject(`shuffle step ${m.seq} must be signed by seat ${expectedSeat}`);
-      if (!this.shuffleVerifies(m.id, step, c.deck, c.proof))
+      const at = m.seq - 1;
+      const step = this.schedule[at];
+      if (step === undefined) return reject('the game has no deck to shuffle');
+      if (seat !== step.seat) return reject(`shuffle step ${m.seq} must be signed by seat ${step.seat}`);
+      if (!this.shuffleVerifies(m.id, at, c.deck, c.proof))
         return reject('the shuffle proof does not verify');
-      const group = this.partitionAt(step);
-      const previous = this.decks[step] as Ciphertext[];
-      this.decks.push([
-        ...previous.slice(0, group.offset),
-        ...c.deck,
-        ...previous.slice(group.offset + group.size),
-      ]);
+      // The output goes back to the group's positions, in ascending order; every other position is unchanged.
+      const next = (this.decks[at] as Ciphertext[]).slice();
+      step.group.positions.forEach((p, i) => {
+        next[p] = c.deck[i] as Ciphertext;
+      });
+      this.decks.push(next);
       this.link(m);
       if (m.seq === this.shuffleSteps) this.startDeal();
       return 'accepted';
@@ -1693,29 +1693,33 @@ export class GameSession {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
-    const group = this.partitionAt(step);
-    const input = (this.decks[step] as Ciphertext[]).slice(group.offset, group.offset + group.size);
+    const input = this.shuffleInput(step);
     const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step));
     this.shuffleChecked.set(id, ok);
     return ok;
   }
 
-  /** Only called in a game with a deck, on a shuffle step; throws rather than divide by zero otherwise. */
-  private partitionAt(step: number): DeckPartition {
-    const group = shuffleStepGroup(step, this.partitions);
-    if (group === null) throw new ClientError(`no deck group for shuffle step ${step}`);
-    return group;
+  /** Shuffle step `step` (0-based) of the schedule; throws past its end, and in a deckless game, which has none. */
+  private stepAt(step: number): ShuffleStep {
+    const s = this.schedule[step];
+    if (s === undefined) throw new ClientError(`no shuffle step ${step}`);
+    return s;
   }
 
-  /** The seat that signs the next shuffle step, or null in a deckless game (which never shuffles). */
+  /** The ciphertexts that shuffle step `step` takes in: the positions of its group in the deck before it, ascending. */
+  private shuffleInput(step: number): Ciphertext[] {
+    const deck = this.decks[step] as Ciphertext[];
+    return this.stepAt(step).group.positions.map((p) => deck[p] as Ciphertext);
+  }
+
+  /** The seat that signs the next shuffle step, or null once the shuffle is over and in a deckless game. */
   private nextShuffler(): number | null {
-    return shuffleStepSeat(this.chain.length, this.partitions);
+    return this.schedule[this.chain.length]?.seat ?? null;
   }
 
   private shuffleCtx(step: number): ShuffleCtx {
-    // partitionAt throws first in a deckless game, so the seat below is always a number.
-    const group = this.partitionAt(step);
-    return { rootId: this.root.id, seat: shuffleStepSeat(step, this.partitions) ?? -1, deckId: group.id };
+    const { seat, group } = this.stepAt(step);
+    return { rootId: this.root.id, seat, deckId: group.id };
   }
 
   private link(m: ParsedMove): void {
@@ -2655,6 +2659,7 @@ export class GameSession {
       rootId: this.root.id,
       seats: this.seats,
       shuffleSteps: this.shuffleSteps,
+      shuffleProgress: status.phase === 'shuffle' ? this.progressOfShuffle() : null,
       mySeat: this.me?.seat ?? null,
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
@@ -2676,6 +2681,17 @@ export class GameSession {
       attested: this.attested(),
       events: this.events,
     };
+  }
+
+  /**
+   * Where the shuffle stands (PROTOCOL §5.5): the round the next step belongs to, and the seats that have finished
+   * that round. A round runs seat after seat, each shuffling all of the round's groups, so the seats done are those
+   * before the next step's seat. Null when no step is left.
+   */
+  private progressOfShuffle(): SessionView['shuffleProgress'] {
+    const next = this.schedule[this.chain.length];
+    if (next === undefined) return null;
+    return { round: next.round, rounds: this.shuffleRounds, seatsDone: next.seat };
   }
 
   private logHash(): Hex {
@@ -2947,11 +2963,7 @@ export class GameSession {
    */
   buildShuffle(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('shuffle');
-    const group = this.partitionAt(this.chain.length);
-    const input = (this.decks[this.chain.length] as Ciphertext[]).slice(
-      group.offset,
-      group.offset + group.size,
-    );
+    const input = this.shuffleInput(this.chain.length);
     const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
     const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(this.chain.length), rnd);
     const t = moveTemplate(
