@@ -924,7 +924,7 @@ export class GameController {
     return shareVerdict({
       positions,
       mySeat: session.view().mySeat,
-      dealt: this.#dealt(session),
+      dealt: this.#shareDealt(session),
       owed: fed ? null : duty?.kind === 'share' ? duty.positions : [],
       sentElsewhere: (pos) => this.#otherMine(`share:${pos}`, ev),
     });
@@ -945,6 +945,23 @@ export class GameController {
       owed: fed ? null : duty?.kind === 'seal' ? duty.items : [],
       sentElsewhere: (pos, to) => this.#otherMine(`seal:${pos}>${to}`, ev),
     });
+  }
+
+  /**
+   * Scoring may explicitly open still-owned hands (GameModule.handsReveal). Authorize only the pending
+   * scoring positions, or all dealt positions after a declared outcome, when deck keys are already due.
+   * Recompute on the current head, so a saved reveal from a losing fork cannot open a private rack.
+   */
+  #shareDealt(session: GameSession): readonly { pos: number; to: number | null }[] {
+    const dealt = this.#dealt(session);
+    const v = session.view();
+    const module = this.#root === null ? undefined : this.#d.modules.get(this.#root.game);
+    if (module === undefined || v.state === null) return dealt;
+    if (module.outcome(v.state) !== null) return dealt.map((d) => ({ ...d, to: null }));
+    const pending = module.pending(v.state);
+    if (module.handsReveal?.(v.state) !== true || pending.type !== 'reveal') return dealt;
+    const publicPositions = new Set(pending.positions);
+    return dealt.map((d) => (publicPositions.has(d.pos) ? { ...d, to: null } : d));
   }
 
   /** Every deck position the module has dealt on the session's head (`GameModule.dealt`); empty before setup. */
@@ -2193,13 +2210,13 @@ export class GameController {
     if (this.#disposed || entry === undefined || entry.orphan || root === null || this.#inFlight.has(slot))
       return;
     // The owner never releases its own private layer (D058, audit-luster F3): a Shares event of a position that is
-    // now this seat's own card is discarded, whatever path brought it here.
+    // now this seat's own card is discarded, unless the module explicitly opens it for scoring.
     const session = this.#session;
     if (slot.startsWith('share:') && session !== null) {
       const own = ownCardReason(
         sharePositions(entry.event) ?? [],
         session.view().mySeat,
-        this.#dealt(session),
+        this.#shareDealt(session),
       );
       if (own !== null) {
         const fed = this.#fed.has(entry.event.id);

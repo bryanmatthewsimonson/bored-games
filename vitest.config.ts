@@ -5,6 +5,14 @@ export default defineConfig({
     projects: [
       {
         test: {
+          name: 'quill-and-quarry',
+          root: 'packages/games/quill-and-quarry',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
           name: 'driftwrights',
           root: 'packages/games/driftwrights',
           include: ['test/**/*.test.ts'],

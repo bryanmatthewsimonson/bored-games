@@ -1814,11 +1814,11 @@ export class GameSession {
   }
 
   /**
-   * Positions Holler dealt inside `action` that `seat` does not own, and whose ciphertext already exists.
+   * Positions an epoch-capable module dealt inside `action` that `seat` does not own, and whose ciphertext already exists.
    * Other games keep the parent-`dealt` rule, so this is empty for them (D073).
    */
   private childDealPositions(before: unknown, after: unknown, seat: number): number[] {
-    if (this.module.id !== 'holler') return [];
+    if (!this.usesEpochs()) return [];
     const had = new Set(this.module.dealt(before).map((d) => d.pos));
     const out: number[] = [];
     for (const dealt of this.module.dealt(after)) {
@@ -2796,11 +2796,11 @@ export class GameSession {
   }
 
   /**
-   * Once every seat has shared the positions a Holler epoch just dealt, apply `{type:'granted'}` so the starter
-   * can be revealed. Other games never pend `grant`.
+   * Once every seat has shared the positions an epoch just dealt, apply `{type:'granted'}` so the starter
+   * can be revealed. Only epoch-capable modules may pend `grant`.
    */
   private grantReady(): boolean {
-    if (this.module.id !== 'holler') return false;
+    if (!this.usesEpochs()) return false;
     if (this.module.pending(this.state).type !== 'grant') return false;
     for (let seat = 0; seat < this.seats; seat++) {
       if (this.epochGrantedElsewhere(seat) || this.playSharesDue(seat).length > 0) return false;
@@ -3019,17 +3019,17 @@ export class GameSession {
    */
   private stalledInPlay(all: readonly number[]): number[] {
     const p = this.module.pending(this.state);
-    if (this.module.id === 'holler' && p.type === 'shuffle') {
+    if (this.usesEpochs() && p.type === 'shuffle') {
       const forkers = this.epochForkers(p.epoch);
       return forkers.length > 0 ? forkers : [this.epochStep];
     }
-    if (this.module.id === 'holler' && p.type === 'grant') {
+    if (this.usesEpochs() && p.type === 'grant') {
       const forkers = this.epochForkers(this.latestEpoch());
       if (forkers.length > 0) return forkers;
       return all.filter((seat) => this.playSharesDue(seat).length > 0);
     }
     if (p.type === 'reveal') {
-      if (this.module.id === 'holler') return all.filter((seat) => this.playSharesDue(seat).length > 0);
+      if (this.usesEpochs()) return all.filter((seat) => this.playSharesDue(seat).length > 0);
       return all.filter((k) => p.positions.some((pos) => !this.shares.has(k, pos)));
     }
     if (p.type !== 'player') return [];
@@ -3286,15 +3286,15 @@ export class GameSession {
     ) {
       return [{ kind: 'deal' }];
     }
-    if (live && this.phase === 'play' && this.hollerShuffleDue(me.seat)) return [{ kind: 'shuffle' }];
+    if (live && this.phase === 'play' && this.epochShuffleDue(me.seat)) return [{ kind: 'shuffle' }];
     if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
       const positions = this.sharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
       const items = this.sealedDue(me.seat);
       if (items.length > 0) return [{ kind: 'seal', items }];
     }
-    // Holler collects a post-deal reveal or the next round's grant without promptShares (D073).
-    if (live && this.phase === 'play' && this.module.id === 'holler') {
+    // Epoch modules collect a post-deal reveal or the next round's grant, including owner shares (D073, D079).
+    if (live && this.phase === 'play' && this.usesEpochs()) {
       const positions = this.playSharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
     }
@@ -3397,7 +3397,7 @@ export class GameSession {
    */
   buildEpoch(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('shuffle');
-    if (!this.hollerShuffleDue(me.seat)) throw new ClientError('no epoch is due from this seat');
+    if (!this.epochShuffleDue(me.seat)) throw new ClientError('no epoch is due from this seat');
     const pending = this.module.pending(this.state);
     if (pending.type !== 'shuffle') throw new ClientError('no epoch is due from this seat');
     const input =
@@ -3430,12 +3430,20 @@ export class GameSession {
     return ev;
   }
 
-  /**
-   * Holler is in play and this seat owes the next epoch step. An epoch fork stalls the equivocator (D073);
-   * the next shuffler does not build on it.
-   */
-  private hollerShuffleDue(seat: number): boolean {
-    if (this.module.id !== 'holler' || this.phase !== 'play') return false;
+  /** The existing single-pile epoch wire requires both module hooks and positions below the stride (D079). */
+  private usesEpochs(): boolean {
+    return (
+      this.hasDeck() &&
+      this.deckId === 'pile' &&
+      this.deckSize <= EPOCH_STRIDE &&
+      typeof this.module.installDeckOrder === 'function' &&
+      typeof this.module.shufflePlaintexts === 'function'
+    );
+  }
+
+  /** The next epoch shuffler waits on any fork by an earlier shuffler (D073). */
+  private epochShuffleDue(seat: number): boolean {
+    if (!this.usesEpochs() || this.phase !== 'play') return false;
     const pending = this.module.pending(this.state);
     if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return false;
     if (this.epochForkers(pending.epoch).length > 0) return false;
@@ -3472,11 +3480,11 @@ export class GameSession {
   }
 
   /**
-   * Shares for a reveal or a grant that is not gated on `promptShares`. Empty except for Holler. A reveal lists
+   * Shares for a reveal or a grant that is not gated on `promptShares`. Empty without epoch capability. A reveal lists
    * every position this seat has not shared, owner included. A grant lists the positions owed to someone else.
    */
   private playSharesDue(seat: number): number[] {
-    if (!this.hasDeck() || this.module.id !== 'holler' || this.epochGrantedElsewhere(seat)) return [];
+    if (!this.hasDeck() || !this.usesEpochs() || this.epochGrantedElsewhere(seat)) return [];
     const pending = this.module.pending(this.state);
     if (pending.type === 'reveal') {
       return [...pending.positions].filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
@@ -3523,7 +3531,9 @@ export class GameSession {
   /** Share newly assigned positions after setup, in the existing Shares wire format. */
   buildShares(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('share');
-    const positions = this.module.id === 'holler' ? this.playSharesDue(me.seat) : this.sharesDue(me.seat);
+    const positions = [...new Set([...this.sharesDue(me.seat), ...this.playSharesDue(me.seat)])].sort(
+      (a, b) => a - b,
+    );
     const shares = positions.map((pos) => this.shareOf(me, pos, rnd));
     return finalizeEvent(sharesTemplate({ rootId: this.root.id, shares }, createdAt), me.sessionSk, rnd);
   }
@@ -3597,7 +3607,7 @@ export class GameSession {
       shares = this.shares
         .missing(me.seat, this.module.dealt(this.state))
         .map((pos) => this.shareOf(me, pos, rnd));
-      if (this.module.id === 'holler') {
+      if (this.usesEpochs()) {
         const preview = this.module.apply(this.state, legal);
         if (preview.ok) {
           for (const pos of this.childDealPositions(this.state, preview.state, me.seat)) {

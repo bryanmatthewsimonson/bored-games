@@ -1,0 +1,1110 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: Styles are grouped by independent component classes; shared tag endings do not indicate overlapping elements. */
+main:has(.qq-game) {
+  max-width: 1320px;
+}
+.qq-game {
+  --qq-ink: #263f42;
+  --qq-muted: #6c7975;
+  --qq-paper: #f5f1e7;
+  --qq-line: #d8d8cb;
+  color: var(--qq-ink);
+  background: var(--qq-paper);
+  padding: clamp(12px, 2.4vw, 32px);
+  border: 1px solid #e0ded3;
+  border-radius: 10px;
+  font-family: system-ui, sans-serif;
+}
+.qq-game * {
+  box-sizing: border-box;
+}
+.qq-game button,
+.qq-game select {
+  font: inherit;
+}
+.qq-game button {
+  border: 1px solid var(--qq-line);
+  border-radius: 5px;
+  background: #faf8f0;
+  color: var(--qq-ink);
+  cursor: pointer;
+  padding: 9px 13px;
+  box-shadow: none;
+}
+.qq-game button:hover:enabled {
+  background: #e7ece2;
+  border-color: #88a29a;
+}
+.qq-game button:focus-visible,
+.qq-game a:focus-visible {
+  outline: 3px solid #ab7837;
+  outline-offset: 3px;
+}
+.qq-game button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.qq-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 0 24px;
+  border-bottom: 1px solid var(--qq-line);
+  margin-bottom: 24px;
+}
+.qq-brand {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+}
+.qq-mark {
+  width: 66px;
+  height: 78px;
+  flex: none;
+  color: #a5824e;
+}
+.qq-eyebrow {
+  font-size: 10px;
+  letter-spacing: 1.9px;
+  font-weight: 700;
+  line-height: 1.6;
+  color: var(--qq-muted);
+}
+.qq-brand h2 {
+  font-family: Georgia, serif;
+  font-size: clamp(26px, 3vw, 37px);
+  font-weight: 500;
+  letter-spacing: -1px;
+  margin: 3px 0 4px;
+  line-height: 1.1;
+}
+.qq-brand p {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 14px;
+  color: var(--qq-muted);
+  margin: 0;
+}
+.qq-rules-link {
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--qq-ink);
+  padding: 9px 0;
+  white-space: nowrap;
+}
+.qq-rules-link span {
+  margin-left: 9px;
+}
+.qq-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 26px;
+  align-items: start;
+}
+.qq-main {
+  min-width: 0;
+}
+.qq-turn-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #e8ede4;
+  border: 1px solid #d8e0d3;
+  padding: 13px 17px;
+  border-radius: 6px;
+  margin-bottom: 18px;
+  min-height: 68px;
+}
+.qq-turn-banner h3 {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 17px;
+  line-height: 1.35;
+  margin: 2px 0;
+}
+.qq-turn-banner .qq-eyebrow {
+  font-size: 9px;
+  color: #567b6d;
+}
+.qq-turn-dot {
+  height: 8px;
+  width: 8px;
+  background: #9bada5;
+  border-radius: 50%;
+  flex: none;
+}
+.qq-turn-dot.qq-live {
+  background: #3c8066;
+  box-shadow: 0 0 0 5px #3c806618;
+}
+.qq-deadline {
+  font-size: 11px;
+  white-space: nowrap;
+  margin-left: auto;
+  color: var(--qq-muted);
+}
+.qq-board-scroll {
+  max-width: 720px;
+  margin: auto;
+  overflow-x: auto;
+  border-radius: 7px;
+}
+.qq-board-frame {
+  padding: 0 12px;
+  background: #294448;
+  color: #e7e5cf;
+  border: 1px solid #20383b;
+  border-radius: 7px;
+  box-shadow:
+    0 4px 0 #1d3335,
+    0 8px 18px #203b3b15;
+}
+.qq-board-top,
+.qq-board-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 31px;
+  letter-spacing: 2.8px;
+  font-size: 8px;
+  color: #d0c7a9;
+}
+.qq-board-top {
+  border-bottom: 1px solid #ffffff16;
+}
+.qq-board-top span:last-child {
+  letter-spacing: 1.7px;
+  opacity: 0.7;
+}
+.qq-board-coordinates {
+  display: grid;
+  grid-template-columns: 16px repeat(15, minmax(0, 1fr));
+  height: 23px;
+  align-items: center;
+  text-align: center;
+  font-size: 9px;
+  color: #abbab4;
+}
+.qq-board-body {
+  display: flex;
+  align-items: stretch;
+}
+.qq-row-labels {
+  display: grid;
+  grid-template-rows: repeat(15, 1fr);
+  width: 16px;
+  flex: none;
+  text-align: left;
+  align-items: center;
+  font-size: 9px;
+  color: #abbab4;
+}
+.qq-board {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(15, minmax(0, 1fr));
+  gap: 3px;
+  width: 100%;
+  padding: 4px;
+  background: #1c3437;
+  border: 1px solid #72868150;
+  aspect-ratio: 1;
+}
+.qq-game .qq-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 2px;
+  background: #e7e5d9;
+  color: #7e9086;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1;
+}
+.qq-game .qq-cell:hover:enabled {
+  background: #d9dfce;
+}
+.qq-game .qq-cell[data-premium="2L"],
+.qq-legend i[data-premium="2L"] {
+  background: #bbd3ca;
+  color: #315d58;
+}
+.qq-game .qq-cell[data-premium="3L"],
+.qq-legend i[data-premium="3L"] {
+  background: #4a7c7d;
+  color: #f4f3df;
+}
+.qq-game .qq-cell[data-premium="2W"],
+.qq-legend i[data-premium="2W"] {
+  background: #e0c59a;
+  color: #715936;
+}
+.qq-game .qq-cell[data-premium="3W"],
+.qq-legend i[data-premium="3W"] {
+  background: #ae7553;
+  color: #fff0d5;
+}
+.qq-premium {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  font-size: clamp(4px, 0.62vw, 8px);
+  letter-spacing: 0.2px;
+  line-height: 1.1;
+}
+.qq-premium b {
+  font-family: Georgia, serif;
+  font-size: clamp(9px, 1.2vw, 16px);
+  font-weight: 500;
+}
+.qq-dot {
+  font-size: 12px;
+  opacity: 0.5;
+}
+.qq-center {
+  font-size: clamp(13px, 2vw, 25px);
+  color: #8c6736;
+}
+.qq-board-bottom {
+  justify-content: center;
+  gap: 10px;
+  font-size: 7px;
+  height: 27px;
+  letter-spacing: 3px;
+}
+.qq-diamond {
+  font-size: 5px;
+}
+.qq-tile-face {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #fff9e9, #e8ddc4);
+  color: #273f40;
+  border: 1px solid #fffaf1;
+  border-radius: 3px;
+  box-shadow:
+    0 2px 0 #aa9b7e,
+    0 2px 3px #0003;
+  position: relative;
+  font-family: Georgia, serif;
+  font-size: clamp(13px, 2.1vw, 27px);
+  line-height: 1;
+}
+.qq-tile-face sub {
+  position: absolute;
+  bottom: 9%;
+  right: 9%;
+  font-size: clamp(5px, 0.62vw, 9px);
+  font-family: system-ui, sans-serif;
+  line-height: 1;
+}
+.qq-tile-face.qq-blank > span {
+  font-style: italic;
+}
+.qq-blank:after {
+  content: "";
+  position: absolute;
+  bottom: 12%;
+  width: 25%;
+  height: 1px;
+  background: #a39377;
+}
+.qq-cell.qq-staged .qq-tile-face {
+  background: linear-gradient(135deg, #e0efdc, #c5dec5);
+  border-color: #80a780;
+  box-shadow: 0 2px 0 #6a8d72;
+  outline: 1px solid #b1d5a7;
+}
+.qq-cell.qq-last .qq-tile-face:before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: #62917b;
+}
+.qq-legend {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 13px;
+  margin: 17px 0 21px;
+  font-size: 10px;
+  color: #66756e;
+}
+.qq-legend > span {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.qq-legend i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 21px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+}
+.qq-game .qq-zoom {
+  font-size: 10px;
+  border: 0;
+  background: transparent;
+  padding: 3px;
+}
+.qq-zoomed .qq-board-frame {
+  min-width: 650px;
+}
+.qq-rack-panel {
+  padding: 18px 19px 15px;
+  background: #ede9dd;
+  border: 1px solid #dedbcc;
+  border-radius: 7px;
+}
+.qq-rack-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.qq-rack-heading > span:last-child {
+  font-size: 10px;
+  color: #7d8579;
+}
+.qq-rack {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: end;
+  padding: 19px 8px 10px;
+  border-bottom: 4px solid #b5ac92;
+  box-shadow: 0 2px 0 #d1c6aa;
+  margin: 0 auto 11px;
+  max-width: 520px;
+  min-height: 84px;
+}
+.qq-game .qq-rack-tile {
+  padding: 0;
+  width: 55px;
+  height: 58px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  flex: 0 1 55px;
+  min-width: 0;
+  transition:
+    transform 0.14s,
+    opacity 0.14s;
+}
+.qq-rack-tile .qq-tile-face {
+  font-size: 34px;
+  border-radius: 5px;
+  box-shadow:
+    0 4px 0 #b1a081,
+    0 5px 8px #554b4220;
+}
+.qq-rack-tile .qq-tile-face sub {
+  font-size: 10px;
+}
+.qq-game .qq-rack-tile:disabled {
+  opacity: 0.75;
+}
+.qq-game .qq-rack-tile.qq-used {
+  opacity: 0.18;
+}
+.qq-rack-tile.qq-picked {
+  transform: translateY(-8px);
+  outline: 2px solid #407970;
+  outline-offset: 3px;
+}
+.qq-rack-hint {
+  font-size: 11px;
+  text-align: center;
+  color: #63746c;
+  margin: 14px 0;
+  min-height: 17px;
+  line-height: 1.5;
+}
+.qq-controls {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.qq-game .qq-controls button {
+  font-size: 11px;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+.qq-game button.qq-primary {
+  background: #315c55;
+  color: #fff9e9;
+  border: 1px solid #294f48;
+  box-shadow: 0 2px 0 #1c423b;
+  font-weight: 600;
+}
+.qq-game button.qq-primary:hover:enabled {
+  background: #244e47;
+}
+.qq-controls .qq-primary {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  min-width: 132px;
+  justify-content: space-between;
+}
+.qq-controls .qq-primary > span {
+  font-weight: 400;
+  font-size: 10px;
+  color: #c3d6c5;
+}
+.qq-blank-choice {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.qq-blank-choice select {
+  background: #fffaf0;
+  padding: 6px;
+  border: 1px solid #c4c7b8;
+  border-radius: 4px;
+}
+.qq-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 15px;
+  font-size: 12px;
+}
+.qq-sidebar {
+  min-width: 0;
+}
+.qq-sidebar-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.qq-sidebar-label > span:last-child {
+  font-size: 10px;
+  color: #7c897f;
+}
+.qq-player {
+  background: #faf8f1;
+  border: 1px solid #d9ddcf;
+  border-radius: 7px;
+  margin-bottom: 11px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px #334f4010;
+}
+.qq-player-active {
+  border-color: #7d9c86;
+  box-shadow:
+    inset 3px 0 #4a7f69,
+    0 2px 4px #334f4010;
+}
+.qq-player-top {
+  display: flex;
+  gap: 11px;
+  padding: 16px 14px 12px;
+  align-items: center;
+}
+.qq-avatar {
+  display: flex;
+  width: 39px;
+  height: 39px;
+  border-radius: 50%;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  font-family: Georgia, serif;
+  font-size: 20px;
+  overflow: hidden;
+  color: #fff;
+}
+.qq-avatar > * {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.qq-seat-0 {
+  background: #4e7c6a;
+}
+.qq-seat-1 {
+  background: #b8825f;
+}
+.qq-seat-2 {
+  background: #6e7995;
+}
+.qq-seat-3 {
+  background: #9d8699;
+}
+.qq-player-name {
+  min-width: 0;
+  flex: 1;
+}
+.qq-player-name strong {
+  display: block;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qq-player-name > span {
+  display: block;
+  font-size: 10px;
+  color: var(--qq-muted);
+  margin-top: 4px;
+}
+.qq-score {
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+}
+.qq-score strong {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1;
+}
+.qq-score > span {
+  font-size: 7px;
+  letter-spacing: 1.3px;
+  color: #7d897d;
+  margin-top: 5px;
+}
+.qq-player-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 14px;
+  border-top: 1px solid #e4e6da;
+  background: #f3f3e9;
+  font-size: 9px;
+  color: #6f8074;
+}
+.qq-player-active .qq-player-foot {
+  background: #e8eee1;
+  color: #416e55;
+}
+.qq-mini-rack {
+  display: flex;
+  gap: 3px;
+}
+.qq-mini-rack i {
+  display: block;
+  width: 8px;
+  height: 10px;
+  border: 1px solid #c9c6b2;
+  border-radius: 1px;
+  background: #e8e2cc;
+  box-shadow: 0 1px 0 #c9c6b2;
+}
+.qq-bag {
+  margin: 21px 0 26px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 16px 17px;
+  border: 1px dashed #c9cebd;
+  border-radius: 6px;
+  background: #efeede;
+}
+.qq-bag-icon {
+  font-size: 34px;
+  line-height: 1;
+  color: #8a9276;
+}
+.qq-bag > div:nth-child(2) {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.qq-bag strong {
+  font-family: Georgia, serif;
+  font-size: 27px;
+  font-weight: 400;
+}
+.qq-bag span {
+  font-size: 11px;
+  color: #7e8874;
+}
+.qq-bag-meter {
+  flex-basis: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: #dadccb;
+}
+.qq-bag-meter > span {
+  display: block;
+  background: #8d9d7b;
+  height: 3px;
+  border-radius: 3px;
+}
+.qq-history {
+  border-top: 1px solid var(--qq-line);
+  padding-top: 19px;
+}
+.qq-history ol {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.qq-history li {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e1e3d7;
+  align-items: start;
+}
+.qq-history-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  margin-top: 5px;
+}
+.qq-history li > div {
+  flex: 1;
+  min-width: 0;
+}
+.qq-history li > div > span {
+  display: block;
+  color: #7b877b;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+.qq-history li strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.qq-history li small {
+  font-size: 9px;
+  color: #889180;
+}
+.qq-history li > b {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4f7b60;
+}
+.qq-empty-history {
+  text-align: center;
+  padding: 18px 5px 24px;
+}
+.qq-empty-history > span {
+  font-size: 27px;
+  color: #a59167;
+}
+.qq-empty-history p {
+  font-family: Georgia, serif;
+  font-size: 17px;
+  line-height: 1.6;
+  margin: 9px 0;
+  color: #74816f;
+  font-style: italic;
+}
+.qq-empty-history small {
+  font-size: 10px;
+  color: #8b947f;
+}
+.qq-tip {
+  margin: 22px 0;
+  padding: 17px;
+  border-radius: 6px;
+  background: #e7eadc;
+}
+.qq-tip .qq-eyebrow {
+  font-size: 8px;
+  letter-spacing: 1.6px;
+}
+.qq-tip p {
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.6;
+  margin: 8px 0 12px;
+  color: #5b7159;
+}
+.qq-tip > span:last-child {
+  font-size: 10px;
+  color: #7d8970;
+}
+.qq-sidebar-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #536952;
+  text-decoration: none;
+  font-family: Georgia, serif;
+  font-size: 15px;
+  padding: 0 2px;
+}
+.qq-sidebar-rules span {
+  font:
+    10px system-ui,
+    sans-serif;
+  color: #8a947e;
+}
+.qq-decision {
+  margin-top: 16px;
+  background: #e9eddf;
+  border: 1px solid #cbd5c1;
+  border-radius: 6px;
+  padding: 18px;
+}
+.qq-decision h3 {
+  font-family: Georgia, serif;
+  font-size: 23px;
+  font-weight: 400;
+  margin: 8px 0;
+}
+.qq-decision h3 span {
+  font-size: 18px;
+  color: #4c775b;
+}
+.qq-decision p {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.qq-decision button {
+  margin: 4px 8px 0 0;
+  font-size: 12px;
+}
+.qq-error {
+  background: #f1dfd4;
+  padding: 12px;
+  border-radius: 5px;
+  color: #883f2c;
+  font-size: 13px;
+}
+.qq-notice {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--qq-muted);
+}
+.qq-cover-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.game-tile:has(.qq-cover-art) {
+  padding: 0;
+  background: #254549;
+}
+.qq-rules-art {
+  max-width: 640px;
+  margin: 25px auto;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.qq-rules-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+.qq-rules-values > div {
+  padding: 12px;
+  border: 1px solid #ddd9ca;
+  border-radius: 4px;
+  background: #f5f0e5;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.qq-rules-values strong {
+  font:
+    24px Georgia,
+    serif;
+  color: #294448;
+}
+.qq-rules-values span {
+  font-size: 11px;
+  color: #6b786c;
+}
+@media (min-width: 1450px) {
+  .qq-layout {
+    grid-template-columns: minmax(0, 1fr) 295px;
+    gap: 32px;
+  }
+  .qq-main {
+    max-width: 860px;
+  }
+  .qq-premium {
+    font-size: 8px;
+  }
+  .qq-premium b {
+    font-size: 16px;
+  }
+}
+@media (max-width: 1000px) {
+  .qq-layout {
+    grid-template-columns: minmax(0, 1fr) 230px;
+    gap: 17px;
+  }
+  .qq-game {
+    padding: 18px;
+  }
+  .qq-player-top {
+    padding: 13px 10px;
+    gap: 8px;
+  }
+  .qq-avatar {
+    width: 32px;
+    height: 32px;
+  }
+  .qq-score strong {
+    font-size: 27px;
+  }
+  .qq-rack-heading > span:last-child {
+    max-width: 135px;
+    text-align: right;
+  }
+  .qq-controls {
+    gap: 6px;
+  }
+  .qq-game .qq-controls button {
+    padding: 9px 10px;
+  }
+  .qq-legend {
+    gap: 8px;
+  }
+  .qq-rack-panel {
+    padding: 14px 10px;
+  }
+  .qq-game .qq-rack-tile {
+    height: 50px;
+  }
+  .qq-rack-tile .qq-tile-face {
+    font-size: 28px;
+  }
+}
+@media (max-width: 740px) {
+  .qq-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qq-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .qq-sidebar > .qq-sidebar-label,
+  .qq-history,
+  .qq-tip,
+  .qq-sidebar-rules {
+    grid-column: 1 / -1;
+  }
+  .qq-sidebar > .qq-sidebar-label {
+    margin-bottom: 0;
+  }
+  .qq-player {
+    margin: 0;
+  }
+  .qq-bag {
+    grid-column: 1 / -1;
+    margin: 5px 0 10px;
+  }
+  .qq-history {
+    margin-top: 4px;
+  }
+  .qq-tip {
+    margin: 5px 0;
+  }
+  .qq-mark {
+    width: 49px;
+    height: 62px;
+  }
+  .qq-masthead {
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+  }
+  .qq-brand {
+    gap: 9px;
+  }
+  .qq-brand .qq-eyebrow {
+    font-size: 7px;
+    letter-spacing: 1.3px;
+  }
+  .qq-brand h2 {
+    font-size: 27px;
+  }
+  .qq-brand p {
+    font-size: 12px;
+  }
+  .qq-rules-link {
+    font-size: 10px;
+  }
+  .qq-game {
+    padding: 14px 10px;
+  }
+  .qq-premium {
+    font-size: clamp(4px, 1.05vw, 7px);
+  }
+  .qq-premium b {
+    font-size: clamp(9px, 2vw, 14px);
+  }
+  .qq-tile-face {
+    font-size: clamp(13px, 3.8vw, 25px);
+  }
+  .qq-tile-face sub {
+    font-size: clamp(5px, 1.3vw, 8px);
+  }
+  .qq-deadline {
+    font-size: 9px;
+  }
+  .qq-turn-banner h3 {
+    font-size: 15px;
+  }
+  .qq-board-frame {
+    padding: 0 7px;
+  }
+  .qq-board {
+    margin: 0;
+    min-width: 0;
+    gap: 2px;
+    padding: 3px;
+  }
+  .qq-board-coordinates {
+    grid-template-columns: 12px repeat(15, minmax(0, 1fr));
+    font-size: 7px;
+    height: 18px;
+  }
+  .qq-row-labels {
+    width: 12px;
+    font-size: 7px;
+  }
+  .qq-board-top {
+    height: 25px;
+    font-size: 7px;
+  }
+  .qq-board-bottom {
+    height: 22px;
+    font-size: 6px;
+  }
+  .qq-legend {
+    font-size: 9px;
+    margin: 14px 0;
+    gap: 9px;
+  }
+  .qq-legend i {
+    width: 18px;
+    height: 18px;
+    font-size: 8px;
+  }
+  .qq-rack {
+    gap: 6px;
+    padding: 15px 0 9px;
+  }
+  .qq-game .qq-rack-tile {
+    height: 49px;
+  }
+  .qq-rack-tile .qq-tile-face {
+    font-size: 30px;
+  }
+  .qq-rack-tile .qq-tile-face sub {
+    font-size: 9px;
+  }
+  .qq-rack-heading .qq-eyebrow {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+  }
+  .qq-rack-heading > span:last-child {
+    font-size: 9px;
+    max-width: none;
+  }
+  .qq-controls .qq-primary {
+    flex: 1 0 135px;
+  }
+  .qq-controls {
+    justify-content: start;
+  }
+  .qq-player-name strong {
+    font-size: 11px;
+  }
+  .qq-player-name > span {
+    font-size: 9px;
+  }
+  .qq-player-foot {
+    padding: 8px;
+    font-size: 8px;
+  }
+  .qq-mini-rack {
+    gap: 2px;
+  }
+  .qq-mini-rack i {
+    width: 6px;
+    height: 8px;
+  }
+  .qq-score strong {
+    font-size: 25px;
+  }
+  .qq-player-top {
+    padding: 12px 8px;
+  }
+  .qq-avatar {
+    width: 30px;
+    height: 30px;
+  }
+  .qq-score > span {
+    font-size: 6px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qq-game * {
+    transition: none;
+  }
+}
+
+.qq-final-rack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 10px 14px;
+}
+.qq-final-rack > span {
+  width: 25px;
+  height: 28px;
+}
+.qq-final-rack .qq-tile-face {
+  font-size: 17px;
+}
+.qq-final-rack .qq-tile-face sub {
+  font-size: 6px;
+}
+.qq-final-rack small {
+  font:
+    italic 12px Georgia,
+    serif;
+  color: #63806b;
+}
+
+.qq-inline-icon {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  vertical-align: -2px;
+}
