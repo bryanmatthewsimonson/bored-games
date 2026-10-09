@@ -13,6 +13,7 @@ export const GAME_IDS: readonly string[] = [
   'driftwrights',
   'holler',
   'room-for-doubt',
+  'quill-and-quarry',
 ];
 
 /** The game of the old `#/rules[/<section>]` links, and the picker's first choice. */

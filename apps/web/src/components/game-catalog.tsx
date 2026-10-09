@@ -29,6 +29,8 @@ import {
   tileInitials,
   timeText,
 } from '../catalog-model.ts';
+import { QuarryArt } from '../games/quill-and-quarry/art.tsx';
+import '../games/quill-and-quarry/quill.css';
 import { useApp } from '../context.ts';
 import { CATALOG } from '../games/catalog.ts';
 import { gamePageHref } from '../router.ts';
@@ -54,7 +56,7 @@ export function GameTile(props: { item: CatalogItem; size?: 'card' | 'page' }) {
       style={`--hue:${tileHue(entry.id)}`}
       aria-hidden="true"
     >
-      <span>{tileInitials(names.gameTitle)}</span>
+      {entry.id === 'quill-and-quarry' ? <QuarryArt /> : <span>{tileInitials(names.gameTitle)}</span>}
     </div>
   );
 }

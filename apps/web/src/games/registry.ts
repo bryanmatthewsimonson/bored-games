@@ -24,6 +24,9 @@ import { GAME_IDS } from './ids.ts';
 import { LusterGame } from './luster/game.tsx';
 import { LUSTER_META } from './luster/meta.ts';
 import { LusterRulesPage } from './luster/rules-page.tsx';
+import { QuillGame } from './quill-and-quarry/game.tsx';
+import { QUILL_META } from './quill-and-quarry/meta.ts';
+import { QuillRulesPage } from './quill-and-quarry/rules-page.tsx';
 import { RightOfWayGame } from './right-of-way/game.tsx';
 import { RIGHT_OF_WAY_META } from './right-of-way/meta.ts';
 import { RightOfWayRulesPage } from './right-of-way/rules-page.tsx';
@@ -103,6 +106,16 @@ export const GAMES: readonly WebGame[] = [
     setupCopy: () => ROOM_FOR_DOUBT_SETUP_COPY,
     // A lone none goes out by itself; every show waits for its player (D078 ruling 7, amended).
     autoMove: (legal) => automaticAnswer(legal as readonly RfdAction[]),
+  },
+  {
+    ...QUILL_META,
+    Component: QuillGame,
+    RulesPage: QuillRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Mixing the letter tiles',
+      dealing: 'Drawing for the opening turn…',
+      share: { act: 'reveal a tile', owed: 'a tile reveal' },
+    }),
   },
 ];
 

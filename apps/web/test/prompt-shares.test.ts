@@ -8,7 +8,13 @@ import { describe, expect, it } from 'vitest';
 import { MODULES } from '../src/net.ts';
 
 /** The registered games whose decks set `promptShares`. Any game may (D075); this list only records which do. */
-const PROMPT_SHARES_USED: readonly string[] = ['luster', 'right-of-way', 'driftwrights', 'room-for-doubt'];
+const PROMPT_SHARES_USED: readonly string[] = [
+  'luster',
+  'right-of-way',
+  'driftwrights',
+  'room-for-doubt',
+  'quill-and-quarry',
+];
 
 describe('promptShares record (D075)', () => {
   for (const [id, module] of MODULES) {

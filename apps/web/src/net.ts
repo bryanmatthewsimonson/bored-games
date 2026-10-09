@@ -3,6 +3,7 @@
  * and the dependencies the lobby and game controllers share. Controllers take these as constructor arguments,
  * so tests run them in Node against the dev relay with local signers and a memory store.
  */
+
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
@@ -11,6 +12,7 @@ import type { GameModule } from '@bored-games/game-kit';
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import type { NostrEvent } from '@bored-games/protocol';
+import { quillAndQuarry } from '@bored-games/quill-and-quarry';
 import {
   type EoseInfo,
   type Filter,
@@ -42,6 +44,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [driftwrights.id, driftwrights],
   [holler.id, holler],
   [roomForDoubt.id, roomForDoubt],
+  [quillAndQuarry.id, quillAndQuarry],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

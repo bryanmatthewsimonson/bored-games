@@ -1,5 +1,10 @@
 # Plan
 
+## Quill & Quarry — added 2026-10-09 (D079)
+
+Implemented the English word-tile game with original artwork, rewritten rules, a pure engine, encrypted bag epochs, catalog/rules integration and a central board with the score rail on the right. Uses the documented double-challenge and six-scoreless-turn convention. Vocabulary is checked against a dictionary agreed by the table; lookup reports require trust and are not part of the cryptographic audit. Working-name trademark clearance, deterministic lexicon licensing and alternate regional conventions remain open. Validation results are recorded in D079.
+
+
 ## Open questions for the owner
 
 1. ~~**UI framework for apps/web.**~~ Answered by controller ruling D031 during the owner-authorized overnight run: Preact + Signals + Vite (D014 option B). The owner may revisit.

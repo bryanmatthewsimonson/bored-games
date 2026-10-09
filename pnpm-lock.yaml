@@ -71,6 +71,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/quill-and-quarry':
+        specifier: workspace:*
+        version: link:../../packages/games/quill-and-quarry
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)
@@ -178,6 +181,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/quill-and-quarry:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/right-of-way:
     dependencies:
       '@bored-games/game-kit':
@@ -260,6 +269,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/quill-and-quarry':
+        specifier: workspace:*
+        version: link:../../packages/games/quill-and-quarry
 
   tools/protocol-model: {}
 

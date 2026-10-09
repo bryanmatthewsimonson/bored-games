@@ -5,6 +5,7 @@ import { CHESS_META } from './games/chess/meta.ts';
 import { DRIFTWRIGHTS_META } from './games/driftwrights/meta.ts';
 import { HOLLER_META } from './games/holler/meta.ts';
 import { LUSTER_META } from './games/luster/meta.ts';
+import { QUILL_META } from './games/quill-and-quarry/meta.ts';
 import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
 import { ROOM_FOR_DOUBT_META } from './games/room-for-doubt/meta.ts';
 import type { GameMeta } from './games/types.ts';
@@ -19,6 +20,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [DRIFTWRIGHTS_META.id, DRIFTWRIGHTS_META],
   [HOLLER_META.id, HOLLER_META],
   [ROOM_FOR_DOUBT_META.id, ROOM_FOR_DOUBT_META],
+  [QUILL_META.id, QUILL_META],
 ]);
 
 /**

@@ -1,0 +1,22 @@
+import type { CatalogEntry } from '@bored-games/game-kit';
+export const QUILL_CATALOG: CatalogEntry = {
+  id: 'quill-and-quarry',
+  bggId: null,
+  compareTo: null,
+  year: null,
+  status: 'experimental',
+  players: { min: 2, max: 4, best: [2, 3, 4] },
+  playMinutes: { min: 45, max: 90 },
+  typicalTurns: 40,
+  weight: 2,
+  luck: 2,
+  genre: 'abstract',
+  mechanisms: ['tile-placement', 'hand-management', 'pattern-building'],
+  modes: ['competitive'],
+  turn: 'sequential',
+  hiddenInfo: true,
+  randomness: true,
+  tags: ['words', 'letters', 'vocabulary'],
+  minAge: 10,
+  art: { credit: 'Bored Games — original vector artwork', license: 'same as the repository' },
+};

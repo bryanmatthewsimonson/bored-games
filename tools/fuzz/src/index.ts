@@ -5,6 +5,7 @@ import { driftwrights } from '@bored-games/driftwrights';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
+import { quillAndQuarry } from '@bored-games/quill-and-quarry';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
@@ -17,6 +18,7 @@ import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
 import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
 import { LUSTER_EXPECTED_COVERAGE, LUSTER_POLICIES, lusterDeckOrder } from './luster.ts';
+import { QUILL_POLICIES } from './quill-and-quarry.ts';
 import {
   RIGHT_OF_WAY_EXPECTED_COVERAGE,
   RIGHT_OF_WAY_POLICIES,
@@ -45,6 +47,12 @@ export interface FuzzTarget {
 }
 
 export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
+  'quill-and-quarry': {
+    module: quillAndQuarry,
+    policies: QUILL_POLICIES,
+    expectedCoverage: ['move:placed', 'move:exchanged', 'move:judged', 'move:scored'],
+    defaultSeatCounts: [2, 3, 4],
+  },
   driftwrights: {
     module: driftwrights,
     policies: DRIFTWRIGHTS_POLICIES,

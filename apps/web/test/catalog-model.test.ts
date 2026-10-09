@@ -51,7 +51,14 @@ describe('catalog filters', () => {
 
   it('filters by player count, 6 meaning 6 or more', () => {
     expect(ids({ players: 1 })).toEqual([]);
-    expect(ids({ players: 2 })).toEqual(['chess', 'bank', 'luster', 'right-of-way', 'holler']);
+    expect(ids({ players: 2 })).toEqual([
+      'chess',
+      'bank',
+      'luster',
+      'right-of-way',
+      'holler',
+      'quill-and-quarry',
+    ]);
     expect(ids({ players: 3 })).toEqual([
       'chain-reaction',
       'bank',
@@ -60,6 +67,7 @@ describe('catalog filters', () => {
       'driftwrights',
       'holler',
       'room-for-doubt',
+      'quill-and-quarry',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -69,6 +77,7 @@ describe('catalog filters', () => {
       'driftwrights',
       'holler',
       'room-for-doubt',
+      'quill-and-quarry',
     ]);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler', 'room-for-doubt']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
@@ -79,7 +88,7 @@ describe('catalog filters', () => {
   });
 
   it('filters by genre, mode, length and complexity', () => {
-    expect(ids({ genre: 'abstract' })).toEqual(['chess']);
+    expect(ids({ genre: 'abstract' })).toEqual(['chess', 'quill-and-quarry']);
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
     expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way', 'room-for-doubt']);
@@ -94,6 +103,7 @@ describe('catalog filters', () => {
       'driftwrights',
       'holler',
       'room-for-doubt',
+      'quill-and-quarry',
     ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
@@ -106,9 +116,10 @@ describe('catalog filters', () => {
       'right-of-way',
       'driftwrights',
       'room-for-doubt',
+      'quill-and-quarry',
     ]);
     expect(ids({ length: 'over-120' })).toEqual([]);
-    expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction', 'driftwrights']);
+    expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction', 'driftwrights', 'quill-and-quarry']);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
     expect(ids({ complexity: 'light' })).toEqual([
       'bank',
@@ -151,8 +162,8 @@ describe('catalog search', () => {
     expect(ids({ query: 'chess' })).toEqual(['chess']);
     expect(ids({ query: 'CHAIN' })).toEqual(['chain-reaction']);
     expect(ids({ query: 'mergers' })).toEqual(['chain-reaction']);
-    expect(ids({ query: 'tile placement' })).toEqual(['chain-reaction']);
-    expect(ids({ query: 'tile-placement' })).toEqual(['chain-reaction']);
+    expect(ids({ query: 'tile placement' })).toEqual(['chain-reaction', 'quill-and-quarry']);
+    expect(ids({ query: 'tile-placement' })).toEqual(['chain-reaction', 'quill-and-quarry']);
     expect(ids({ query: 'capture' })).toEqual(['chess']);
     expect(ids({ query: 'classic' })).toEqual(['chain-reaction', 'chess']);
     expect(ids({ query: 'luster' })).toEqual(['luster']);
