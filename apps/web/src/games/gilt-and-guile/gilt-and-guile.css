@@ -1,0 +1,1198 @@
+main:has(.gg-game) {
+  max-width: 1440px;
+}
+.gg-game {
+  --gg-ink: #30272f;
+  --gg-teal: #773349;
+  --gg-gold: #bd9658;
+  --gg-paper: #faf2df;
+  color: var(--gg-ink);
+  font-family: var(--font);
+  background: #eee6d8;
+  border: 1px solid #d5c7b0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.gg-game button {
+  font-family: inherit;
+  cursor: pointer;
+}
+.gg-game button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.gg-masthead {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 26px 32px;
+  background: #2b202d;
+  color: #f7efd9;
+  min-height: 144px;
+}
+.gg-masthead h1 {
+  font-family: Georgia, serif;
+  font-size: 42px;
+  font-weight: normal;
+  letter-spacing: -1.4px;
+  margin: 0;
+  line-height: 1.1;
+}
+.gg-masthead p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  color: #e0c6c2;
+}
+.gg-masthead .gg-eyebrow {
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  color: #dcb879;
+  margin-bottom: 6px;
+}
+.gg-brandmark {
+  font-size: 66px;
+  color: #d4ba7a;
+  line-height: 1;
+}
+.gg-masthead-art {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: -1;
+  opacity: 0.35;
+  mask-image: linear-gradient(90deg, transparent, #000);
+}
+.gg-masthead-art svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.gg-table-meta {
+  margin-left: auto;
+  align-self: flex-start;
+  text-align: right;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  z-index: 1;
+}
+.gg-table-meta small {
+  display: block;
+  letter-spacing: 0.2px;
+  color: #eadac0;
+  margin: 8px 0;
+}
+.gg-table-meta a {
+  display: inline-block;
+  color: #f4dfaf;
+  text-decoration: none;
+  border-bottom: 1px solid #a29d77;
+  padding-bottom: 2px;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.gg-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 256px;
+  gap: 22px;
+  padding: 22px;
+}
+.gg-board {
+  min-width: 0;
+}
+.gg-status {
+  background: #faf9f2;
+  border: 1px solid #d8ded2;
+  border-radius: 6px;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+}
+.gg-turn-dot {
+  height: 9px;
+  width: 9px;
+  flex: none;
+  border-radius: 100%;
+  background: #408778;
+  box-shadow: 0 0 0 5px #e4eee2;
+}
+.gg-status strong {
+  font-family: Georgia, serif;
+  font-size: 19px;
+}
+.gg-status p {
+  font-size: 11px;
+  margin: 3px 0 0;
+  color: #6a7770;
+}
+.gg-phase-track {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+  font-size: 9px;
+  text-transform: capitalize;
+  color: #909990;
+}
+.gg-phase-track span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.gg-phase-track b {
+  font-size: 10px;
+  border: 1px solid #c8d0c5;
+  border-radius: 100%;
+  width: 21px;
+  height: 21px;
+  text-align: center;
+  line-height: 19px;
+  font-weight: 500;
+}
+.gg-phase-track .current {
+  color: #215f5b;
+}
+.gg-phase-track .current b {
+  background: #28655f;
+  color: #fff;
+  border-color: #28655f;
+}
+.gg-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 19px 0 10px;
+}
+.gg-section-title h2 {
+  font-family: Georgia, serif;
+  font-size: 18px;
+  font-weight: normal;
+  margin: 0;
+}
+.gg-section-title > span {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: #738076;
+}
+.gg-section-title i {
+  font-style: normal;
+  color: #bd9c63;
+  margin: 0 6px;
+}
+.gg-market {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.gg-game .gg-card {
+  --card-edge: #8da69c;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--card-edge);
+  padding: 0;
+  background: #faf6e9;
+  border-radius: 6px;
+  text-align: left;
+  color: #29464a;
+  box-shadow:
+    0 2px 0 #c3c6b8,
+    0 4px 7px #203f4310;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+  line-height: 1.3;
+  width: 100%;
+}
+.gg-game .gg-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 5px 13px #294d452a;
+  z-index: 1;
+}
+.gg-game .gg-card:focus-visible {
+  outline: 3px solid #ae843a;
+  outline-offset: 3px;
+}
+.gg-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 7px;
+  background: #f8f3e3;
+  gap: 2px;
+  min-height: 29px;
+}
+.gg-card-head strong {
+  font:
+    600 12px Georgia,
+    serif;
+  white-space: nowrap;
+}
+.gg-coin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #b59652;
+  border-radius: 50%;
+  background: #f1dfaf;
+  color: #705827;
+  font:
+    bold 11px Georgia,
+    serif;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  box-shadow: inset 0 0 0 2px #f8eccb;
+}
+.gg-art {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.gg-card > .gg-art {
+  aspect-ratio: 1.85;
+  object-fit: cover;
+  border-block: 1px solid #87968b55;
+}
+.gg-card-copy {
+  padding: 7px 8px 5px;
+  flex: 1;
+  min-height: 61px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.gg-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #e5eadb;
+  color: #4c6659;
+  padding: 5px 7px;
+  border-top: 1px solid #d4dcc8;
+}
+.gg-card-foot > span {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.gg-game .gg-treasure {
+  --card-edge: #bba770;
+}
+.gg-treasure .gg-card-foot {
+  background: #eddfb9;
+  color: #756335;
+}
+.gg-game .gg-victory {
+  --card-edge: #8aa17c;
+}
+.gg-victory .gg-card-foot {
+  background: #dce5c9;
+}
+.gg-game .gg-curse {
+  --card-edge: #a395b2;
+}
+.gg-curse .gg-card-foot {
+  background: #e4dce7;
+  color: #705777;
+}
+.gg-game .gg-available {
+  outline: 2px solid #56988a;
+  outline-offset: 2px;
+}
+.gg-game .gg-empty {
+  filter: grayscale(0.8);
+  opacity: 0.55;
+}
+.gg-base {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+.gg-base .gg-card-head {
+  padding: 5px;
+}
+.gg-base .gg-card-head strong {
+  font-size: 11px;
+}
+.gg-base .gg-card-copy {
+  min-height: 34px;
+  font-size: 9px;
+  padding: 5px;
+}
+.gg-base .gg-card-foot {
+  font-size: 7px;
+  padding: 4px;
+}
+.gg-base .gg-card > .gg-art {
+  aspect-ratio: 1.7;
+}
+.gg-base-title > span {
+  letter-spacing: 0;
+}
+.gg-play-area {
+  margin-top: 18px;
+  border-block: 1px solid #d0d8cc;
+  padding-bottom: 12px;
+}
+.gg-play-area .gg-section-title {
+  margin-top: 12px;
+}
+.gg-played {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+}
+.gg-played p {
+  font:
+    italic 12px Georgia,
+    serif;
+  color: #819084;
+  margin: 0;
+}
+.gg-played button {
+  border: 1px solid #c7cfbe;
+  border-radius: 4px;
+  background: #f6f3e6;
+  color: #426058;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+.gg-played button span {
+  color: #b69b5d;
+  margin-right: 6px;
+}
+.gg-hand-section {
+  margin-top: 18px;
+  background: #f8f7ef;
+  border: 1px solid #d3dbcb;
+  border-radius: 8px;
+  padding: 16px;
+}
+.gg-hand-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.gg-hand-header h2 {
+  font:
+    20px Georgia,
+    serif;
+  margin: 0 0 4px;
+}
+.gg-hand-header > div > span {
+  font-size: 10px;
+  color: #7c887b;
+}
+.gg-resources {
+  display: flex;
+  gap: 15px;
+}
+.gg-resources > span {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  color: #718171;
+  font-size: 9px;
+}
+.gg-resources b {
+  font:
+    22px Georgia,
+    serif;
+  color: #3b655c;
+}
+.gg-resources .gg-money b {
+  color: #ae843a;
+}
+.gg-hand-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin: 18px 0;
+}
+.gg-hand {
+  display: flex;
+  gap: 9px;
+  flex: 1;
+  overflow-x: auto;
+  padding: 4px 3px 9px;
+  min-width: 0;
+}
+.gg-hand > .gg-card {
+  flex: 0 0 120px;
+}
+.gg-hand .gg-card-copy {
+  font-size: 9px;
+  min-height: 38px;
+}
+.gg-hand .gg-card-head strong {
+  font-size: 11px;
+}
+.gg-deck-stack,
+.gg-discard-stack {
+  flex: 0 0 68px;
+  min-height: 102px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  gap: 5px;
+  position: relative;
+}
+.gg-deck-stack {
+  color: #edddb6;
+  background: repeating-linear-gradient(45deg, #244e50, #244e50 5px, #2d5757 5px, #2d5757 6px);
+  border: 4px double #aaad89;
+  box-shadow:
+    3px 3px 0 #9aa798,
+    5px 5px 0 #d2d6bf;
+}
+.gg-deck-stack > span {
+  font-size: 25px;
+}
+.gg-deck-stack strong,
+.gg-discard-stack strong {
+  font:
+    22px Georgia,
+    serif;
+}
+.gg-deck-stack small,
+.gg-discard-stack small {
+  font-size: 7px;
+  letter-spacing: 1px;
+}
+.gg-discard-stack {
+  border: 1px dashed #aab9a1;
+  color: #87977b;
+  padding: 4px;
+  text-align: center;
+}
+.gg-discard-stack > span {
+  font:
+    10px Georgia,
+    serif;
+}
+.gg-controls {
+  border-top: 1px solid #e0e4d7;
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gg-controls > span {
+  font-size: 10px;
+  color: #788574;
+}
+.gg-controls > div {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.gg-game .gg-primary,
+.gg-game .gg-secondary {
+  font-size: 11px;
+  border-radius: 5px;
+  padding: 9px 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gg-game .gg-primary {
+  background: #28645e;
+  color: #f6f4df;
+  border: 1px solid #1f5752;
+  box-shadow: 0 2px 0 #174943;
+}
+.gg-game .gg-primary:hover {
+  background: #1e524d;
+}
+.gg-game .gg-secondary {
+  background: #f7f3e5;
+  border: 1px solid #bfc9b4;
+  color: #496458;
+}
+.gg-sidebar > .gg-section-title {
+  margin-top: 2px;
+  margin-bottom: 15px;
+}
+.gg-player {
+  background: #faf9f2;
+  border: 1px solid #d3dace;
+  border-radius: 7px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.gg-player-active {
+  border-color: #77a69a;
+  box-shadow: 0 0 0 1px #77a69a30;
+}
+.gg-player-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 11px;
+}
+.gg-avatar {
+  height: 34px;
+  width: 34px;
+  border-radius: 50%;
+  background: #d9e1cd;
+  color: #557465;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font:
+    18px Georgia,
+    serif;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.gg-avatar > * {
+  max-width: 100%;
+  max-height: 100%;
+}
+.gg-seat-1 {
+  background: #e5d4bb;
+  color: #aa7f52;
+}
+.gg-seat-2 {
+  background: #d9dce9;
+  color: #6b6c8a;
+}
+.gg-seat-3 {
+  background: #e5ced0;
+  color: #976965;
+}
+.gg-player-top > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+.gg-player-top strong {
+  display: block;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.gg-player-top strong small {
+  font-weight: normal;
+  color: #8c9688;
+}
+.gg-player-top > div > span {
+  font-size: 9px;
+  color: #85917e;
+  display: block;
+  margin-top: 3px;
+}
+.gg-score {
+  text-align: right;
+}
+.gg-score b {
+  font:
+    26px Georgia,
+    serif;
+  line-height: 1;
+}
+.gg-score > span {
+  font-size: 8px !important;
+  color: #8b947c !important;
+}
+.gg-player-stats {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid #e2e6da;
+  padding: 9px 11px;
+  font-size: 9px;
+  color: #7d8878;
+}
+.gg-player-stats b {
+  font-size: 11px;
+  color: #506d5d;
+  margin-right: 3px;
+}
+.gg-active-label {
+  background: #e7eee0;
+  color: #5e8270;
+  font-size: 8px;
+  letter-spacing: 1px;
+  padding: 5px 11px;
+}
+.gg-goal {
+  border: 1px solid #d8d8bf;
+  background: #f4f0df;
+  border-radius: 7px;
+  padding: 19px 16px;
+  margin-top: 22px;
+  text-align: center;
+}
+.gg-goal > span {
+  font-size: 25px;
+  color: #b79a55;
+}
+.gg-goal h3 {
+  font:
+    17px Georgia,
+    serif;
+  margin: 6px 0 9px;
+}
+.gg-goal p {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #7c806d;
+  margin: 0;
+}
+.gg-goal > div {
+  border-top: 1px solid #dfdbc5;
+  padding-top: 12px;
+  margin-top: 13px;
+  font-size: 10px;
+  color: #7e816b;
+}
+.gg-goal b {
+  font:
+    19px Georgia,
+    serif;
+  color: #637b61;
+  margin-right: 5px;
+}
+.gg-log {
+  padding: 4px 4px 0;
+}
+.gg-log h3 {
+  font:
+    17px Georgia,
+    serif;
+  margin: 22px 0 12px;
+}
+.gg-log p {
+  position: relative;
+  margin: 0;
+  padding: 0 0 13px 13px;
+  border-left: 1px solid #cbd5c5;
+  font-size: 10px;
+  color: #798574;
+  line-height: 1.5;
+}
+.gg-log p:before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  width: 5px;
+  height: 5px;
+  background: #a4b393;
+  border-radius: 50%;
+}
+.gg-log b {
+  color: #546e5a;
+  font-weight: 600;
+}
+.gg-trash {
+  font-size: 10px;
+  color: #7e8879;
+  border-top: 1px solid #d2dbca;
+  padding-top: 12px;
+  margin-top: 10px;
+}
+.gg-trash summary {
+  cursor: pointer;
+}
+.gg-muted {
+  color: #7f8a7a;
+  font-size: 12px;
+}
+.gg-error {
+  color: #a34238;
+  background: #fff0e6;
+  padding: 8px;
+  font-size: 12px;
+}
+.gg-hidden {
+  min-width: 90px;
+  height: 130px;
+  background: #2b5656;
+  color: #d8c392;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  border-radius: 5px;
+}
+.gg-hidden small {
+  font-size: 9px;
+}
+.gg-dialog {
+  color: #294b48;
+  border: 1px solid #9bac98;
+  border-radius: 10px;
+  background: #faf7eb;
+  padding: 30px;
+  max-width: min(540px, 92vw);
+  box-shadow: 0 25px 100px #122d3980;
+}
+.gg-dialog[open] {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 25px;
+  align-items: center;
+}
+.gg-dialog::backdrop {
+  background: #1636379c;
+  backdrop-filter: blur(3px);
+}
+.gg-dialog .gg-card-copy {
+  font-size: 12px;
+  min-height: 100px;
+}
+.gg-dialog .gg-card-head strong {
+  font-size: 16px;
+}
+.gg-dialog h2 {
+  font:
+    27px Georgia,
+    serif;
+}
+.gg-dialog p {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.gg-dialog .gg-eyebrow {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #92977b;
+}
+.gg-dialog-close {
+  position: absolute;
+  top: 5px;
+  right: 10px;
+  border: 0;
+  background: transparent;
+  color: #6d7c68;
+  font-size: 25px;
+}
+.gg-rules {
+  max-width: 1100px;
+  margin: auto;
+}
+.gg-rules h1,
+.gg-rules h2 {
+  font-family: Georgia, serif;
+  color: #315955;
+}
+.gg-rules-lede {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 40px;
+  align-items: center;
+  margin-bottom: 28px;
+}
+.gg-rules-lede .gg-art {
+  border-radius: 12px;
+}
+.gg-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.gg-rule-grid section {
+  padding: 22px;
+  background: #f2f2e9;
+  border: 1px solid #dce1d3;
+  border-radius: 8px;
+}
+.gg-rule-grid p {
+  font-size: 14px;
+}
+.gg-rules .gg-game {
+  padding: 20px;
+  margin-top: 25px;
+}
+.gg-rule-cards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+.game-tile:has(.gg-art) {
+  padding: 0;
+}
+.game-tile > .gg-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+@media (min-width: 1450px) {
+  .gg-layout {
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 26px;
+    padding: 26px;
+  }
+  .gg-card-head strong {
+    font-size: 14px;
+  }
+  .gg-card-copy {
+    font-size: 11px;
+    min-height: 64px;
+  }
+  .gg-card-foot {
+    font-size: 9px;
+  }
+  .gg-base .gg-card-head strong {
+    font-size: 12px;
+  }
+  .gg-hand > .gg-card {
+    flex-basis: 135px;
+  }
+}
+@media (max-width: 1100px) {
+  .gg-layout {
+    grid-template-columns: minmax(0, 1fr) 215px;
+    gap: 14px;
+    padding: 14px;
+  }
+  .gg-market {
+    gap: 8px;
+  }
+  .gg-card-head strong {
+    font-size: 10px;
+  }
+  .gg-card-copy {
+    font-size: 9px;
+    min-height: 66px;
+  }
+  .gg-base {
+    gap: 6px;
+  }
+  .gg-base .gg-card-head {
+    flex-direction: column;
+    gap: 3px;
+  }
+  .gg-base .gg-card-head strong {
+    font-size: 10px;
+  }
+  .gg-card-foot {
+    letter-spacing: 0;
+    font-size: 7px;
+  }
+  .gg-controls {
+    flex-wrap: wrap;
+  }
+  .gg-status {
+    padding: 12px;
+  }
+  .gg-phase-track {
+    gap: 7px;
+  }
+  .gg-section-title > span {
+    font-size: 8px;
+  }
+  .gg-player-top {
+    gap: 6px;
+    padding: 10px 8px;
+  }
+  .gg-score b {
+    font-size: 23px;
+  }
+  .gg-avatar {
+    height: 28px;
+    width: 28px;
+  }
+  .gg-base .gg-card-copy {
+    min-height: 40px;
+  }
+}
+@media (max-width: 800px) {
+  .gg-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gg-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .gg-sidebar > .gg-section-title,
+  .gg-goal,
+  .gg-log,
+  .gg-trash {
+    grid-column: 1 / -1;
+  }
+  .gg-sidebar .gg-player {
+    margin: 0;
+  }
+  .gg-goal {
+    margin-top: 0;
+  }
+  .gg-masthead {
+    padding: 22px;
+  }
+  .gg-masthead h1 {
+    font-size: 36px;
+  }
+  .gg-brandmark {
+    font-size: 50px;
+  }
+  .gg-rules-lede {
+    grid-template-columns: 1fr;
+  }
+  .gg-rules-lede > .gg-art {
+    display: none;
+  }
+  .gg-rule-grid {
+    grid-template-columns: 1fr;
+  }
+  .gg-rule-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .gg-masthead {
+    gap: 10px;
+    padding: 18px 14px;
+  }
+  .gg-masthead h1 {
+    font-size: 30px;
+  }
+  .gg-brandmark {
+    display: none;
+  }
+  .gg-masthead .gg-eyebrow {
+    font-size: 7px;
+  }
+  .gg-masthead p {
+    font-size: 10px;
+  }
+  .gg-table-meta {
+    font-size: 8px;
+    max-width: 82px;
+  }
+  .gg-table-meta small {
+    font-size: 9px;
+    line-height: 1.5;
+  }
+  .gg-layout {
+    padding: 10px;
+  }
+  .gg-status {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .gg-status > div:nth-child(2) {
+    width: calc(100% - 25px);
+  }
+  .gg-phase-track {
+    flex-direction: row;
+    margin-left: 20px;
+  }
+  .gg-phase-track span {
+    flex-direction: row;
+  }
+  .gg-section-title > span {
+    max-width: 45%;
+    text-align: right;
+    font-size: 7px;
+  }
+  .gg-market {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .gg-card-head strong {
+    font-size: 10px;
+  }
+  .gg-coin {
+    width: 17px;
+    height: 17px;
+    font-size: 10px;
+  }
+  .gg-card-copy {
+    font-size: 9px;
+    min-height: 76px;
+    padding: 6px;
+  }
+  .gg-card-foot {
+    font-size: 7px;
+    padding: 5px;
+  }
+  .gg-base {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .gg-hand-section {
+    padding: 12px;
+  }
+  .gg-hand-header h2 {
+    font-size: 18px;
+  }
+  .gg-resources {
+    gap: 10px;
+  }
+  .gg-resources b {
+    font-size: 20px;
+  }
+  .gg-hand-header > div > span {
+    font-size: 8px;
+  }
+  .gg-hand-row {
+    gap: 8px;
+  }
+  .gg-deck-stack,
+  .gg-discard-stack {
+    flex-basis: 39px;
+    min-height: 80px;
+  }
+  .gg-discard-stack > span {
+    font-size: 8px;
+  }
+  .gg-deck-stack small,
+  .gg-discard-stack small {
+    font-size: 6px;
+    letter-spacing: 0;
+  }
+  .gg-deck-stack > span {
+    font-size: 20px;
+  }
+  .gg-hand > .gg-card {
+    flex-basis: 112px;
+  }
+  .gg-controls > div {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .gg-sidebar {
+    gap: 8px;
+  }
+  .gg-player-top {
+    flex-wrap: wrap;
+  }
+  .gg-score {
+    width: 100%;
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding-left: 34px;
+  }
+  .gg-player-stats {
+    font-size: 8px;
+    padding: 8px;
+  }
+  .gg-player-top > div > span {
+    font-size: 8px;
+  }
+  .gg-dialog[open] {
+    grid-template-columns: 1fr;
+    max-width: 280px;
+    padding: 28px;
+    gap: 15px;
+  }
+  .gg-dialog .gg-card-copy {
+    min-height: 70px;
+  }
+  .gg-rule-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gg-game .gg-card {
+    transition: none;
+  }
+  .gg-game .gg-card:hover {
+    transform: none;
+  }
+}
+
+/* Theatre edition: brass rules, velvet accents, and a generous central playing surface. */
+.gg-masthead {
+  background: linear-gradient(115deg, #241e2a, #562638);
+  border-bottom: 3px solid #bd9658;
+}
+.gg-masthead h1 {
+  letter-spacing: -0.8px;
+}
+.gg-game {
+  border-radius: 8px;
+}
+.gg-card {
+  border-radius: 5px;
+}
+.gg-choices {
+  background: #fff7e6;
+  border: 1px solid #cdbb95;
+  padding: 16px;
+  margin: 16px 0;
+  border-radius: 6px;
+}
+.gg-choices h3 {
+  margin: 0 0 6px;
+  font-family: Georgia, serif;
+}
+.gg-choices p {
+  font-size: 12px;
+}
+.gg-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gg-peek {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.gg-peek .gg-card {
+  max-width: 175px;
+}
+.gg-kingdom-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 0;
+}
+.gg-kingdom-picker label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gg-rules-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 20px 0;
+}
+.gg-rules .gg-rule-cards {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.gg-player-discard {
+  font-size: 11px;
+  margin: 10px 0 0;
+  color: #6b5558;
+}
+.gg-player-discard button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 5px;
+  color: inherit;
+}
+.gg-player-discard button:hover {
+  background: #ede0ca;
+}

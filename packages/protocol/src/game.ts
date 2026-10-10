@@ -45,7 +45,7 @@ export type MoveContent =
   | { type: 'action'; action: unknown; reveals: PosShare[]; shares: PosShare[] };
 
 /** An epoch proof is shorter than the opening deck. The session checks it against the pending pile. */
-const MAX_EPOCH_CARDS = 108;
+const MAX_EPOCH_CARDS = 512;
 
 export interface MoveSpec {
   rootId: Hex;

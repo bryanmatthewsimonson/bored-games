@@ -1,3 +1,6 @@
+import { GiltAndGuileGame } from './gilt-and-guile/game.tsx';
+import { GILT_AND_GUILE_META } from './gilt-and-guile/meta.ts';
+import { GiltAndGuileRulesPage } from './gilt-and-guile/rules-page.tsx';
 /*
  * The web game registry (D045): every game the app hosts, with its names, its in-game component, its rules page
  * and its setup copy. The platform screens dispatch through it and import no game directly. Adding a game: add
@@ -115,6 +118,16 @@ export const GAMES: readonly WebGame[] = [
       shuffling: 'Mixing the letter tiles',
       dealing: 'Drawing for the opening turn…',
       share: { act: 'reveal a tile', owed: 'a tile reveal' },
+    }),
+  },
+  {
+    ...GILT_AND_GUILE_META,
+    Component: GiltAndGuileGame,
+    RulesPage: GiltAndGuileRulesPage,
+    setupCopy: () => ({
+      shuffling: 'Shuffling the company decks',
+      dealing: 'Preparing the first performance…',
+      share: { act: 'deliver a card', owed: 'a card contribution' },
     }),
   },
 ];

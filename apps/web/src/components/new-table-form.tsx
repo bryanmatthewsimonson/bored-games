@@ -1,5 +1,7 @@
 import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
+import { CARDS, INTRO, KINGDOM, type Kind, PRESETS } from '@bored-games/gilt-and-guile';
+import { CARD_NAMES } from '@bored-games/gilt-and-guile/theme';
 import {
   GEM_RULES,
   DEFAULT_RULES as LUSTER_DEFAULT_RULES,
@@ -45,6 +47,7 @@ export function NewTableForm(props: { game: string }) {
   const [rounds, setRounds] = useState<(typeof ROUND_CHOICES)[number]>(DEFAULT_RULES.rounds);
   const [banking, setBanking] = useState<(typeof BANKING_CHOICES)[number]>(DEFAULT_RULES.banking);
   const [gems, setGems] = useState<LusterGemRule>(LUSTER_DEFAULT_RULES.gems ?? 'published');
+  const [kingdom, setKingdom] = useState<Kind[]>([...INTRO]);
   const [windfall, setWindfall] = useState<'available' | 'two'>('available');
   const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   useEffect(() => {
@@ -52,6 +55,7 @@ export function NewTableForm(props: { game: string }) {
     setBanking(DEFAULT_RULES.banking);
     setGems(LUSTER_DEFAULT_RULES.gems ?? 'published');
     setWindfall('available');
+    setKingdom([...INTRO]);
     setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
@@ -91,6 +95,13 @@ export function NewTableForm(props: { game: string }) {
     setError('');
     try {
       const spec = { seats, deadline, invited: check.invited, game };
+      if (game === 'gilt-and-guile') {
+        if (kingdom.length !== 10) throw new Error('Select exactly ten company cards.');
+        const address = await lobby.createTable({ ...spec, rules: { kingdom } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
       if (game === 'driftwrights') {
         const address = await lobby.createTable({ ...spec, rules: { layout: 'classic', windfall } });
         const a = splitAddress(address);
@@ -173,6 +184,56 @@ export function NewTableForm(props: { game: string }) {
         </div>
         <p class="hint">After this long, the others can skip a player who has not moved.</p>
       </fieldset>
+
+      {game === 'gilt-and-guile' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Company supply · {kingdom.length} / 10 selected</legend>
+          <label for="gg-preset">Start with a curated set</label>
+          <select
+            id="gg-preset"
+            value={PRESETS.findIndex((p) => p.cards.join() === kingdom.join())}
+            onChange={(e) => {
+              const p = PRESETS[Number(e.currentTarget.value)];
+              if (p) setKingdom([...p.cards]);
+            }}
+          >
+            <option value="-1" disabled>
+              Custom company
+            </option>
+            {PRESETS.map((p, i) => (
+              <option key={p.name} value={i}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <details>
+            <summary>Customize from all 26 company cards</summary>
+            <div class="gg-kingdom-picker">
+              {KINGDOM.map((k) => (
+                <label key={k}>
+                  <input
+                    type="checkbox"
+                    checked={kingdom.includes(k)}
+                    onChange={(e) =>
+                      setKingdom(e.currentTarget.checked ? [...kingdom, k] : kingdom.filter((c) => c !== k))
+                    }
+                  />
+                  {CARD_NAMES[k]} · {CARDS[k].cost} coins
+                </label>
+              ))}
+            </div>
+          </details>
+          <p class="hint">
+            Choose exactly ten different piles. Seven funding and acclaim piles are always included.
+          </p>
+          {kingdom.length !== 10 && (
+            <p role="alert">
+              Select {kingdom.length < 10 ? 10 - kingdom.length : kingdom.length - 10}{' '}
+              {kingdom.length < 10 ? 'more' : 'fewer'} cards.
+            </p>
+          )}
+        </fieldset>
+      )}
 
       {game === 'bank' && (
         <>
@@ -359,7 +420,11 @@ export function NewTableForm(props: { game: string }) {
         />
       ) : (
         <div class="row">
-          <button type="submit" class="btn btn-primary" disabled={!check.ok || busy}>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            disabled={!check.ok || busy || (game === 'gilt-and-guile' && kingdom.length !== 10)}
+          >
             {busy ? 'Creating…' : 'Create table'}
           </button>
         </div>

@@ -3,6 +3,8 @@ import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { driftwrights } from '@bored-games/driftwrights';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
+import { packetOrder } from '@bored-games/game-kit';
+import { giltAndGuile } from '@bored-games/gilt-and-guile';
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import { quillAndQuarry } from '@bored-games/quill-and-quarry';
@@ -16,6 +18,7 @@ import {
 } from './chain-reaction.ts';
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
+import { GILT_AND_GUILE_POLICIES } from './gilt-and-guile.ts';
 import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
 import { LUSTER_EXPECTED_COVERAGE, LUSTER_POLICIES, lusterDeckOrder } from './luster.ts';
 import { QUILL_POLICIES } from './quill-and-quarry.ts';
@@ -51,6 +54,13 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     module: quillAndQuarry,
     policies: QUILL_POLICIES,
     expectedCoverage: ['move:placed', 'move:exchanged', 'move:judged', 'move:scored'],
+    defaultSeatCounts: [2, 3, 4],
+  },
+  'gilt-and-guile': {
+    module: giltAndGuile,
+    policies: GILT_AND_GUILE_POLICIES,
+    deckOrder: packetOrder,
+    expectedCoverage: ['end:supply'],
     defaultSeatCounts: [2, 3, 4],
   },
   driftwrights: {

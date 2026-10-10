@@ -9,6 +9,8 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
+import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
 import { COMPARE_PHRASE as HOLLER_PHRASE } from '../packages/games/holler/src/compare.ts';
 import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
@@ -372,6 +374,16 @@ describe('branding', () => {
         // An everyday word, restricted only as the exact-case whole words `Clue` and `CLUE` (D074).
         exactCase: true,
       },
+      {
+        game: 'gilt-and-guile',
+        home: 'packages/games/gilt-and-guile/src/compare.ts',
+        phrase: 'Compare to Dominion',
+        compare: GILT_COMPARE,
+        entry: GILT_AND_GUILE_CATALOG,
+        bggId: 36218,
+        companies: ['Rio Grande Games', 'Donald X. Vaccarino'],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -381,6 +393,7 @@ describe('branding', () => {
         'Compare to Splendor',
         'Compare to Ticket to Ride',
         'Compare to Clue',
+        'Compare to Dominion',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

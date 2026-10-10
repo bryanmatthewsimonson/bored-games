@@ -7,6 +7,7 @@
  * scanner the guards use, which removes only the exact phrase.
  */
 import { COMPARE_PHRASE } from '@bored-games/chain-reaction/compare';
+import { COMPARE_PHRASE as GILT_COMPARE_PHRASE } from '@bored-games/gilt-and-guile/compare';
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '@bored-games/right-of-way/compare';
 import { COMPARE_PHRASE as ROOM_FOR_DOUBT_COMPARE_PHRASE } from '@bored-games/room-for-doubt/compare';
@@ -48,6 +49,11 @@ describe('the rendered public pages', () => {
         textOf(h(GameFacts, { entry: item.entry })),
       ]),
     ];
+    const gilt = items.find((i) => i.entry.id === 'gilt-and-guile');
+    if (!gilt) throw Error('Missing theatre game');
+    const giltPage = textOf(h(GameFacts, { entry: gilt.entry }));
+    expect(giltPage).toContain(GILT_COMPARE_PHRASE);
+    expect(giltPage).toContain('https://boardgamegeek.com/boardgame/36218');
     expect(strings.length).toBeGreaterThan(0);
     for (const text of pages) expect(findRestricted(text, strings)).toEqual([]);
     // The phrase is there, on the card and on the game page, and nothing restricted is left once it is removed.
@@ -92,12 +98,12 @@ describe('the rendered public pages', () => {
       expect(textOf(facts(id)), id).toContain(`https://boardgamegeek.com/boardgame/${bgg}`);
       expect(textOf(facts(id)), id).not.toContain('Compare to');
     }
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt'])
+    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt', 'gilt-and-guile'])
       expect(spokenText(renderTree(facts(id))), id).not.toContain('BoardGameGeek');
   });
 
   it('would catch either title rendered on its own', () => {
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt']) {
+    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt', 'gilt-and-guile']) {
       const game = catalogItems().find((i) => i.entry.id === id);
       const title = game?.entry.compareTo?.title ?? '';
       expect(title, id).not.toBe('');

@@ -264,8 +264,8 @@ describe('Move (7452)', () => {
     bad('an unknown type', { ...good, type: 'other' });
     bad('an epoch number of 0', { deck: good.deck, epoch: 0, proof: good.proof, type: 'epoch' });
     bad('an empty epoch deck', { deck: [], epoch: 1, proof: good.proof, type: 'epoch' });
-    bad('an epoch deck past 108', {
-      deck: Array.from({ length: 109 }, () => ['x', 'y']),
+    bad('an epoch deck past 512', {
+      deck: Array.from({ length: 513 }, () => ['x', 'y']),
       epoch: 1,
       proof: good.proof,
       type: 'epoch',
