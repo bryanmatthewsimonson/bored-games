@@ -20,7 +20,14 @@ describe('D052: every registered module with a deck pends public reveals only be
   it('covers every registered module with a deck, and exempts exactly those that never allow a Resign', () => {
     expect(deckModules.map((m) => m.id)).toContain('chain-reaction');
     const exempt = deckModules.filter((m) => resignSeatCounts(m).length === 0).map((m) => m.id);
-    expect(exempt).toEqual(['luster', 'right-of-way', 'driftwrights', 'room-for-doubt', 'quill-and-quarry']);
+    expect(exempt).toEqual([
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'room-for-doubt',
+      'quill-and-quarry',
+      'gilt-and-guile',
+    ]);
     for (const id of exempt) {
       const m = MODULES.get(id) as AnyModule;
       const { min, max } = m.seatRange(m.defaultRules());

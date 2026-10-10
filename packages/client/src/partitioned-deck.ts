@@ -32,7 +32,7 @@ export function deckPartitions(deck: DeckSpec | null): readonly DeckPartition[] 
   if (
     !Array.isArray(groups) ||
     groups.length === 0 ||
-    groups.length > 16 ||
+    groups.length > 64 ||
     new Set(groups.map((g) => g.id)).size !== groups.length ||
     groups.some(
       (g) => typeof g.id !== 'string' || g.id.length === 0 || !Number.isSafeInteger(g.size) || g.size <= 0,

@@ -29,6 +29,9 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const FIXED_NAMES: readonly string[] = [
+  'Dominion',
+  'Rio Grande Games',
+  'Donald X. Vaccarino',
   'Acquire',
   'Sackson',
   'Tower',
@@ -107,6 +110,7 @@ const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
 
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...['Rio Grande Games', 'Donald X. Vaccarino'].flatMap(nameForms),
   ...ROOM_FOR_DOUBT_REFERENCE.flatMap(nameForms),
 ];
 
@@ -137,6 +141,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/luster/src/compare.ts': 'Compare to Splendor',
   'packages/games/right-of-way/src/compare.ts': 'Compare to Ticket to Ride',
   'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
+  'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

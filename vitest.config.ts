@@ -13,6 +13,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'gilt-and-guile',
+          root: 'packages/games/gilt-and-guile',
+          testTimeout: 60000,
+          include: ['test/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'driftwrights',
           root: 'packages/games/driftwrights',
           include: ['test/**/*.test.ts'],

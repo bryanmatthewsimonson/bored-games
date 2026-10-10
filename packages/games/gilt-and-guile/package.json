@@ -1,0 +1,19 @@
+{
+  "name": "@bored-games/gilt-and-guile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.ts",
+    "./catalog": "./src/catalog.ts",
+    "./brand": "./src/theme.ts",
+    "./compare": "./src/compare.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@bored-games/game-kit": "workspace:*"
+  }
+}

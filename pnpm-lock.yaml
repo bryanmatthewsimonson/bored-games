@@ -29,6 +29,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@bored-games/gilt-and-guile':
+        specifier: workspace:*
+        version: link:../../packages/games/gilt-and-guile
       '@bored-games/bank':
         specifier: workspace:*
         version: link:../../packages/games/bank
@@ -175,6 +178,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/gilt-and-guile:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/luster:
     dependencies:
       '@bored-games/game-kit':
@@ -242,6 +251,9 @@ importers:
 
   tools/fuzz:
     dependencies:
+      '@bored-games/gilt-and-guile':
+        specifier: workspace:*
+        version: link:../../packages/games/gilt-and-guile
       '@bored-games/bank':
         specifier: workspace:*
         version: link:../../packages/games/bank
