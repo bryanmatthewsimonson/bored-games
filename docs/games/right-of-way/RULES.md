@@ -346,6 +346,10 @@ The game plays one encrypted deck, `rail` (580 cards), in groups that each seat 
 **Returned charters (D066).** A charter returned to the bottom may later be drawn by another player. Its position was first dealt to the returner, and every other seat published its share then, so only the returner's share is not public. The returner never publishes it while the charter is private. Instead it **seals** that share to the new holder (a Sealed event, kind 7458, PROTOCOL §4.10), who alone can open it and read the card. The returner still knows the card, exactly as at a real table, where they saw it before putting it back.
 
 ### Mid-turn reveals (owner decision, D066)
+The drawer's open app sends a forced sift automatically once the card is learned. If sending fails, the error
+stays visible and the app retries on its next 30-second tick. Two open devices of the same seat send the same
+event, dated at the preceding head, for both a keep and a skip (D066).
+
 Blind draws, refills, wipes and sifts reveal cards in the middle of a turn, so the other seats' open apps release their shares at once (`DeckSpec.promptShares`), the exception the owner made for Luster and, on 2026-10-06, for Right of Way. The same applies to sealed shares. The residual risk is Luster's: a seat that forks the chain after reading a released card is detected but not prevented (D050).
 
 **Laying track** reveals the paid cards drawn blind: the actor attaches its own shares, and the session checks them at once. **Final scoring** reveals every held charter publicly; every seat's app sends its share. **Resign (D052)** is disabled, as Luster's is, until public reveals during play have their own Resign review.

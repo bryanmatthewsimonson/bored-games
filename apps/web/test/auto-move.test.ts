@@ -1,5 +1,5 @@
 /*
- * A game's automatic move (opt-in; Room for Doubt's lone none, D078 ruling 7 as amended), through real controllers
+ * A game's automatic move (opt-in; Right of Way's forced sift and Room for Doubt's lone none), through real controllers
  * over the dev relay. The controller sends what the game's hook picks from the seat's legal actions as soon as the
  * decision is the seat's, at most once per head; one that fails is tried again on the next tick, never in a loop.
  * A game with no hook sends nothing by itself, and two open devices of one seat send one event between them. Chess
@@ -8,6 +8,7 @@
  */
 import { KIND, type NostrEvent } from '@bored-games/protocol';
 import type { EoseInfo } from '@bored-games/relay';
+import { type RowState, rightOfWay } from '@bored-games/right-of-way';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers, type Timers } from '../src/clock.ts';
 import { type AutoMove, GameController } from '../src/game-controller.ts';
@@ -100,7 +101,174 @@ async function chess(autoMove: ((game: string) => AutoMove | undefined) | undefi
   return { w, b, net };
 }
 
+/**
+ * A focused Right of Way fixture at a reshuffled blind draw, using the real engine and encrypted card shares.
+ * Singleton spare partitions fix the sift cards; only the first 113 positions are needed here. Card 110 is a keep,
+ * 111 a skip, with one discard in the reshuffle. The skip deals position 112, so the next card can be learned too.
+ * Conservation and full packet shuffles are covered by the engine/session tests and the full-game e2e.
+ */
+async function rightOfWaySift(card: 110 | 111) {
+  const module = {
+    ...rightOfWay,
+    decks: () => [
+      {
+        id: 'rail',
+        size: 113,
+        promptShares: true,
+        partitions: [
+          ...Array.from({ length: 11 }, (_, i) => ({ id: `freight-${i}`, size: 10 })),
+          ...[110, 111, 112].map((i) => ({ id: `card-${i}`, size: 1 })),
+        ],
+      },
+    ],
+    setup: (input: Parameters<typeof rightOfWay.setup>[0]) => {
+      const result = rightOfWay.setup({
+        rules: input.rules,
+        seats: input.seats,
+        mode: 'view',
+        viewer: input.mode === 'view' ? input.viewer : null,
+      });
+      if (!result.ok) return result;
+      return {
+        ok: true as const,
+        value: {
+          ...result.value,
+          dealt: [{ deck: 'rail', pos: card, to: 0 }],
+          yard: [null, null, null, null, null],
+          want: [],
+          players: result.value.players.map((p) => ({ ...p, hand: [], offered: [] })),
+          charterPile: [],
+          startingSeat: 0,
+          turn: 0,
+          phase: 'sift' as const,
+          kept: 2,
+          drawn: 1,
+          sift: { pos: card, card: null },
+          pile: { group: 1, next: card + 1, members: 1, found: 0 },
+          epochs: [{ group: 1, list: [0] }],
+        },
+      };
+    },
+  };
+  const profiles = [h.profile('a'), h.profile('b')] as const;
+  for (const p of profiles) p.deps.modules = new Map([[module.id, module]]);
+  const game = await h.start2('right-of-way', profiles[0], profiles[1]);
+  // Finish the automatic shuffle/deal/share duties before attaching the held check or the two slow devices.
+  const controllers = game.bySeat.map((p) => h.game(game.rootId, { ...p.deps, timers: NO_TICKS }));
+  await waitFor('the learned forced sift', () => controllers[0]?.legal.value.length === 1, 30_000);
+  await waitFor('both seats in play', () => controllers.every((c) => c.view.value?.phase === 'play'));
+  const head = controllers[0]?.view.value?.head;
+  if (head === undefined) throw new Error('the drawer has no head');
+  for (const c of controllers) c.dispose();
+  // Exercise the registry hook on the fixture's first sift only; a skip leaves another forced sift at seq 1.
+  const autoMove = (id: string): AutoMove | undefined => {
+    const pick = webGame(id)?.autoMove;
+    return (
+      pick && ((legal, state, seat) => ((state as RowState).seq === 0 ? pick(legal, state, seat) : null))
+    );
+  };
+  return { ...game, autoMove, head };
+}
+
 describe('GameController automatic moves (opt-in)', () => {
+  it('retries a Right of Way forced sift only on the next tick after a failed send', async () => {
+    const { rootId, bySeat, autoMove, head } = await rightOfWaySift(110);
+    const [drawer, other] = bySeat;
+    const net = heldChecks(drawer.deps.pool);
+    net.hold = true;
+    const d = new GameController(rootId, { ...drawer.deps, pool: net.pool, timers: NO_TICKS }, { autoMove });
+    const o = new GameController(rootId, { ...other.deps, timers: NO_TICKS });
+    for (const c of [d, o]) {
+      h.later(() => c.dispose());
+      c.start();
+    }
+    await waitFor('the forced sift', () => d.status.value === 'your-turn' && d.legal.value.length === 1);
+    expect(d.legal.value).toEqual([{ type: 'sift', actor: 0, card: null }]);
+    await waitFor('the failed sift', () => d.error.value?.includes('not every relay has answered'), 5000);
+    expect(d.view.value?.head).toEqual(head);
+    await pause(1500);
+    expect(net.checks).toBe(1);
+    net.hold = false;
+    // Even after the relay recovers, a refresh must not retry before tick().
+    await pause(500);
+    expect(net.checks).toBe(1);
+    d.tick();
+    await waitFor('the retried sift at both seats', () =>
+      [d, o].every((c) => c.view.value?.head.seq === head.seq + 1),
+    );
+    expect(net.checks).toBe(2);
+    expect(d.error.value).toBeNull();
+    d.tick();
+    await pause(500);
+    expect(net.checks).toBe(2);
+  }, 60_000);
+
+  it.each([110, 111] as const)(
+    'two devices send one Right of Way forced sift event for card %s, with clocks a second apart',
+    async (card) => {
+      const { rootId, address, bySeat, autoMove, head } = await rightOfWaySift(card);
+      const [drawer, other] = bySeat;
+      // Load both devices before releasing the automatic move, as White's e4 does in the Chess test below.
+      let armed = false;
+      const lookup = (id: string): AutoMove | undefined => {
+        const pick = autoMove(id);
+        return pick && ((legal, state, seat) => (armed ? pick(legal, state, seat) : null));
+      };
+      const phoneNet = slowUploads(drawer.deps.pool, 300);
+      const phone = new GameController(
+        rootId,
+        { ...drawer.deps, pool: phoneNet.pool, timers: NO_TICKS },
+        { autoMove: lookup },
+      );
+      const second = h.secondDevice(drawer, address);
+      const tabletNet = slowUploads(second.deps.pool, 300);
+      const tablet = new GameController(
+        rootId,
+        {
+          ...second.deps,
+          modules: drawer.deps.modules,
+          pool: tabletNet.pool,
+          now: () => second.deps.now() + 1,
+          timers: NO_TICKS,
+        },
+        { autoMove: lookup },
+      );
+      const o = new GameController(rootId, { ...other.deps, timers: NO_TICKS });
+      for (const c of [phone, tablet, o]) {
+        h.later(() => c.dispose());
+        c.start();
+      }
+      await waitFor('every device loaded the sift', () =>
+        [phone, tablet].every((c) => c.status.value === 'your-turn' && c.legal.value.length === 1),
+      );
+      armed = true;
+      phone.tick();
+      tablet.tick();
+      await waitFor(
+        'a sift from each device',
+        () => phoneNet.moves.length > 0 && tabletNet.moves.length > 0,
+        5000,
+      );
+      expect(tabletNet.moves).toEqual(phoneNet.moves);
+      await waitFor('the sift at every device', () =>
+        [phone, tablet, o].every((c) => c.view.value?.head.seq === head.seq + 1),
+      );
+      const events = await h.query([{ kinds: [KIND.move], '#e': [rootId] }]);
+      const sift = events.find((ev) => ev.id === phoneNet.moves[0]);
+      const parent = (await h.query([{ ids: [head.id] }]))[0];
+      if (sift === undefined || parent === undefined) throw new Error('the sift or its parent is missing');
+      expect(sift.created_at).toBe(parent.created_at);
+      expect(JSON.parse(sift.content).action).toEqual({
+        type: 'sift',
+        actor: 0,
+        card: card === 110 ? null : card,
+      });
+      await pause(1000);
+      for (const c of [phone, tablet, o]) expect(c.view.value?.equivocators).toEqual([]);
+    },
+    60_000,
+  );
+
   it('sends the move at once, and after a failed send tries again on the next tick, never before it', async () => {
     const { w, b, net } = await chess((game) => (game === 'chess' ? playE4 : undefined));
     // Not every relay answers the check before signing: the first send fails, as `act` does for a player.
