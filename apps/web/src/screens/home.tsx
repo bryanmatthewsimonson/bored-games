@@ -96,7 +96,9 @@ export function HomeScreen() {
   return (
     <div class="home stack">
       <section class="panel hero" aria-labelledby="home-title">
-        <h1 id="home-title">{BRAND.name}</h1>
+        <h1 id="home-title">
+          <img class="home-logo" src="./branding/logo.png" alt={BRAND.name} width="1154" height="676" />
+        </h1>
         <p class="lede">{BRAND.tagline}</p>
       </section>
 

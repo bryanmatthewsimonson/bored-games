@@ -1,5 +1,5 @@
 /*
- * Holler's cards, inline SVG (D083). A colored card is its color edge to edge, with a white shout burst in the
+ * Holler's cards, inline SVG (D085). A colored card is its color edge to edge, with a white shout burst in the
  * middle holding the number or the action, and the index in two corners. Mark and Levy are ink cards with a
  * four-color wheel. All art is original: the burst, the action marks and the back are drawn for Holler.
  * `CardArt` is one 250 × 350 face as an SVG group, so other art (the cover) can place cards too.

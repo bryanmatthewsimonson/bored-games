@@ -1,5 +1,5 @@
 /*
- * Holler's cover: a fan of the game's own cards (`CardArt`) over rays in the four colors. Original art (D083).
+ * Holler's cover: a fan of the game's own cards (`CardArt`) over rays in the four colors. Original art (D085).
  * Drawn 600 × 360 with the fan in the middle 360, so the square catalog tile crops it.
  */
 import { actionCard, numberCard } from '@bored-games/holler';

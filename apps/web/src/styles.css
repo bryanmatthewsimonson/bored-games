@@ -127,6 +127,12 @@ code {
   text-decoration: none;
 }
 
+.brand-logo {
+  display: block;
+  width: 144px;
+  height: auto;
+}
+
 .header-end {
   display: flex;
   flex-wrap: wrap;
@@ -466,6 +472,12 @@ a.btn {
 .hero .lede {
   margin: 0 0 4px;
   font-size: 1.1rem;
+}
+
+.home-logo {
+  display: block;
+  width: min(100%, 360px);
+  height: auto;
 }
 
 .hero p {
@@ -1322,6 +1334,11 @@ input[type="search"] {
 
 .rules-cover-square {
   max-width: 420px;
+}
+
+.drift-cover-art {
+  overflow: hidden;
+  border-radius: inherit;
 }
 
 /* Game page */

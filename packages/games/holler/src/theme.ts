@@ -1,6 +1,6 @@
 /**
  * User-facing names for Holler. Engine code never imports this file.
- * A card's suit is shown only as its color: four bright colors and a name for each (owner, D083).
+ * A card's suit is shown only as its color: four bright colors and a name for each (owner, D085).
  */
 export const HOLLER_THEME = {
   title: 'Holler',

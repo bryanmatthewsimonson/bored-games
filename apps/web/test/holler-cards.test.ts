@@ -1,5 +1,5 @@
 /*
- * Holler faces and names, without a browser (D083). A suit is shown as a color with its name; a colored card is
+ * Holler faces and names, without a browser (D085). A suit is shown as a color with its name; a colored card is
  * that color, and Mark and Levy are ink cards with the four-color wheel.
  */
 import { actionCard, numberCard } from '@bored-games/holler';

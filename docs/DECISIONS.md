@@ -1290,7 +1290,11 @@ The owner requested keyboard focus repairs for Right of Way and Driftwrights and
 
 - **Pre-merge integration (2026-10-11):** integrated `main` at `cb0023b`, preserving Gilt & Guile's comparison and branding checks. Renumbered this decision to D081 because D080 is already assigned on main. The complete `VITEST_MAX_WORKERS=2 pnpm check` passed on the combined branch (185 files, 2,524 tests passed, 40 optional tests skipped). The four targeted browser cases above cover the unchanged focus implementation and regression assertions. The existing CI-gated Pages workflow publishes the release.
 
-## D082: Cover art and catalog thumbnails for six games (owner request, 2026-10-11)
+## D082: LoLGamerLand name and original Driftwrights thumbnail (2026-10-11)
+
+The owner supplied LoLGamerLand branding and requested a Driftwrights thumbnail based on the existing art. Use the owner's platform name in the shared brand package, browser metadata and web manifest. Reuse the timber island from the original board atlas in both thumbnail sizes, without adding another raster asset or loading the game engine. Preserve the existing player storage keys and game names. The header/home logo and home-screen icons are extracted from the exact owner-provided image; Android maskable icons receive a separate padded variant so launchers can apply their own masks. See `apps/web/public/branding/README.md` for the image source and extraction dimensions.
+
+## D084: Cover art and catalog thumbnails for six games (owner request, 2026-10-11)
 
 The owner asked for game thumbnails and art for Room for Doubt, Chain Reaction, Luster, Bank, Chess and Right of Way, ideally based on existing artwork. Before this, only Quill & Quarry and Gilt & Guile had a picture in their catalog tile; the others showed generated initials.
 
@@ -1298,11 +1302,11 @@ The owner asked for game thumbnails and art for Room for Doubt, Chain Reaction, 
 - **Existing art reused:** Room for Doubt and Right of Way use their CC0 covers in `docs/games/<id>/art/`. Each gets a textless square `thumb.svg` there. Room for Doubt's comes from the generator (`renderThumb` in `scripts/room-for-doubt/art/cover.ts`, the same scene as the cover, checked by the art test). Right of Way's is the cover cropped round the train, without the title plaque or the box facts.
 - **New covers, built from the game's own art:** Luster draws the gem icons (`GemFace`, factored out of `GemIcon`) over the mountain night of its card landscapes. Chain Reaction uses the safe pack's chain colors and letters (never a licensed pack's) for a skyline of buildings and a tile row meeting at a merge tile. Bank shows the in-game dice faces (`pips`, `bank.css` colors) on baize before a pillared bank. Chess uses the Cburnett king and knight the board already uses (BSD-3-Clause, credited per D048) on a board in perspective. All new drawing is original and holds no restricted name.
 
-## D083: Holler shows colors, not suits; new card art and table (owner request, 2026-10-11)
+## D085: Holler shows colors, not suits; new card art and table (owner request, 2026-10-11)
 
 The owner found Holler's cards hard to use: they looked like face cards, with named suits (Notch, Tide, Seed, Kiln) drawn as a column of patterns. The owner asked for no suits, cards as colorful as the reference game's, and original art. The mechanics stay exactly as in D072.
 
 - **Colors, not suits.** The engine keeps its four suits; the screen shows each one only as a color with a plain name: Red, Yellow, Green, Blue (`HOLLER_THEME.colors`). The patterns and pattern words are gone, so this replaces D072's "hue is never the only signal". Every card, button and the color in play still has a text name for screen readers ("Blue 7", "Blue"), and a 6 and a 9 are underlined. RULES.md keeps the word suit, with a note that the screen says color.
 - **Card art** (`apps/web/src/games/holler/cards.tsx`): a colored card is its color edge to edge inside a white edge, with a white shout burst holding a large number or action mark, and the index in two corners. The action marks are drawn for Holler: a no-entry sign (Halt), two chasing arrows (Swing), two stacked cards and a 2 (Pull). Mark is an ink card with a four-color wheel; Levy fans four colored cards under a 4. The back is ink with a red burst and the title. There is no tilted oval and no copied mark.
 - **Table:** the play area is green felt with larger pile and discard, a pile count, a chip and name for the color in play, and playable cards raised and outlined. A Mark or a Levy offers four colored buttons.
-- **Cover:** a fan of the cards over rays in the four colors, in the catalog tile and on the rules page (D082's registry).
+- **Cover:** a fan of the cards over rays in the four colors, in the catalog tile and on the rules page (D084's registry).
