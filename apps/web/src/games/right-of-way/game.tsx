@@ -1,6 +1,6 @@
 /*
  * The Right of Way game screen: the board, the yard and piles, the viewer's hand and charters, and every
- * player's track and score. Moves are sent only from the legal list; a forced sift is sent automatically.
+ * player's track and score. Moves are sent only from the legal list; the controller sends a forced sift.
  */
 import {
   CHARTER_OFFSET,
@@ -12,7 +12,7 @@ import {
   type RowState,
 } from '@bored-games/right-of-way';
 import { RIGHT_OF_WAY_THEME } from '@bored-games/right-of-way/theme';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { rulesHref } from '../../router.ts';
 import type { GameViewProps } from '../types.ts';
@@ -41,7 +41,6 @@ export function RightOfWayGame(props: GameViewProps) {
   const [picked, setPicked] = useState<string | null>(null);
   const [keep, setKeep] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const sifted = useRef<string | null>(null);
   const enabled = props.canAct && !props.busy;
 
   const send = async (a: RowAction): Promise<void> => {
@@ -54,16 +53,6 @@ export function RightOfWayGame(props: GameViewProps) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
-
-  // A reshuffled card drawn blind has exactly one legal answer (keep or skip): send it for the player.
-  const forcedSift = legal.length === 1 && legal[0]?.type === 'sift' ? legal[0] : null;
-  useEffect(() => {
-    if (forcedSift === null || !enabled) return;
-    const key = `${props.view.head.id}`;
-    if (sifted.current === key) return;
-    sifted.current = key;
-    void send(forcedSift);
-  });
 
   const claims = useMemo(() => claimsBySide(legal), [legal]);
   const claimable = useMemo(() => new Set(enabled ? claims.keys() : []), [claims, enabled]);
@@ -86,6 +75,7 @@ export function RightOfWayGame(props: GameViewProps) {
   const blind = legal.find((a) => a.type === 'blind');
   const drawCharters = legal.find((a) => a.type === 'charters');
   const pass = legal.find((a) => a.type === 'pass');
+  const forcedSift = legal.length === 1 && legal[0]?.type === 'sift' ? legal[0] : null;
   const options: Claim[] =
     picked === null ? [] : [...(claims.get(picked) ?? [])].sort((a, b) => enginesIn(s, a) - enginesIn(s, b));
   const pickedRoute = picked === null ? undefined : ROUTES[Number(picked.split(':')[0])];

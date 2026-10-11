@@ -1064,6 +1064,19 @@ The owner asked for "a trademark & copyright safe version of Ticket To Ride with
 - **Guards.** `tests/restricted-names.ts` now also restricts the reference title, its publisher and its designer in their common spellings, with a guard test. No shipped file named them before. `tests/catalog.test.ts` lists `right-of-way` in `SPEC_ONLY`. When the package exists, `src/compare.ts` gets the "Compare to" phrase and an `ALLOWED_PHRASE_HOMES` entry (D053, D060). The BoardGameGeek id (9209) is recalled and matches a secondary search; confirm it then.
 - **No new dependencies.**
 
+- **Automatic forced sift (2026-10-10 follow-up).** Right of Way's registry entry now returns only a lone `sift`
+  through `WebGame.autoMove`, using the controller path added by D078 ruling 7. The screen no longer sends it
+  from an effect or marks the head tried before signing. The controller tries once per head, shows a failed send
+  in `error`, and retries on the next 30 s tick, never in a loop. It dates the move at the head (D063), so clocks
+  a second apart agree. A skip also carries a card-share proof: head dating alone left two devices signing rival
+  events because that proof used fresh randomness. `GameSession.buildAction` therefore accepts an optional
+  per-statement card-share random source. For automatic moves only, the controller derives each stream from the
+  seat's game secrets, root, head, action and the full share statement (deck, position and ciphertext). Each
+  statement has its own stream, so a different position, ciphertext, action or list of owed shares cannot reuse
+  a proof nonce for another statement. Signatures and manual moves keep fresh randomness. No wire format or
+  engine rule changes. `apps/web/test/auto-move.test.ts` proves tick-only retry and matching event ids, head dates
+  and no equivocation for both keep and skip sifts over the dev relay, with two devices a second apart.
+
 ## D067: Right of Way built and released as beta (owner, 2026-10-06)
 The owner asked: "If the game is finished and ready to play, then merge and deploy. If it is not ready, finish it up and then do so." The spec of D066 needed a build. Two decisions were the owner's, asked and answered the same day:
 - **Prompt shares, like Luster (D050 exception).** Blind draws, refills, wipes and sifts reveal cards mid-turn, so Right of Way's deck sets `DeckSpec.promptShares`. It is the second module allowed to (web allowlist and repo guard updated), with Luster's residual risk: a seat that forks after reading a released card is detected, not prevented.

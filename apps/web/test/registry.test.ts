@@ -29,9 +29,24 @@ describe('game registry', () => {
     expect(pickerGames().map((g) => g.id)).toEqual([...GAME_IDS]);
   });
 
-  it('gives an automatic move only to Room for Doubt: every other game sends nothing by itself', () => {
-    // The controller sends a lone none for Room for Doubt (D078 ruling 7, amended); no other game opts in.
-    expect(GAMES.filter((g) => g.autoMove !== undefined).map((g) => g.id)).toEqual(['room-for-doubt']);
+  it('gives automatic moves only to Right of Way and Room for Doubt', () => {
+    expect(GAMES.filter((g) => g.autoMove !== undefined).map((g) => g.id)).toEqual([
+      'right-of-way',
+      'room-for-doubt',
+    ]);
+  });
+
+  it('Right of Way sends only a lone sift; every player choice waits', () => {
+    const auto = webGame('right-of-way')?.autoMove;
+    if (auto === undefined) throw new Error('Right of Way has no automatic move');
+    const keep = { type: 'sift', actor: 0, card: null };
+    const skip = { type: 'sift', actor: 0, card: 111 };
+    expect(auto([keep], null, 0)).toEqual(keep);
+    expect(auto([skip], null, 0)).toEqual(skip);
+    expect(auto([], null, 0)).toBeNull();
+    expect(auto([keep, skip], null, 0)).toBeNull();
+    expect(auto([{ type: 'blind', actor: 0 }], null, 0)).toBeNull();
+    expect(auto([{ type: 'pass', actor: 0 }], null, 0)).toBeNull();
   });
 
   it('takes titles from the themes', () => {

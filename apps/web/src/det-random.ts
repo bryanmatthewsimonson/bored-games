@@ -7,7 +7,8 @@
  *
  * Safety: every nonce drawn here is a PRF of secrets no one else holds and of a label that fixes the statement
  * proven, so a nonce is never reused for a different statement. Only builders whose statement the label fixes may
- * use it: never a player's decision, whose action (and the cards it reveals) the label does not cover.
+ * use it. A manual decision keeps fresh randomness. An automatic move's card share stream additionally names
+ * the action and the full share statement (root, deck, position and ciphertext), so changing either changes it.
  */
 import { sha256Hex } from '@bored-games/protocol';
 import { hexToBytes } from './hex.ts';

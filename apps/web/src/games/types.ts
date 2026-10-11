@@ -75,8 +75,8 @@ export interface WebGame extends GameMeta {
   setupCopy(hasDeck: boolean): SetupCopy | null;
   /**
    * The move the app sends for the player without a click, if the game has one (`AutoMove`): the game controller
-   * sends it once the decision is the seat's, and retries a failed send on its tick. Only Room for Doubt has one, a
-   * lone none (D078 ruling 7, amended); every other game leaves it out and sends nothing by itself.
+   * sends it once the decision is the seat's, and retries a failed send on its tick. Right of Way has a forced
+   * sift (D066), and Room for Doubt a lone none (D078 ruling 7, amended).
    */
   autoMove?: AutoMove;
 }

@@ -7,6 +7,7 @@ import { GiltAndGuileRulesPage } from './gilt-and-guile/rules-page.tsx';
  * its id to ids.ts, its module to MODULES (net.ts) and an entry here (a test checks that the three agree).
  */
 
+import type { RowAction } from '@bored-games/right-of-way';
 import type { RfdAction } from '@bored-games/room-for-doubt';
 import { BankGame } from './bank/game.tsx';
 import { BANK_META } from './bank/meta.ts';
@@ -79,6 +80,11 @@ export const GAMES: readonly WebGame[] = [
     ...RIGHT_OF_WAY_META,
     Component: RightOfWayGame,
     RulesPage: RightOfWayRulesPage,
+    // A reshuffled blind draw has exactly one answer: keep the discard or skip the spare card (D066).
+    autoMove: (legal) => {
+      const actions = legal as readonly RowAction[];
+      return actions.length === 1 && actions[0]?.type === 'sift' ? actions[0] : null;
+    },
     setupCopy: () => ({
       shuffling: 'Shuffling the freight, spare decks and charters',
       dealing: 'Dealing freight and charters…',

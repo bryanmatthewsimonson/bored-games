@@ -3537,10 +3537,19 @@ export class GameSession {
   }
 
   /** One decryption share of `pos` against the ciphertext that position holds now. */
-  private shareOf(me: Identity, pos: number, rnd: RandomBytes): PosShare {
+  private shareOf(
+    me: Identity,
+    pos: number,
+    rnd: RandomBytes,
+    shareRandom?: (statement: string) => RandomBytes,
+  ): PosShare {
     const ct = this.ciphertextAt(pos);
     if (ct === undefined) throw new ClientError(`position ${pos} has no ciphertext`);
-    return { pos, share: makeShare(me.deckSecret, ct, this.shareCtx(pos), rnd) };
+    const ctx = this.shareCtx(pos);
+    // A separate stream per statement prevents a changed share list from reusing a nonce for another position.
+    const proofRnd =
+      shareRandom?.(canonicalJson({ ...ctx, a: ct.a.toHex(true), b: ct.b.toHex(true) })) ?? rnd;
+    return { pos, share: makeShare(me.deckSecret, ct, ctx, proofRnd) };
   }
 
   /**
@@ -3560,8 +3569,15 @@ export class GameSession {
    * shares for the cards it shows (`revealsOf`), each sorted by position. A private show's marker goes out as the
    * show's wire, which names neither the position nor the card (D077). Throws `ClientError` unless a decision
    * is mine and the action is legal. Build it once per decision: a second move on the same prev is equivocation.
+   * `shareRandom`, when supplied for an automatic move, supplies a separate secret-keyed stream for each card
+   * share's canonical statement (root, deck, position and ciphertext). Other randomness still comes from `rnd`.
    */
-  buildAction(action: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
+  buildAction(
+    action: unknown,
+    rnd: RandomBytes,
+    createdAt: number,
+    shareRandom?: (statement: string) => RandomBytes,
+  ): NostrEvent {
     const me = this.requireDuty('decide');
     let wanted: string;
     try {
@@ -3575,14 +3591,20 @@ export class GameSession {
       if (intent?.ok) legal = intent.value;
     }
     if (legal === undefined) throw new ClientError('the action is not legal now');
-    return this.actionEvent(me, legal, rnd, createdAt);
+    return this.actionEvent(me, legal, rnd, createdAt, shareRandom);
   }
 
   /**
    * The signed move for `action`, with the shares that action owes. The caller has already checked the duty. A
    * private selection's move is its transfer, and a private show's marker becomes the show's wire (D077).
    */
-  private actionEvent(me: Identity, legal: unknown, rnd: RandomBytes, createdAt: number): NostrEvent {
+  private actionEvent(
+    me: Identity,
+    legal: unknown,
+    rnd: RandomBytes,
+    createdAt: number,
+    shareRandom?: (statement: string) => RandomBytes,
+  ): NostrEvent {
     const plan = this.module.privateSelection?.(this.state);
     if (plan) {
       const anchor = this.rollRequest(plan.id);
@@ -3604,18 +3626,19 @@ export class GameSession {
     if (this.hasDeck()) {
       shares = this.shares
         .missing(me.seat, this.module.dealt(this.state))
-        .map((pos) => this.shareOf(me, pos, rnd));
+        .map((pos) => this.shareOf(me, pos, rnd, shareRandom));
       if (this.usesEpochs()) {
         const preview = this.module.apply(this.state, legal);
         if (preview.ok) {
           for (const pos of this.childDealPositions(this.state, preview.state, me.seat)) {
-            if (!shares.some((share) => share.pos === pos)) shares.push(this.shareOf(me, pos, rnd));
+            if (!shares.some((share) => share.pos === pos))
+              shares.push(this.shareOf(me, pos, rnd, shareRandom));
           }
           shares.sort((a, b) => a.pos - b.pos);
         }
       }
       const shown = [...new Set(this.module.revealsOf(this.state, legal).map((l) => l.pos))];
-      reveals = shown.sort((a, b) => a - b).map((pos) => this.shareOf(me, pos, rnd));
+      reveals = shown.sort((a, b) => a - b).map((pos) => this.shareOf(me, pos, rnd, shareRandom));
     }
     const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
     if (rollId !== null)

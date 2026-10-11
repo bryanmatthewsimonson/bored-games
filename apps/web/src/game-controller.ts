@@ -28,6 +28,7 @@ import {
   type SessionView,
   seatForGameKeys,
 } from '@bored-games/client';
+import { canonicalJson } from '@bored-games/game-kit';
 import {
   type EventTemplate,
   type Hex,
@@ -109,8 +110,8 @@ export const TICK_MS = 30_000;
 
 /**
  * A game's automatic move (opt-in): from this seat's legal actions at its decision, with the state as it sees it,
- * the action its app sends without a click, or null to wait for the player. Room for Doubt sends a lone `none`
- * this way (D078 ruling 7, amended in the final review).
+ * the action its app sends without a click, or null to wait for the player. Right of Way sends a forced sift
+ * (D066); Room for Doubt sends a lone `none` (D078 ruling 7, amended in the final review).
  */
 export type AutoMove = (legal: readonly unknown[], state: unknown, seat: number) => unknown;
 
@@ -545,7 +546,13 @@ export class GameController {
             'checking that you have not already played this turn on another device: not every relay has answered yet. Try again in a moment',
           );
         const at = automatic ? this.#autoDate(session, head.id) : this.#d.now();
-        ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, at);
+        // Automatic card shares (a sift's skip proof, for instance) must match across devices too. Bind each
+        // stream to the action and the full share statement; signing and manual moves keep fresh randomness.
+        const shareRandom = automatic
+          ? (statement: string) =>
+              this.#buildRnd(`auto-share:${head.id}:${canonicalJson([action, statement])}`)
+          : undefined;
+        ev = this.#reusable(slot, head.id) ?? session.buildAction(action, this.#d.rnd, at, shareRandom);
       }
       this.#commit(slot, ev);
       this.error.value = null;
@@ -1876,9 +1883,9 @@ export class GameController {
   /**
    * The date of an automatic move on `headId`: the head's, as a deterministic build's (`#buildDate`, D063), so that
    * two open devices of this seat that both send it sign one event. An event id covers the content and the date, not
-   * the signature, so a move whose content the head fixes (a lone none carries no proof) is then the same event. Its
-   * randomness stays fresh: `#buildRnd` is only for statements its label fixes, never a decision. A head dated too
-   * far ahead falls back to now, as a duty's does; one dated less far ahead is waited for (`#autoMove`).
+   * the signature, so a move whose content the head fixes is then the same event. Card share proofs use a separate
+   * stream per action and statement (`#act`); signing keeps fresh randomness. A head dated too far ahead falls
+   * back to now, as a duty's does; one dated less far ahead is waited for (`#autoMove`).
    */
   #autoDate(session: GameSession, headId: string): number {
     const plan = this.#buildDate(session, headId);
