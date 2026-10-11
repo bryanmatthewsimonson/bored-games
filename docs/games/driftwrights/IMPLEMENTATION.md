@@ -18,7 +18,7 @@ D069 accepts the existing v1 fork/rollback limits for prompt release, as for Lus
 
 ## Rules fidelity
 
-The [publisher FAQ](https://www.catan.com/faq/basegame) supports the separate trade/build sequence, action ventures before rolling, finite-bank production shortages and award ties. Reference names stay in documentation only.
+The [publisher FAQ](https://www.catan.com/faq/basegame) supports the separate trade/build sequence, action ventures before rolling, finite-bank production shortages and award ties. Reference names stay in documentation except for the single public comparison phrase (D081).
 
 The scarce-bank Windfall interpretation is explicitly a table rule (`available` or `two`, C33, D070). New tables default to taking whatever remains when the entire bank contains fewer than two supplies. Applying the general sole-recipient shortage exception to Windfall is an inference; no explicit publisher clarification was found. The alternative requires two available supplies. Ordinary play requires exactly two under both options.
 
@@ -41,4 +41,4 @@ The scarce-bank Windfall interpretation is explicitly a table rule (`available` 
 
 PR #39 records the final CI, merge and deployment result. The 40 skipped tests are the repository's optional simulation checks; the complete signed Driftwrights games are part of the ordinary suite.
 
-The reference fixture remains development-only and is excluded from production entry points. Its one-device coordinator/policy are test tooling. Artwork is original generated artwork from this task, with no reference-game images. The title is provisional: no trademark clearance search is claimed.
+The reference fixture remains development-only and is excluded from production entry points. Its one-device coordinator/policy are test tooling. Artwork is original generated artwork from this task, with no reference-game images; its CC0 dedication is in `packages/games/driftwrights/ART-LICENSE.md`, matching the catalog credit. The title is provisional: no trademark clearance search is claimed.

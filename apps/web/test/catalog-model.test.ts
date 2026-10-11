@@ -191,7 +191,14 @@ describe('catalog search', () => {
   });
 
   it('matches the title of the game a game compares to (D053, D060), and only for that game', () => {
-    for (const id of ['chain-reaction', 'luster', 'holler', 'room-for-doubt']) {
+    for (const id of [
+      'chain-reaction',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'holler',
+      'room-for-doubt',
+    ]) {
       const compare = CATALOG.get(id)?.entry.compareTo;
       if (compare == null) throw new Error(`${id} compares to a published game`);
       expect(ids({ query: compare.title })).toEqual([id]);

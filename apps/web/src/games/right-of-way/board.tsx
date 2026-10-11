@@ -118,7 +118,9 @@ function Side(props: {
     <g
       class="row-side row-side-claimable"
       role="button"
-      tabIndex={0}
+      // Lowercase on purpose: Preact sets this as an attribute, and on an SVG element a camel-case `tabIndex`
+      // attribute is not the `tabindex` the browser reads, so the target would never take focus.
+      tabindex={0}
       aria-label={`Lay track: ${label}`}
       data-route={props.ri}
       data-side={props.side}

@@ -9,6 +9,8 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog.ts';
+import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
 import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
 import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
 import { COMPARE_PHRASE as HOLLER_PHRASE } from '../packages/games/holler/src/compare.ts';
@@ -290,7 +292,7 @@ describe('branding', () => {
     ).toEqual([]);
   });
 
-  describe('the allowed phrases (D053, D060, D066, D078)', () => {
+  describe('the allowed phrases (D053, D060, D066, D078, D080, D081)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -375,6 +377,15 @@ describe('branding', () => {
         exactCase: true,
       },
       {
+        game: 'Driftwrights',
+        home: 'packages/games/driftwrights/src/compare.ts',
+        phrase: 'Compare to Catan',
+        compare: DRIFTWRIGHTS_COMPARE,
+        entry: DRIFTWRIGHTS_CATALOG,
+        bggId: 13,
+        companies: ['Klaus Teuber', 'KlausTeuber', 'Klaus-Teuber', 'Klaus_Teuber', 'Kosmos', 'Mayfair Games'],
+      },
+      {
         game: 'gilt-and-guile',
         home: 'packages/games/gilt-and-guile/src/compare.ts',
         phrase: 'Compare to Dominion',
@@ -392,6 +403,7 @@ describe('branding', () => {
         'Compare to Acquire',
         'Compare to Splendor',
         'Compare to Ticket to Ride',
+        'Compare to Catan',
         'Compare to Clue',
         'Compare to Dominion',
       ]);

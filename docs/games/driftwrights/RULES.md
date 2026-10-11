@@ -3,7 +3,9 @@
 
 An independently illustrated prototype for 3–4 players. Rules target: the classic 3–4 player base-game mechanics, with separate trading and construction phases. No expansion rules apply.
 
-**Implementation status:** the decentralized module and production browser board implement this ruleset. Release verification is in progress; see [IMPLEMENTATION.md](IMPLEMENTATION.md). Online tables use the illustrated classic layout.
+Driftwrights implements the classic base-game mechanics of *Catan* (Klaus Teuber, 1995) under original names, rewritten rules and floating-island artwork. The public catalog names the reference game only through the exact comparison phrase stored once in `packages/games/driftwrights/src/compare.ts`, linked to BoardGameGeek 13 (D081).
+
+**Implementation status:** the decentralized module and production browser board implement this ruleset; local release checks passed as recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md). Online tables use the illustrated classic layout.
 
 ## 1. Your aim
 Floating islands hold the supplies your community needs. Establish hearths where island corners meet, join them with sky links, and expand hearths into hubs. Trade with rivals and trading moorings to obtain what you lack. The first player with at least 10 prestige **during their own turn** wins immediately.

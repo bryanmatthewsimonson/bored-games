@@ -5,7 +5,7 @@
  *
  * Three kinds of term:
  * - the fixed list below (each reference game's name, its designer's, and for Chain Reaction its published
- *   editions' chain names; for Luster and Right of Way, also its publisher's; for Room for Doubt, its reference
+ *   editions' chain names; for Luster, Right of Way and Driftwrights, also its publisher's; for Room for Doubt, its reference
  *   game's old title, publishers, designer, victim and the suspects' full names, each in its spaced, joined,
  *   hyphenated and underscored forms), matched case-insensitively anywhere inside a word, so `cr-chain-x`,
  *   `X_CHAIN` and `XRules` are all caught; a handful of ordinary words that contain one (Preact's `hydrate`) are
@@ -18,7 +18,7 @@
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053, D060, D066, D078): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
+ * One exception (D053, D060, D066, D078, D080, D081): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
  * as a store brand says it; one per game that has one) are cut out of the text before both matchers run, so
  * `findRestricted` and everything built on it (the repo guard, the public build scan and `pnpm scan:dist`) let them
  * through. Only the whole phrase, spelled exactly: the title alone, in another case or inside another word is still
@@ -29,6 +29,17 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const FIXED_NAMES: readonly string[] = [
+  // Driftwrights' reference game: its title, publisher and designer.
+  'Catan',
+  'Klaus Teuber',
+  'KlausTeuber',
+  'Klaus-Teuber',
+  'Klaus_Teuber',
+  'Kosmos',
+  'Mayfair Games',
+  'MayfairGames',
+  'Mayfair-Games',
+  'Mayfair_Games',
   'Dominion',
   'Rio Grande Games',
   'Donald X. Vaccarino',
@@ -130,7 +141,7 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078),
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081),
  * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
  * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's
  * compare phrase is not here: its reference title is not on the restricted list (D072). A whole-word scan covers
@@ -140,6 +151,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/chain-reaction/src/compare.ts': 'Compare to Acquire',
   'packages/games/luster/src/compare.ts': 'Compare to Splendor',
   'packages/games/right-of-way/src/compare.ts': 'Compare to Ticket to Ride',
+  'packages/games/driftwrights/src/compare.ts': 'Compare to Catan',
   'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
   'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
 };
