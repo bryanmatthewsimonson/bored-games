@@ -1,5 +1,9 @@
 # Plan
 
+## Cover art and catalog thumbnails — 2026-10-11 (D082)
+
+Chain Reaction, Chess, Bank, Luster, Right of Way and Room for Doubt now have cover art in their catalog tile and on their rules page (`apps/web/src/games/covers.tsx`). Driftwrights and Holler still show initials.
+
 ## Board keyboard focus and catalog consistency — 2026-10-10 (D081)
 
 Right of Way and Driftwrights use lowercase SVG `tabindex`, with live-game regressions for keyboard focus and activation. Driftwrights now follows the comparison metadata and branding-guard convention; both games have explicit CC0 artwork license documents. Verified with all four targeted Chromium cases and, after integrating the latest main, `pnpm check` (185 files, 2,524 tests passed, 40 optional tests skipped). D081 records the commands.

@@ -252,7 +252,8 @@ function lamp(): string {
   );
 }
 
-export function renderCover(): string {
+/** The night scene without its frame or lettering: the sky, the courts, the lamp and the rain. */
+function scene(): string[] {
   const next = stream(7);
   const clouds = CLOUDS.map(([cx, cy, rx, ry], i) =>
     el('ellipse', {
@@ -264,7 +265,7 @@ export function renderCover(): string {
       'fill-opacity': i < 4 ? 0.3 : 0.45,
     }),
   );
-  const body = [
+  return [
     el('rect', { width: WIDTH, height: HEIGHT, fill: PALETTE.ink }),
     ...clouds,
     el('ellipse', { cx: 600, cy: 96, rx: 500, ry: 78, fill: PALETTE.ink, 'fill-opacity': 0.4 }),
@@ -284,15 +285,26 @@ export function renderCover(): string {
     lamp(),
     rain(11, 150, 0.2, 1.5),
     rain(23, 90, 0.34, 2),
-    el('rect', {
-      x: 14,
-      y: 14,
-      width: WIDTH - 28,
-      height: HEIGHT - 28,
-      fill: 'none',
-      stroke: PALETTE.brass,
-      'stroke-width': 3,
-    }),
+  ];
+}
+
+/** The brass frame, 14 units inside the `width` × `height` area at (x, y). */
+function frame(x: number, y: number, width: number, height: number): string {
+  return el('rect', {
+    x: x + 14,
+    y: y + 14,
+    width: width - 28,
+    height: height - 28,
+    fill: 'none',
+    stroke: PALETTE.brass,
+    'stroke-width': 3,
+  });
+}
+
+export function renderCover(): string {
+  const body = [
+    ...scene(),
+    frame(0, 0, WIDTH, HEIGHT),
     text('ROOM FOR DOUBT', {
       x: 600,
       y: 104,
@@ -321,5 +333,22 @@ export function renderCover(): string {
       desc: 'Night at the Aldermoor Assize Courts: a columned portico and steps, a lit belfry with a clock at midnight, storm clouds and rain, and a street lamp throwing a long shadow across the steps.',
     },
     el('g', { id: 'cover' }, body),
+  );
+}
+
+/** The thumbnail is the cover's scene cropped square round the courts (x 200–1000), with no lettering. */
+const THUMB_X = 200;
+const THUMB = HEIGHT;
+
+export function renderThumb(): string {
+  const body = [...scene(), frame(THUMB_X, 0, THUMB, THUMB)].join('\n');
+  return svgDocument(
+    {
+      width: THUMB,
+      height: THUMB,
+      title: 'Room for Doubt: the thumbnail',
+      desc: 'The cover scene cropped square round the Aldermoor Assize Courts, without the title: the belfry, the portico and the steps in the rain.',
+    },
+    el('g', { id: 'thumb', transform: `translate(${-THUMB_X} 0)` }, body),
   );
 }

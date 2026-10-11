@@ -11,6 +11,7 @@ import { FreightCard } from './art.tsx';
 import { RIGHT_OF_WAY_META } from './meta.ts';
 import '../chain-reaction/rules.css';
 import './right-of-way.css';
+import { RightOfWayCover } from './cover.tsx';
 
 export const RIGHT_OF_WAY_RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
   { id: 'goal', title: 'Goal' },
@@ -46,6 +47,9 @@ export function RightOfWayRulesContent() {
         <h1>How to play {t.title}</h1>
         <p class="lede">{t.tagline}</p>
       </header>
+      <figure class="rules-cover rules-cover-square">
+        <RightOfWayCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>

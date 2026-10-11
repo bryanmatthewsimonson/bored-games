@@ -7,39 +7,43 @@ const SHAPES = [
   '30,10 70,10 91,34 79,75 50,94 21,75 9,34',
   '50,7 85,28 85,72 50,93 15,72 15,28',
 ];
-export function GemIcon(props: { color: number; class?: string }) {
+/** A gem (colors 0–4) or the gold token (5), drawn in a 100 × 100 box: the icon's shapes, for any SVG. */
+export function GemFace(props: { color: number }) {
   const color = props.color;
+  return color === 5 ? (
+    <>
+      <circle cx="50" cy="50" r="42" fill="#edc36b" stroke="#906820" stroke-width="4" />
+      <circle cx="50" cy="50" r="33" fill="none" stroke="#fff0b7" stroke-width="2" />
+      <path d="M50 23 57 42 77 50 57 58 50 77 43 58 23 50 43 42Z" fill="#9c7226" />
+      <path d="M21 31A38 38 0 0 1 67 15" fill="none" stroke="#fff4ce" stroke-width="4" />
+    </>
+  ) : (
+    <>
+      <polygon
+        points={SHAPES[color]}
+        fill={INKS[color]}
+        stroke="#122e39"
+        stroke-opacity=".45"
+        stroke-width="2"
+      />
+      <path d="M50 7 68 32 65 68 50 93 35 68 32 32Z" fill="#fff" opacity=".18" />
+      <path
+        d="M18 30 32 32 50 7M82 30 68 32 50 7M30 72 35 68 50 93M70 72 65 68 50 93M32 32 68 32 65 68 35 68Z"
+        fill="none"
+        stroke="#fff"
+        stroke-opacity=".55"
+        stroke-width="2"
+      />
+      <path d="M50 7 82 30 68 32Z" fill="#fff" opacity=".45" />
+      <path d="M68 32 82 30 70 72 50 93 65 68Z" fill="#102332" opacity=".28" />
+      <path d="M24 27 34 20" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+    </>
+  );
+}
+export function GemIcon(props: { color: number; class?: string }) {
   return (
     <svg class={`luster-gem-icon ${props.class ?? ''}`} viewBox="0 0 100 100" aria-hidden="true">
-      {color === 5 ? (
-        <>
-          <circle cx="50" cy="50" r="42" fill="#edc36b" stroke="#906820" stroke-width="4" />
-          <circle cx="50" cy="50" r="33" fill="none" stroke="#fff0b7" stroke-width="2" />
-          <path d="M50 23 57 42 77 50 57 58 50 77 43 58 23 50 43 42Z" fill="#9c7226" />
-          <path d="M21 31A38 38 0 0 1 67 15" fill="none" stroke="#fff4ce" stroke-width="4" />
-        </>
-      ) : (
-        <>
-          <polygon
-            points={SHAPES[color]}
-            fill={INKS[color]}
-            stroke="#122e39"
-            stroke-opacity=".45"
-            stroke-width="2"
-          />
-          <path d="M50 7 68 32 65 68 50 93 35 68 32 32Z" fill="#fff" opacity=".18" />
-          <path
-            d="M18 30 32 32 50 7M82 30 68 32 50 7M30 72 35 68 50 93M70 72 65 68 50 93M32 32 68 32 65 68 35 68Z"
-            fill="none"
-            stroke="#fff"
-            stroke-opacity=".55"
-            stroke-width="2"
-          />
-          <path d="M50 7 82 30 68 32Z" fill="#fff" opacity=".45" />
-          <path d="M68 32 82 30 70 72 50 93 65 68Z" fill="#102332" opacity=".28" />
-          <path d="M24 27 34 20" stroke="#fff" stroke-width="4" stroke-linecap="round" />
-        </>
-      )}
+      <GemFace color={props.color} />
     </svg>
   );
 }

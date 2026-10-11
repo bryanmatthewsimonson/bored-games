@@ -1,6 +1,7 @@
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { useEffect } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
+import { LusterCover } from './cover.tsx';
 import './luster.css';
 
 export function LusterRulesContent() {
@@ -8,6 +9,9 @@ export function LusterRulesContent() {
     <article class="luster-rules">
       <h1>How to play {LUSTER_THEME.title}</h1>
       <p class="lede">{LUSTER_THEME.tagline}</p>
+      <figure class="rules-cover">
+        <LusterCover />
+      </figure>
       <nav aria-label="Rules sections">
         {['goal', 'setup', 'turn', 'patrons', 'ending', 'online'].map((id) => (
           <a key={id} href={rulesHref('luster', id)}>

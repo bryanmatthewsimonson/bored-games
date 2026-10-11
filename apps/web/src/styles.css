@@ -1295,6 +1295,35 @@ input[type="search"] {
   font-size: 2.25rem;
 }
 
+/* Cover art (games/covers.tsx): the tile crops it square; a rules page shows it whole. */
+.game-tile:has(.game-cover) {
+  overflow: hidden;
+  background: #1c2230;
+}
+
+.game-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rules-cover {
+  width: 100%;
+  max-width: 640px;
+  margin: 24px auto;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rules-cover > .game-cover {
+  height: auto;
+}
+
+.rules-cover-square {
+  max-width: 420px;
+}
+
 /* Game page */
 .crumbs {
   font-size: 0.9rem;

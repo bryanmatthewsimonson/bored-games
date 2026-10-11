@@ -29,6 +29,7 @@ import { ROOM_FOR_DOUBT_META } from './meta.ts';
 import { partyName, sceneName } from './model.ts';
 import '../chain-reaction/rules.css';
 import './room-for-doubt.css';
+import { RoomForDoubtCover } from './cover.tsx';
 
 export const ROOM_FOR_DOUBT_RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
   { id: 'goal', title: 'Goal' },
@@ -101,6 +102,9 @@ export function RoomForDoubtRulesContent() {
         <h1>How to play {THEME.title}</h1>
         <p class="lede">{THEME.tagline}</p>
       </header>
+      <figure class="rules-cover">
+        <RoomForDoubtCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>

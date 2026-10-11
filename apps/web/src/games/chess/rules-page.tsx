@@ -16,6 +16,7 @@ import { boardSquares, isDark } from './model.ts';
 // The rules pages share one layout; it lives with the first game's page for now.
 import '../chain-reaction/rules.css';
 import './chess.css';
+import { ChessCover } from './cover.tsx';
 
 export const CHESS_RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
   { id: 'goal', title: 'Goal' },
@@ -93,6 +94,9 @@ export function ChessRulesContent() {
         <h1>How to play {CHESS_THEME.title}</h1>
         <p class="lede">{CHESS_THEME.tagline}</p>
       </header>
+      <figure class="rules-cover">
+        <ChessCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>

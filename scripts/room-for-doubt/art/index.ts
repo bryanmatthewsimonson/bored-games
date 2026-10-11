@@ -6,7 +6,7 @@
 import { parseBoard } from '../board.ts';
 import { renderBoard } from './board.ts';
 import { renderCards } from './cards.ts';
-import { renderCover } from './cover.ts';
+import { renderCover, renderThumb } from './cover.ts';
 import { renderDocket } from './docket.ts';
 import { renderPieces } from './pieces.ts';
 
@@ -16,6 +16,7 @@ export const ART_FILES: readonly string[] = [
   'pieces.svg',
   'docket.svg',
   'cover.svg',
+  'thumb.svg',
 ];
 
 export function renderAll(boardText: string): Record<string, string> {
@@ -25,5 +26,6 @@ export function renderAll(boardText: string): Record<string, string> {
     'pieces.svg': renderPieces(),
     'docket.svg': renderDocket(),
     'cover.svg': renderCover(),
+    'thumb.svg': renderThumb(),
   };
 }
