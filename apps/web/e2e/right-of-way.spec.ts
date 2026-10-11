@@ -58,7 +58,14 @@ async function play(page: Page): Promise<string> {
     )
     .toBe(true);
   if (phase === 'turn' && (await claim.count()) > 0) {
-    await claim.first().click({ timeout: 30_000 });
+    const target = claim.first();
+    await target.focus();
+    await expect(target).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(target).not.toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(target).toBeFocused();
+    await page.keyboard.press('Enter');
     await page.locator('.row-claim .row-primary').first().click({ timeout: 30_000 });
     return 'claim';
   }

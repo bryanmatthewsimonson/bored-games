@@ -1,12 +1,13 @@
 /*
- * The public site names the published games Chain Reaction, Luster, Right of Way and Room for Doubt implement only
- * inside the allowed phrases "Compare to <title>" (D053, D060, D066, D078). The build scans prove no source or
+ * The public site names the published games Chain Reaction, Luster, Right of Way, Driftwrights and Room for Doubt implement only
+ * inside the allowed phrases "Compare to <title>" (D053, D060, D066, D078, D080). The build scans prove no source or
  * bundle holds the bare title as a literal; this test proves the rendered catalog and game page do not show it
  * either (a `{compareTo.title}` in the UI would pass the build scans, since the title is cut from the phrase at
  * run time). It renders them with the trademark-safe names, takes every text and attribute, and runs the same
  * scanner the guards use, which removes only the exact phrase.
  */
 import { COMPARE_PHRASE } from '@bored-games/chain-reaction/compare';
+import { COMPARE_PHRASE as DRIFTWRIGHTS_COMPARE_PHRASE } from '@bored-games/driftwrights/compare';
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '@bored-games/right-of-way/compare';
 import { COMPARE_PHRASE as ROOM_FOR_DOUBT_COMPARE_PHRASE } from '@bored-games/room-for-doubt/compare';
@@ -67,6 +68,13 @@ describe('the rendered public pages', () => {
     expect(pages[0]).toContain(RIGHT_OF_WAY_COMPARE_PHRASE);
     expect(rowPage).toContain(RIGHT_OF_WAY_COMPARE_PHRASE);
     expect(rowPage).toContain('https://boardgamegeek.com/boardgame/9209');
+    const drift = items.find((i) => i.entry.id === 'driftwrights');
+    if (drift === undefined) throw new Error('Driftwrights is in the catalog');
+    const driftPage = textOf(h(GameFacts, { entry: drift.entry }));
+    expect(pages[0]).toContain(DRIFTWRIGHTS_COMPARE_PHRASE);
+    expect(driftPage).toContain(DRIFTWRIGHTS_COMPARE_PHRASE);
+    expect(driftPage).toContain('https://boardgamegeek.com/boardgame/13');
+    expect(driftPage).toContain('the makers of that game');
     const rfd = items.find((i) => i.entry.id === 'room-for-doubt');
     if (rfd === undefined) throw new Error('Room for Doubt is in the catalog');
     const rfdPage = textOf(h(GameFacts, { entry: rfd.entry }));
@@ -92,12 +100,12 @@ describe('the rendered public pages', () => {
       expect(textOf(facts(id)), id).toContain(`https://boardgamegeek.com/boardgame/${bgg}`);
       expect(textOf(facts(id)), id).not.toContain('Compare to');
     }
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt'])
+    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'driftwrights', 'room-for-doubt'])
       expect(spokenText(renderTree(facts(id))), id).not.toContain('BoardGameGeek');
   });
 
   it('would catch either title rendered on its own', () => {
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'room-for-doubt']) {
+    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'driftwrights', 'room-for-doubt']) {
       const game = catalogItems().find((i) => i.entry.id === id);
       const title = game?.entry.compareTo?.title ?? '';
       expect(title, id).not.toBe('');

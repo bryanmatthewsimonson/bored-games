@@ -1,8 +1,8 @@
 # Right of Way rules
 
-**Right of Way** is a railway-building game for 2–5 players. Each player collects coloured freight cards and spends matching sets to lay track between the towns of Ferrovia, an invented land. Points come from the track laid, from the secret railway charters each player has taken on, and from the longest unbroken line. This file is the **source of truth** for a future engine in `packages/games/right-of-way`.
+**Right of Way** is a railway-building game for 2–5 players. Each player collects coloured freight cards and spends matching sets to lay track between the towns of Ferrovia, an invented land. Points come from the track laid, from the secret railway charters each player has taken on, and from the longest unbroken line. This file is the **source of truth** for the engine in `packages/games/right-of-way`.
 
-Right of Way uses the base-game mechanics of *Ticket to Ride* (Alan R. Moon; Days of Wonder, 2004) unchanged. The rules prose, names, map, route layout, charter list and artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site may name it only through the exact "Compare to" phrase, once a `src/compare.ts` exists (D053).
+Right of Way uses the base-game mechanics of *Ticket to Ride* (Alan R. Moon; Days of Wonder, 2004) unchanged. The rules prose, names, map, route layout, charter list and artwork here are all new. This is the only file, with `docs/DECISIONS.md` and the other docs, where the reference game's name may appear (CLAUDE.md, D046). The public site names it only through the exact comparison phrase stored once in `packages/games/right-of-way/src/compare.ts`, linked to BoardGameGeek 9209 (D053, D066).
 
 **Status: beta (engine 0.1.0, D066).** The engine is `packages/games/right-of-way`, the web game `apps/web/src/games/right-of-way`. Every `#### Cnn` below has an `it('Cnn …')` test in `packages/games/right-of-way/test/catalog/`. How the hidden cards are played online is described in [Online play](#online-play-and-hidden-information).
 

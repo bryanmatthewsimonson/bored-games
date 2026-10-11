@@ -72,7 +72,9 @@ function MapTarget({
     // biome-ignore lint/a11y/useSemanticElements: SVG targets need a group; HTML buttons cannot wrap SVG geometry.
     <g
       role="button"
-      tabIndex={active ? 0 : -1}
+      // Lowercase on purpose: Preact sets this as an attribute, and on an SVG element a camel-case `tabIndex`
+      // attribute is not the `tabindex` the browser reads, so the target would never take focus.
+      tabindex={active ? 0 : -1}
       aria-label={label}
       aria-disabled={!active}
       data-action={JSON.stringify(action)}

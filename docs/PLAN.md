@@ -1,5 +1,9 @@
 # Plan
 
+## Board keyboard focus and catalog consistency — 2026-10-10 (D080)
+
+Right of Way and Driftwrights use lowercase SVG `tabindex`, with live-game regressions for keyboard focus and activation. Driftwrights now follows the comparison metadata and branding-guard convention; both games have explicit CC0 artwork license documents. Verified with `pnpm check` (182 files, 2,466 tests passed, 40 optional tests skipped) and all four targeted Chromium cases. D080 records the commands.
+
 ## Quill & Quarry — added 2026-10-09 (D079)
 
 Implemented the English word-tile game with original artwork, rewritten rules, a pure engine, encrypted bag epochs, catalog/rules integration and a central board with the score rail on the right. Uses the documented double-challenge and six-scoreless-turn convention. Vocabulary is checked against a dictionary agreed by the table; lookup reports require trust and are not part of the cryptographic audit. Working-name trademark clearance, deterministic lexicon licensing and alternate regional conventions remain open. Validation results are recorded in D079.

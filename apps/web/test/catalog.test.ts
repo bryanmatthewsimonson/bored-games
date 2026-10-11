@@ -3,6 +3,10 @@
  * deck and hidden information) and a trademark-safe brand pack.
  */
 import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/chain-reaction/compare';
+import {
+  COMPARE_PHRASE as DRIFTWRIGHTS_PHRASE,
+  COMPARE_TITLE as DRIFTWRIGHTS_TITLE,
+} from '@bored-games/driftwrights/compare';
 import { catalogProblems } from '@bored-games/game-kit';
 import { COMPARE_PHRASE as HOLLER_PHRASE, COMPARE_TITLE as HOLLER_TITLE } from '@bored-games/holler/compare';
 import {
@@ -113,6 +117,13 @@ describe('game catalog', () => {
     expect(card('chain-reaction')).not.toContain(LUSTER_COMPARE_PHRASE);
     expect(card('luster')).not.toContain(COMPARE_PHRASE);
     expect(card('holler')).toContain(HOLLER_PHRASE);
+    expect(card('driftwrights')).toContain(DRIFTWRIGHTS_PHRASE);
+    expect(CATALOG.get('driftwrights')?.entry).toMatchObject({
+      bggId: null,
+      compareTo: { title: DRIFTWRIGHTS_TITLE, bggId: 13 },
+      players: { min: 3, max: 4, best: [4] },
+      art: { credit: 'Original floating island artwork by Bored Games', license: 'CC0-1.0' },
+    });
     expect(`Compare to ${HOLLER_TITLE}`).toBe(HOLLER_PHRASE);
     expect(card('room-for-doubt')).toContain(ROOM_FOR_DOUBT_PHRASE);
     expect(`Compare to ${ROOM_FOR_DOUBT_TITLE}`).toBe(ROOM_FOR_DOUBT_PHRASE);

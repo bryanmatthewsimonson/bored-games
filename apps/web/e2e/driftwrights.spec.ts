@@ -1,4 +1,5 @@
 import { type Action, type Goods, type State, setup } from '@bored-games/driftwrights';
+import { COMPARE_PHRASE } from '@bored-games/driftwrights/compare';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 import { chooseForTest } from '../../../packages/games/driftwrights/src/choices.ts';
 
@@ -60,17 +61,23 @@ async function state(page: Page, seats: number): Promise<State> {
     })),
   };
 }
-async function act(page: Page, action: Action | { type: string }, seats: number) {
+async function act(page: Page, action: Action | { type: string }, seats: number, keyboard = false) {
   const before = Number(await root(page).getAttribute('data-seq'));
   if (action.type === 'discard') {
     const a = action as Extract<Action, { type: 'discard' }>;
     for (const [i, name] of ['Timber', 'Clay', 'Fiber', 'Grain', 'Metal'].entries())
       await page.getByLabel(`Discard ${name}`, { exact: true }).fill(String(a.goods[i]));
   }
-  await page
-    .locator(`[data-action=${JSON.stringify(JSON.stringify(action))}]`)
-    .first()
-    .click();
+  const target = page.locator(`[data-action=${JSON.stringify(JSON.stringify(action))}]`).first();
+  if (keyboard) {
+    await target.focus();
+    await expect(target).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(target).not.toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(target).toBeFocused();
+    await page.keyboard.press('Space');
+  } else await target.click();
   await expect(root(page)).not.toHaveAttribute('data-seq', String(before));
   expect(seats).toBeGreaterThan(2);
 }
@@ -84,6 +91,10 @@ for (const seats of [3, 4])
     const creator = pages[0] as Page;
     await creator.getByLabel('Search games').fill('Driftwrights');
     await creator.getByRole('link', { name: 'Driftwrights', exact: true }).click();
+    await expect(creator.getByRole('link', { name: COMPARE_PHRASE, exact: true })).toHaveAttribute(
+      'href',
+      'https://boardgamegeek.com/boardgame/13',
+    );
     await creator.getByLabel('Players', { exact: true }).selectOption(String(seats));
     await creator.getByRole('button', { name: 'Create table', exact: true }).click();
     await creator.getByRole('button', { name: 'Create anyway', exact: true }).click();
@@ -116,6 +127,7 @@ for (const seats of [3, 4])
     let reload = false;
     let traded = false;
     let rejectedEmptyTrade = false;
+    let focusChecked = false;
     for (let moves = 0; moves < 5000; moves++) {
       if ((await creator.getByTestId('drift-audit').count()) > 0) break;
       let acting: Page | undefined,
@@ -188,7 +200,9 @@ for (const seats of [3, 4])
         };
       }
       tags.add(a.type);
-      await act(acting, a, seats);
+      const keyboard = !focusChecked && a.type === 'hearth';
+      await act(acting, a, seats, keyboard);
+      if (keyboard) focusChecked = true;
       if (moves % 50 === 0) console.log(`[driftwrights ${seats}] ${moves} decisions; ${a.type}`);
       if (!reload && tags.has('buy-venture') && tags.has('transfer')) {
         await expect(acting.getByTestId('drift-hand')).not.toContainText('Unseen venture', {
@@ -210,6 +224,7 @@ for (const seats of [3, 4])
     expect(reload).toBe(true);
     expect(traded).toBe(true);
     expect(rejectedEmptyTrade).toBe(true);
+    expect(focusChecked).toBe(true);
     expect(tags.has('accept')).toBe(true);
     for (const p of [...pages, spectator])
       await expect(p.getByTestId('drift-audit')).toHaveText('Audit passed.', { timeout: 120000 });

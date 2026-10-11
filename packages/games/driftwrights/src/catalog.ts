@@ -1,8 +1,9 @@
 import type { CatalogEntry } from '@bored-games/game-kit';
+import { COMPARE_BGG_ID, COMPARE_TITLE } from './compare.ts';
 export const DRIFTWRIGHTS_CATALOG: CatalogEntry = {
   id: 'driftwrights',
   bggId: null,
-  compareTo: null,
+  compareTo: { title: COMPARE_TITLE, bggId: COMPARE_BGG_ID },
   year: null,
   status: 'beta',
   players: { min: 3, max: 4, best: [4] },
