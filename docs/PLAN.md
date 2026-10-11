@@ -290,3 +290,9 @@ Rules engine, original floating-island artwork, rewritten rules, decentralized m
 Implemented a distinct theatre-company theme, 33 original Art Deco illustrations, the complete 26-card current base company catalog plus seven basics, ten-pile custom selection and three presets, private inspection/repeated actions/all attacks, public discards, scoring, rewritten rules and a searchable card catalog. Compare-to navigation and BoardGameGeek reference 36218 follow the existing metadata convention. Desktop retains the central board and right score sidebar; mobile stacks the sidebar. Experimental status; expansions and retired first-edition cards are outside this base edition. See D080 and games/gilt-and-guile/RULES.md.
 
 Validation results are recorded in games/gilt-and-guile/VERIFICATION.md.
+
+## LoLGamerLand branding — 2026-10-11
+
+The platform name, browser title and web manifest now use the owner's LoLGamerLand name. The header and home screen use the supplied top logo; iOS home-screen, Android manifest and browser icons use the supplied bottom icon, with a separate padded maskable variant. Relative paths preserve GitHub Pages subdirectory hosting. Driftwrights' catalog and game-page thumbnails show the original timber island from its board atlas. No game rules or player storage keys change.
+
+Validation: full `VITEST_MAX_WORKERS=2 pnpm check` passes (185 files, 2,531 tests passed, 40 optional tests skipped), as do the production build and restricted-name scan. Chromium checks at 1280px and 390px confirm that both logos load, the mobile icon URLs resolve, both Driftwrights thumbnail sizes show the atlas artwork and the home screen has no horizontal overflow.

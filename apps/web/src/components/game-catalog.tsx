@@ -33,6 +33,7 @@ import { QuarryArt } from '../games/quill-and-quarry/art.tsx';
 import '../games/quill-and-quarry/quill.css';
 import { useApp } from '../context.ts';
 import { CATALOG } from '../games/catalog.ts';
+import { DriftwrightsArt } from '../games/driftwrights/art.tsx';
 import { StageArt } from '../games/gilt-and-guile/art.tsx';
 import { gamePageHref } from '../router.ts';
 import { readJson, sessionStore, storageKey, writeJson } from '../storage.ts';
@@ -61,6 +62,8 @@ export function GameTile(props: { item: CatalogItem; size?: 'card' | 'page' }) {
         <QuarryArt />
       ) : entry.id === 'gilt-and-guile' ? (
         <StageArt kind="grandstage" />
+      ) : entry.id === 'driftwrights' ? (
+        <DriftwrightsArt />
       ) : (
         <span>{tileInitials(names.gameTitle)}</span>
       )}

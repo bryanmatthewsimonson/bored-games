@@ -75,7 +75,7 @@ export function Header() {
   return (
     <header class="app-header">
       <a class="brand" href={homeHref()}>
-        {BRAND.name}
+        <img class="brand-logo" src="./branding/logo.png" alt={BRAND.name} width="1154" height="676" />
       </a>
       <div class="header-end">
         <a
