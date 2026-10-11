@@ -1341,6 +1341,47 @@ input[type="search"] {
   border-radius: inherit;
 }
 
+/* Game page: screens of the game in play (D086). */
+.game-previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.game-previews figure {
+  margin: 0;
+}
+
+.game-previews a {
+  display: block;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #ffffff;
+}
+
+.game-previews img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  object-position: top left;
+}
+
+.game-previews a:hover img,
+.game-previews a:focus-visible img {
+  opacity: 0.9;
+}
+
+.game-previews figcaption {
+  margin-top: 6px;
+  font-size: 0.9rem;
+}
+
 /* Game page */
 .crumbs {
   font-size: 0.9rem;

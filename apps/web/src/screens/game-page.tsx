@@ -1,6 +1,6 @@
 /*
- * A game's page in the catalog (#/games/<id>, D046): what the game is, its facts, how to play it, a New table
- * form, and the open tables and the player's own games of this game. The lobby lists every game's tables; this
+ * A game's page in the catalog (#/games/<id>, D046): what the game is, screens of it in play (D086), its facts, how
+ * to play it, a New table form, and the open tables and the player's own games of this game. The lobby lists every game's tables; this
  * page keeps this game's (relays cannot filter by game, see table-lists.tsx).
  */
 import { BRAND } from '@bored-games/brand';
@@ -22,6 +22,7 @@ import {
   timeText,
 } from '../catalog-model.ts';
 import { GameTile } from '../components/game-catalog.tsx';
+import { GamePreviews } from '../components/game-previews.tsx';
 import { NewTableForm } from '../components/new-table-form.tsx';
 import { joinableTables, MyTables, OpenTables } from '../components/table-lists.tsx';
 import { useApp } from '../context.ts';
@@ -67,6 +68,7 @@ export function GamePage(props: { game: string }) {
         <a href={homeHref()}>Game catalog</a>
       </nav>
       <GameHead item={{ entry, names }} />
+      <GamePreviews game={id} title={title} />
 
       <div class="game-page-grid">
         <div class="stack">

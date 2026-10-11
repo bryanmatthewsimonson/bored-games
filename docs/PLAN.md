@@ -1,5 +1,9 @@
 # Plan
 
+## Screens in play on every game page — 2026-10-11 (D086)
+
+Each game's catalog page shows three screenshots of a game in progress, made by `pnpm previews` from real engine games drawn by the real screens. Rerun it after a game's screen changes.
+
 ## Cover art and catalog thumbnails — 2026-10-11 (D084)
 
 Chain Reaction, Chess, Bank, Luster, Right of Way and Room for Doubt now have cover art in their catalog tile and on their rules page (`apps/web/src/games/covers.tsx`). Holler's cover, cards and table were redrawn with colors in place of suits (D085).
