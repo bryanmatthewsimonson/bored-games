@@ -1255,7 +1255,17 @@ The owner requested an original word-tile game implementing Scrabble mechanics, 
 
 - **Pre-merge verification:** after the owner's merge/deploy instruction, the complete `pnpm check` passed on the final implementation (182 files, 2,462 tests, 40 skipped), using two workers. The final two-player Chromium test passed again through scoring/audit and responsive layout. No new external dependencies or deployment configuration changes are required; the existing CI-gated Pages workflow publishes the release.
 
-## D080: SVG keyboard focus and Driftwrights catalog comparison (owner, 2026-10-10)
+## D080 — Gilt & Guile, complete base catalog and larger shuffle epochs
+
+Add an original Art Deco theatre-company theme and all 26 current second-edition kingdom cards plus seven basics, documented in games/gilt-and-guile/RULES.md. Hosts choose ten company piles using three curated presets or custom selection. Names and independently written effects live in the theme; 33 original SVG illustrations are bundled and credited CC0. The table has a central board and right-side scores. Catalog status remains experimental; name clearance is not asserted. The owner's comparison request authorizes the exact phrase in src/compare.ts, following D053/D060/D066/D078: BoardGameGeek reference 36218, own entry/year null, restricted-name and rendered/build checks extended.
+
+A 498-card packet reserves four starter groups and 33 supply types. Raise the first-round partition cap from 16 to 64 (37 groups needed); the second-round cap remains 16. Discard reshuffles use existing proof-backed epochs. Session and fuzzer position strides are max(128, nextPowerOfTwo(openingSize)); older small-deck wire encodings are unchanged. Generic epoch duties and timeout attribution use the module's reshuffle hook. Epoch messages accept up to 512 ciphertexts, still bounded by proof and signed-event size limits.
+
+Gains and actual discards are public. Explicit reveals append a public assignment to the dealt log, then wait for decryption before exposing identities. This uses existing prompt-share duties and saved-share vetting without an exception for private owner shares. Private inspection and top-deck choices stay private; hidden card-type conditions are audited by full replay. Prompt shares are enabled under D075. Resign remains disabled at all seat counts. No dependency added.
+
+Pre-merge validation after integrating Quill & Quarry: complete `pnpm check` passes (185 files, 2,520 tests, 40 skipped), both two-player Chromium tests pass, and the production build and restricted-name scan pass. Original artwork has an explicit CC0 dedication in ART-LICENSE.md. The existing CI-gated Pages workflow publishes the release.
+
+## D081: SVG keyboard focus and Driftwrights catalog comparison (owner, 2026-10-10)
 
 The owner requested keyboard focus repairs for Right of Way and Driftwrights and consistent metadata, comparison text and artwork credits.
 
@@ -1264,3 +1274,5 @@ The owner requested keyboard focus repairs for Right of Way and Driftwrights and
 - **Artwork:** both games retain their original art. Each now has an `ART-LICENSE.md` covering the shipped visual assets and matching its catalog's CC0-1.0 credit. Driftwrights' atlas has six original resource illustrations; Right of Way's board, cards, charters and cover SVGs already declare CC0-1.0. No new dependencies or rules changes.
 
 - **Verified:** the original live-game focus assertions failed on both camel-case SVG attributes; a Chromium DOM check also showed Tab skipping the camel-case attribute and reaching the lowercase one. `VITEST_MAX_WORKERS=2 pnpm check` passed (182 files, 2,466 tests passed, 40 optional tests skipped). `E2E_CHROMIUM=/usr/bin/chromium pnpm e2e right-of-way.spec.ts driftwrights.spec.ts --trace=off` passed all four cases, covering focus, Shift+Tab/Tab, Enter/Space activation, full games, reloads, spectators and final audits. Run these browser checks separately from the unit suite on a limited CPU allocation; tracing was disabled to reduce recording overhead, with every test assertion retained. The public-build scan and comparison rendering/search guards passed.
+
+- **Pre-merge integration (2026-10-11):** integrated `main` at `cb0023b`, preserving Gilt & Guile's comparison and branding checks. Renumbered this decision to D081 because D080 is already assigned on main. The complete `VITEST_MAX_WORKERS=2 pnpm check` passed on the combined branch (185 files, 2,524 tests passed, 40 optional tests skipped). The four targeted browser cases above cover the unchanged focus implementation and regression assertions. The existing CI-gated Pages workflow publishes the release.

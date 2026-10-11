@@ -12,6 +12,8 @@ import { CHESS_CATALOG } from '@bored-games/chess/catalog';
 import { DRIFTWRIGHTS_CATALOG } from '@bored-games/driftwrights/catalog';
 import { DRIFTWRIGHTS_BRAND } from '@bored-games/driftwrights/theme';
 import type { BrandNames, CatalogEntry } from '@bored-games/game-kit';
+import { GILT_AND_GUILE_CATALOG } from '@bored-games/gilt-and-guile/catalog';
+import { GILT_AND_GUILE_BRAND } from '@bored-games/gilt-and-guile/theme';
 import { HOLLER_BRAND } from '@bored-games/holler/brand';
 import { HOLLER_CATALOG } from '@bored-games/holler/catalog';
 import { LUSTER_CATALOG } from '@bored-games/luster/catalog';
@@ -31,6 +33,7 @@ export interface CatalogGame {
 }
 
 const GAMES: readonly CatalogGame[] = [
+  { entry: GILT_AND_GUILE_CATALOG, safe: GILT_AND_GUILE_BRAND },
   { entry: CHAIN_REACTION_CATALOG, safe: CHAIN_REACTION_SAFE },
   { entry: CHESS_CATALOG, safe: CHESS_BRAND },
   { entry: BANK_CATALOG, safe: BANK_BRAND },

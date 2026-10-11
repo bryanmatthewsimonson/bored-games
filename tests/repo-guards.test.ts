@@ -11,6 +11,8 @@ import {
 } from '../packages/games/chain-reaction/src/compare.ts';
 import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog.ts';
 import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
+import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
+import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
 import { COMPARE_PHRASE as HOLLER_PHRASE } from '../packages/games/holler/src/compare.ts';
 import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
@@ -290,7 +292,7 @@ describe('branding', () => {
     ).toEqual([]);
   });
 
-  describe('the allowed phrases (D053, D060, D066, D078, D080)', () => {
+  describe('the allowed phrases (D053, D060, D066, D078, D080, D081)', () => {
     const crCompanies = [
       ...Object.values(ORIGINAL_BRAND.chains).map((c) => c.name),
       'Sackson',
@@ -383,6 +385,16 @@ describe('branding', () => {
         bggId: 13,
         companies: ['Klaus Teuber', 'KlausTeuber', 'Klaus-Teuber', 'Klaus_Teuber', 'Kosmos', 'Mayfair Games'],
       },
+      {
+        game: 'gilt-and-guile',
+        home: 'packages/games/gilt-and-guile/src/compare.ts',
+        phrase: 'Compare to Dominion',
+        compare: GILT_COMPARE,
+        entry: GILT_AND_GUILE_CATALOG,
+        bggId: 36218,
+        companies: ['Rio Grande Games', 'Donald X. Vaccarino'],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -393,6 +405,7 @@ describe('branding', () => {
         'Compare to Ticket to Ride',
         'Compare to Catan',
         'Compare to Clue',
+        'Compare to Dominion',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

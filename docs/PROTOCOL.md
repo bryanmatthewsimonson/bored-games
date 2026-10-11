@@ -200,14 +200,14 @@ The hash-chained log.
 - `deck` holds the output ciphertexts, one per card the step shuffles (all 108 for Chain Reaction; the step's group in a partitioned deck or a second round, §5.5).
 - `proof` is the shuffle proof (§5.3).
 
-**Epoch step (D073).** A play-phase reshuffle. Holler is the only game that emits it. It is not an opening shuffle: `type: "shuffle"` stays sized to its step's group (§5.5), and an epoch does not start a deal. No `proto` bump.
+**Epoch step (D073).** A play-phase reshuffle. Holler, Quill & Quarry and Gilt & Guile emit it; modules opt in through both reshuffle hooks (D079, D080). It is not an opening shuffle: `type: "shuffle"` stays sized to its step's group (§5.5), and an epoch does not start a deal. No `proto` bump.
 ```json
 {"deck":[["<a>","<b>"], …],"epoch":<k>,"proof":{…},"type":"epoch"}
 ```
 - `epoch` is an integer of at least 1.
-- `deck` is that step's output. Its length is the pending pile, from 1 to 108, not the opening deck size.
+- `deck` is that step's output. Its length is the pending pile, from 1 to 512, not the opening deck size (D080).
 - `proof` is the shuffle proof (§5.3) under the context deck id `pile.<k>` (a dot, not a colon). Card points stay `card:pile:<m>`.
-- Output `i` of epoch `k` is the deck position `128·k + i`, in `dealt` and for its shares. A position below the deck's size is always the opening deck's, and only a position at or above it can be an epoch's, so a game that reshuffles has a deck of at most 128 cards (D078).
+- Output `i` of epoch `k` is the deck position `stride·k + i`, where `stride = max(128, nextPowerOfTwo(opening deck size))`, in `dealt` and for its shares (D080). Existing small-deck games retain the stride 128. A position below the opening deck size always refers to that deck; epoch ranges never overlap it.
 - The seats publish one step each, in seat order. The last step applies `{"type":"epoch","actor":"deck","epoch":<k>,"size":<n>}`. The order is not in that action.
 
 **Game action.**
@@ -367,7 +367,7 @@ Secrets are included. Conforming implementations MUST verify every proof in it, 
 **Status.** Shipped in v1 first for Luster, under the owner's Luster-only exception to D050 (D059, D060). The read-only Luster audit behind D060 found it shipped without a PROTOCOL update (its finding F8). Right of Way (D067) and Room for Doubt (D078) set `partitions` too; Driftwrights' deck has none. A deck without `partitions` behaves exactly as §5.1–§5.4 say. A second round (`secondRound`, below, D076) is opt-in in the same way, and a deck without it keeps every rule here. Luster moves to protocol v2 when v2 ships (`PROTOCOL-v2.md` §6.3); v1 Luster games keep these rules.
 
 **The groups.** A module's deck (`DeckSpec`, `packages/game-kit`) may carry `partitions`: a list of groups `{id, size}`. Clients MUST refuse the deck unless:
-- the list holds 1 to 16 groups;
+- the list holds 1 to 64 groups (D080);
 - group ids are distinct, non-empty strings;
 - every size is a positive safe integer, and the sizes sum to the deck's `size`.
 
@@ -437,10 +437,10 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - **Building.** A client building a game action MUST attach every share its seat owes as of the head and has not yet published.
 - **Why that's enough.** In a round-robin game, each seat acts at least once between a player's draw and that player's next turn. So by the time a player must act, every other seat has shared their new cards. **No seat is ever needed online outside its own turn.**
 
-**Child-deal shares, Holler only (D073).** When the module id is `holler`, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Every other game keeps the parent-state rule above. Luster, Right of Way, Driftwrights and Room for Doubt keep the prompt duty in §6.2a. None of them emit `epoch`.
+**Child-deal shares, epoch-capable modules (D073, D079, D080).** When a single-pile module provides both reshuffle hooks and has at most 512 opening cards, a move that deals cards whose ciphertexts already exist also carries the actor's shares of the new positions `dealt` assigns to another seat. A move that omits one is invalid and is dropped. It is not buffered, and it is not equivocation. Games without that capability keep the parent-state rule above. Luster, Right of Way, Driftwrights and Room for Doubt keep the prompt duty in §6.2a. None of them emit `epoch`.
 
 ### 6.2a The Luster share duty (shipped under the owner's exception)
-**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069), and for Room for Doubt (D078) under the standing exception that lets any game use it (D075). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2, now abandoned (D071), would have replaced it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. These four production modules set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
+**Status.** Shipped in v1 for Luster, Right of Way and Driftwrights under the owner's per-game exceptions (D050, D059, D060, D067, D069), and for Room for Doubt (D078) under the standing exception that lets any game use it (D075). It is a prompt duty: it releases shares outside the seat's own moves, with v1 fork choice still in force. It is **not safe against equivocation** (findings F1–F3 of the Luster audit behind D060, below); protocol v2, now abandoned (D071), would have replaced it (`PROTOCOL-v2.md` §6). A module enables it with `DeckSpec.promptShares: true`; `partitions` alone do not. Those production modules, Quill & Quarry and experimental Gilt & Guile set it. With it, a seat's client also owes a `seal` duty for the sealed shares of §4.10 it has not published, built as one Sealed event and published at once, like the `share` duty.
 
 **The duty.** A seat's client owes a `share` duty when all of these hold, as of its canonical head state `S`:
 - no timeout claim was accepted and no Resign ended the game;
@@ -449,7 +449,7 @@ Dealing order has no effect on fairness: positions are uniformly shuffled. RULES
 - its seat holds no Shares event that fails against the current final deck (it did not deal on a rival deck, §6.1);
 - the positions below are not empty.
 
-The positions: every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2), with either one or multiple deck groups. A seat never publishes a share of a position dealt to itself.
+The positions: every position that `dealt(S)` assigns to **another seat or to `null`** for which the client holds no verified share by its seat (the owed positions of §6.2), with either one or multiple deck groups. A seat never publishes a share of a position whose latest assignment is still private to itself. An explicit public reveal may append an assignment to `null`; the existing rule then includes its owner's share. Gilt & Guile uses this for cleanup and other public discards (D080).
 
 **Publishing.** The open app builds one Shares event (§4.5, v1 format: the root tag only, no anchor) holding a share for every such position, sorted by position, and publishes it at once, with no human action and no check for a held fork. The duty comes before `decide`. Receivers fold it as any Shares event (§5.4, §6.2): a verified share counts once per seat and position. In Luster this releases:
 - **public refills:** after a buy or a reserve from the display, the engine assigns the next card of that tier to `null` and pends its public reveal. Every seat, the actor included, releases its share, and every client derives the reveal (§6.3) once all are held. Moves wait meanwhile (§6.5), so without this duty no seat could move to carry the shares, and a v1 Luster game would deadlock at its first refill;

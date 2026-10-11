@@ -18,7 +18,7 @@ D069 accepts the existing v1 fork/rollback limits for prompt release, as for Lus
 
 ## Rules fidelity
 
-The [publisher FAQ](https://www.catan.com/faq/basegame) supports the separate trade/build sequence, action ventures before rolling, finite-bank production shortages and award ties. Reference names stay in documentation except for the single public comparison phrase (D080).
+The [publisher FAQ](https://www.catan.com/faq/basegame) supports the separate trade/build sequence, action ventures before rolling, finite-bank production shortages and award ties. Reference names stay in documentation except for the single public comparison phrase (D081).
 
 The scarce-bank Windfall interpretation is explicitly a table rule (`available` or `two`, C33, D070). New tables default to taking whatever remains when the entire bank contains fewer than two supplies. Applying the general sole-recipient shortage exception to Windfall is an inference; no explicit publisher clarification was found. The alternative requires two available supplies. Ordinary play requires exactly two under both options.
 

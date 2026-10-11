@@ -499,3 +499,12 @@ describe('second shuffle round (D076)', () => {
     expect(t.spectator.waitingFor()).toEqual([1]);
   });
 });
+
+it('allows up to 64 first-round groups for personal decks and separate supply piles', () => {
+  const groups = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `supply-${i}`, size: 2 }));
+  expect(shuffleSchedule({ id: 'pile', size: 42, partitions: groups(21) }, 4)).toHaveLength(84);
+  expect(shuffleSchedule({ id: 'pile', size: 128, partitions: groups(64) }, 2)).toHaveLength(128);
+  expect(() => shuffleSchedule({ id: 'pile', size: 130, partitions: groups(65) }, 2)).toThrow(
+    'invalid deck partitions',
+  );
+});

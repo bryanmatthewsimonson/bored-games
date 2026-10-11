@@ -428,7 +428,19 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
         full = deepFreeze(install.state);
         for (let i = 0; i < order.length; i++) {
           const card = order[i];
-          if (card !== undefined) dealtCards.set(EPOCH_STRIDE * pending.epoch + i, card);
+          if (card !== undefined)
+            dealtCards.set(
+              Math.max(
+                EPOCH_STRIDE,
+                2 **
+                  Math.ceil(
+                    Math.log2(module.decks(opts.rules).find((d) => d.id === pending.deck)?.size ?? 0),
+                  ),
+              ) *
+                pending.epoch +
+                i,
+              card,
+            );
         }
         epochOrders.push({ epoch: pending.epoch, order });
         action = { type: 'epoch', actor: 'deck', epoch: pending.epoch, size: order.length };

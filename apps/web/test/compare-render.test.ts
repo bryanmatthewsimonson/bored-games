@@ -1,6 +1,6 @@
 /*
- * The public site names the published games Chain Reaction, Luster, Right of Way, Driftwrights and Room for Doubt implement only
- * inside the allowed phrases "Compare to <title>" (D053, D060, D066, D078, D080). The build scans prove no source or
+ * The public site names the published games Chain Reaction, Luster, Right of Way, Driftwrights, Room for Doubt and Gilt & Guile implement only
+ * inside the allowed phrases "Compare to <title>" (D053, D060, D066, D078, D080, D081). The build scans prove no source or
  * bundle holds the bare title as a literal; this test proves the rendered catalog and game page do not show it
  * either (a `{compareTo.title}` in the UI would pass the build scans, since the title is cut from the phrase at
  * run time). It renders them with the trademark-safe names, takes every text and attribute, and runs the same
@@ -8,6 +8,7 @@
  */
 import { COMPARE_PHRASE } from '@bored-games/chain-reaction/compare';
 import { COMPARE_PHRASE as DRIFTWRIGHTS_COMPARE_PHRASE } from '@bored-games/driftwrights/compare';
+import { COMPARE_PHRASE as GILT_COMPARE_PHRASE } from '@bored-games/gilt-and-guile/compare';
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '@bored-games/luster/compare';
 import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '@bored-games/right-of-way/compare';
 import { COMPARE_PHRASE as ROOM_FOR_DOUBT_COMPARE_PHRASE } from '@bored-games/room-for-doubt/compare';
@@ -49,6 +50,11 @@ describe('the rendered public pages', () => {
         textOf(h(GameFacts, { entry: item.entry })),
       ]),
     ];
+    const gilt = items.find((i) => i.entry.id === 'gilt-and-guile');
+    if (!gilt) throw Error('Missing theatre game');
+    const giltPage = textOf(h(GameFacts, { entry: gilt.entry }));
+    expect(giltPage).toContain(GILT_COMPARE_PHRASE);
+    expect(giltPage).toContain('https://boardgamegeek.com/boardgame/36218');
     expect(strings.length).toBeGreaterThan(0);
     for (const text of pages) expect(findRestricted(text, strings)).toEqual([]);
     // The phrase is there, on the card and on the game page, and nothing restricted is left once it is removed.
@@ -100,12 +106,26 @@ describe('the rendered public pages', () => {
       expect(textOf(facts(id)), id).toContain(`https://boardgamegeek.com/boardgame/${bgg}`);
       expect(textOf(facts(id)), id).not.toContain('Compare to');
     }
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'driftwrights', 'room-for-doubt'])
+    for (const id of [
+      'chain-reaction',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'room-for-doubt',
+      'gilt-and-guile',
+    ])
       expect(spokenText(renderTree(facts(id))), id).not.toContain('BoardGameGeek');
   });
 
   it('would catch either title rendered on its own', () => {
-    for (const id of ['chain-reaction', 'luster', 'right-of-way', 'driftwrights', 'room-for-doubt']) {
+    for (const id of [
+      'chain-reaction',
+      'luster',
+      'right-of-way',
+      'driftwrights',
+      'room-for-doubt',
+      'gilt-and-guile',
+    ]) {
       const game = catalogItems().find((i) => i.entry.id === id);
       const title = game?.entry.compareTo?.title ?? '';
       expect(title, id).not.toBe('');

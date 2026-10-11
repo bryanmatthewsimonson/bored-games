@@ -58,6 +58,7 @@ describe('catalog filters', () => {
       'right-of-way',
       'holler',
       'quill-and-quarry',
+      'gilt-and-guile',
     ]);
     expect(ids({ players: 3 })).toEqual([
       'chain-reaction',
@@ -68,6 +69,7 @@ describe('catalog filters', () => {
       'holler',
       'room-for-doubt',
       'quill-and-quarry',
+      'gilt-and-guile',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -78,6 +80,7 @@ describe('catalog filters', () => {
       'holler',
       'room-for-doubt',
       'quill-and-quarry',
+      'gilt-and-guile',
     ]);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler', 'room-for-doubt']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
@@ -92,7 +95,7 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
     expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way', 'room-for-doubt']);
-    expect(ids({ genre: 'strategy' })).toEqual(['driftwrights']);
+    expect(ids({ genre: 'strategy' })).toEqual(['driftwrights', 'gilt-and-guile']);
     expect(ids({ genre: 'card' })).toEqual(['holler']);
     expect(ids({ mode: 'competitive' })).toEqual([
       'chain-reaction',
@@ -104,6 +107,7 @@ describe('catalog filters', () => {
       'holler',
       'room-for-doubt',
       'quill-and-quarry',
+      'gilt-and-guile',
     ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
@@ -119,7 +123,12 @@ describe('catalog filters', () => {
       'quill-and-quarry',
     ]);
     expect(ids({ length: 'over-120' })).toEqual([]);
-    expect(ids({ complexity: 'medium' })).toEqual(['chain-reaction', 'driftwrights', 'quill-and-quarry']);
+    expect(ids({ complexity: 'medium' })).toEqual([
+      'chain-reaction',
+      'driftwrights',
+      'quill-and-quarry',
+      'gilt-and-guile',
+    ]);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
     expect(ids({ complexity: 'light' })).toEqual([
       'bank',

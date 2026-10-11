@@ -18,7 +18,7 @@
  *   without touching this file. A pack's `id` and its `looks` (label letters, colors, pattern words) are not
  *   names, and scanning for them would ban single letters and ordinary words.
  *
- * One exception (D053, D060, D066, D078, D080): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
+ * One exception (D053, D060, D066, D078, D080, D081): the exact phrases in `ALLOWED_PHRASES` ("Compare to" a reference title,
  * as a store brand says it; one per game that has one) are cut out of the text before both matchers run, so
  * `findRestricted` and everything built on it (the repo guard, the public build scan and `pnpm scan:dist`) let them
  * through. Only the whole phrase, spelled exactly: the title alone, in another case or inside another word is still
@@ -40,6 +40,9 @@ const FIXED_NAMES: readonly string[] = [
   'MayfairGames',
   'Mayfair-Games',
   'Mayfair_Games',
+  'Dominion',
+  'Rio Grande Games',
+  'Donald X. Vaccarino',
   'Acquire',
   'Sackson',
   'Tower',
@@ -118,6 +121,7 @@ const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
 
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...['Rio Grande Games', 'Donald X. Vaccarino'].flatMap(nameForms),
   ...ROOM_FOR_DOUBT_REFERENCE.flatMap(nameForms),
 ];
 
@@ -137,7 +141,7 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080),
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081),
  * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
  * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's
  * compare phrase is not here: its reference title is not on the restricted list (D072). A whole-word scan covers
@@ -149,6 +153,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/right-of-way/src/compare.ts': 'Compare to Ticket to Ride',
   'packages/games/driftwrights/src/compare.ts': 'Compare to Catan',
   'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
+  'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

@@ -9,6 +9,7 @@ import { MODULES } from '../src/net.ts';
 
 /** The registered games whose decks set `promptShares`. Any game may (D075); this list only records which do. */
 const PROMPT_SHARES_USED: readonly string[] = [
+  'gilt-and-guile',
   'luster',
   'right-of-way',
   'driftwrights',

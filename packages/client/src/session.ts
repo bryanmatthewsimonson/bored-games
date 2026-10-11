@@ -175,13 +175,10 @@ const MAX_ACK_DEPTH = 32;
 /** Audits kept by log hash, so a trial fold that relinks the same finished chain does not run it again. */
 const MAX_AUDITS = 8;
 
-/**
- * Epoch positions are `128 * k + i` (D073). Hardcoded so this package does not import a game. What makes a position
- * an epoch's is that it lies at or above the deck size, never its value: an opening position is any position below
- * the deck size, and Right of Way's packet has 580 of them. The two ranges meet when the deck has more than 128
- * cards, so only a game of at most 128 cards can reshuffle (Holler's deck has 108).
+/** Epoch slots use a power-of-two stride at least as large as the opening deck, with a minimum of 128.
+ * This preserves existing small-deck encodings while keeping larger opening decks and later shuffles disjoint.
  */
-const EPOCH_STRIDE = 128;
+const epochStride = (size: number): number => Math.max(128, 2 ** Math.ceil(Math.log2(size)));
 
 /**
  * A fork's best side branch, found by trial: its moves (lowest-id first among equals), whether it ends the game, and
@@ -383,7 +380,7 @@ export class GameSession {
   /** `decks[k]` is the deck after `k` shuffle steps; `decks[0]` is the initial deck. */
   private readonly decks: Ciphertext[][];
   /**
-   * Completed epoch outputs, keyed by epoch number (D073). Rebuilt from the chain. Positions `128 * k + i` read
+   * Completed epoch outputs, keyed by epoch number (D073). Rebuilt from the chain. Positions `epochStride(deckSize) * k + i` read
    * this map. The opening deck stays in `decks` and is never replaced.
    */
   private readonly epochDecks = new Map<number, readonly Ciphertext[]>();
@@ -1644,7 +1641,7 @@ export class GameSession {
   /**
    * The ciphertext at `pos`, looking in `decks` for an epoch's. Below `deckSize` a position is an opening one,
    * whatever its value (Right of Way's charters sit at 550–579), and is read from the opening deck. From `deckSize`
-   * on it is an epoch's `128 * k + i`: epoch `floor(pos / 128)`, index `pos % 128`. Holler's deck has 108 cards, so
+   * on it is an epoch's `stride * k + i`, where stride is the next power of two (at least 128). A 108-card deck means
    * 108–127 hold nothing and its epoch positions start at 128.
    */
   private ciphertextFrom(
@@ -1657,11 +1654,11 @@ export class GameSession {
       if (opening === null || pos >= opening.length) return undefined;
       return opening[pos];
     }
-    const deck = decks.get(Math.floor(pos / EPOCH_STRIDE));
-    return deck?.[pos % EPOCH_STRIDE];
+    const deck = decks.get(Math.floor(pos / epochStride(this.deckSize)));
+    return deck?.[pos % epochStride(this.deckSize)];
   }
 
-  /** An accepted epoch output owns `128 * k + i`, from the deck size on. */
+  /** An accepted epoch output owns `epochStride(deckSize) * k + i`, from the deck size on. */
   private epochOwns(pos: number): boolean {
     return pos >= this.deckSize && this.ciphertextAt(pos) !== undefined;
   }
@@ -2064,7 +2061,8 @@ export class GameSession {
    * epoch does not verify against another (D073). The store still keys by position alone.
    */
   private shareCtx(pos: number): ShareCtx {
-    const deckId = pos < this.deckSize ? (this.deckId as string) : `pile.${Math.floor(pos / EPOCH_STRIDE)}`;
+    const deckId =
+      pos < this.deckSize ? (this.deckId as string) : `pile.${Math.floor(pos / epochStride(this.deckSize))}`;
     return { rootId: this.root.id, deckId, pos };
   }
 
@@ -3430,12 +3428,12 @@ export class GameSession {
     return ev;
   }
 
-  /** The existing single-pile epoch wire requires both module hooks and positions below the stride (D079). */
+  /** The existing single-pile epoch wire requires both module hooks and a bounded opening deck (D079, D080). */
   private usesEpochs(): boolean {
     return (
       this.hasDeck() &&
       this.deckId === 'pile' &&
-      this.deckSize <= EPOCH_STRIDE &&
+      this.deckSize <= 512 &&
       typeof this.module.installDeckOrder === 'function' &&
       typeof this.module.shufflePlaintexts === 'function'
     );

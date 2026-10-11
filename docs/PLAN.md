@@ -1,8 +1,8 @@
 # Plan
 
-## Board keyboard focus and catalog consistency — 2026-10-10 (D080)
+## Board keyboard focus and catalog consistency — 2026-10-10 (D081)
 
-Right of Way and Driftwrights use lowercase SVG `tabindex`, with live-game regressions for keyboard focus and activation. Driftwrights now follows the comparison metadata and branding-guard convention; both games have explicit CC0 artwork license documents. Verified with `pnpm check` (182 files, 2,466 tests passed, 40 optional tests skipped) and all four targeted Chromium cases. D080 records the commands.
+Right of Way and Driftwrights use lowercase SVG `tabindex`, with live-game regressions for keyboard focus and activation. Driftwrights now follows the comparison metadata and branding-guard convention; both games have explicit CC0 artwork license documents. Verified with all four targeted Chromium cases and, after integrating the latest main, `pnpm check` (185 files, 2,524 tests passed, 40 optional tests skipped). D081 records the commands.
 
 ## Quill & Quarry — added 2026-10-09 (D079)
 
@@ -279,3 +279,9 @@ Luster hand/sidebar follow-up implemented: face-down opponent reservations, a se
 Rules engine, original floating-island artwork, rewritten rules, decentralized module, catalog/lobby registration and responsive browser board are implemented on `feat/driftwrights` (PR #39). The catalog includes 33 rule cases, full seeded three/four-player games, invariant checks and deterministic replay. The reference fixture remains development-only; production games use independent signed sessions.
 
 **D069 authorizes the Driftwrights-specific D050 exception.** Keep the decentralized player/relay architecture. Mixed proofs use distinct card/beacon slots and request-bound entropy. Private supply selections use authenticated encrypted deliveries to both participants, checked against the victim's committed private permutation during the final audit. Hidden payment/requisition claims are also replayed against full hands. Resign stays disabled. The scarce-bank Windfall ambiguity is a table option. Independent-view games, complete signed and browser three/four-seat games, 100 seeded games, all 15 browser regressions, the full repository check (2,043 tests) and the production build/brand scan pass. PR #39 records CI and the merge/deployment result; see [the release evidence and gates](games/driftwrights/IMPLEMENTATION.md).
+
+### Gilt & Guile — 2026-10-10
+
+Implemented a distinct theatre-company theme, 33 original Art Deco illustrations, the complete 26-card current base company catalog plus seven basics, ten-pile custom selection and three presets, private inspection/repeated actions/all attacks, public discards, scoring, rewritten rules and a searchable card catalog. Compare-to navigation and BoardGameGeek reference 36218 follow the existing metadata convention. Desktop retains the central board and right score sidebar; mobile stacks the sidebar. Experimental status; expansions and retired first-edition cards are outside this base edition. See D080 and games/gilt-and-guile/RULES.md.
+
+Validation results are recorded in games/gilt-and-guile/VERIFICATION.md.
