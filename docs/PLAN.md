@@ -2,7 +2,7 @@
 
 ## Cover art and catalog thumbnails — 2026-10-11 (D082)
 
-Chain Reaction, Chess, Bank, Luster, Right of Way and Room for Doubt now have cover art in their catalog tile and on their rules page (`apps/web/src/games/covers.tsx`). Driftwrights and Holler still show initials.
+Chain Reaction, Chess, Bank, Luster, Right of Way and Room for Doubt now have cover art in their catalog tile and on their rules page (`apps/web/src/games/covers.tsx`). Driftwrights still shows initials. Holler's cover, cards and table were redrawn with colors in place of suits (D083).
 
 ## Board keyboard focus and catalog consistency — 2026-10-10 (D081)
 

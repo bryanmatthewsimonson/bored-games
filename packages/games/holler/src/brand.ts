@@ -9,7 +9,7 @@ export const HOLLER_BRAND: BrandNames = {
   gameTitle: HOLLER_THEME.title,
   tagline: HOLLER_THEME.tagline,
   summary:
-    'A shedding game for two to ten. Match the suit, the rank, or the action, name a new suit with a Mark ' +
+    'A shedding game for two to ten. Match the color, the number, or the action, name a new color with a Mark ' +
     'or a Levy, and say Holler when you lay down your next-to-last card. The first to 500 points wins.',
   aliases: ['holler card game'],
 };

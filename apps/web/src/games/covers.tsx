@@ -7,6 +7,7 @@ import { BankCover } from './bank/cover.tsx';
 import { ChainReactionCover } from './chain-reaction/cover.tsx';
 import { ChessCover } from './chess/cover.tsx';
 import { StageArt } from './gilt-and-guile/art.tsx';
+import { HollerCover } from './holler/cover.tsx';
 import { LusterCover } from './luster/cover.tsx';
 import { QuarryArt } from './quill-and-quarry/art.tsx';
 import { RightOfWayCover } from './right-of-way/cover.tsx';
@@ -18,6 +19,7 @@ export const GAME_COVERS: Readonly<Record<string, ComponentType<{ thumb?: boolea
   chess: ChessCover,
   bank: BankCover,
   luster: LusterCover,
+  holler: HollerCover,
   'right-of-way': RightOfWayCover,
   'room-for-doubt': RoomForDoubtCover,
   'quill-and-quarry': QuarryArt,

@@ -1,16 +1,16 @@
 /**
  * User-facing names for Holler. Engine code never imports this file.
- * Hue is never the only suit signal: each suit has a pattern id the screen draws.
+ * A card's suit is shown only as its color: four bright colors and a name for each (owner, D083).
  */
 export const HOLLER_THEME = {
   title: 'Holler',
-  tagline: 'Match the suit, the rank, or the action, and holler before your last card.',
+  tagline: 'Match the color, the number, or the action, and holler before your last card.',
   declaration: 'Holler!',
-  suits: [
-    { id: 'notch', name: 'Notch', hue: '#c4552a', pattern: 'chevron' },
-    { id: 'tide', name: 'Tide', hue: '#2a6f8f', pattern: 'wave' },
-    { id: 'seed', name: 'Seed', hue: '#6e8b3d', pattern: 'seed' },
-    { id: 'kiln', name: 'Kiln', hue: '#a33b4a', pattern: 'diamond' },
+  colors: [
+    { id: 'red', name: 'Red', hue: '#e23d3d' },
+    { id: 'yellow', name: 'Yellow', hue: '#f2b411' },
+    { id: 'green', name: 'Green', hue: '#2f9e55' },
+    { id: 'blue', name: 'Blue', hue: '#1f6fd1' },
   ],
   actions: {
     halt: 'Halt',
@@ -19,6 +19,6 @@ export const HOLLER_THEME = {
     mark: 'Mark',
     levy: 'Levy',
   },
-  paper: '#f3efe6',
+  paper: '#ffffff',
   ink: '#1c2230',
 } as const;

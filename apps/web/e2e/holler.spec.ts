@@ -1,7 +1,7 @@
 /*
- * End to end: Holler's compare line, the rules-page suit patterns, and a dealt hand on a phone.
+ * End to end: Holler's compare line, the rules-page colors, and a dealt hand on a phone.
  *
- * The rules page shows one card of each suit and the active-suit control. Two players then deal a hand.
+ * The rules page shows one card of each color and the color-in-play control. Two players then deal a hand.
  * 390px does not scroll sideways. Run it with `pnpm e2e holler.spec.ts`.
  */
 import { BRAND } from '@bored-games/brand';
@@ -9,13 +9,7 @@ import { COMPARE_PHRASE, COMPARE_TITLE } from '@bored-games/holler/compare';
 import { type Browser, expect, type Page, test } from '@playwright/test';
 
 const RELAY = process.env.E2E_RELAY ?? 'ws://localhost:7777';
-const WORDS: Record<string, string> = {
-  chevron: 'chevrons',
-  wave: 'waves',
-  seed: 'seeds',
-  diamond: 'diamonds',
-};
-const SUITS: Record<string, string> = { notch: 'Notch', tide: 'Tide', seed: 'Seed', kiln: 'Kiln' };
+const COLORS: Record<string, string> = { red: 'Red', yellow: 'Yellow', green: 'Green', blue: 'Blue' };
 
 function appUrl(profile: string, from?: string): string {
   const u = new URL(from ?? process.env.E2E_BASE_URL ?? 'http://localhost:4173/');
@@ -37,7 +31,7 @@ async function fits(page: Page, width: number, height: number): Promise<void> {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 }
 
-test('the compare line and the four suit patterns fit a phone', async ({ browser }) => {
+test('the compare line and the four colors fit a phone', async ({ browser }) => {
   const page = await open(browser, 'holler-rules');
   await page.getByLabel('Search games').fill(COMPARE_TITLE);
   await expect(page.locator('.game-card-compare')).toHaveText(COMPARE_PHRASE);
@@ -55,13 +49,12 @@ test('the compare line and the four suit patterns fit a phone', async ({ browser
   await expect(page).toHaveURL(/#\/rules\/holler$/);
   await expect(page.getByRole('heading', { name: 'How to play Holler' })).toBeVisible();
   const found = await page
-    .locator('[data-pattern]')
-    .evaluateAll((els) => [...new Set(els.map((el) => el.getAttribute('data-pattern')))].sort());
-  expect(found).toEqual(['chevron', 'diamond', 'seed', 'wave']);
+    .locator('[data-suit]')
+    .evaluateAll((els) => [...new Set(els.map((el) => el.getAttribute('data-suit')))].sort());
+  expect(found).toEqual(['blue', 'green', 'red', 'yellow']);
   const active = page.getByTestId('holler-active-suit');
-  await expect(active).toHaveAttribute('data-pattern', 'wave');
-  await expect(active).toHaveAttribute('data-suit', 'tide');
-  await expect(active).toHaveAccessibleName('Tide, waves');
+  await expect(active).toHaveAttribute('data-suit', 'blue');
+  await expect(active).toHaveAccessibleName('Blue');
   await fits(page, 1280, 1000);
   await fits(page, 390, 844);
 });
@@ -94,8 +87,7 @@ test('two players deal a hand and the table fits a phone', async ({ browser }) =
 
   const active = a.getByTestId('holler-active-suit');
   if ((await active.count()) > 0) {
-    const suit = (await active.getAttribute('data-suit')) ?? '';
-    const pattern = (await active.getAttribute('data-pattern')) ?? '';
-    await expect(active).toHaveAccessibleName(`${SUITS[suit]}, ${WORDS[pattern]}`);
+    const color = (await active.getAttribute('data-suit')) ?? '';
+    await expect(active).toHaveAccessibleName(COLORS[color] ?? 'missing');
   }
 });

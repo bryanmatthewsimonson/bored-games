@@ -2,7 +2,7 @@
 
 Holler plays the shedding game Uno (BoardGameGeek 2223) under its own names. This file is the **source of truth** for the engine in `packages/games/holler`. Display names live in `packages/games/holler/src/theme.ts`. The public title is Holler. The declaration is Holler!.
 
-Suits are Notch, Tide, Seed, and Kiln. Each suit is also a pattern, so color is never the only signal. Actions are Halt, Swing, Pull, Mark, and Levy. There is no licensed art pack. The catalog may name the reference game once, inside the compare line, with BoardGameGeek id 2223.
+The four suits are shown only as colors: Red, Yellow, Green, and Blue (D083). This file and the engine say suit; the screen says color. Actions are Halt, Swing, Pull, Mark, and Levy. There is no licensed art pack. The catalog may name the reference game once, inside the compare line, with BoardGameGeek id 2223.
 
 ## The deck
 

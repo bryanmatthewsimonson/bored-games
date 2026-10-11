@@ -1,29 +1,20 @@
 /*
  * What the Holler screen shows, as plain data. The component draws it.
- * Every function that names a suit takes the theme first (D046).
+ * Every function that names a color takes the theme first (D046).
  */
 import { faceOf, type HollerState, type Phase } from '@bored-games/holler';
 import type { HOLLER_THEME } from '@bored-games/holler/theme';
 
 export type HollerTheme = typeof HOLLER_THEME;
 
-const PATTERN_WORD = {
-  chevron: 'chevrons',
-  wave: 'waves',
-  seed: 'seeds',
-  diamond: 'diamonds',
-} as const;
-
-export type PatternId = keyof typeof PATTERN_WORD;
 export type SuitIndex = 0 | 1 | 2 | 3;
 
+/** A suit as the screen shows it: a color and its name. */
 export interface SuitLook {
   readonly index: SuitIndex;
   readonly id: string;
   readonly name: string;
   readonly hue: string;
-  readonly pattern: PatternId;
-  readonly word: string;
 }
 
 function isSuitIndex(n: unknown): n is SuitIndex {
@@ -34,32 +25,27 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object';
 }
 
-/** Suit `index` as `theme` draws and names it. Null when the theme has no such suit. */
+/** Suit `index` as `theme` colors and names it. Null when the theme has no such color. */
 export function suitLook(theme: HollerTheme, index: number): SuitLook | null {
   if (!isSuitIndex(index)) return null;
-  const suit = theme.suits[index];
-  if (suit === undefined) return null;
-  const word = PATTERN_WORD[suit.pattern];
-  if (word === undefined) return null;
-  return { index, id: suit.id, name: suit.name, hue: suit.hue, pattern: suit.pattern, word };
+  const color = theme.colors[index];
+  if (color === undefined) return null;
+  return { index, id: color.id, name: color.name, hue: color.hue };
 }
 
-/** "Tide, waves". The pattern word is the non-color name of the mark. */
+/** "Blue". */
 export function suitLabel(look: SuitLook): string {
-  return `${look.name}, ${look.word}`;
+  return look.name;
 }
 
-/**
- * Accessible name of a card. A number includes the pattern ("Tide, waves, 7"). An action is the suit and the
- * action ("Tide Halt"). Mark and Levy name no suit.
- */
+/** Accessible name of a card: "Blue 7", "Blue Halt", or "Mark" and "Levy", which have no color. */
 export function cardLabel(theme: HollerTheme, card: number): string {
   const face = faceOf(card);
   if (face.kind === 'mark') return theme.actions.mark;
   if (face.kind === 'levy') return theme.actions.levy;
   const look = face.suit === null ? null : suitLook(theme, face.suit);
   if (look === null) return 'Card';
-  if (face.kind === 'number') return `${suitLabel(look)}, ${face.rank}`;
+  if (face.kind === 'number') return `${look.name} ${face.rank}`;
   return `${look.name} ${theme.actions[face.kind]}`;
 }
 
@@ -158,10 +144,7 @@ export function buttonChoices(theme: HollerTheme, legal: readonly unknown[]): Bu
 export function pendingLabels(theme: HollerTheme, phase: Phase): readonly string[] {
   switch (phase.type) {
     case 'name':
-      return theme.suits.flatMap((suit) => {
-        const word = PATTERN_WORD[suit.pattern];
-        return word === undefined ? [] : [`${suit.name}, ${word}`];
-      });
+      return theme.colors.map((color) => color.name);
     case 'cover':
       return ['Seen'];
     case 'levy':

@@ -1,6 +1,6 @@
 /*
- * Holler faces and names, without a browser. The rules page shows one card of each suit and the active-suit
- * control. A suited card's left column is three copies, each at least 44 units, and seed dots there are radius 9.
+ * Holler faces and names, without a browser (D083). A suit is shown as a color with its name; a colored card is
+ * that color, and Mark and Levy are ink cards with the four-color wheel.
  */
 import { actionCard, numberCard } from '@bored-games/holler';
 import { HOLLER_THEME } from '@bored-games/holler/theme';
@@ -15,58 +15,55 @@ function strings(nodes: readonly Node[]): string[] {
   return nodes.flatMap((node) => (isEl(node) ? strings(node.children) : [node]));
 }
 
-function patterns(nodes: readonly Node[]): string[] {
+function colors(nodes: readonly Node[]): string[] {
   return [
     ...new Set(
-      findAll(nodes, (el) => el.attrs['data-pattern'] !== undefined).map((el) =>
-        String(el.attrs['data-pattern']),
-      ),
+      findAll(nodes, (el) => el.attrs['data-suit'] !== undefined).map((el) => String(el.attrs['data-suit'])),
     ),
   ].sort();
 }
 
 describe('holler cards', () => {
-  it('names a suited card with its pattern, and Mark and Levy with no suit', () => {
-    expect(cardLabel(HOLLER_THEME, numberCard(1, 7, 0))).toBe('Tide, waves, 7');
-    expect(cardLabel(HOLLER_THEME, actionCard(1, 0, 0))).toBe('Tide Halt');
+  it('names a card by its color, and Mark and Levy with no color', () => {
+    expect(cardLabel(HOLLER_THEME, numberCard(3, 7, 0))).toBe('Blue 7');
+    expect(cardLabel(HOLLER_THEME, actionCard(3, 0, 0))).toBe('Blue Halt');
     expect(cardLabel(HOLLER_THEME, 100)).toBe('Mark');
     expect(cardLabel(HOLLER_THEME, 104)).toBe('Levy');
-    const tide = suitLook(HOLLER_THEME, 1);
-    expect(tide === null ? '' : suitLabel(tide)).toBe('Tide, waves');
+    const blue = suitLook(HOLLER_THEME, 3);
+    expect(blue === null ? '' : suitLabel(blue)).toBe('Blue');
   });
 
   it('keeps a Holler flag on the play the engine offered', () => {
-    const card = numberCard(1, 7, 0);
+    const card = numberCard(3, 7, 0);
     const plain = { type: 'play', actor: 0, pos: 4, card };
     const called = { type: 'play', actor: 0, pos: 4, card, holler: true as const };
     expect(playChoices(HOLLER_THEME, [plain, called]).map((play) => play.label)).toEqual([
-      'Tide, waves, 7',
-      'Holler!, Tide, waves, 7',
+      'Blue 7',
+      'Holler!, Blue 7',
     ]);
-    const mark = { type: 'play', actor: 0, pos: 1, card: 100, suit: 1 as const };
-    expect(playChoices(HOLLER_THEME, [mark])[0]?.label).toBe('Tide, waves');
+    const mark = { type: 'play', actor: 0, pos: 1, card: 100, suit: 3 as const };
+    expect(playChoices(HOLLER_THEME, [mark])[0]?.label).toBe('Blue');
   });
 
-  it('draws three tall column copies, and seed dots of radius 9', () => {
-    const face = renderTree(h(CardFace, { theme: HOLLER_THEME, card: numberCard(2, 1, 0) }));
-    const copies = findAll(face, (el) => String(el.attrs.class).split(/\s+/).includes('holler-column'));
-    expect(copies).toHaveLength(3);
-    for (const copy of copies) expect(Number(copy.attrs['data-copy-h'])).toBeGreaterThanOrEqual(44);
-    const dots = findAll(face, (el) => el.tag === 'circle');
-    expect(dots).toHaveLength(9);
-    for (const dot of dots) {
-      expect(Number(dot.attrs.r)).toBeGreaterThanOrEqual(8);
-      expect(Number(dot.attrs.r)).toBeLessThanOrEqual(10);
+  it('fills a colored card with its color and tags it with the color id', () => {
+    for (const [suit, color] of HOLLER_THEME.colors.entries()) {
+      for (const card of [numberCard(suit, 5, 0), actionCard(suit, 2, 0)]) {
+        const face = renderTree(h(CardFace, { theme: HOLLER_THEME, card }));
+        expect(colors(face)).toEqual([color.id]);
+        expect(findAll(face, (el) => el.tag === 'rect')[1]?.attrs.fill).toBe(color.hue);
+      }
     }
   });
 
-  it('gives Mark and Levy an ink frame and no suit pattern', () => {
+  it('draws Mark and Levy as ink cards with every color and no color of their own', () => {
     for (const card of [100, 104]) {
       const face = renderTree(h(CardFace, { theme: HOLLER_THEME, card }));
-      expect(patterns(face)).toEqual([]);
-      const frame = findAll(face, (el) => el.tag === 'rect')[0];
-      expect(frame?.attrs.stroke).toBe(HOLLER_THEME.ink);
-      expect(frame?.attrs.fill).toBe(HOLLER_THEME.paper);
+      expect(colors(face)).toEqual([]);
+      expect(findAll(face, (el) => el.tag === 'rect')[1]?.attrs.fill).toBe(HOLLER_THEME.ink);
+      const fills = new Set(
+        findAll(face, (el) => el.tag === 'path' || el.tag === 'rect').map((el) => el.attrs.fill),
+      );
+      for (const color of HOLLER_THEME.colors) expect(fills.has(color.hue)).toBe(true);
     }
     const levy = renderTree(h(CardFace, { theme: HOLLER_THEME, card: 104 }));
     const pull = renderTree(h(CardFace, { theme: HOLLER_THEME, card: actionCard(0, 2, 0) }));
@@ -76,14 +73,13 @@ describe('holler cards', () => {
     expect(strings(pull).join(' ')).not.toContain('+');
   });
 
-  it('shows four different patterns and a Tide waves control on the rules page', () => {
+  it('shows the four colors and a Blue control on the rules page', () => {
     const page = renderTree(h(HollerRulesContent, {}));
-    expect(patterns(page)).toEqual(['chevron', 'diamond', 'seed', 'wave']);
+    expect(colors(page)).toEqual(['blue', 'green', 'red', 'yellow']);
     const active = findAll(page, (el) => el.attrs['data-testid'] === 'holler-active-suit');
     expect(active).toHaveLength(1);
-    expect(active[0]?.attrs['aria-label']).toBe('Tide, waves');
-    expect(active[0]?.attrs['data-pattern']).toBe('wave');
-    expect(active[0]?.attrs['data-suit']).toBe('tide');
+    expect(active[0]?.attrs['aria-label']).toBe('Blue');
+    expect(active[0]?.attrs['data-suit']).toBe('blue');
     expect(strings(page).join(' ')).not.toMatch(/\bUno\b|\bDOS\b|Phase 10|Skip-Bo/i);
   });
 });
