@@ -1,13 +1,13 @@
 /*
  * The Holler table. Card buttons submit a legal action as the engine listed it.
- * The active suit is a patterned control, present whenever the engine has named one.
+ * The color in play is a chip and its name, present whenever the engine has named one.
  */
 import { faceOf, type HollerState, type Phase } from '@bored-games/holler';
 import { HOLLER_THEME } from '@bored-games/holler/theme';
 import { useEffect, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
 import type { GameViewProps } from '../types.ts';
-import { ActiveSuit, CardBack, CardFace, SuitBadge, SuitMark } from './cards.tsx';
+import { ActiveSuit, CardBack, CardFace, SuitBadge } from './cards.tsx';
 import { HOLLER_META } from './meta.ts';
 import {
   buttonChoices,
@@ -57,13 +57,10 @@ function SuitButton(props: { play: PlayChoice; enabled: boolean; onAct: (action:
       class="holler-suit-btn"
       aria-label={props.play.label}
       data-suit={look.id}
-      data-pattern={look.pattern}
+      style={`--holler-hue:${look.hue}`}
       disabled={!props.enabled}
       onClick={() => props.onAct(props.play.action)}
     >
-      <svg viewBox="0 0 36 48" aria-hidden="true">
-        <SuitMark theme={theme} suit={look.index} />
-      </svg>
       <span>{look.name}</span>
     </button>
   );
@@ -89,7 +86,13 @@ function HandCard(props: {
   const plain = props.plays.filter((play) => !play.holler);
   const hollers = props.plays.filter((play) => play.holler);
   const wild = props.plays.some((play) => play.suit !== null);
-  const slot = props.drawn ? 'holler-slot holler-drawn' : 'holler-slot';
+  const slot = [
+    'holler-slot',
+    props.drawn ? 'holler-drawn' : '',
+    props.plays.length > 0 ? 'holler-playable' : '',
+  ]
+    .filter((c) => c !== '')
+    .join(' ');
   if (wild) {
     return (
       <div class={slot}>
@@ -118,7 +121,7 @@ function HandCard(props: {
   }
   const play = plain[0] ?? hollers[0];
   const holler = plain[0] !== undefined ? hollers[0] : undefined;
-  const attrs = look === null ? {} : { 'data-suit': look.id, 'data-pattern': look.pattern };
+  const attrs = look === null ? {} : { 'data-suit': look.id };
   return (
     <div class={slot}>
       {play === undefined ? (
@@ -201,7 +204,7 @@ export function HollerGame(props: GameViewProps) {
   return (
     <div class="holler-game" data-testid="holler-game" data-seq={seq} data-phase={state.phase.type}>
       <div class="holler-main">
-        <section class="panel" aria-label="Table">
+        <section class="panel holler-felt" aria-label="Table">
           <p class="holler-round">{roundLabel(state)}</p>
           <p class={enabled ? 'holler-status mine' : 'holler-status'} aria-live="polite">
             {winner ?? status}
@@ -243,12 +246,13 @@ export function HollerGame(props: GameViewProps) {
             {enabled
               ? buttons.map((button) => {
                   const look = button.suit === null ? null : suitLook(theme, button.suit);
-                  const attrs = look === null ? {} : { 'data-suit': look.id, 'data-pattern': look.pattern };
+                  const attrs =
+                    look === null ? {} : { 'data-suit': look.id, style: `--holler-hue:${look.hue}` };
                   return (
                     <button
                       key={button.label}
                       type="button"
-                      class="btn btn-primary"
+                      class={look === null ? 'btn btn-primary' : 'btn btn-primary holler-color-btn'}
                       disabled={props.busy}
                       aria-label={button.label}
                       onClick={() => send(button.action)}

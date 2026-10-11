@@ -12,6 +12,7 @@ import { DicePair } from './dice.tsx';
 import { BANK_META } from './meta.ts';
 import '../chain-reaction/rules.css';
 import './bank.css';
+import { BankCover } from './cover.tsx';
 
 export const BANK_RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
   { id: 'goal', title: 'Goal' },
@@ -50,6 +51,9 @@ export function BankRulesContent() {
         <h1>How to play {BANK_THEME.title}</h1>
         <p class="lede">{BANK_THEME.tagline}</p>
       </header>
+      <figure class="rules-cover">
+        <BankCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>

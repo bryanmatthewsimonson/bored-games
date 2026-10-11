@@ -9,6 +9,7 @@ import { useEffect } from 'preact/hooks';
 import { DEADLINE_CHOICES } from '../../lobby-model.ts';
 import { rulesHref } from '../../router.ts';
 import { ActiveSuit, CardBack, CardFace } from './cards.tsx';
+import { HollerCover } from './cover.tsx';
 import { HOLLER_META } from './meta.ts';
 import { cardLabel, suitLabel, suitLook } from './model.ts';
 import '../chain-reaction/rules.css';
@@ -16,7 +17,7 @@ import './holler.css';
 
 export const HOLLER_RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
   { id: 'goal', title: 'Goal' },
-  { id: 'suits', title: 'Suits' },
+  { id: 'colors', title: 'Colors' },
   { id: 'play', title: 'A turn' },
   { id: 'actions', title: 'Actions' },
   { id: 'holler', title: 'Holler' },
@@ -52,13 +53,16 @@ export function HollerRulesContent() {
   const seats = holler.seatRange(holler.defaultRules());
   const deadlines = DEADLINE_CHOICES.map((c) => c.label);
   const deadlineList = `${deadlines.slice(0, -1).join(', ')} or ${deadlines.at(-1)}`;
-  const tide = suitLook(HOLLER_THEME, 1);
+  const blue = suitLook(HOLLER_THEME, 3);
   return (
     <article class="rules-page holler-rules">
       <header class="rules-head">
         <h1>How to play {HOLLER_THEME.title}</h1>
         <p class="lede">{HOLLER_THEME.tagline}</p>
       </header>
+      <figure class="rules-cover">
+        <HollerCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>
@@ -73,25 +77,25 @@ export function HollerRulesContent() {
 
       <Section id="goal">
         <p>
-          {seats.min} to {seats.max} players. Deal seven cards each. Match the discard by suit, by rank, or by
-          action, and get rid of your hand. The player who goes out scores the cards everyone else is holding.
-          First to 500 wins. Best with 4 to 6 players.
+          {seats.min} to {seats.max} players. Deal seven cards each. Match the discard by color, by number, or
+          by action, and get rid of your hand. The player who goes out scores the cards everyone else is
+          holding. First to 500 wins. Best with 4 to 6 players.
         </p>
       </Section>
 
-      <Section id="suits">
+      <Section id="colors">
         <p>
-          Four suits. Each one has a hue and a pattern, so color is never the only signal. The active suit is
-          this control, not a strip of color.
+          The cards come in four colors: {HOLLER_THEME.colors.map((c) => c.name).join(', ')}. The color in
+          play is shown beside the discard, like this.
         </p>
-        {tide !== null && <ActiveSuit theme={HOLLER_THEME} suit={tide.index} label={suitLabel(tide)} />}
+        {blue !== null && <ActiveSuit theme={HOLLER_THEME} suit={blue.index} label={suitLabel(blue)} />}
         <div class="holler-samples">
           <Sample card={numberCard(0, 7, 0)} />
           <Sample card={numberCard(1, 7, 0)} />
           <Sample card={numberCard(2, 3, 0)} />
           <Sample card={numberCard(3, 5, 0)} />
         </div>
-        <p>Each suit has one 0, two of every rank from 1 to 9, two Halts, two Swings, and two Pulls.</p>
+        <p>Each color has one 0, two of every number from 1 to 9, two Halts, two Swings, and two Pulls.</p>
       </Section>
 
       <Section id="play">
@@ -131,13 +135,13 @@ export function HollerRulesContent() {
           </li>
           <li>
             <strong>{HOLLER_THEME.actions.mark}</strong> and <strong>{HOLLER_THEME.actions.levy}</strong> may
-            be played on anything. The play names the suit that follows. There are four of each, and they have
-            no suit of their own. Their frame is ink, not a suit hue.
+            be played on anything. The play names the color that follows. There are four of each, and they
+            have no color of their own: they are the dark cards with the color wheel.
           </li>
           <li>
-            A {HOLLER_THEME.actions.levy} is legal only when your hand has no card of the suit that was
-            active. A {HOLLER_THEME.actions.mark} does not count as that suit. An off-suit card of the same
-            rank or kind does not count either.
+            A {HOLLER_THEME.actions.levy} is legal only when your hand has no card of the color that was in
+            play. A {HOLLER_THEME.actions.mark} does not count as that color. A card of another color with the
+            same number or action does not count either.
           </li>
           <li>
             The next player may accept a {HOLLER_THEME.actions.levy}, draw four, and miss, or challenge it
@@ -147,9 +151,9 @@ export function HollerRulesContent() {
           </li>
         </ul>
         <p>
-          The first card of a round is the starter. A number starts play with that suit. A Halt skips the
+          The first card of a round is the starter. A number starts play with that color. A Halt skips the
           first player. A Swing at three or more players reverses direction. A Pull makes the first player
-          draw two. A Mark asks the first player to name the suit. A Levy is set aside, out of the draw, and
+          draw two. A Mark asks the first player to name the color. A Levy is set aside, out of the draw, and
           the next card is turned. At most four Levies are set aside. They return when the next round shuffles
           the whole deck.
         </p>
@@ -198,7 +202,7 @@ export function HollerRulesContent() {
             it.
           </li>
           <li>
-            Press a card to play it. A Mark or a Levy then asks which suit follows. Press{' '}
+            Press a card to play it. A Mark or a Levy then asks which color follows. Press{' '}
             {HOLLER_THEME.declaration} on the play that leaves you one card.
           </li>
           <li>

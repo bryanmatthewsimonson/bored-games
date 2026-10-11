@@ -29,12 +29,9 @@ import {
   tileInitials,
   timeText,
 } from '../catalog-model.ts';
-import { QuarryArt } from '../games/quill-and-quarry/art.tsx';
-import '../games/quill-and-quarry/quill.css';
 import { useApp } from '../context.ts';
 import { CATALOG } from '../games/catalog.ts';
-import { DriftwrightsArt } from '../games/driftwrights/art.tsx';
-import { StageArt } from '../games/gilt-and-guile/art.tsx';
+import { GAME_COVERS } from '../games/covers.tsx';
 import { gamePageHref } from '../router.ts';
 import { readJson, sessionStore, storageKey, writeJson } from '../storage.ts';
 
@@ -49,24 +46,17 @@ export function catalogItems(): CatalogItem[] {
   });
 }
 
-/** A game's picture: its art when it has some, else a tile generated from its id and initials. */
+/** A game's picture: its cover art when it has some, else a tile generated from its id and initials. */
 export function GameTile(props: { item: CatalogItem; size?: 'card' | 'page' }) {
   const { entry, names } = props.item;
+  const Cover = GAME_COVERS[entry.id];
   return (
     <div
       class={`game-tile game-tile-${props.size ?? 'card'}`}
       style={`--hue:${tileHue(entry.id)}`}
       aria-hidden="true"
     >
-      {entry.id === 'quill-and-quarry' ? (
-        <QuarryArt />
-      ) : entry.id === 'gilt-and-guile' ? (
-        <StageArt kind="grandstage" />
-      ) : entry.id === 'driftwrights' ? (
-        <DriftwrightsArt />
-      ) : (
-        <span>{tileInitials(names.gameTitle)}</span>
-      )}
+      {Cover !== undefined ? <Cover thumb /> : <span>{tileInitials(names.gameTitle)}</span>}
     </div>
   );
 }

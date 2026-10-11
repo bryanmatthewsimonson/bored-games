@@ -14,6 +14,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - `pnpm relay`: the in-memory dev relay alone, on port 7777
 - `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, the key backup, Chess, Bank, Luster, Right of Way, Driftwrights, Holler, Room for Doubt, Quill & Quarry, Gilt & Guile) on free ports (not part of `check`)
 - `pnpm sim --game <id>`: whole games between independent clients over an in-memory relay
+- `pnpm previews [game …]`: the game-page screenshots in `apps/web/public/previews/`, from real engine games drawn by the real screens (D086). Rerun it after a game's screen changes
 - `pnpm build:web`: static build of `apps/web` into `apps/web/dist` (GitHub Pages deploys it once CI passes on `main`)
 
 ## Repo map
@@ -55,6 +56,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
   - a fuzz target in `tools/fuzz/src/index.ts` (the sim takes `--game <id>`);
   - the web app: the module in `MODULES` (`apps/web/src/net.ts`), the id in `apps/web/src/games/ids.ts`, and `apps/web/src/games/<id>/` with `meta.ts`, a component taking `GameViewProps` and a rules page, registered in `games/registry.ts`, `game-names.ts` and `games/catalog.ts`;
   - an e2e spec in `apps/web/e2e/`;
+  - three game-page screenshots: a plan in `apps/web/scripts/previews/capture.ts`, `pnpm previews <id>`, and captions in `apps/web/src/games/previews.ts` (D086);
   - **Resign (D052):** a game with a deck, and any co-op game or game where a seat cannot see its own cards (Hanabi), must redo the early-secret analysis of PROTOCOL §8.3 before Resign is enabled for it. Where it fails (a co-op game: the resigner's secret exposes others' cards), the module opts out with `resignAllowed(rules, seats) → false`. A game with public reveals during play needs a Resign rule for them first (`module-contract.test.ts`). A deckless game with no hidden cards (Chess, Bank) resigns on the deckless path: no secret on the Resign.
   - **Prompt shares (D075):** any game may set `DeckSpec.promptShares` (the automatic share and seal duties in play), a standing exception to D050. Play must match the rules exactly; cheating prevention waits for the relay referee dealer (D071). Record the game in `apps/web/test/prompt-shares.test.ts`.
   - **Second shuffle round (D076):** a deck in groups (`partitions`) whose positions must not show a card's group mixes them in `DeckSpec.secondRound` (PROTOCOL §5.5). Full-mode `setup` must accept every order `packetOrderFits` allows; fuzz with `packetOrder`.

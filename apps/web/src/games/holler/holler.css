@@ -30,7 +30,55 @@ main:has(.holler-rules) {
 
 .holler-pile,
 .holler-discard-face {
-  width: min(96px, 42%);
+  width: min(128px, 36%);
+}
+
+.holler-pile {
+  position: relative;
+}
+
+.holler-pile .holler-count {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1c2230;
+  font-weight: 700;
+  font-size: 0.85rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
+}
+
+/* The play area: green felt, the pile and the discard dealt onto it. */
+.holler-felt {
+  background: radial-gradient(ellipse at 50% 35%, rgb(255 255 255 / 0.14), transparent 65%), #17663f;
+  border-color: #0f4a2d;
+  color: #ffffff;
+}
+
+.holler-felt .muted {
+  color: rgb(255 255 255 / 0.78);
+}
+
+.holler-felt .holler-status {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.holler-felt .holler-table {
+  justify-content: center;
+  gap: 20px;
+  padding: 8px 0 16px;
+}
+
+.holler-felt .holler-face {
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.35));
+}
+
+.holler-discard-face {
+  transform: rotate(4deg);
 }
 
 .holler-discard-face {
@@ -46,20 +94,17 @@ main:has(.holler-rules) {
 
 .holler-face text {
   font-family: var(--font);
-  font-weight: 700;
 }
 
 .holler-badge {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 22px;
-  height: 28px;
+  right: -8px;
+  top: -8px;
+  width: 30px;
+  height: 30px;
 }
 
-.holler-badge svg,
-.holler-active-mark,
-.holler-suit-btn svg {
+.holler-chip {
   display: block;
   width: 100%;
   height: auto;
@@ -71,19 +116,49 @@ main:has(.holler-rules) {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+  padding: 6px 14px 6px 6px;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1c2230;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
 }
 
-.holler-active-mark {
-  width: 36px;
-  height: 48px;
+.holler-active .holler-chip {
+  width: 32px;
   flex: none;
 }
 
 .holler-hand,
 .holler-samples {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 10px;
+}
+
+.holler-hand {
+  padding-top: 10px;
+}
+
+/* A card that can be played now stands up out of the hand. */
+.holler-playable .holler-face {
+  transform: translateY(-8px);
+  box-shadow:
+    0 0 0 3px var(--accent),
+    0 8px 14px rgb(0 0 0 / 0.25);
+  border-radius: 9%;
+  transition: transform 120ms ease-out;
+}
+
+.holler-card-btn:hover:not(:disabled) .holler-face,
+.holler-card-btn:focus-visible .holler-face {
+  transform: translateY(-14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holler-playable .holler-face {
+    transition: none;
+  }
 }
 
 .holler-hand > *,
@@ -122,13 +197,17 @@ main:has(.holler-rules) {
 
 .holler-suit-picks {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .holler-suit-btn {
-  padding: 2px;
+  padding: 5px 4px;
+  border-radius: 999px;
+  background: var(--holler-hue);
+  color: #ffffff;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
 }
 
 .holler-suit-btn span,
@@ -137,6 +216,12 @@ main:has(.holler-rules) {
   font-size: 0.75rem;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.holler-color-btn {
+  background: var(--holler-hue);
+  border-color: rgb(0 0 0 / 0.25);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
 }
 
 .holler-call {

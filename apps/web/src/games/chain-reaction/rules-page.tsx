@@ -25,6 +25,7 @@ import { formatMoney, priceCard } from './model.ts';
 import { PriceCard } from './price-card.tsx';
 import { activeTheme } from './theme.ts';
 import './rules.css';
+import { ChainReactionCover } from './cover.tsx';
 
 /** The page's sections, in order: the contents list, the headings and the `#/rules/<id>` links. */
 export const RULES_SECTIONS: readonly { readonly id: string; readonly title: string }[] = [
@@ -99,6 +100,9 @@ export function RulesContent(props: { theme: ChainReactionTheme; rules?: ChainRe
         <h1>How to play {theme.title}</h1>
         <p class="lede">{theme.tagline}</p>
       </header>
+      <figure class="rules-cover">
+        <ChainReactionCover />
+      </figure>
 
       <nav class="rules-toc" aria-labelledby="rules-toc-h">
         <h2 id="rules-toc-h">Contents</h2>

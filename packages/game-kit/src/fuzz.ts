@@ -61,6 +61,17 @@ export interface FuzzGameOptions<S, R> {
   readonly legalitySample?: number;
   /** Returns a reason when a finished game's outcome must never happen; reported as a failure. */
   readonly checkOutcome?: (outcome: Outcome) => string | null;
+  /**
+   * Called after every applied action with the step number, the full state, each seat's view (spectator last; empty
+   * when `checkViews` is off) and the events each view's `apply` returned. A tool reads a game in progress through
+   * it (the web previews).
+   */
+  readonly observe?: (
+    step: number,
+    full: S,
+    views: readonly S[],
+    viewEvents: readonly (readonly unknown[])[],
+  ) => void;
 }
 
 export interface FuzzFailure {
@@ -517,6 +528,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       for (const ev of res.events) bump(`event:${ev.type}`);
       for (const tag of module.coverage?.(full, res.events) ?? []) bump(tag);
 
+      const viewEvents: (readonly unknown[])[] = [];
       if (checkViews) {
         for (let i = 0; i < views.length; i++) {
           const vr = module.apply(views[i] as S, action);
@@ -525,6 +537,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
             return fail(`view (${who}) rejected action: ${vr.error.code} ${vr.error.message}`);
           }
           views[i] = deepFreeze(vr.state);
+          viewEvents.push(vr.events);
           viewLogs[i]?.push({ kind: 'action', action });
         }
         if (shown !== null) {
@@ -541,6 +554,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
       }
       const hooks = checkHooks();
       if (hooks) return fail(hooks);
+      opts.observe?.(step, full, views, viewEvents);
     }
 
     const outcome = module.outcome(full);
