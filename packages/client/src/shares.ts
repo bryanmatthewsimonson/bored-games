@@ -1,5 +1,17 @@
-import type { Share } from '@bored-games/deck';
+import type { Ciphertext, Share } from '@bored-games/deck';
 import type { DealtPosition } from '@bored-games/game-kit';
+
+const ciphertextKeys = new WeakMap<Ciphertext, string>();
+
+/** A ciphertext as a cache key (its two points in hex), encoded once per ciphertext object. */
+export function ciphertextKey(ct: Ciphertext): string {
+  let key = ciphertextKeys.get(ct);
+  if (key === undefined) {
+    key = `${ct.a.toHex(true)}${ct.b.toHex(true)}`;
+    ciphertextKeys.set(ct, key);
+  }
+  return key;
+}
 
 /** What `ShareStore.add` did: kept a new share, or nothing (one is already kept for that seat and position). */
 export type AddResult = 'new' | 'none';

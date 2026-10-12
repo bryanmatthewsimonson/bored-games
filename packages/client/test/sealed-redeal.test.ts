@@ -6,8 +6,8 @@
  */
 import type { DealtPosition, GameModule, Learn } from '@bored-games/game-kit';
 import { finalizeEvent, KIND, parseSealed } from '@bored-games/protocol';
-import { describe, expect, it } from 'vitest';
-import { owedPositions, sealedOwed, sealedPositions } from '../src/shares.ts';
+import { describe, expect, it, vi } from 'vitest';
+import { ciphertextKey, owedPositions, sealedOwed, sealedPositions } from '../src/shares.ts';
 import { makeModuleGame, NOW, newSession } from './helpers.ts';
 
 interface S {
@@ -136,6 +136,20 @@ describe('sealed positions (shares.ts)', () => {
     expect(owedPositions(shown, 0)).toEqual([0, 1, 3]);
     // Dealt back to the same seat only: not re-dealt.
     expect(sealedPositions([D(0, 0), D(0, 0)]).size).toBe(0);
+  });
+});
+
+describe('ciphertextKey', () => {
+  it('encodes each ciphertext once, however often a sealed share of it is looked up', () => {
+    const point = (hex: string) => ({ toHex: vi.fn(() => hex) });
+    const ct = { a: point('02aa'), b: point('03bb') };
+    const other = { a: point('02cc'), b: point('03dd') };
+    const key = ciphertextKey as unknown as (c: typeof ct) => string;
+    expect(key(ct)).toBe('02aa03bb');
+    expect(key(ct)).toBe('02aa03bb');
+    expect(key(other)).toBe('02cc03dd');
+    expect(ct.a.toHex).toHaveBeenCalledTimes(1);
+    expect(ct.b.toHex).toHaveBeenCalledTimes(1);
   });
 });
 

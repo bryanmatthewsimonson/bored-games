@@ -13,8 +13,18 @@ import {
   validateRules,
 } from './engine.ts';
 import { checkInvariants, coverageOf } from './invariants.ts';
-import type { HazardEvent, HazardRules, HazardState } from './types.ts';
+import type { HazardAction, HazardEvent, HazardRules, HazardState } from './types.ts';
 import { knownTo, learnCard, viewOf } from './view.ts';
+
+/**
+ * Whether `a` is an offered muster or march with another troop count. The list offers only 1 and the most; any
+ * count between is as legal, and `apply` checks it. Every other move must be one the list offers exactly.
+ */
+function widens(legal: readonly HazardAction[], a: HazardAction): boolean {
+  if (a.type === 'muster') return legal.some((b) => b.type === 'muster' && b.province === a.province);
+  if (a.type === 'march') return legal.some((b) => b.type === 'march' && b.from === a.from && b.to === a.to);
+  return false;
+}
 
 export const HAZARD_ID = 'hazard';
 export const HAZARD_VERSION = '0.1.0';
@@ -35,6 +45,8 @@ export const hazard: GameModule<HazardState, HazardEvent, HazardRules> = {
     const a = parseAction(raw);
     if (a === null || a.actor !== seat)
       return { ok: false, error: { code: 'actor', message: 'Use your own seat.' } };
+    if (!widens(legalActions(s, seat), a))
+      return { ok: false, error: { code: 'intent', message: 'Choose one of the offered moves.' } };
     const r = applyAction(s, a);
     return r.ok ? { ok: true, value: a } : r;
   },

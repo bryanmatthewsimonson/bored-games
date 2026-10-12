@@ -4,7 +4,7 @@ import { applyAction, parseAction } from '../../src/engine.ts';
 import { LINKS, neighbors, PROVINCES, type ProvinceId, REALMS } from '../../src/map.ts';
 import { hazard } from '../../src/module.ts';
 import type { HazardAction, HazardState } from '../../src/types.ts';
-import { lastStand, opened, takeA2, withHand } from '../helpers.ts';
+import { act, attacking, lastStand, opened, takeA2, withHand } from '../helpers.ts';
 
 type Of<T extends HazardAction['type']> = Extract<HazardAction, { type: T }>;
 const ofType = <T extends HazardAction['type']>(all: readonly HazardAction[], type: T): Of<T>[] =>
@@ -72,6 +72,21 @@ describe('the module', () => {
     expect(
       hazard.validateIntent?.(placing, 1, { type: 'muster', actor: 0, province: 'a1', count: 2 }).ok,
     ).toBe(false);
+  });
+
+  it('validateIntent widens only the troop count of an offered move', () => {
+    const ok = (s: HazardState, a: HazardAction) => hazard.validateIntent?.(s, a.actor as number, a).ok;
+    // Two Spears and a Horse are no set; apply cannot tell (a view does not know the cards), the intent can.
+    const pair = withHand(opened(3), 0, [0, 3, 1]);
+    expect(ok(pair, { type: 'cash', actor: 0, positions: [0, 1, 3], bonus: null })).toBe(false);
+    // A set showing a1, which seat 0 holds: the bonus must name a1.
+    const set = withHand(opened(3), 0, [0, 1, 2]);
+    expect(ok(set, { type: 'cash', actor: 0, positions: [0, 1, 2], bonus: null })).toBe(false);
+    expect(ok(set, { type: 'cash', actor: 0, positions: [0, 1, 2], bonus: 'a2' })).toBe(false);
+    // A march of any count between 1 and the most is a legal choice the list leaves out.
+    const marching = act(attacking({ a1: [0, 6], a2: [0, 1] }), { type: 'endAttack', actor: 0 });
+    expect(ok(marching, { type: 'march', actor: 0, from: 'a1', to: 'a2', count: 3 })).toBe(true);
+    expect(ok(marching, { type: 'march', actor: 0, from: 'a1', to: 'a2', count: 6 })).toBe(false);
   });
 
   it('C33 a hand is hidden from the other seats, its size is not, and a conqueror and the loser both know it', () => {

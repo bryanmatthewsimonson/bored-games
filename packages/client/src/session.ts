@@ -81,7 +81,7 @@ import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } f
 import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
-import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
+import { ciphertextKey, ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
   Duty,
   Identity,
@@ -992,7 +992,7 @@ export class GameSession {
     if (this.finalDeck() === null || ct === undefined || x === undefined) return false;
     // Keyed by the ciphertext itself: an opening position's comes from the canonical shuffle, an epoch's from the
     // accepted output, and either may change with fork choice.
-    const key = `${s.id}|${pos}|${to}|${ct.a.toHex(true)}${ct.b.toHex(true)}`;
+    const key = `${s.id}|${pos}|${to}|${ciphertextKey(ct)}`;
     let ok = this.sealedChecked.get(key);
     if (ok === undefined) {
       ok = verifySealedShare(
