@@ -13,6 +13,7 @@ import { canonicalJson, range } from '@bored-games/game-kit';
 import { faceOf, type HollerState, holler } from '@bored-games/holler';
 import {
   finalizeEvent,
+  KIND,
   moveTemplate,
   type NostrEvent,
   parseMove,
@@ -430,11 +431,14 @@ function proveOpening(
 class Table {
   readonly players: GameSession[];
   readonly spectator: GameSession;
+  /** Every event of the game, in the order it was published. */
+  readonly log: NostrEvent[];
   t = LATE + 1;
 
   constructor(events: readonly NostrEvent[]) {
     this.players = [0, 1].map((seat) => catchUp(fx.game, seat, events));
     this.spectator = catchUp(fx.game, null, events);
+    this.log = [...events];
   }
 
   all(): GameSession[] {
@@ -447,6 +451,7 @@ class Table {
   }
 
   publish(ev: NostrEvent, allow: readonly string[] = ['accepted']): void {
+    this.log.push(ev);
     const results = statuses(deliver(this.all(), [ev], undefined, ev.created_at));
     if (results.some((status) => !allow.includes(status))) throw new Error(results.join(', '));
   }
@@ -630,6 +635,50 @@ describe('holler session (D073)', { timeout: 180_000 }, () => {
     expect(next.state(null).round).toBe(1);
     expect(next.state(null).phase.type).not.toBe('grant');
     expect(next.spectator.view().pending.type).not.toBe('grant');
+  });
+
+  it('keeps an epoch step, and the first move after a grant, that arrive before the shares ahead of them (D090)', () => {
+    // The simulator found this at three seats: a seat that held every share of the hands' reveal signed its epoch
+    // step, and a client still missing one share rejected the step for good ("no shuffle is pending"), then timed
+    // the seat out; the first move after a grant was rejected the same way. Such a move waits, as an action does.
+    const round = fx.scripts.round;
+    if (round === null) throw new Error('missing round script');
+    const live = table();
+    live.replay(round);
+    expect(live.state(null).phase).toMatchObject({ type: 'epoch', purpose: 'round' });
+    // The Shares events after the last move completed the hands' reveal: hold them back.
+    const lastMove = live.log.findLastIndex((ev) => ev.kind === KIND.move);
+    const revealShares = live.log.slice(lastMove + 1).filter((ev) => ev.kind === KIND.shares);
+    expect(revealShares.length).toBeGreaterThan(0);
+    const before = live.log.filter((ev) => !revealShares.includes(ev));
+    const epochFrom = live.log.length;
+    live.playEpoch();
+    const epochSteps = live.log.slice(epochFrom);
+    expect(live.state(null).phase.type).toBe('grant');
+    const grantFrom = live.log.length;
+    live.pump();
+    const grantShares = live.log.slice(grantFrom);
+    expect(grantShares.length).toBeGreaterThan(0);
+    const pending = live.spectator.view().pending;
+    if (pending.type !== 'player') throw new Error(`no decision after the grant: ${pending.type}`);
+    const decider = live.players[pending.seat] as GameSession;
+    const first = decider.buildAction(decider.legalActions()[0], fx.game.rnd, live.t++);
+    live.publish(first);
+
+    const late = newSession(fx.game, null);
+    trust([late], live.log);
+    expect(statuses(deliver([late], before, undefined, LATE)).every((s) => s === 'accepted')).toBe(true);
+    expect(late.view().pending.type).toBe('reveal');
+    // The epoch steps wait for the reveal's shares, then link.
+    expect(statuses(deliver([late], epochSteps, undefined, LATE))).toEqual(epochSteps.map(() => 'stored'));
+    expect(statuses(deliver([late], revealShares, undefined, LATE))).toContain('accepted');
+    expect(late.view().head.seq).toBe(live.spectator.view().head.seq - 1);
+    expect(late.view().pending.type).toBe('grant');
+    // The first move after the grant waits for the grant's shares, then links.
+    expect(statuses(deliver([late], [first], undefined, LATE))).toEqual(['stored']);
+    deliver([late], grantShares, undefined, LATE);
+    expect(late.view().head).toEqual(live.spectator.view().head);
+    expect(canonicalJson(late.view().state)).toBe(canonicalJson(live.spectator.view().state));
   });
 
   it('stalls the seat who publishes two epoch outputs, not the next shuffler', () => {

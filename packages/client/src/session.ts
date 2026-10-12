@@ -289,6 +289,13 @@ interface Status {
 
 const reject = (reason: string): { reject: string } => ({ reject: reason });
 
+/**
+ * A pending public reveal or grant: it resolves once Shares events arrive, with no move. A move judged against such a
+ * state waits for it, as a game action does (PROTOCOL §6.5): an epoch step signed by a seat that already held those
+ * shares is not invalid on a client that does not hold them yet (D090; the simulator found the split).
+ */
+const resolvesBySharesOnly = (p: Pending): boolean => p.type === 'reveal' || p.type === 'grant';
+
 function message(e: unknown): string {
   try {
     if (e instanceof ProtocolError) return `${e.code}: ${e.message}`;
@@ -1559,6 +1566,8 @@ export class GameSession {
     if (this.phase === 'shuffle' || this.phase === 'deal') return 'wait';
     if (this.phase !== 'play') return reject('the game is not in play');
     const pending = this.module.pending(this.state);
+    // A reveal or a grant ahead of the epoch resolves once its shares arrive; the step may follow it.
+    if (resolvesBySharesOnly(pending)) return 'wait';
     if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
     if (c.epoch !== pending.epoch) return reject('epoch number');
     const progress = this.epochProgress(this.chain.length);
@@ -1791,8 +1800,8 @@ export class GameSession {
     // Faces are derived from the beacon. A seat that sends them is inventing the roll (D058).
     if (playerSentDice(c.action)) return reject('a player does not send the dice');
     const p = this.module.pending(state);
-    // A pending reveal resolves once its shares arrive; the move may follow it.
-    if (p.type === 'reveal') return 'wait';
+    // A pending reveal or grant resolves once its shares arrive; the move may follow it.
+    if (resolvesBySharesOnly(p)) return 'wait';
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
@@ -2773,6 +2782,7 @@ export class GameSession {
     state: unknown,
   ): Judged {
     const pending = this.module.pending(state);
+    if (resolvesBySharesOnly(pending)) return 'unknown';
     if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
     if (c.epoch !== pending.epoch) return reject('epoch number');
     const progress = this.epochProgress(at);
@@ -3555,7 +3565,9 @@ export class GameSession {
 
   /**
    * Shares for a reveal or a grant that is not gated on `promptShares`. Empty without epoch capability. A reveal lists
-   * every position this seat has not shared, owner included. A grant lists the positions owed to someone else.
+   * every position this seat has not shared, owner included. A grant lists the positions owed to someone else. A
+   * player decision that waits for cards dealt to the deciding seat lists those this seat has not shared
+   * (`decisionSharesDue`).
    */
   private playSharesDue(seat: number): number[] {
     if (!this.hasDeck() || !this.usesEpochs() || this.epochGrantedElsewhere(seat)) return [];
@@ -3564,7 +3576,29 @@ export class GameSession {
       return [...pending.positions].filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
     }
     if (pending.type === 'grant') return this.shares.missing(seat, this.module.dealt(this.state));
+    if (pending.type === 'player' && pending.seat !== seat) return this.decisionSharesDue(pending.seat, seat);
     return [];
+  }
+
+  /**
+   * The positions dealt to `decider` that its pending decision needs and that `seat` has not shared: exactly what
+   * makes `seat` stalled at the head (`stalledInPlay`), so a seat the game waits for always has a duty to clear it
+   * (D090). In a game with three or more seats a seat can draw on its own move (Holler's accepted Levy), and the
+   * turn order can come back to it, a Swing reversing, before a seat that owes its share of those cards moves
+   * again: R1 alone then never delivers the share, and the honest seat was timed out. Never a position whose share
+   * `seat` must seal rather than publish (D066).
+   */
+  private decisionSharesDue(decider: number, seat: number): number[] {
+    const dealt = this.module.dealt(this.state);
+    const needed = dealt
+      .filter((d) => d.to === decider && d.deck === this.deckId && !this.readable(d.pos, decider))
+      .map((d) => d.pos);
+    if (needed.length === 0) return [];
+    if (this.module.legalActions(this.module.view(this.state, null), decider).length > 0) return [];
+    const sealed = sealedPositions(dealt);
+    return [...new Set(needed)]
+      .filter((pos) => sealed.get(pos) !== seat && !this.shares.has(seat, pos))
+      .sort((a, b) => a - b);
   }
 
   /** The highest completed epoch, or 0 before the first. */
