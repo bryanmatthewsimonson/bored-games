@@ -1,6 +1,6 @@
 /**
  * pnpm sim [--game chain-reaction|chess] [--games 4] [--seats 3-6] [--seed sim] [--adversary name]
- *          [--adversary-seat 1] [--vanish-at n]
+ *          [--adversary-seat 1] [--vanish-at n] [--resign-when any|reveal|beacon|shuffle|grant|other|share|seal|show]
  *          [--policy quick|<fuzz policy>] [--deadline <seconds>] [--max-rounds 20000] [--full-sync]
  *          [--workers n] [--json]
  *
@@ -10,7 +10,10 @@
  * --policy names one, the fuzz policy i % (policy count). With --adversary one seat cheats, and each game is also
  * checked for that adversary's expected result. --game picks the game (any fuzz target); --seats defaults to its
  * seat counts (3-6 for Chain Reaction, 2 for Chess). Prints one line per game and the totals; exits 1 on any
- * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns. --deadline is the move
+ * failure. `--vanish-at n` is also the chain length at which `--adversary resign` resigns (on its own decision), and
+ * from which `--adversary resignAny` resigns at its first turn where the game is at a `--resign-when` point (any turn
+ * by default; a pending public reveal, dice beacon, reshuffle epoch or grant, another seat's decision, a share or
+ * sealed share the seat owes, or a pending private show; D090). --deadline is the move
  * deadline in seconds: the game's own (`simDeadline` in its fuzz target, for a game long enough that the random
  * scheduler leaves some seat unscheduled for a day), else one day.
  */
@@ -26,6 +29,8 @@ import {
   type AdversaryName,
   adversary as makeAdversary,
   quickPolicy,
+  RESIGN_WHEN,
+  type ResignWhen,
   unexpected,
 } from '../../../packages/client/test/adversaries.ts';
 
@@ -41,6 +46,7 @@ interface Job {
   adversary: AdversaryName | null;
   adversarySeat: number;
   vanishAt: number | null;
+  resignWhen: ResignWhen;
   policy: string | null;
   deadline: number;
   maxRounds: number;
@@ -78,7 +84,7 @@ function runOne(job: Job, index: number): Result {
   const policy = policyFor(job, index);
   let adv: Adversary | undefined;
   if (job.adversary !== null)
-    adv = makeAdversary(job.adversary, job.adversarySeat, seats, job.vanishAt ?? seats);
+    adv = makeAdversary(job.adversary, job.adversarySeat, seats, job.vanishAt ?? seats, job.resignWhen);
   const started = performance.now();
   const report = simulateGame({
     seats,
@@ -154,6 +160,7 @@ async function main(): Promise<void> {
       adversary: { type: 'string' },
       'adversary-seat': { type: 'string', default: '1' },
       'vanish-at': { type: 'string' },
+      'resign-when': { type: 'string', default: 'any' },
       policy: { type: 'string' },
       deadline: { type: 'string' },
       'max-rounds': { type: 'string', default: '20000' },
@@ -165,6 +172,11 @@ async function main(): Promise<void> {
   const name = values.adversary ?? null;
   if (name !== null && !(ADVERSARIES as readonly string[]).includes(name)) {
     console.error(`unknown adversary "${name}"; known: ${ADVERSARIES.join(', ')}`);
+    process.exit(2);
+  }
+  const when = values['resign-when'] as string;
+  if (!(RESIGN_WHEN as readonly string[]).includes(when)) {
+    console.error(`unknown --resign-when "${when}"; known: ${RESIGN_WHEN.join(', ')}`);
     process.exit(2);
   }
   const game = values.game as string;
@@ -183,6 +195,7 @@ async function main(): Promise<void> {
     adversary: name as AdversaryName | null,
     adversarySeat: Number(values['adversary-seat']),
     vanishAt: values['vanish-at'] === undefined ? null : Number(values['vanish-at']),
+    resignWhen: when as ResignWhen,
     policy: values.policy ?? null,
     deadline: Number(values.deadline ?? target.simDeadline ?? DEFAULT_DEADLINE),
     maxRounds: Number(values['max-rounds']),
@@ -218,7 +231,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ games: results.length, seconds, results }, null, 2));
   } else {
     console.log(
-      `\n${results.length} ${game} games (seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}): ` +
+      `\n${results.length} ${game} games (seed "${base.seed}", seats ${base.seatCounts.join(',')}, adversary ${name ?? 'none'}${name === 'resignAny' ? ` when ${when}` : ''}): ` +
         `${results.length - failed.length} ok, ${failed.length} failed; ${count('done')} done, ${count('cancelled')} cancelled; ` +
         `${actions} actions, ${events} events in ${seconds.toFixed(1)}s (${workers} workers)`,
     );
