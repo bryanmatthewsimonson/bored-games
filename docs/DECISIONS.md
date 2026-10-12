@@ -1330,7 +1330,7 @@ Hazard (D088) is the first game with the dice beacon, play-phase reshuffles (D07
 - **A regression caught in review and fixed:** the first version of the roll-position fix made the D073 check "this seat already granted on a rival epoch output" (`epochGrantedElsewhere`) ask whether a share was a roll's, which in a game without dice is every position past the deck, so the check was always false for Holler, Quill & Quarry and Gilt & Guile. It now asks `epochSlot`, as before the change.
 - **`pnpm sim` could not reshuffle.** It built every shuffle duty with `buildShuffle`; a play-phase shuffle now builds the epoch, as the web controller does. No game had reshuffled under the simulator before.
 - **Fuzz CLI.** `FuzzTarget.maxSteps` sets a game's step limit when `--max-steps` is not given (six-seat Hazard games run past 20,000 steps).
-- **Verified:** the whole client suite (246 tests), the Hazard session tests, and `pnpm sim --game hazard` at 3 seats (done, audit passed, no timeout claims); the 5-seat sim is recorded in PLAN once it finishes.
+- **Verified:** the whole client suite (246 tests), the Hazard session tests, and `pnpm sim --game hazard` at 3 and 5 seats (done, audit passed, no timeout claims; results in PLAN).
 - **No new dependencies.**
 
 ## D088: Hazard, a world-conquest game under its own names, built as beta (owner request, 2026-10-11)
