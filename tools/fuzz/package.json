@@ -20,6 +20,7 @@
     "@bored-games/quill-and-quarry": "workspace:*",
     "@bored-games/right-of-way": "workspace:*",
     "@bored-games/room-for-doubt": "workspace:*",
-    "@bored-games/gilt-and-guile": "workspace:*"
+    "@bored-games/gilt-and-guile": "workspace:*",
+    "@bored-games/hazard": "workspace:*"
   }
 }

@@ -1040,10 +1040,14 @@ export class GameSession {
 
   private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
     if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no shares');
+    let early = false;
     for (const { pos } of s.shares) {
-      if (!this.positionLive(pos)) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
+      if (this.positionLive(pos)) continue;
+      // An epoch slot whose reshuffle this client has not accepted yet: its Shares wait for it (D087).
+      if (pos >= this.deckSize && this.cardPosition(pos)) early = true;
+      else return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
-    if (this.timedOut !== null || this.resignedBy?.cancels === true) {
+    if (early || this.timedOut !== null || this.resignedBy?.cancels === true) {
       // A timeout, or a resign that cancelled the game, stopped the fold.
       this.waitingShares.set(s.id, s);
       return { status: 'stored' };
@@ -2275,9 +2279,12 @@ export class GameSession {
     let progressed = false;
     if (this.finalDeck() !== null) {
       for (const s of byId(this.waitingShares.values())) {
+        // Still before a reshuffle it needs: it waits on (D087).
+        if (s.shares.some(({ pos }) => !this.positionLive(pos))) continue;
         this.waitingShares.delete(s.id);
         const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
         if (r === 'accepted') progressed = true;
+        else if (r === 'wait') this.waitingShares.set(s.id, s);
         else if (typeof r === 'object') {
           this.badShares.set(s.id, s);
           this.rejected.set(s.id, r.reject);

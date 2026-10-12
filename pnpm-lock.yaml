@@ -56,6 +56,9 @@ importers:
       '@bored-games/gilt-and-guile':
         specifier: workspace:*
         version: link:../../packages/games/gilt-and-guile
+      '@bored-games/hazard':
+        specifier: workspace:*
+        version: link:../../packages/games/hazard
       '@bored-games/holler':
         specifier: workspace:*
         version: link:../../packages/games/holler
@@ -275,6 +278,9 @@ importers:
       '@bored-games/gilt-and-guile':
         specifier: workspace:*
         version: link:../../packages/games/gilt-and-guile
+      '@bored-games/hazard':
+        specifier: workspace:*
+        version: link:../../packages/games/hazard
       '@bored-games/holler':
         specifier: workspace:*
         version: link:../../packages/games/holler

@@ -5,7 +5,7 @@
  */
 import { makeRollShare, rollSeed } from '@bored-games/deck';
 import { faces } from '@bored-games/dice';
-import type { NostrEvent } from '@bored-games/protocol';
+import { KIND, type NostrEvent, parseMove, parseShares } from '@bored-games/protocol';
 import { expect, it } from 'vitest';
 import {
   EPOCH_STRIDE,
@@ -145,14 +145,25 @@ it('plays past a reshuffle with roll ids beyond the first epoch slot, every clie
   const players = [0, 1, 2].map((seat) => newSession(game, seat));
   const spectator = newSession(game, null);
   const all = [...players, spectator];
+  // A spectator that gets every move a round late, and everything else at once: Shares of a reshuffled position
+  // reach it before the move that completes the reshuffle.
+  const late = newSession(game, null);
+  const held: NostrEvent[] = [];
+  const toLate = (ev: NostrEvent) => {
+    const r = late.receive(ev, NOW);
+    if (r.status === 'rejected') rejected.push(`late: ${r.reason}`);
+  };
   const rejected: string[] = [];
   let state: HazardState | null = null;
   for (let step = 0; step < 20_000; step++) {
     let progressed = false;
+    for (const ev of held.splice(0)) toLate(ev);
     for (const s of players) {
       const before = (spectator.view().state as HazardState | null)?.rolls.length ?? 0;
-      const ev = build(s, game, all);
+      const ev = build(s, game, [...all, late]);
       if (ev === null) continue;
+      if (ev.kind === KIND.move) held.push(ev);
+      else toLate(ev);
       for (const r of deliver(all, [ev], undefined, NOW)[0] ?? [])
         if (r.status === 'rejected') rejected.push(r.reason);
       const after = (spectator.view().state as HazardState | null)?.rolls.length ?? 0;
@@ -164,7 +175,10 @@ it('plays past a reshuffle with roll ids beyond the first epoch slot, every clie
     if (state !== null && (state.stage === 'over' || (drewAfter && state.rolls.length > 90))) break;
     if (!progressed) break;
   }
+  for (const ev of held.splice(0)) toLate(ev);
   expect(rejected).toEqual([]);
+  expect(late.view().head).toEqual(spectator.view().head);
+  expect(late.view().state).toEqual(spectator.view().state);
   expect(state).not.toBeNull();
   const s = state as HazardState;
   expect(s.epoch).toBeGreaterThanOrEqual(1);
@@ -234,4 +248,50 @@ it('re-deals a charter drawn after a reshuffle to the seat that wipes out its ho
     expect(seen?.card, `charter ${x.pos}`).not.toBeNull();
   }
   for (const p of players) expect(p.view().head).toEqual(spectator.view().head);
+});
+
+it('folds a Shares event of a reshuffled charter that arrives before the reshuffle completes', {
+  timeout: 600_000,
+}, () => {
+  const game = makeModuleGame(hazard, 3, 'hazard-early-shares', { defense: 'auto' });
+  game.modules = new Map([[hazard.id, hazard]]);
+  const players = [0, 1, 2].map((seat) => newSession(game, seat));
+  const spectator = newSession(game, null);
+  const all = [...players, spectator];
+  const log: NostrEvent[] = [];
+  let early: number | null = null;
+  for (let step = 0; step < 20_000 && early === null; step++) {
+    let progressed = false;
+    for (const s of players) {
+      const ev = build(s, game, all);
+      if (ev === null) continue;
+      deliver(all, [ev], undefined, NOW);
+      log.push(ev);
+      progressed = true;
+      if (ev.kind === KIND.shares && parseShares(ev).shares.some((x) => x.pos >= EPOCH_STRIDE)) {
+        early = log.length - 1;
+        break;
+      }
+    }
+    if (!progressed) break;
+  }
+  expect(early).not.toBeNull();
+  const at = early as number;
+  // The last reshuffle step before it: a client that has not seen it yet does not know the new positions.
+  const lastStep = log.findLastIndex((ev, i) => {
+    if (i >= at || ev.kind !== KIND.move) return false;
+    return parseMove(ev, 44).content.type === 'epoch';
+  });
+  expect(lastStep).toBeGreaterThanOrEqual(0);
+  const order = [...log.keys()].filter((i) => i !== at);
+  order.splice(order.indexOf(lastStep), 0, at);
+  const late = newSession(game, null);
+  trust(
+    [late],
+    log.filter((ev) => ev.kind === KIND.move),
+  );
+  const statuses = order.map((i) => late.receive(log[i], NOW));
+  expect(statuses.filter((r) => r.status === 'rejected')).toEqual([]);
+  expect(late.view().head).toEqual(spectator.view().head);
+  expect(late.view().state).toEqual(spectator.view().state);
 });
