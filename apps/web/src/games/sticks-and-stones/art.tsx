@@ -335,12 +335,12 @@ function ToolShape(props: { label: string; used?: boolean }) {
         stroke-width="1"
         stroke-linecap="round"
       />
-      <g transform={bare ? undefined : 'translate(8.2 12) scale(.86) translate(-12 -11.5)'}>
+      <g transform={bare ? undefined : 'translate(7.8 12) scale(.84) translate(-12 -11.5)'}>
         <AxeShape grey={used} />
       </g>
       {!bare && (
         <text
-          x="17.4"
+          x="16.8"
           y="20.4"
           text-anchor="middle"
           font-family={SERIF}

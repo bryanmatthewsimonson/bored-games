@@ -273,7 +273,7 @@ export function statusLine(s: SticksState, names: readonly string[], me: number 
     case 'resolve':
       return `Round ${s.round}: ${who(s.turn)} ${verb(s.turn, 'bring', 'brings')} the people home.`;
     case 'roll':
-      return `Rolling the dice for ${who(s.turn)}…`;
+      return `Rolling the dice for ${s.turn === me ? 'you' : seatName(names, s.turn)}…`;
     case 'tools':
       return `${who(s.turn)} ${verb(s.turn, 'choose', 'chooses')} tools for the roll.`;
     case 'pick': {

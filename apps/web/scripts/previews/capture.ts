@@ -41,7 +41,8 @@ export const PLANS: readonly PreviewPlan[] = [
   // Early (the claim), the middle of the game, and late, with charters in hand.
   { game: 'hazard', seed: 'preview-1', seats: 4, at: [0.004, 0.5, 0.85] },
   // Placing in an early round, bringing people home mid-game, and a late round with a legacy built.
-  { game: 'sticks-and-stones', seed: 'preview-1', seats: 4, at: [0.12, 0.5, 0.88] },
+  // Dice shares go out by themselves, so they are not pictured.
+  { game: 'sticks-and-stones', seed: 'preview-1', seats: 4, at: [0.12, 0.5, 0.88], skip: ['contribute'] },
 ];
 
 const WIDTH = 1280;

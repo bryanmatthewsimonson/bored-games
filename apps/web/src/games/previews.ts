@@ -198,6 +198,28 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
       caption: 'Late in the game: five realms held, and a set now worth 115 troops.',
     },
   ],
+  'sticks-and-stones': [
+    {
+      file: 'sticks-and-stones-1.jpg',
+      width: 1280,
+      height: 860,
+      caption:
+        'Round 5: you go first and choose where your six people go, the hunt, a ground, the village or a card.',
+    },
+    {
+      file: 'sticks-and-stones-2.jpg',
+      width: 1280,
+      height: 860,
+      caption: 'Bringing the people home: your last spot is the Furrows, for one more step of harvest.',
+    },
+    {
+      file: 'sticks-and-stones-3.jpg',
+      width: 1280,
+      height: 860,
+      caption:
+        'Late in the game: every discovery is taken, and your people roll at the hunt, the Rockfall and Amber Creek.',
+    },
+  ],
 };
 
 /** The URL of a preview picture, relative to the page, so it works from any sub-path (base './'). */

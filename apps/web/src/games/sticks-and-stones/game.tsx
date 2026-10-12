@@ -492,10 +492,10 @@ function Camp(props: TableProps & { choices: Choices }) {
         <People s={s} spot={spot} />
       </button>
     ) : (
-      <div key={spot} class={cls} data-spot={spot} aria-label={label} role="group">
+      <section key={spot} class={cls} data-spot={spot} aria-label={label}>
         {body}
         <People s={s} spot={spot} />
-      </div>
+      </section>
     );
   };
   const left = stackLeft(s);
