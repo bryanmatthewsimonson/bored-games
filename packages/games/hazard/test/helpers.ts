@@ -36,17 +36,31 @@ export function refused(s: HazardState, action: unknown): string {
   return r.error.message;
 }
 
-/** Every seat adds its share of the open roll (pending contributions), then the beacon gives `faces`. */
-export function contributeAndRoll(s: HazardState, faces: readonly number[]): HazardState {
+/** Every seat adds its share of the open roll, in the order pending names, up to the beacon. */
+export function contributeAll(s: HazardState): HazardState {
   let t = s;
   for (let n = 0; n < t.seats + 1; n++) {
     const p = pendingOf(t);
-    if (p.type === 'beacon') return act(t, { type: 'rolled', actor: 'beacon', id: p.id, dice: faces });
+    if (p.type === 'beacon') return t;
     if (p.type !== 'player' || p.decision !== 'contribute')
       throw new Error(`no roll is open: ${JSON.stringify(p)}`);
     t = act(t, { type: 'contribute', actor: p.seat, id: t.roll as number });
   }
   throw new Error('the roll never closed');
+}
+
+/** Every seat adds its share of the open roll, then the beacon gives `faces`; the state and the roll's events. */
+export function rollStep(
+  s: HazardState,
+  faces: readonly number[],
+): { state: HazardState; events: readonly HazardEvent[] } {
+  const t = contributeAll(s);
+  return step(t, { type: 'rolled', actor: 'beacon', id: t.roll as number, dice: faces });
+}
+
+/** Every seat adds its share of the open roll, then the beacon gives `faces`. */
+export function contributeAndRoll(s: HazardState, faces: readonly number[]): HazardState {
+  return rollStep(s, faces).state;
 }
 
 /** The first-player roll: the seat to roll starts it, and the beacon gives `faces`. */
@@ -103,3 +117,13 @@ export function withMap(
 }
 
 export { legalActions, pendingOf };
+
+/** Seat 0's first turn with its pool placed on a1, so it may attack; then `map` applied. */
+export function attacking(
+  map: Partial<Record<ProvinceId, readonly [number, number]>> = {},
+  rules: HazardRules = DEFAULT_RULES,
+  seats = 3,
+): HazardState {
+  const s = opened(seats, range(44), rules);
+  return withMap(act(s, { type: 'muster', actor: 0, province: 'a1', count: s.pool }), map);
+}

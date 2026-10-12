@@ -428,7 +428,7 @@ function dispatch(s: HazardState, a: HazardAction): Applied | string {
     case 'rolled': {
       const p = pendingOf(s);
       if (p.type !== 'beacon' || p.id !== a.id) return 'No roll is awaited.';
-      return s.stage === 'orderRoll' ? applyOrderRolled(s, a.dice) : applyBattle(s, a);
+      return s.stage === 'orderRoll' ? applyOrderRolled(s, a.dice) : applyBattle(s, a, openRoll);
     }
     case 'roll':
     case 'claim':
@@ -441,6 +441,6 @@ function dispatch(s: HazardState, a: HazardAction): Applied | string {
     case 'endAttack':
       return applyCharters(s, a);
     default:
-      return applyBattle(s, a);
+      return applyBattle(s, a, openRoll);
   }
 }
