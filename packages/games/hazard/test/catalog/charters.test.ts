@@ -84,7 +84,7 @@ describe('charters', () => {
   it('C20 a cashed charter showing a province you hold puts two troops there, once a turn', () => {
     // Cards 0, 3 and 6 show a1, a4 and a7, all held by seat 0: three spears.
     const s = withHand(opened(3), 0, [0, 3, 6, 9, 12, 15]);
-    const offered = cashes(s, 0).filter((a) => (a as { positions: number[] }).positions.join() === '0,3,6');
+    const offered = cashes(s, 0).filter((a) => (a as { positions: readonly number[] }).positions.join() === '0,3,6');
     expect(offered.map((a) => (a as { bonus: string }).bonus)).toEqual(['a1', 'a4', 'a7']);
     const before = s.troops[3] as number;
     const t = revealCash(act(s, { type: 'cash', actor: 0, positions: [0, 3, 6], bonus: 'a4' })).state;
