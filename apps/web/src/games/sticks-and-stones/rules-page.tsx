@@ -2,15 +2,17 @@
  * The player-facing Sticks & Stones rules (#/rules/sticks-and-stones), after docs/games/sticks-and-stones/RULES.md.
  * Names come from the theme; the cards, tiles, tokens and spots are the same drawings the table uses.
  */
-import { sticksAndStones } from '@bored-games/sticks-and-stones';
+import { CAMP_DECK, DECK_ID, type SticksState, sticksAndStones } from '@bored-games/sticks-and-stones';
 import { STICKS_THEME as THEME } from '@bored-games/sticks-and-stones/theme';
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
 import { DEADLINE_CHOICES } from '../../lobby-model.ts';
 import { rulesHref } from '../../router.ts';
-import { Die, DiscoveryCard, GoodIcon, MonumentTile, SpotArt, SticksCover, ToolIcon } from './art.tsx';
+import { Die, DiscoveryCard, GoodIcon, MonumentTile, SticksCover, ToolIcon } from './art.tsx';
+import { Board } from './board.tsx';
+import { ClanMat } from './mats.tsx';
 import { STICKS_META } from './meta.ts';
-import { goodName, spotName } from './model.ts';
+import { choicesOf, goodName, playerRows, spotName } from './model.ts';
 import '../chain-reaction/rules.css';
 import './sticks-and-stones.css';
 
@@ -39,6 +41,60 @@ function Section(props: { id: string; children: ComponentChildren }) {
     </section>
   );
 }
+
+/** A camp at the start of a 4-player game, its cards turned up, for the pictures of the board and a mat. */
+function sampleCamp(): SticksState | null {
+  const order = Array.from({ length: CAMP_DECK.size }, (_, i) => i);
+  const r = sticksAndStones.setup({
+    rules: sticksAndStones.defaultRules(),
+    seats: 4,
+    mode: 'full',
+    deckOrders: { [DECK_ID]: order },
+  });
+  if (!r.ok) return null;
+  let s = r.value;
+  for (let p = sticksAndStones.pending(s); p.type === 'reveal'; p = sticksAndStones.pending(s))
+    for (const pos of p.positions) {
+      const next = sticksAndStones.apply(s, {
+        type: 'reveal',
+        actor: 'deck',
+        deck: DECK_ID,
+        pos,
+        card: order[pos],
+      });
+      if (!next.ok) return null;
+      s = next.state;
+    }
+  return sticksAndStones.view(s, null);
+}
+
+const SAMPLE = sampleCamp();
+const NO_CHOICES = choicesOf([]);
+
+/** A clan part-way through a game, for the picture of a mat. */
+const SAMPLE_MAT: SticksState | null =
+  SAMPLE === null
+    ? null
+    : {
+        ...SAMPLE,
+        clans: SAMPLE.clans.map((c, i) =>
+          i === 0
+            ? {
+                ...c,
+                people: 7,
+                food: 9,
+                field: 3,
+                tools: [2, 1, 1],
+                used: [false, true, false],
+                goods: [2, 1, 0, 1],
+                spares: [3],
+                choices: 1,
+                score: 24,
+              }
+            : c,
+        ),
+        home: SAMPLE.home.map((n, i) => (i === 0 ? 7 : n)),
+      };
 
 const G = (props: { good: number }) => <GoodIcon good={props.good} size={18} />;
 
@@ -96,18 +152,19 @@ export function SticksRulesContent() {
 
       <Section id="place">
         <p>
-          From the first player, take turns sending one or more of your people to <strong>one</strong> spot.
-          Go round until everyone has placed everybody. You can never return to a spot you already used this
-          round.
+          From the first player, take turns sending one or more of your people to <strong>one</strong> place.
+          Go round until everyone has placed everybody: every person must be placed somewhere legal. You can
+          never return to a spot you already used this round.
         </p>
-        <div class="ss-rules-row">
-          {(['hunt', 'wood', 'brick', 'stone', 'gold', 'tools', 'hut', 'field'] as const).map((spot) => (
-            <figure key={spot} class="ss-spot">
-              <SpotArt spot={spot} width={128} height={72} />
-              <figcaption class="ss-spot-name">{spotName(spot)}</figcaption>
-            </figure>
-          ))}
-        </div>
+        {SAMPLE !== null && (
+          <figure class="ss-rules-board">
+            <Board state={SAMPLE} choices={NO_CHOICES} enabled={false} selected={null} onSpot={undefined} />
+            <figcaption>
+              The camp. Each place shows what it gives and a ring for each person it can take; the score track
+              runs round the edge. During a game the places you can use now are lit.
+            </figcaption>
+          </figure>
+        )}
         <ul>
           <li>
             <strong>{spotName('hunt')}</strong> take any number of people, from every clan.
@@ -158,43 +215,101 @@ export function SticksRulesContent() {
             Three people in the {spotName('stone').toLowerCase()}: 11, plus a tool of 2 makes 13 → 2 stone.
           </span>
         </div>
+        {SAMPLE_MAT !== null && (
+          <figure class="ss-rules-mat">
+            <ClanMat
+              s={SAMPLE_MAT}
+              row={playerRows(SAMPLE_MAT, ['Your clan'])[0] as never}
+              me={0}
+              avatar={null}
+              full
+            />
+            <figcaption>
+              A clan mat: its people, food, harvest, its three tool places (here 2, 1 and 1, the middle one
+              used this round), a one-use tool of 3, its goods, the two-goods card still face up, and its
+              score.
+            </figcaption>
+          </figure>
+        )}
       </Section>
 
       <Section id="discoveries">
-        <div class="ss-rules-row">
-          <DiscoveryCard card={4} />
-          <DiscoveryCard card={25} />
-          <DiscoveryCard card={33} />
-        </div>
         <p>
-          Pay the price of its place (1 to 4 goods, any mix, never food) and take the card, or pass it up. Its
-          top happens at once: food, goods, points, a tool, harvest, a one-use tool, two goods of your choice
-          for later, a roll of two dice for a good, a card drawn face down that only scores, or{' '}
-          <strong>{THEME.words.gift}</strong>: roll a die for each player; from you, round the table, everyone
-          takes one: 1–4 a good, 5 a tool step, 6 a harvest step.
+          Pay the price of its place (1 to 4 goods, any mix, never food) and take the card; or, if you cannot
+          or do not want to pay, take your person home and leave the card. A card has a top, used when you
+          take it, and a bottom, which scores at the end.
         </p>
+        <h3>The tops</h3>
+        <ul>
+          <li>
+            <strong>{THEME.words.gift}</strong> (10 cards): roll a die for each player. Starting with you and
+            going round the table, everyone takes one die: 1 a wood, 2 a clay, 3 a stone, 4 an amber, 5 a tool
+            step, 6 a harvest step. Tools cannot change these dice.
+          </li>
+          <li>
+            <strong>Food</strong> (7 cards): 1, 2, 3, 3, 4, 5 or 7 food.
+          </li>
+          <li>
+            <strong>Goods</strong> (5 cards): 2 stone; 1 stone (two cards); 1 amber; 1 clay.
+          </li>
+          <li>
+            <strong>A roll for a good</strong> (3 cards): roll two dice and gather as if two people were
+            there, one card each for wood (1 per 3), stone (1 per 5) and amber (1 per 6). Unused tools may be
+            added.
+          </li>
+          <li>
+            <strong>Points</strong> (3 cards): 3 points at once.
+          </li>
+          <li>
+            <strong>A tool step</strong> (1 card), as at Knapper's Rock; <strong>a harvest step</strong> (2
+            cards), as at the Furrows.
+          </li>
+          <li>
+            <strong>A one-use tool</strong> (3 cards: 4, 3 and 2): the card stays face up beside your mat
+            until you add it to one roll, alone or with your tools; then it is spent (it still scores its
+            bottom).
+          </li>
+          <li>
+            <strong>Two goods of your choice</strong> (1 card): the card stays face up beside your mat. Once,
+            immediately or later, take any two goods: two alike or two different. Here you use it from your
+            mat at any of your decisions; if you never do, it counts as two goods at the end.
+          </li>
+          <li>
+            <strong>A face-down discovery</strong> (1 card): take the top card of the pile, look at it and
+            keep it face down. Only its bottom counts, at the end; nobody else sees it until then.
+          </li>
+        </ul>
+        <h3>The bottoms</h3>
         <p>
-          Its bottom scores at the end. Culture cards (green) show one of eight symbols:{' '}
-          {Object.values(THEME.symbols).join(', ')}. Figure cards (sand) show{' '}
+          Culture cards (green) show one of eight symbols, two cards each:{' '}
+          {Object.values(THEME.symbols).join(', ')}. Figure cards (sand) show 1 to 3 figures:{' '}
           {Object.entries(THEME.figures)
-            .map(([k, v]) => `${v}s (× ${THEME.figureCounts[k as keyof typeof THEME.figureCounts]})`)
+            .map(([k, v]) => `${v}s (× your ${THEME.figureCounts[k as keyof typeof THEME.figureCounts]})`)
             .join(', ')}
           .
         </p>
+        <h3>All 36 discoveries</h3>
+        <div class="ss-rules-row ss-rules-cards">
+          {Array.from({ length: 36 }, (_, card) => (
+            <DiscoveryCard key={card} card={card} small />
+          ))}
+        </div>
       </Section>
 
       <Section id="monuments">
-        <div class="ss-rules-row">
-          <MonumentTile monument={0} />
-          <MonumentTile monument={18} />
-          <MonumentTile monument={25} />
-        </div>
         <p>
           Pay the goods shown and score the points at once; the next tile of the stack turns up. Some
-          monuments let you choose the goods: four or five of a set number of kinds, or one to seven of
+          monuments let you choose the goods: four or five of an exact number of kinds, or one to seven of
           anything. They score what you paid: {goodName(0).toLowerCase()} 3, {goodName(1).toLowerCase()} 4,{' '}
-          {goodName(2).toLowerCase()} 5, {goodName(3).toLowerCase()} 6. You may pass a monument up.
+          {goodName(2).toLowerCase()} 5, {goodName(3).toLowerCase()} 6. If you cannot or do not want to pay,
+          take your person home and leave the tile.
         </p>
+        <h3>All 28 monuments</h3>
+        <div class="ss-rules-row ss-rules-cards">
+          {Array.from({ length: 28 }, (_, m) => (
+            <MonumentTile key={m} monument={m} small />
+          ))}
+        </div>
       </Section>
 
       <Section id="feed">

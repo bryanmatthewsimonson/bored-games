@@ -12,7 +12,7 @@ export interface Tally {
   readonly culture: number;
   /** Per figure (farmer, toolmaker, builder, shaman): figures × the quantity they count. */
   readonly figures: readonly number[];
-  /** Goods left, one point each (food scores nothing). */
+  /** Goods left, one point each (food scores nothing), an unused two-goods card's two included. */
   readonly goods: number;
   readonly total: number;
 }
@@ -56,7 +56,9 @@ export function tally(c: Clan, rules: SticksRules, publicOnly: boolean): Tally {
   const culture = culturePoints(cards, rules);
   const bases = figureBases(c);
   const figures = figureCounts(cards).map((n, i) => n * (bases[i] ?? 0));
-  const goods = sum(c.goods);
+  // An unused two-goods card may be cashed at any time during the game (RULES.md C18), so at the end it counts as
+  // the two goods its owner would take: one point each, whichever goods they are.
+  const goods = sum(c.goods) + 2 * c.choices;
   return { track: c.score, culture, figures, goods, total: c.score + culture + sum(figures) + goods };
 }
 

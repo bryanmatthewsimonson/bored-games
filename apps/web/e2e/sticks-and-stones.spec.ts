@@ -42,8 +42,8 @@ async function decide(p: Page): Promise<void> {
   if (stage === 'place') {
     // A count already asked for: send them all.
     if ((await button(p, 'place').count()) > 0) return sends(p, () => button(p, 'place').last().click());
-    const hunt = root(p).locator('button[data-spot="hunt"]');
-    const spot = (await hunt.count()) > 0 ? hunt : root(p).locator('button.ss-spot[data-spot]').first();
+    const hunt = root(p).locator('[data-spot="hunt"][tabindex="0"]');
+    const spot = (await hunt.count()) > 0 ? hunt : root(p).locator('[data-spot][tabindex="0"]').first();
     // One count sends at the click; more ask how many, and all of them go.
     return sends(p, async () => {
       await spot.click();
@@ -95,7 +95,7 @@ test('two players play a round of Sticks & Stones and start the next', async ({ 
   await expect(root(spectator)).toHaveAttribute('data-my-seat', 'spectator', { timeout: 600_000 });
   // The camp: eight spots, four discoveries, two monument sites; nothing to click for a spectator.
   await expect(root(spectator).locator('[data-spot]')).toHaveCount(14, { timeout: 120_000 });
-  await expect(root(spectator).locator('button[data-spot]')).toHaveCount(0);
+  await expect(root(spectator).locator('[data-spot][tabindex="0"]')).toHaveCount(0);
   await expect(root(spectator).locator('svg[aria-label^="Monument"]')).toHaveCount(2);
 
   // 2. The loop: whoever the spectator says is to decide clicks, until the second round starts.
@@ -109,7 +109,9 @@ test('two players play a round of Sticks & Stones and start the next', async ({ 
           if (seat === null || seat === 'none') return false;
           const p = players[Number(seat)] as Page;
           return (
-            (await root(p).locator('button[data-action]:not([disabled]), button[data-spot]').count()) > 0
+            (await root(p)
+              .locator('button[data-action]:not([disabled]), [data-spot][tabindex="0"]')
+              .count()) > 0
           );
         },
         { timeout: 180_000 },

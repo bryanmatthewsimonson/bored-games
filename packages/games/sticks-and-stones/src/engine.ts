@@ -663,7 +663,11 @@ function settleGift(
 function applyChoose(s: SticksState, seat: number, take: readonly number[]): Applied | string {
   const c = s.clans[seat] as Clan;
   const p = pendingOf(s);
-  if (p.type !== 'player' || p.seat !== seat || !['place', 'resolve', 'feed'].includes(s.stage))
+  if (
+    p.type !== 'player' ||
+    p.seat !== seat ||
+    !['place', 'resolve', 'tools', 'pick', 'feed'].includes(s.stage)
+  )
     return 'You can use it only at one of your decisions.';
   if (c.choices <= 0 || sum(take) !== 2) return 'Take two goods with a card that gives them.';
   return {
@@ -859,11 +863,14 @@ export function legalActions(s: SticksState, seat: number): SticksAction[] {
       case 'resolve':
         return resolveActions(s, seat);
       case 'tools':
-        return toolActions(s, seat);
+        return [...toolActions(s, seat), ...chooseActions(s, seat)];
       case 'pick':
-        return [...new Set(s.gift?.dice ?? [])]
-          .sort((a, b) => a - b)
-          .map((face) => ({ type: 'pick', actor: seat, face }));
+        return [
+          ...[...new Set(s.gift?.dice ?? [])]
+            .sort((a, b) => a - b)
+            .map((face): SticksAction => ({ type: 'pick', actor: seat, face })),
+          ...chooseActions(s, seat),
+        ];
       case 'feed':
         return feedActions(s, seat);
       default:

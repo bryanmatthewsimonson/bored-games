@@ -68,9 +68,9 @@ describe('the decisions of the moment', () => {
     const spots = findAll(table(s, 0), (el) => el.attrs['data-spot'] !== undefined);
     // The eight camp spots, four discoveries and three monument sites.
     expect(spots).toHaveLength(15);
-    expect(spots.filter((el) => el.tag === 'button')).toHaveLength(15);
+    expect(spots.filter((el) => el.attrs.tabindex === 0)).toHaveLength(15);
     expect(
-      findAll(table(s, 1), (el) => el.tag === 'button' && el.attrs['data-spot'] !== undefined),
+      findAll(table(s, 1), (el) => el.attrs.tabindex === 0 && el.attrs['data-spot'] !== undefined),
     ).toHaveLength(0);
     const counts = actions(table(s, 0, { selected: 'wood' }));
     expect(counts).toEqual([1, 2, 3, 4, 5].map((n) => ({ type: 'place', actor: 0, spot: 'wood', count: n })));

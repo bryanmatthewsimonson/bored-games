@@ -33,6 +33,8 @@ describe('the end of the game', () => {
     expect(t.figures).toEqual([15, 5, 9, 14]);
     expect(t.goods).toBe(6);
     expect(t.total).toBe(40 + 15 + 5 + 9 + 14 + 6);
+    // An unused two-goods card counts as its two goods: its owner could take them at any time.
+    expect(tally({ ...c, choices: 1 }, DEFAULT_RULES, false).goods).toBe(8);
     const s = started(3);
     const even = {
       ...s,

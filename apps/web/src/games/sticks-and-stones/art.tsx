@@ -43,7 +43,13 @@ export const CLAN_COLORS: readonly { fill: string; name: string }[] = [
 /* ---------------------------------------------------------------- helpers */
 
 /** A drawing made in a 24 × 24 box, placed with its top left corner at (x, y) and `size` wide. */
-function Place(props: { x: number; y: number; size: number; rotate?: number; children: ComponentChildren }) {
+export function Place(props: {
+  x: number;
+  y: number;
+  size: number;
+  rotate?: number;
+  children: ComponentChildren;
+}) {
   const k = props.size / 24;
   const turn = props.rotate ? ` rotate(${props.rotate} 12 12)` : '';
   return <g transform={`translate(${props.x} ${props.y}) scale(${k})${turn}`}>{props.children}</g>;
@@ -186,7 +192,7 @@ function AmberShape() {
 }
 
 /** A good drawn in a 24 × 24 box: -1 food, 0 wood, 1 clay, 2 stone, 3 amber. */
-function GoodShape(props: { good: number }) {
+export function GoodShape(props: { good: number }) {
   switch (props.good) {
     case 0:
       return (
@@ -262,7 +268,7 @@ const TORSO = 'M8.4 8.6H15.6L13.3 15.8H10.7Z';
 const LEGS = 'M11 15.4 8.2 21.6M13 15.4 15.8 21.6';
 
 /** A clan figure in a 24 × 24 box, painted like the people on a cave wall: a dark outline, then the colour. */
-function CavePerson(props: { fill: string; pose?: Pose; outline?: string }) {
+export function CavePerson(props: { fill: string; pose?: Pose; outline?: string }) {
   const limbs = `${ARMS[props.pose ?? 'stand']}${LEGS}`;
   const line = props.outline ?? INK;
   return (
@@ -313,7 +319,7 @@ function AxeShape(props: { grey?: boolean }) {
 }
 
 /** A tool tile: a hand-axe and its value (no value for a step), in a 24 × 24 box. */
-function ToolShape(props: { label: string; used?: boolean }) {
+export function ToolShape(props: { label: string; used?: boolean }) {
   const used = props.used === true;
   const bare = props.label === '';
   return (
@@ -376,7 +382,7 @@ export function ToolIcon(props: { value: number; used?: boolean; size?: number }
 }
 
 /** A one-use tool: a honey-coloured flint point with a bone tag for its value, in a 24 × 24 box. */
-function SpareShape(props: { value: number }) {
+export function SpareShape(props: { value: number }) {
   return (
     <g stroke-linejoin="round">
       <g transform="translate(10 10.4) rotate(42) translate(-12 -12)">
@@ -1492,7 +1498,7 @@ function Birch(props: { x: number; w: number; top: number; base: number }) {
   );
 }
 
-function SpotScene(props: { spot: string }) {
+export function SpotScene(props: { spot: string }) {
   switch (props.spot) {
     case 'hunt':
       return (

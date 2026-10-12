@@ -519,3 +519,230 @@ button.ss-spot {
     padding: 8px;
   }
 }
+
+/* The board (board.tsx): one drawing; on a narrow screen it scrolls inside its own frame. */
+.ss-board-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border-radius: 14px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ss-board {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+  height: auto;
+}
+
+.ss-area-glow {
+  pointer-events: none;
+  animation: ss-glow 1.6s ease-in-out infinite;
+}
+
+.ss-area-selected .ss-area-frame {
+  stroke: #2f3a4a;
+  stroke-width: 4;
+}
+
+.ss-area[role="button"] {
+  cursor: pointer;
+}
+
+.ss-area[role="button"]:hover .ss-area-frame,
+.ss-area[role="button"]:focus-visible .ss-area-frame {
+  fill: #fffaf0;
+}
+
+.ss-area:focus-visible {
+  outline: none;
+}
+
+.ss-area:focus-visible .ss-area-glow {
+  stroke: #2f3a4a;
+}
+
+@keyframes ss-glow {
+  50% {
+    stroke-opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-area-glow {
+    animation: none;
+  }
+}
+
+/* The clan mats (mats.tsx) */
+.ss-mat {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 35%), transparent 40%), #efe0bf;
+  border: 2px solid #8a6a44;
+  border-top: 6px solid var(--ss-seat, #8a6a44);
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.ss-mat-turn {
+  box-shadow: 0 0 0 3px var(--ss-amber);
+}
+
+.ss-mat-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ss-mat-name {
+  overflow-wrap: anywhere;
+}
+
+.ss-mat-score {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.ss-mat-score b {
+  font-size: 1.2rem;
+}
+
+.ss-to-play {
+  padding: 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #2a2118;
+  background: var(--ss-amber);
+  border-radius: 999px;
+}
+
+.ss-mat-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.ss-mat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 4.6em;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.ss-mat-note {
+  font-size: 0.8rem;
+  color: var(--ss-muted);
+}
+
+.ss-mat-help {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  background: rgb(255 250 236 / 70%);
+  border-radius: 8px;
+}
+
+.ss-people-slots,
+.ss-tool-slots {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.ss-person-slot {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 22px;
+  background: rgb(255 250 236 / 70%);
+  border: 1px dashed #a88e66;
+  border-radius: 5px;
+}
+
+.ss-person-out {
+  opacity: 0.4;
+}
+
+.ss-person-none {
+  background: transparent;
+}
+
+.ss-tool-slot {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  background: rgb(255 250 236 / 70%);
+  border: 1px dashed #a88e66;
+  border-radius: 6px;
+}
+
+.ss-tool-empty {
+  color: #a88e66;
+}
+
+.ss-spares {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.ss-track {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.ss-track-step {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #6a5a44;
+  background: #e2cfa6;
+  border-radius: 50%;
+}
+
+.ss-track-on {
+  color: #fff;
+  background: var(--ss-seat);
+  box-shadow: 0 0 0 2px #2a2118;
+}
+
+.ss-choice-card {
+  padding: 6px 8px;
+  background: #e5eed6;
+  border: 1px solid #8aa167;
+  border-radius: 8px;
+}
+
+.ss-rules-board,
+.ss-rules-mat {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  min-width: 0;
+}
+
+.ss-rules-board {
+  overflow-x: auto;
+}
+
+.ss-rules-mat {
+  max-width: 360px;
+}
+
+.ss-rules-board figcaption,
+.ss-rules-mat figcaption {
+  font-size: 0.88rem;
+  color: var(--ss-muted);
+}

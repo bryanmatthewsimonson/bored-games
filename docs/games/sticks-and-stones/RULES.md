@@ -54,7 +54,7 @@ Game mechanics, rules as systems and the numbers that are part of a method of pl
 
 ## Sources and interpretations
 
-**Sources.** The Rio Grande Games English rulebook of 2008 with its two-page card sheet (hosted by Yucata), the Z-Man English rulebook ZM7260 (©2008–2014) and its card summary, read in full; the 2018 anniversary rulebooks in English and German only where they word the same rule more plainly. The 36 cards and the 28 tiles were read one by one from BoardGameGeek scans (images 408812, 408814, 408817, 408856; 408843, 408847 and the photo 361106) and checked against a second, independent card list. Rules a rulebook states are **verified**. Points no rulebook settles are **platform** rules, and choices a table could make either way are rule options or **OPEN** (CLAUDE.md, "Never invent rules"). BoardGameGeek id **34635** (2008; 2–4 players, 60–90 minutes, age 10+) was confirmed on 2026-10-12 against boardgamegeek.com. The research notes, with every source address, are in the D089 entry.
+**Sources.** The Rio Grande Games English rulebook of 2008 with its two-page card sheet (Rio Grande's own link is dead; Yucata hosts the same file), the Z-Man English rulebook ZM7260 (©2008–2014; Hans im Glück hosts a byte-identical copy, so it is the publisher's current English text) and its card summary, and Hans im Glück's current German rulebook with its two-page overview of every card and building (https://www.hans-im-glueck.de/wp-content/uploads/2023/06/Stone-Age_Regel_D.pdf), all read in full; the 2018 anniversary rulebooks in English and German only where they word the same rule more plainly. The 36 cards and the 28 tiles were read one by one from BoardGameGeek scans (images 408812, 408814, 408817, 408856; 408843, 408847 and the photo 361106) and checked against a second, independent card list. Rules a rulebook states are **verified**. Points no rulebook settles are **platform** rules, and choices a table could make either way are rule options or **OPEN** (CLAUDE.md, "Never invent rules"). BoardGameGeek id **34635** (2008; 2–4 players, 60–90 minutes, age 10+) was confirmed on 2026-10-12 against boardgamegeek.com. The research notes, with every source address, are in the D089 entry.
 
 | Topic | Rule | Basis |
 |---|---|---|
@@ -63,24 +63,25 @@ Game mechanics, rules as systems and the numbers that are part of a method of pl
 | First player | free choice in the rulebooks | **platform**: the first card of the opening display, counted round the table (C02) |
 | Stacks | 28 tiles in four stacks of 7; one stack per player | verified |
 | Display | always four cards, the cheapest end refilled first | verified (the 2008 English "by number of players" is a known mistranslation) |
-| Placement | one spot a turn, any number up to its room; never a spot already used this round; no passing while a spot is open | verified |
+| Placement | one spot a turn, any number up to its room; never a spot already used this round; every person must be placed, and no passing while a spot is open | verified; confirmed by the owner (2026-10-12) |
 | Room | hunting any; each ground 7; toolmaker and field 1; hut exactly 2 of one clan; each card and stack 1 | verified |
 | Fewer players | 3 players: two clans a ground; 2 players: one clan a ground; 2 or 3: only two of the three village spots each round | verified |
 | Resolving | in order from the first player, each clan resolves all its spots, in the order it likes | verified |
 | Gathering | a die per person; the sum, plus tools, over 2 (food), 3, 4, 5 or 6, rounded down | verified |
-| Tools | the ladder 1, 1·1, 1·1·1, then each tile up to 4; each once a round, whole, after the roll, several at once | verified; which tile goes up is **platform** (an unused one of the lowest) |
+| Tools | the ladder 1, 1·1, 1·1·1, then each tile up to 4, always a lowest tile first (a 3 only after three 2s, a 4 only after three 3s); each once a round, whole, after the roll, several at once | verified (Hans im Glück German rulebook for the order); which of several lowest tiles goes up is **platform** (an unused one) |
 | Village | hut +1 person (who eats this round), field +1 harvest, toolmaker a tool step | verified |
 | Limits | 10 people, harvest 10, tool value 12 | verified for tools; people and harvest by the components and the track |
 | Cards | pay the slot (1–4) in any goods, never food; or take the person back | verified |
 | Buildings | pay the price (or a valid variable payment), score at once, turn up the next tile; or take the person back | verified |
 | Feeding | take the harvest in food, then eat one food a person; short: all food goes, then pay the whole rest in goods, or lose 10 points | verified |
-| End | the display cannot be filled at a round's start: the game ends at once; a stack is empty: the round ends, feeding included, then the game | verified |
+| End | the display cannot be filled at a round's start: the game ends at once; a stack is empty: the round ends, feeding included, then the game | verified; that a full display with an empty pile plays on is a reading (**platform**): no rulebook covers it |
 | Scoring | culture symbols squared (duplicates a second set, squared); figures × harvest, tool value, buildings, people; one point a good left | verified; duplicates are a rule option (C27) |
 | Tie-break | harvest + tool value + people; then a shared place | verified |
 | Resources and food | unlimited | verified for goods; food by standard practice |
-| Declining a village spot or a roll | the rulebooks give the take-back only for cards and buildings | **OPEN**: the engine resolves every village spot and every roll |
-| The two-goods card | "now or later" | **OPEN**: the engine lets its owner take the goods at any of its own decisions while placing, resolving or feeding |
-| A tile raised after it was used | stays used this round | **OPEN** (consensus); the engine keeps it used |
+| Resolving every person | each clan "uses all" its placed people: every village spot and every roll is resolved; only a card or a monument may be passed up ("cannot or does not want to pay"), and the person comes home | verified (Rio Grande p.5, Z-Man p.5, Hans im Glück German p.6) |
+| The two-goods card | face up beside the clan's board; once, immediately or later (the German rulebook: at any time during the game), take two goods of the owner's choice, two alike or two different, then it goes face down with the other cards | verified; **platform**: the owner may take them at any of its own decisions (placing, resolving, adding tools, taking a gift die, feeding), which covers every moment the goods can matter, and a card still unused at the end counts as its two goods (one point each, whichever they are) |
+| A tile raised after it was used | stays used this round; steps 4–6 and 10–12 flip the same tile, steps 7–9 swap a 2 for a new 3 tile, and no rulebook says whether a tile flipped or swapped in the round it was used may be used again | **OPEN** (consensus: no); the engine keeps it used |
+| Tool tiles | the rulebooks limit goods and food as unlimited and say nothing of tool tiles | **platform**: not limited |
 
 ## Components
 - **Goods:** wood, clay, stone and amber, worth 3, 4, 5 and 6 (the divisor of a gathering roll and the points of a variable monument). Food. All unlimited.
@@ -145,13 +146,13 @@ From the first player, round the table, each clan resolves **all** of its spots,
 - **A monument:** pay its price and score its points at once; the next tile of the stack is turned up. Or take the person back and leave the tile.
 
 ### Discovery tops
-- **Food, goods, points:** taken at once.
+- **Food, goods, points:** taken at once: food 1, 2, 3, 3, 4, 5 or 7; goods 2 stone, 1 stone (two cards), 1 amber or 1 clay; 3 points.
 - **A tool step, a harvest step:** as at Knapper's Rock or the Furrows.
-- **A one-use tool:** kept until its clan adds it to a roll.
-- **Two goods of your choice:** taken now, or at any later decision of the owner's (OPEN, see the sources).
+- **A one-use tool (4, 3 or 2):** the card lies face up beside the clan's board until its owner adds it to one roll, alone or with tools; then it joins the others face down and still scores. It is a tool: it cannot change a gift of the dice.
+- **Two goods of your choice:** the card lies face up beside the clan's board. Once, immediately or later, its owner takes any two goods (two alike or two different), and the card joins the others face down; it still scores its symbol. Here the owner takes them at any of its own decisions, and a card unused at the end counts as two goods.
 - **Roll two dice for a good:** a gathering of two people for that good; tools may be added.
 - **Gifts of the dice:** the buyer rolls a die for each player. Starting with the buyer and going round, each player takes one die: 1 a wood, 2 a clay, 3 a stone, 4 an amber, 5 a tool step, 6 a harvest step. Tools cannot change these dice. The last player takes the last die.
-- **A face-down discovery:** the buyer takes the top card of the pile without showing it. It counts only for its bottom at the end. With an empty pile there is nothing to take.
+- **A face-down discovery:** the buyer takes the top card of the pile, looks at it and keeps it face down; nobody else sees it until the end. It counts only for its bottom at the end. With an empty pile there is nothing to take.
 
 ### 3. Feeding
 Every clan takes food equal to its harvest. Then, from the first player, each clan eats one food per person and keeps any food left. A clan short of food gives up all its food and then either pays the whole shortfall in goods (one good per missing food) or loses 10 points, whatever the number unfed. A score can go below zero.
@@ -166,7 +167,7 @@ The first player passes to the left. The cards left in the display slide to the 
 - **The final count** adds to the score track:
   - **Culture:** the different culture symbols a clan holds, squared. A second card of a symbol starts a second set, scored the same way (or, with the rule option `duplicates: 'ones'`, one point each).
   - **Figures:** Growers times the harvest, Knappers times the total value of the tool tiles (one-use tools do not count), Builders times the monuments built, Elders times the people.
-  - **Goods:** one point for each good left. Food scores nothing.
+  - **Goods:** one point for each good left, and two for a two-goods card never used. Food scores nothing.
 - **The winner** has the most points. A tie goes to the higher total of harvest, tool value and people; a tie there shares the place.
 
 ## Rule options
@@ -177,6 +178,8 @@ The first player passes to the left. The cards left in the display slide to the 
 - When the tools a clan still has could not raise a roll's yield, nobody is asked: the roll yields with no tool.
 - A tool step that raises a tile raises an unused one of the lowest value, when there is one.
 - The last player to take a die from a gift takes it without a decision.
+- The two-goods card may be used at any of its owner's decisions; unused at the end, it counts as two goods.
+- Tool tiles are not limited.
 - A clan whose goods cannot cover its shortfall goes hungry without a decision; a clan with nothing to decide while feeding is fed by itself.
 
 ## Online play on this site
@@ -243,7 +246,7 @@ Added to one roll of the owner's, with any tools, and then gone; the card stays 
 As at Knapper's Rock and the Furrows.
 
 #### C18 Two goods of your choice
-Taken at once or at a later decision of the owner's.
+Taken at once or at a later decision of the owner's, adding tools to a roll included; unused at the end, the card counts as two goods (C28).
 
 #### C19 Gifts of the dice
 A die per player; from the buyer round, each takes one: a good, a tool step or a harvest step; the last die goes to the last taker.
@@ -273,7 +276,7 @@ The round is played out, feeding included, and the game ends.
 The different symbols, squared; duplicates a second set squared, or one point each with `duplicates: 'ones'`.
 
 #### C28 Figures, goods and ties
-Figures multiply harvest, tool value, monuments and people; goods score one each; a tie goes to harvest + tool value + people.
+Figures multiply harvest, tool value, monuments and people; goods score one each, an unused two-goods card two; a tie goes to harvest + tool value + people.
 
 #### C29 Face-down cards at the end
 They are turned up before the count; until then the standings leave them out.

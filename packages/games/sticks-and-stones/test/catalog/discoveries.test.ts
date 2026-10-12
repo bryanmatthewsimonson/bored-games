@@ -68,6 +68,13 @@ describe('discoveries', () => {
     expect(s.clans[0]?.choices).toBe(0);
     expect(s.turn).toBe(0);
     expect(legal(s, 0).filter((a) => a.type === 'choose')).toEqual([]);
+    // Later: at any decision of its owner's, adding tools to a roll included; the roll waits for it.
+    let later = withClan(buy(buying(21)), 0, (c) => ({ ...c, choices: 1 }));
+    later = rollWith(act(later, { type: 'use', actor: 0, spot: 'hunt' }), [1, 1, 1, 2]);
+    expect(later.stage).toBe('tools');
+    expect(legal(later, 0).filter((a) => a.type === 'choose')).toHaveLength(10);
+    later = act(later, { type: 'choose', actor: 0, take: [2, 0, 0, 0] });
+    expect([later.stage, later.clans[0]?.choices, later.clans[0]?.goods[0]]).toEqual(['tools', 0, 2]);
   });
 
   it('C19 a gift of the dice rolls a die a player; from the buyer round, each takes one: a good, a tool or harvest', () => {

@@ -21,19 +21,10 @@ import { useEffect, useState } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { rulesHref } from '../../router.ts';
 import type { GameViewProps, SetupCopy } from '../types.ts';
+import { CLAN_COLORS, Die, DiscoveryCard, GoodIcon, MonumentTile, SpareToolIcon, ToolIcon } from './art.tsx';
+import { Board } from './board.tsx';
+import { ClanMat } from './mats.tsx';
 import {
-  CLAN_COLORS,
-  Die,
-  DiscoveryCard,
-  GoodIcon,
-  MonumentTile,
-  PersonIcon,
-  SpareToolIcon,
-  SpotArt,
-  ToolIcon,
-} from './art.tsx';
-import {
-  BOARD_SPOTS,
   bottomText,
   type Choices,
   cardSpot,
@@ -43,15 +34,11 @@ import {
   goodsText,
   isOption,
   logLine,
-  occupants,
-  type PlayerRow,
   playerRows,
   priceText,
-  roomText,
   seatName,
   shortfallOf,
   spotName,
-  stackLeft,
   stackSpot,
   statusLine,
   toolBonus,
@@ -226,30 +213,35 @@ function Purchase(
   );
 }
 
+/** The two-goods card's picker and button, shown on the viewer's mat while it may be used now. */
+function Chooser(props: TableProps & { choices: Choices }) {
+  const { me, choices: c, enabled, onSend } = props;
+  if (me === null || c.chooses.length === 0) return null;
+  const take = payOf(props, 'choose', c.chooses);
+  return (
+    <div class="ss-choose">
+      <GoodsPicker
+        label="Take two goods"
+        options={c.chooses}
+        value={take}
+        enabled={enabled}
+        onChange={(p) => props.onPay('choose', p)}
+      />
+      <Button
+        action={{ type: 'choose', actor: me, take: [...take] }}
+        enabled={enabled && isOption(c.chooses, take)}
+        onSend={onSend}
+      >
+        Take {goodsText(take)}
+      </Button>
+    </div>
+  );
+}
+
 /** The decision panel of the moment. */
 function Decision(props: TableProps & { choices: Choices }) {
   const { state: s, me, choices: c, enabled, onSend } = props;
   if (me === null) return null;
-  const chooser =
-    c.chooses.length > 0 ? (
-      <div class="ss-choose">
-        <GoodsPicker
-          label={`Use your card: ${THEME.words.choose}`}
-          options={c.chooses}
-          value={payOf(props, 'choose', c.chooses)}
-          enabled={enabled}
-          onChange={(p) => props.onPay('choose', p)}
-        />
-        <Button
-          action={{ type: 'choose', actor: me, take: [...payOf(props, 'choose', c.chooses)] }}
-          enabled={enabled && isOption(c.chooses, payOf(props, 'choose', c.chooses))}
-          onSend={onSend}
-        >
-          Take {goodsText(payOf(props, 'choose', c.chooses))}
-        </Button>
-      </div>
-    ) : null;
-
   if (c.places.size > 0) {
     const sel = props.selected;
     const counts = sel === null ? [] : (c.places.get(sel) ?? []);
@@ -281,9 +273,11 @@ function Decision(props: TableProps & { choices: Choices }) {
             </div>
           </>
         ) : (
-          <p class="ss-hint">Click a highlighted spot, a discovery or a monument site.</p>
+          <p class="ss-hint">
+            Click a lit place on the board. Each turn you send one or more people to one place; everyone must
+            be placed, and a clan never goes back to a place it already used this round.
+          </p>
         )}
-        {chooser}
       </section>
     );
   }
@@ -391,7 +385,6 @@ function Decision(props: TableProps & { choices: Choices }) {
             Go hungry (−10 points)
           </Button>
         )}
-        {chooser}
       </section>
     );
   }
@@ -445,185 +438,10 @@ function Decision(props: TableProps & { choices: Choices }) {
             skip={c.skips.includes(stackSpot(k))}
           />
         ))}
-        {chooser}
       </section>
     );
   }
-  return chooser === null ? null : <section class="ss-panel">{chooser}</section>;
-}
-
-/** The people on a spot, as figures. */
-function People(props: { s: SticksState; spot: Spot }) {
-  const occ = occupants(props.s, props.spot);
-  if (occ.length === 0) return null;
-  return (
-    <span class="ss-people">
-      {occ.map(({ seat, count }) => (
-        <span key={seat} class="ss-people-seat" title={`${clanName(seat)}: ${count}`}>
-          <PersonIcon color={clanColor(seat)} size={18} />
-          {count > 1 && <span class="ss-count">×{count}</span>}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-/** The camp: the spots, the discovery display and the monument sites. */
-function Camp(props: TableProps & { choices: Choices }) {
-  const { state: s, choices: c, enabled, me } = props;
-  const click = (spot: Spot): (() => void) | undefined => {
-    if (!enabled || me === null) return undefined;
-    const counts = c.places.get(spot);
-    if (counts !== undefined && counts.length > 0) {
-      if (counts.length === 1)
-        return () => props.onSend({ type: 'place', actor: me, spot, count: counts[0] as number });
-      return () => props.onSelect(spot);
-    }
-    if (c.uses.includes(spot)) return () => props.onSend({ type: 'use', actor: me, spot });
-    return undefined;
-  };
-  const tile = (spot: Spot, body: ComponentChildren, extra?: string) => {
-    const onClick = click(spot);
-    const label = `${spotName(spot)}, ${roomText(s, spot)}`;
-    const cls = `ss-spot${extra ? ` ${extra}` : ''}${onClick ? ' ss-open' : ''}${props.selected === spot ? ' ss-selected' : ''}`;
-    return onClick ? (
-      <button key={spot} type="button" class={cls} data-spot={spot} aria-label={label} onClick={onClick}>
-        {body}
-        <People s={s} spot={spot} />
-      </button>
-    ) : (
-      <section key={spot} class={cls} data-spot={spot} aria-label={label}>
-        {body}
-        <People s={s} spot={spot} />
-      </section>
-    );
-  };
-  const left = stackLeft(s);
-  return (
-    <div class="ss-camp">
-      <div class="ss-spots">
-        {BOARD_SPOTS.map((spot) =>
-          tile(
-            spot,
-            <>
-              <SpotArt spot={spot} />
-              <span class="ss-spot-name">{spotName(spot)}</span>
-              <span class="ss-spot-room">{roomText(s, spot)}</span>
-            </>,
-          ),
-        )}
-      </div>
-      <div class="ss-row">
-        <section class="ss-display" aria-label="Discoveries">
-          <h3>Discoveries</h3>
-          <div class="ss-slots">
-            {[3, 2, 1, 0].map((slot) => {
-              const d = s.display[slot];
-              const spot = cardSpot(slot);
-              return tile(
-                spot,
-                <>
-                  {d ? <DiscoveryCard card={d.card} small /> : <span class="ss-empty">Taken</span>}
-                  <span class="ss-cost">
-                    {slot + 1} {slot === 0 ? 'good' : 'goods'}
-                  </span>
-                </>,
-                'ss-slot',
-              );
-            })}
-          </div>
-          <p class="ss-note">{DISCOVERY_COUNT - s.next} left in the pile</p>
-        </section>
-        <section class="ss-sites" aria-label="Monument sites">
-          <h3>Monuments</h3>
-          <div class="ss-slots">
-            {s.stacks.map((st, k) =>
-              tile(
-                stackSpot(k),
-                <>
-                  {st.top !== null || (left[k] ?? 0) > 0 ? (
-                    <MonumentTile monument={st.top === null ? null : st.top - DISCOVERY_COUNT} small />
-                  ) : (
-                    <span class="ss-empty">Empty</span>
-                  )}
-                  <span class="ss-cost">{left[k]} left</span>
-                </>,
-                'ss-site',
-              ),
-            )}
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function GoodsRow(props: { goods: readonly number[]; food?: number }) {
-  return (
-    <span class="ss-goods">
-      {props.food !== undefined && (
-        <span class="ss-good">
-          <GoodIcon good={-1} size={16} title={THEME.words.food} />
-          {props.food}
-        </span>
-      )}
-      {props.goods.map((n, i) => (
-        <span key={GOODS[i]} class={`ss-good${n === 0 ? ' ss-zero' : ''}`}>
-          <GoodIcon good={i} size={16} title={goodName(i)} />
-          {n}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function ClanRow(props: { r: PlayerRow; me: number | null; avatar: ComponentChildren }) {
-  const { r } = props;
-  return (
-    <li class={`ss-player${r.turn ? ' ss-player-turn' : ''}`} data-seat={r.seat}>
-      <span class="ss-swatch" style={{ '--ss-seat': clanColor(r.seat) }}>
-        <PersonIcon color={clanColor(r.seat)} size={22} />
-      </span>
-      <span class="ss-player-body">
-        <span class="ss-player-name">
-          {props.avatar}
-          <strong>
-            <bdi>{r.name}</bdi>
-          </strong>
-          {r.seat === props.me ? ' (you)' : ''}
-          {r.first ? (
-            <span class="ss-first" title="First player this round">
-              first
-            </span>
-          ) : null}
-        </span>
-        <span class="ss-player-facts">
-          {r.score} on the track · {r.standing} if it ended now
-          {r.turn ? ' · to play' : ''}
-        </span>
-        <span class="ss-player-facts">
-          {r.people} {r.people === 1 ? THEME.words.person : THEME.words.people} ({r.home} home) · harvest{' '}
-          {r.field}
-        </span>
-        <GoodsRow goods={r.goods} food={r.food} />
-        <span class="ss-tools">
-          {r.tools.map((v, i) => (
-            <ToolIcon key={`t${i}`} value={v} used={r.used[i] ?? false} size={18} />
-          ))}
-          {r.spares.map((v, i) => (
-            <SpareToolIcon key={`s${i}`} value={v} size={18} />
-          ))}
-          <span class="ss-player-facts">
-            {r.cards.length} {r.cards.length === 1 ? THEME.words.discovery : THEME.words.discoveries}
-            {r.hidden > 0 ? ` + ${r.hidden} face down` : ''} · {r.monuments.length}{' '}
-            {r.monuments.length === 1 ? THEME.words.monument : THEME.words.monuments}
-            {r.choices > 0 ? ' · two goods to take' : ''}
-          </span>
-        </span>
-      </span>
-      {r.place !== null && <span class="ss-place">#{r.place}</span>}
-    </li>
-  );
+  return null;
 }
 
 /** The viewer's own discoveries, face-down card and monuments. */
@@ -720,15 +538,38 @@ export function SticksTable(props: TableProps) {
       <div class="ss-main">
         <Decision {...props} choices={c} />
         <FinalCount s={s} names={names} />
-        <Camp {...props} choices={c} />
+        <div class="ss-board-wrap">
+          <Board
+            state={s}
+            choices={c}
+            enabled={props.enabled}
+            selected={props.selected}
+            onSpot={(spot) => {
+              if (me === null) return;
+              const counts = c.places.get(spot) ?? [];
+              if (counts.length === 1)
+                props.onSend({ type: 'place', actor: me, spot, count: counts[0] as number });
+              else if (counts.length > 1) props.onSelect(spot);
+              else if (c.uses.includes(spot)) props.onSend({ type: 'use', actor: me, spot });
+            }}
+          />
+        </div>
         {me !== null && <MyClan s={s} me={me} />}
       </div>
       <aside class="ss-side" aria-label="Clans and dice">
-        <ol class="ss-players">
-          {rows.map((r) => (
-            <ClanRow key={r.seat} r={r} me={me} avatar={props.avatars[r.seat]} />
+        {[...rows]
+          .sort((a, b) => (a.seat === me ? -1 : b.seat === me ? 1 : a.seat - b.seat))
+          .map((r) => (
+            <ClanMat
+              key={r.seat}
+              s={s}
+              row={r}
+              me={me}
+              avatar={props.avatars[r.seat]}
+              full={r.seat === me}
+              choose={r.seat === me ? <Chooser {...props} choices={c} /> : undefined}
+            />
           ))}
-        </ol>
         {s.lastDice !== null && (
           <section class="ss-panel ss-dice" aria-label="The last roll">
             <p class="ss-note">Last roll, {seatName(names, s.lastDice.seat)}</p>
