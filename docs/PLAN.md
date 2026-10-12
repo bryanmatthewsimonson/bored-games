@@ -1,5 +1,9 @@
 # Plan
 
+## Hazard — 2026-10-12 (D087, D088)
+
+Hazard, the world-conquest game under its own names (Compare to Risk, BoardGameGeek 181), is built and on the site as beta: engine `packages/games/hazard` (catalog C01–C34), web game, rules page, cover, three screens in play and an e2e spec. Its map is the reference board's graph on an original hex atlas. Four platform fixes came with it (D087): roll positions beside epochs, sealed shares and early Shares at epoch positions, and a simulator that reshuffles. **OPEN for the owner:** the 2-player game with a neutral army; the connected-path march (an expert variation); Resign after a D052 review; trademark clearance of the name.
+
 ## Screens in play on every game page — 2026-10-11 (D086)
 
 Each game's catalog page shows three screenshots of a game in progress, made by `pnpm previews` from real engine games drawn by the real screens. Rerun it after a game's screen changes.
