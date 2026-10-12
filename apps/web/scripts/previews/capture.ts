@@ -38,6 +38,8 @@ export const PLANS: readonly PreviewPlan[] = [
     policies: [QUILL_PREVIEW_POLICY],
   },
   { game: 'gilt-and-guile', seed: 'preview-1', seats: 3, at: [0.25, 0.55, 0.85] },
+  // Early (the claim), the middle of the game, and late, with charters in hand.
+  { game: 'hazard', seed: 'preview-1', seats: 4, at: [0.004, 0.5, 0.85] },
 ];
 
 const WIDTH = 1280;
