@@ -21,6 +21,15 @@ export function beaconPosition(deckSize: number, id: number, stride: number | nu
   return pos;
 }
 
+/**
+ * The reshuffle (epoch k ≥ 1) whose card slot `pos` is, or null: epoch k's cards sit at `stride·k + i`, `i` below the
+ * opening deck size (D073). Slots past that, in each block, hold no card (in a game with dice they are rolls', D087).
+ */
+export function epochSlot(pos: number, deckSize: number, stride: number): number | null {
+  if (!Number.isSafeInteger(pos) || pos < deckSize || pos < stride) return null;
+  return pos % stride < deckSize ? Math.floor(pos / stride) : null;
+}
+
 /** Whether a share at `pos` is a roll's, not a card's: see `beaconPosition`. */
 export function isRollPosition(pos: number, deckSize: number, stride: number | null = null): boolean {
   if (!Number.isSafeInteger(pos) || pos < 0) return false;

@@ -37,6 +37,7 @@ import {
   provinceName,
   seatLook,
   seatName,
+  selectionSurvives,
   statusLine,
 } from './model.ts';
 import './hazard.css';
@@ -217,7 +218,9 @@ function Decision(props: TableProps & { choices: Choices }) {
     const count = clamp(props.count ?? s.pool, 1, Math.max(1, s.pool));
     return (
       <section class="hz-panel" aria-labelledby="hz-decide">
-        <h3 id="hz-decide">{s.midTurn ? 'Cash down to four charters' : `Muster: ${s.pool} troops`}</h3>
+        <h3 id="hz-decide">
+          {forced && s.midTurn ? 'Cash down to four charters' : `Muster: ${s.pool} troops`}
+        </h3>
         {groups.length > 0 && (
           <div class="hz-sets">
             <p class="hz-note">
@@ -509,15 +512,20 @@ export function HazardGame(props: GameViewProps) {
   useEffect(() => {
     if (!props.busy) setSentAt(null);
   }, [props.busy]);
-  // A new stage clears the count and any half-made choice that is no longer possible.
+  // A new stage clears the count; a new turn, or a stage that is not part of an attack or the march, the choice.
   const stage = s?.stage;
+  const turn = s?.turn;
   useEffect(() => {
     setCount(null);
-    if (stage !== 'attack' && stage !== 'march') {
+    if (stage === undefined || !selectionSurvives(stage)) {
       setSelected(null);
       setTarget(null);
     }
   }, [stage]);
+  useEffect(() => {
+    setSelected(null);
+    setTarget(null);
+  }, [turn]);
   const enabled = props.canAct && !props.busy && sentAt !== head;
 
   if (s === null) return <p>Setting up the game…</p>;

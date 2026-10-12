@@ -12,6 +12,7 @@ import {
   type HazardEvent,
   type HazardState,
   kindOf,
+  mustCash,
   PROVINCES,
   type ProvinceId,
   provinceOfCard,
@@ -348,6 +349,14 @@ export function mapMode(c: Choices, selected: ProvinceId | null): MapMode {
   return { ...none, kind: 'none' };
 }
 
+/**
+ * Whether a half-made choice of provinces (an attack's or a march's) outlives the move to `stage`: an attack's pair
+ * stays chosen through the defence, the roll and the move in, so the next roll is one click; any other stage starts
+ * afresh. The legal moves still drop a pair that is no longer possible.
+ */
+export const selectionSurvives = (stage: HazardState['stage']): boolean =>
+  stage === 'attack' || stage === 'defend' || stage === 'roll' || stage === 'advance' || stage === 'march';
+
 /** The dice an attack from `from` to `to` may roll, fewest first. */
 export const attackDiceFor = (c: Choices, from: ProvinceId, to: ProvinceId): number[] =>
   c.attacks.filter((a) => a.from === from && a.to === to).map((a) => a.dice);
@@ -393,9 +402,13 @@ export function statusLine(s: HazardState, names: readonly string[], me: number 
     case 'place':
       return `${who(s.turn)} ${s.turn === me ? 'place' : 'places'} a troop (${s.reserve[s.turn] ?? 0} left).`;
     case 'muster':
-      return s.midTurn
-        ? `${who(s.turn)} must cash charters down to four after the conquest.`
-        : `${capital(your(s.turn))} muster: ${s.pool} ${s.pool === 1 ? 'troop' : 'troops'} to place.`;
+      if (s.midTurn && mustCash(s, s.turn))
+        return `${who(s.turn)} must cash charters down to four after the conquest.`;
+      if (s.midTurn)
+        return s.turn === me
+          ? `Place the ${s.pool} ${s.pool === 1 ? 'troop' : 'troops'} from your cashed set, then attack on.`
+          : `${who(s.turn)} places the troops from a cashed set.`;
+      return `${capital(your(s.turn))} muster: ${s.pool} ${s.pool === 1 ? 'troop' : 'troops'} to place.`;
     case 'reveal':
       return 'Turning the cashed set face up…';
     case 'attack':

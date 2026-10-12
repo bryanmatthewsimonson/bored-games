@@ -16,6 +16,7 @@ import {
   legalActions,
   opened,
   orderRoll,
+  revealCash,
   takeA2,
   withHand,
 } from '../../../packages/games/hazard/test/helpers.ts';
@@ -31,6 +32,7 @@ import {
   playerRows,
   provinceLabel,
   SEAT_LOOKS,
+  selectionSurvives,
   statusLine,
 } from '../src/games/hazard/model.ts';
 import { HazardRulesPage } from '../src/games/hazard/rules-page.tsx';
@@ -262,5 +264,21 @@ describe('registration', () => {
     expect(game?.setupCopy(true)).toEqual(HAZARD_SETUP_COPY);
     expect(DEFENSE_CHOICES.map((c) => c.value)).toEqual(['choose', 'auto']);
     for (const c of DEFENSE_CHOICES) expect(hazard.validateRules({ defense: c.value }).ok).toBe(true);
+  });
+});
+
+describe('fixes from the final review', () => {
+  it('keeps the provinces of an attack chosen through the defence and the roll, and drops them at a new stage', () => {
+    for (const stage of ['attack', 'defend', 'roll', 'advance', 'march'] as const)
+      expect(selectionSurvives(stage)).toBe(true);
+    for (const stage of ['muster', 'claim', 'place', 'reveal', 'shuffle', 'over'] as const)
+      expect(selectionSurvives(stage)).toBe(false);
+  });
+
+  it('says "cash down" only while charters must still be cashed, then that the troops are being placed', () => {
+    const t = takeA2(withHand(withHand(lastStand(), 0, [0, 3, 6, 1]), 1, [9, 12, 15])).state;
+    expect(statusLine(t, NAMES, 0)).toMatch(/cash charters down to four/);
+    const cashed = revealCash(act(t, { type: 'cash', actor: 0, positions: [0, 3, 6], bonus: 'a1' })).state;
+    expect(statusLine(cashed, NAMES, 0)).toBe('Place the 4 troops from your cashed set, then attack on.');
   });
 });

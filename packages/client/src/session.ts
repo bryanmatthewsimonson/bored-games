@@ -77,7 +77,7 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
-import { beaconDomain, beaconPosition, isRollPosition, rollOrigin } from './mixed-beacon.ts';
+import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } from './mixed-beacon.ts';
 import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
@@ -1043,8 +1043,8 @@ export class GameSession {
     let early = false;
     for (const { pos } of s.shares) {
       if (this.positionLive(pos)) continue;
-      // An epoch slot whose reshuffle this client has not accepted yet: its Shares wait for it (D087).
-      if (pos >= this.deckSize && this.cardPosition(pos)) early = true;
+      // A slot of a reshuffle this client has not accepted yet: its Shares wait for it (D087).
+      if (this.earlyEpochPosition(pos)) early = true;
       else return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
     if (early || this.timedOut !== null || this.resignedBy?.cancels === true) {
@@ -1681,8 +1681,22 @@ export class GameSession {
    */
   private cardPosition(pos: number): boolean {
     if (!Number.isSafeInteger(pos) || pos < 0) return false;
-    if (pos < this.deckSize) return true;
-    return this.usesEpochs() && pos % epochStride(this.deckSize) < this.deckSize;
+    return pos < this.deckSize || this.epochOf(pos) !== null;
+  }
+
+  /** The reshuffle whose card slot `pos` is, in a game that reshuffles in play; else null (D073, D087). */
+  private epochOf(pos: number): number | null {
+    return this.usesEpochs() ? epochSlot(pos, this.deckSize, epochStride(this.deckSize)) : null;
+  }
+
+  /**
+   * Whether a share of `pos` may wait for its reshuffle (D087): a card slot of one of the next two epochs, which a
+   * Shares event can reach this client before the steps that complete it. Anything else not live is refused.
+   */
+  private earlyEpochPosition(pos: number): boolean {
+    const k = this.epochOf(pos);
+    const latest = this.latestEpoch();
+    return k !== null && k > latest && k <= latest + 2;
   }
 
   /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
@@ -2279,8 +2293,14 @@ export class GameSession {
     let progressed = false;
     if (this.finalDeck() !== null) {
       for (const s of byId(this.waitingShares.values())) {
-        // Still before a reshuffle it needs: it waits on (D087).
-        if (s.shares.some(({ pos }) => !this.positionLive(pos))) continue;
+        // Still before a reshuffle it needs: it waits on, unless that reshuffle came and the slot is not in it (D087).
+        const dead = s.shares.filter(({ pos }) => !this.positionLive(pos));
+        if (dead.some(({ pos }) => !this.earlyEpochPosition(pos))) {
+          this.waitingShares.delete(s.id);
+          this.rejected.set(s.id, `position ${(dead[0] as { pos: number }).pos} is outside the deck`);
+          continue;
+        }
+        if (dead.length > 0) continue;
         this.waitingShares.delete(s.id);
         const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
         if (r === 'accepted') progressed = true;
@@ -2683,8 +2703,7 @@ export class GameSession {
   private epochGrantedElsewhere(seat: number): boolean {
     for (const shares of this.badShares.values()) {
       if (this.seatOf.get(shares.pubkey) !== seat) continue;
-      if (shares.shares.some((share) => share.pos >= this.deckSize && !this.isRollPos(share.pos)))
-        return true;
+      if (shares.shares.some((share) => this.epochOf(share.pos) !== null)) return true;
     }
     return false;
   }

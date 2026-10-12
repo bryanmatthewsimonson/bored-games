@@ -87,15 +87,17 @@ async function decide(p: Page, attacking: { captured: boolean }): Promise<void> 
   }
   if (stage === 'attack') {
     if (attacking.captured) return sends(p, () => button(p, 'endAttack').first().click());
+    // The pair of the last roll stays chosen while it is still legal: roll again with the most dice.
+    const dice = button(p, 'attack');
+    if ((await dice.count()) > 0) return sends(p, () => dice.last().click());
     // Pick the biggest stack, then its weakest target, then the most dice.
     const from = [...open].sort((x, y) => y.troops - x.troops)[0];
     if (from === undefined || from.troops < 2) return sends(p, () => button(p, 'endAttack').first().click());
-    await root(p).locator(`[data-province="${from.id}"]`).click();
+    if (!from.selected) await root(p).locator(`[data-province="${from.id}"]`).click();
     const targets = await clickable(p, '[data-province].hz-prov-target');
     const to = [...targets].sort((x, y) => x.troops - y.troops)[0];
     if (to === undefined) return sends(p, () => button(p, 'endAttack').first().click());
     await root(p).locator(`[data-province="${to.id}"]`).click();
-    const dice = button(p, 'attack');
     await expect(dice.first()).toBeVisible();
     return sends(p, () => dice.last().click());
   }

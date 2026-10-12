@@ -1,6 +1,6 @@
 import { G, initialDeck, makeRollShare, makeShare, reEncrypt, verifyRollShare } from '@bored-games/deck';
 import { describe, expect, it } from 'vitest';
-import { beaconDomain, beaconPosition, isRollPosition, rollOrigin } from '../src/mixed-beacon.ts';
+import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } from '../src/mixed-beacon.ts';
 import { ShareStore } from '../src/shares.ts';
 
 const root = 'ab'.repeat(32),
@@ -67,5 +67,21 @@ describe('roll positions beside play-phase reshuffles (D087)', () => {
     expect(isRollPosition(25, 25, null)).toBe(true);
     expect(isRollPosition(24, 25, null)).toBe(false);
     expect(() => beaconPosition(128, 0, 128)).toThrow();
+  });
+});
+
+describe('epoch card slots (D073, D087)', () => {
+  it('name the reshuffle a card position belongs to, in games with and without dice', () => {
+    // Holler: 108 cards, no dice. Epoch 1 holds 128–235; 236–255 hold nothing.
+    expect(epochSlot(128, 108, 128)).toBe(1);
+    expect(epochSlot(235, 108, 128)).toBe(1);
+    expect(epochSlot(236, 108, 128)).toBeNull();
+    expect(epochSlot(256 + 3, 108, 128)).toBe(2);
+    expect(epochSlot(107, 108, 128)).toBeNull();
+    // Hazard: 44 cards and dice. 128 is epoch 1's first card; 172 is a roll slot, never a card.
+    expect(epochSlot(128, 44, 128)).toBe(1);
+    expect(epochSlot(172, 44, 128)).toBeNull();
+    expect(epochSlot(-1, 44, 128)).toBeNull();
+    expect(epochSlot(1.5, 44, 128)).toBeNull();
   });
 });
