@@ -3523,7 +3523,11 @@ export class GameSession {
   /** Only assigned positions authorized for this seat; an owner never shares its private card. */
   private sharesDue(seat: number): number[] {
     // Owner-authorized prompt decks deliver new private draws immediately, with any number of groups.
-    if (this.promptShares) return this.shares.missing(seat, this.module.dealt(this.state));
+    if (this.promptShares) {
+      const owed = this.shares.missing(seat, this.module.dealt(this.state));
+      const scoring = this.scoringSharesDue(seat);
+      return scoring.length === 0 ? owed : [...new Set([...owed, ...scoring])].sort((a, b) => a - b);
+    }
     const p = this.module.pending(this.state);
     if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
     const publicPositions = new Set(
@@ -3535,6 +3539,18 @@ export class GameSession {
     return p.positions
       .filter((pos) => publicPositions.has(pos) && !this.shares.has(seat, pos))
       .sort((a, b) => a - b);
+  }
+
+  /**
+   * A scoring reveal (`GameModule.handsReveal`, D089) turns up positions still dealt to their holders: every seat
+   * owes its share of them, the holder's own included, as an epoch game's reveal already asks (`playSharesDue`).
+   * Empty outside one, so a holder never publishes its private layer in play.
+   */
+  private scoringSharesDue(seat: number): number[] {
+    if (this.module.handsReveal?.(this.state) !== true) return [];
+    const p = this.module.pending(this.state);
+    if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
+    return p.positions.filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
   }
 
   /**
