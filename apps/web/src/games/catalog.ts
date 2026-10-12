@@ -26,6 +26,8 @@ import { RIGHT_OF_WAY_CATALOG } from '@bored-games/right-of-way/catalog';
 import { RIGHT_OF_WAY_BRAND } from '@bored-games/right-of-way/theme';
 import { ROOM_FOR_DOUBT_CATALOG } from '@bored-games/room-for-doubt/catalog';
 import { ROOM_FOR_DOUBT_BRAND } from '@bored-games/room-for-doubt/theme';
+import { STICKS_CATALOG } from '@bored-games/sticks-and-stones/catalog';
+import { STICKS_BRAND } from '@bored-games/sticks-and-stones/theme';
 import { GAME_IDS } from './ids.ts';
 
 /** One hosted game in the catalog: its facts and its trademark-safe names. */
@@ -46,6 +48,7 @@ const GAMES: readonly CatalogGame[] = [
   { entry: ROOM_FOR_DOUBT_CATALOG, safe: ROOM_FOR_DOUBT_BRAND },
   { entry: QUILL_CATALOG, safe: QUILL_BRAND },
   { entry: HAZARD_CATALOG, safe: HAZARD_BRAND },
+  { entry: STICKS_CATALOG, safe: STICKS_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));

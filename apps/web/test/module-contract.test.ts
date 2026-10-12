@@ -26,6 +26,7 @@ describe('D052: every registered module with a deck pends public reveals only be
       'driftwrights',
       'room-for-doubt',
       'hazard',
+      'sticks-and-stones',
       'quill-and-quarry',
       'gilt-and-guile',
     ]);
@@ -60,6 +61,14 @@ describe('D052: every registered module with a deck pends public reveals only be
         it('hazard: keeps Resign disabled for cashed sets, re-dealt charters and the dice beacon', () => {
           expect(module.rolls).toBeTypeOf('function');
           expect(module.installDeckOrder).toBeTypeOf('function');
+          expect(resignSeatCounts(module)).toEqual([]);
+        });
+        continue;
+      }
+      if (module.id === 'sticks-and-stones') {
+        it('sticks-and-stones: keeps Resign disabled for refills, stack tops, the final turn-up and the dice beacon', () => {
+          expect(module.rolls).toBeTypeOf('function');
+          expect(module.handsReveal).toBeTypeOf('function');
           expect(resignSeatCounts(module)).toEqual([]);
         });
         continue;

@@ -1,5 +1,11 @@
 # Plan
 
+## Sticks & Stones — 2026-10-12 (D089)
+
+Sticks & Stones, the worker-placement game under its own names (Compare to Stone Age, BoardGameGeek 34635), is built and on the site as beta: engine `packages/games/sticks-and-stones` (catalog C01–C30), web game, rules page, original SVG art and cover, three screens in play and an e2e spec. One client fix came with it: a scoring reveal without epochs now asks the holder for its share. **OPEN for the owner:** the name (fallback *Ochre*) and its clearance; declining a village spot or a roll; when the two-goods card may be used; Resign after a D052 review.
+
+- **Simulations:** `pnpm sim --game sticks-and-stones --games 6 --seats 2-4 --max-rounds 100000`: 6 of 6 done, audit pass, no timeout claims (4146 actions; the 4-seat games took about 70–110 s each).
+
 ## Hazard — 2026-10-12 (D087, D088)
 
 Hazard, the world-conquest game under its own names (Compare to Risk, BoardGameGeek 181), is built and on the site as beta: engine `packages/games/hazard` (catalog C01–C34), web game, rules page, cover, three screens in play and an e2e spec. Its map is the reference board's graph on an original hex atlas. Four platform fixes came with it (D087): roll positions beside epochs, sealed shares and early Shares at epoch positions, and a simulator that reshuffles. **OPEN for the owner:** the 2-player game with a neutral army; the connected-path march (an expert variation); Resign after a D052 review; trademark clearance of the name.

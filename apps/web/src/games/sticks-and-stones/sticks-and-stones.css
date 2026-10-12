@@ -1,0 +1,521 @@
+/* Sticks & Stones (D089): a clan camp at dusk. Hide, ochre, charcoal and birch; the camp's tiles wrap, so the page
+   never scrolls sideways on a phone. */
+
+main:has(.ss-game) {
+  max-width: 1320px;
+}
+
+.ss-game,
+.ss-rules {
+  --ss-ink: #2a2118;
+  --ss-hide: #f2e6cf;
+  --ss-paper: #fbf4e4;
+  --ss-rule: #cdb48a;
+  --ss-ochre: #b4472f;
+  --ss-moss: #5a7d3a;
+  --ss-amber: #d99a2b;
+  --ss-muted: #6a5a44;
+  --ss-dusk: #2f3a4a;
+  --ss-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+.ss-game {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  color: var(--ss-ink);
+}
+
+.ss-head {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ss-status {
+  margin: 0;
+  font-family: var(--ss-serif);
+  font-size: 1.2rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ss-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.9rem;
+  color: var(--ss-muted);
+}
+
+.ss-you {
+  font-weight: 700;
+  text-shadow: 0 0 1px var(--ss-ink);
+}
+
+.ss-error {
+  margin: 0;
+  color: #9b2b1f;
+  font-weight: 600;
+}
+
+.ss-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  gap: 16px;
+  align-items: start;
+}
+
+.ss-main,
+.ss-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ss-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--ss-paper);
+  border: 1px solid var(--ss-rule);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgb(42 33 24 / 8%);
+}
+
+.ss-panel h3,
+.ss-display h3,
+.ss-sites h3 {
+  margin: 0;
+  font-family: var(--ss-serif);
+  font-size: 1.05rem;
+}
+
+.ss-alert {
+  border-color: var(--ss-ochre);
+  box-shadow: 0 0 0 2px rgb(180 71 47 / 18%);
+}
+
+.ss-note,
+.ss-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ss-muted);
+}
+
+.ss-hint {
+  font-weight: 600;
+  color: var(--ss-ink);
+}
+
+.ss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ss-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ss-btn.ss-primary {
+  background: var(--ss-ochre);
+  border-color: #8d3523;
+  color: #fff8ec;
+}
+
+.ss-btn.ss-primary:disabled {
+  opacity: 0.55;
+}
+
+.ss-mini {
+  min-width: 2rem;
+  padding: 2px 6px;
+}
+
+/* Goods pickers */
+.ss-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 6px 10px 8px;
+  border: 1px dashed var(--ss-rule);
+  border-radius: 8px;
+}
+
+.ss-picker legend {
+  padding: 0 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ss-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ss-step output {
+  min-width: 1.4em;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-purchase {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  padding-top: 8px;
+  border-top: 1px solid var(--ss-rule);
+}
+
+.ss-purchase-body {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ss-choose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ss-dice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.ss-yield {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.ss-tool-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.ss-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* The camp */
+.ss-camp {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgb(255 214 150 / 35%), transparent 60%),
+    linear-gradient(180deg, #e9d9b8, #dcc69c);
+  border: 1px solid var(--ss-rule);
+  border-radius: 14px;
+  min-width: 0;
+}
+
+.ss-spots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ss-spot {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  justify-items: center;
+  min-width: 0;
+  padding: 6px 6px 8px;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  background: var(--ss-paper);
+  border: 2px solid var(--ss-rule);
+  border-radius: 10px;
+}
+
+.ss-spot svg {
+  max-width: 100%;
+  height: auto;
+}
+
+button.ss-spot {
+  cursor: pointer;
+}
+
+.ss-spot.ss-open {
+  border-color: var(--ss-ochre);
+  box-shadow: 0 0 0 3px rgb(180 71 47 / 22%);
+}
+
+.ss-spot.ss-open:hover,
+.ss-spot.ss-open:focus-visible {
+  background: #fff;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(180 71 47 / 45%);
+}
+
+.ss-spot.ss-selected {
+  border-color: var(--ss-dusk);
+  box-shadow: 0 0 0 3px rgb(47 58 74 / 40%);
+}
+
+.ss-spot-name {
+  font-family: var(--ss-serif);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.15;
+}
+
+.ss-spot-room,
+.ss-cost {
+  font-size: 0.78rem;
+  color: var(--ss-muted);
+}
+
+.ss-people {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 6px;
+  min-height: 20px;
+}
+
+.ss-people-seat {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ss-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ss-display,
+.ss-sites {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ss-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ss-slot,
+.ss-site {
+  padding: 4px 4px 6px;
+}
+
+.ss-empty {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 112px;
+  font-size: 0.8rem;
+  color: var(--ss-muted);
+  border: 2px dashed var(--ss-rule);
+  border-radius: 8px;
+}
+
+.ss-site .ss-empty {
+  width: 72px;
+  height: 72px;
+}
+
+/* The clans */
+.ss-players {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ss-player {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  background: var(--ss-paper);
+  border: 1px solid var(--ss-rule);
+  border-left: 6px solid var(--ss-seat, var(--ss-rule));
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.ss-player:has(.ss-swatch) {
+  border-left-color: var(--ss-rule);
+}
+
+.ss-player-turn {
+  box-shadow: 0 0 0 2px var(--ss-amber);
+}
+
+.ss-swatch {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--ss-seat);
+}
+
+.ss-player-body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ss-player-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+.ss-player-facts {
+  font-size: 0.82rem;
+  color: var(--ss-muted);
+}
+
+.ss-first {
+  padding: 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff8ec;
+  background: var(--ss-dusk);
+  border-radius: 999px;
+}
+
+.ss-place {
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.ss-goods,
+.ss-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.ss-good {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-zero {
+  opacity: 0.45;
+}
+
+.ss-log {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  background: var(--ss-paper);
+  border: 1px solid var(--ss-rule);
+  border-radius: 10px;
+}
+
+.ss-log ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.ss-legacy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ss-hidden {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  max-width: 96px;
+  text-align: center;
+}
+
+.ss-final {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-final th,
+.ss-final td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--ss-rule);
+}
+
+.ss-final th[scope="row"],
+.ss-final thead th:first-child {
+  text-align: left;
+}
+
+/* Rules page */
+.ss-rules .ss-rules-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 8px 0;
+}
+
+@media (max-width: 1000px) {
+  .ss-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ss-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .ss-spots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ss-camp {
+    padding: 8px;
+  }
+}

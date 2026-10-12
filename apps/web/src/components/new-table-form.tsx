@@ -11,6 +11,8 @@ import {
 } from '@bored-games/luster';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type RfdRules, DEFAULT_RULES as ROOM_FOR_DOUBT_DEFAULT_RULES } from '@bored-games/room-for-doubt';
+import { DEFAULT_RULES as STICKS_DEFAULT_RULES, type SticksRules } from '@bored-games/sticks-and-stones';
+import { STICKS_THEME } from '@bored-games/sticks-and-stones/theme';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useApp } from '../context.ts';
 import { gameTitle } from '../game-names.ts';
@@ -34,6 +36,15 @@ export const DEFENSE_CHOICES: readonly { readonly value: HazardRules['defense'];
     { value: 'choose', label: 'Defenders choose their dice' },
     { value: 'auto', label: 'Defenders always roll the most dice' },
   ];
+
+/** Sticks & Stones' table option (D089): how a second card of a culture symbol scores. */
+export const DUPLICATES_CHOICES: readonly {
+  readonly value: SticksRules['duplicates'];
+  readonly label: string;
+}[] = [
+  { value: 'squared', label: STICKS_THEME.duplicates.squared },
+  { value: 'ones', label: STICKS_THEME.duplicates.ones },
+];
 
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
@@ -59,6 +70,7 @@ export function NewTableForm(props: { game: string }) {
   const [windfall, setWindfall] = useState<'available' | 'two'>('available');
   const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   const [defense, setDefense] = useState<HazardRules['defense']>(HAZARD_DEFAULT_RULES.defense);
+  const [duplicates, setDuplicates] = useState<SticksRules['duplicates']>(STICKS_DEFAULT_RULES.duplicates);
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
@@ -67,6 +79,7 @@ export function NewTableForm(props: { game: string }) {
     setKingdom([...INTRO]);
     setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
     setDefense(HAZARD_DEFAULT_RULES.defense);
+    setDuplicates(STICKS_DEFAULT_RULES.duplicates);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -120,6 +133,12 @@ export function NewTableForm(props: { game: string }) {
       }
       if (game === 'hazard') {
         const address = await lobby.createTable({ ...spec, rules: { defense } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'sticks-and-stones') {
+        const address = await lobby.createTable({ ...spec, rules: { duplicates } });
         const a = splitAddress(address);
         if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
         return;
@@ -355,6 +374,31 @@ export function NewTableForm(props: { game: string }) {
           <p class="hint">
             In the classic rules the defender picks one or two dice for every battle, which waits for the
             defender each time. The faster option has every defender roll as many dice as the troops allow.
+          </p>
+        </fieldset>
+      )}
+
+      {game === 'sticks-and-stones' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Second copies of a culture symbol</legend>
+          <div class="radio-row">
+            {DUPLICATES_CHOICES.map((choice) => (
+              <label key={choice.value} class="radio">
+                <input
+                  type="radio"
+                  name="duplicates"
+                  value={choice.value}
+                  checked={duplicates === choice.value}
+                  onChange={() => setDuplicates(choice.value)}
+                />
+                {choice.label}
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            Each clan scores its different culture symbols squared. A second copy of a symbol starts a second
+            set, scored the same way, as the publisher rules; the first printing scored one point per copy
+            instead.
           </p>
         </fieldset>
       )}

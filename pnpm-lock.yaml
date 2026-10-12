@@ -80,6 +80,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/sticks-and-stones':
+        specifier: workspace:*
+        version: link:../../packages/games/sticks-and-stones
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)

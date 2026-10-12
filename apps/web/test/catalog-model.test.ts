@@ -59,6 +59,7 @@ describe('catalog filters', () => {
       'holler',
       'quill-and-quarry',
       'gilt-and-guile',
+      'sticks-and-stones',
     ]);
     expect(ids({ players: 3 })).toEqual([
       'chain-reaction',
@@ -71,6 +72,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'gilt-and-guile',
       'hazard',
+      'sticks-and-stones',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -83,6 +85,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'gilt-and-guile',
       'hazard',
+      'sticks-and-stones',
     ]);
     expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler', 'room-for-doubt', 'hazard']);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
@@ -97,7 +100,7 @@ describe('catalog filters', () => {
     expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
     expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way', 'room-for-doubt']);
-    expect(ids({ genre: 'strategy' })).toEqual(['driftwrights', 'gilt-and-guile']);
+    expect(ids({ genre: 'strategy' })).toEqual(['driftwrights', 'gilt-and-guile', 'sticks-and-stones']);
     expect(ids({ genre: 'card' })).toEqual(['holler']);
     expect(ids({ genre: 'wargame' })).toEqual(['hazard']);
     expect(ids({ mode: 'competitive' })).toEqual([
@@ -112,6 +115,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'gilt-and-guile',
       'hazard',
+      'sticks-and-stones',
     ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
@@ -126,6 +130,7 @@ describe('catalog filters', () => {
       'room-for-doubt',
       'quill-and-quarry',
       'hazard',
+      'sticks-and-stones',
     ]);
     expect(ids({ length: 'over-120' })).toEqual(['hazard']);
     expect(ids({ complexity: 'medium' })).toEqual([
@@ -134,6 +139,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'gilt-and-guile',
       'hazard',
+      'sticks-and-stones',
     ]);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
     expect(ids({ complexity: 'light' })).toEqual([
