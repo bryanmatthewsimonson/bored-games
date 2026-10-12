@@ -48,6 +48,4 @@ export const roomForDoubt: GameModule<RfdState, RfdEvent, RfdRules> = {
   privateShow: showOf,
   rolls: (s) => s.rolls,
   beaconOf: beaconFor,
-  // An early deck secret would open the hands, the shown cards and the Verdict: Resign waits for its D052 review.
-  resignAllowed: () => false,
 };

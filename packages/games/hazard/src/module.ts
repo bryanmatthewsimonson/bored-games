@@ -64,5 +64,4 @@ export const hazard: GameModule<HazardState, HazardEvent, HazardRules> = {
   rollShape: rollShapeOf,
   installDeckOrder,
   shufflePlaintexts,
-  resignAllowed: () => false,
 };

@@ -77,7 +77,7 @@ The match continues while every score is under 500. The round that reaches 500 e
 
 ## Resignation
 
-Resign is not a module action. A table of two seats refuses Resign; that refusal belongs to the platform. At three or more seats the platform accepts it.
+Resign is not a module action. The platform offers it at every seat count (D090): at two seats it is an ordinary loss, at three or more it ends the game for everyone, unrated, as if the game ended now.
 
 ## Catalog
 
@@ -193,7 +193,7 @@ Resign is not a module action. A table of two seats refuses Resign; that refusal
 
 #### C56 Invariants: live zones are one deck, and a repeated index across epochs is re-encryption
 
-#### C57 The engine has no resign action. A two-seat refusal is the platform's
+#### C57 The engine has no resign action. Resign is the platform's, at every seat count
 
 #### C58 A forced draw that empties the pile resumes after the epoch from resume
 

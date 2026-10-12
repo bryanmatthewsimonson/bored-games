@@ -174,7 +174,8 @@ describe('Luster base rules', () => {
     expect(luster.view(next, null).players[0]?.bought[0]?.card).toBe(4);
     const pub = step(ready(), { type: 'reserve', actor: 0, deck: 'tier-1', pos: 0 });
     expect(luster.view(pub, null).players[0]?.reserved[0]?.card).toBe(0);
-    expect(luster.resignAllowed?.(s.rules, 3)).toBe(false);
+    // No module opts out of Resign (D090).
+    expect('resignAllowed' in luster).toBe(false);
   });
   it('C08 rejects malformed data and keeps all legal encodings deterministic', () => {
     const s = deepFreeze(ready());

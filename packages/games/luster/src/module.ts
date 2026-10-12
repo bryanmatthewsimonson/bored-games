@@ -58,7 +58,5 @@ export const luster: GameModule<LusterState, LusterEvent, LusterRules> = {
   outcome: (s) => s.result,
   standings: (s) => s.players.map(score),
   invariants: checkInvariants,
-  // Public refills during play require a separate Resign protocol review before opting in.
-  resignAllowed: () => false,
   coverage: (_s, events) => events.map((e) => `move:${e.action.type}`),
 };

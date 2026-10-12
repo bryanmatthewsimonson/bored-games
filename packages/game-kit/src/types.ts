@@ -281,13 +281,6 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
    * owned position is a bug, which is every game but the one that scores by revealing hands.
    */
   handsReveal?(state: S): boolean;
-  /**
-   * Whether a seat may resign a game with these rules and seats (PROTOCOL §4.9, D052). Absent means yes. A game
-   * whose hidden cards the resigner's published deck secret would expose to others (a co-op game, or one where
-   * a seat cannot see its own cards, such as Hanabi) returns false: the platform then rejects every Resign. The
-   * platform also refuses Resign in every 2-seat game with a deck, whatever this says.
-   */
-  resignAllowed?(rules: R, seats: number): boolean;
 }
 
 export type LogEntry =

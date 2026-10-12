@@ -11,14 +11,7 @@ import {
 } from '@bored-games/deck';
 import { canonicalJson, range } from '@bored-games/game-kit';
 import { faceOf, type HollerState, holler } from '@bored-games/holler';
-import {
-  finalizeEvent,
-  KIND,
-  moveTemplate,
-  type NostrEvent,
-  parseMove,
-  resignTemplate,
-} from '@bored-games/protocol';
+import { finalizeEvent, KIND, moveTemplate, type NostrEvent, parseMove } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
@@ -769,23 +762,36 @@ describe('holler session (D073)', { timeout: 180_000 }, () => {
     expect(live.spectator.view().pending.type).not.toBe('shuffle');
   });
 
-  it('refuses a resign at two seats', () => {
+  it('takes a resign at two seats while an epoch is pending: a rated loss once both secrets are in (D090)', () => {
+    const script = fx.scripts.mid;
+    if (script === null) throw new Error('missing epoch script');
     const live = table();
+    live.replay(script);
+    expect(live.spectator.view().pending.type).toBe('shuffle');
     const seat0 = live.players[0] as GameSession;
+    const seat1 = live.players[1] as GameSession;
+    expect(seat0.canResign()).toBe(true);
+    live.publish(seat0.buildResign(fx.game.rnd, live.t++));
+    for (const session of live.all()) expect(session.view()).toMatchObject({ phase: 'end', resigned: [0] });
+    // The epoch is no longer owed: only the other seat's secret is.
+    expect(seat1.duties().map((duty) => duty.kind)).toEqual(['secret']);
     expect(seat0.canResign()).toBe(false);
     expect(() => seat0.buildResign(fx.game.rnd, live.t)).toThrow(ClientError);
-    expect(() => seat0.buildResign(fx.game.rnd, live.t)).toThrow(/resigning is not allowed in this game/);
-    const id = fx.game.ids[0];
-    if (id === undefined) throw new Error('missing seat 0');
-    const ev = finalizeEvent(
-      resignTemplate({ rootId: fx.game.rootId, headId: seat0.view().head.id, secret: id.deckSecret }, live.t),
-      id.sessionSk,
-      fx.game.rnd,
-    );
-    expect(seat0.receive(ev, live.t)).toEqual({
-      status: 'rejected',
-      reason: 'resigning is not allowed in this game',
-    });
+    live.publish(seat1.buildSecret(fx.game.rnd, live.t++));
+    const want = canonicalJson(live.spectator.view().outcome);
+    for (const session of live.all()) {
+      const view = session.view();
+      expect(view).toMatchObject({
+        phase: 'done',
+        outcome: { places: [2, 1], reason: 'resign' },
+        audit: { fail: [0], reason: 'resign' },
+        forfeits: [0],
+      });
+      expect(canonicalJson(view.outcome)).toBe(want);
+      // A 2-seat resign is an ordinary, rated loss.
+      expect(view.outcome).not.toHaveProperty('unrated');
+      expect(view.outcome).not.toHaveProperty('endedBy');
+    }
   });
 
   it('ends a three-seat resign unrated once the secrets are in', () => {

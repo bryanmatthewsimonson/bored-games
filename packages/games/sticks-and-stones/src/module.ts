@@ -45,6 +45,4 @@ export const sticksAndStones: GameModule<SticksState, SticksEvent, SticksRules> 
   rolls: (s) => s.rolls,
   beaconOf: beaconFor,
   rollShape: rollShapeOf,
-  // Public reveals in play, a face-down card and the dice beacon: Resign waits for its D052 review.
-  resignAllowed: () => false,
 };
