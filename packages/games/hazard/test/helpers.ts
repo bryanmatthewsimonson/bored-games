@@ -127,3 +127,40 @@ export function attacking(
   const s = opened(seats, range(44), rules);
   return withMap(act(s, { type: 'muster', actor: 0, province: 'a1', count: s.pool }), map);
 }
+
+/**
+ * `s` with `seat` holding `cards` as charters. With the default order (card n at position n) each card sits at its
+ * own position, which leaves the pile; the deal is recorded as the engine would.
+ */
+export function withHand(s: HazardState, seat: number, cards: readonly number[]): HazardState {
+  const hands = s.hands.map((h, i) =>
+    i === seat ? [...h, ...cards.map((card) => ({ pos: card, card, holders: [seat] }))] : h,
+  );
+  return deepFreeze({
+    ...s,
+    hands,
+    pile: s.pile.filter((p) => !cards.includes(p)),
+    dealt: [...s.dealt, ...cards.map((pos) => ({ deck: 'pile', pos, to: seat }))],
+  });
+}
+
+/** Apply the pending reveals of a cashed set from the full state's plaintexts. */
+export function revealCash(s: HazardState): { state: HazardState; events: readonly HazardEvent[] } {
+  let t = s;
+  let events: readonly HazardEvent[] = [];
+  for (let n = 0; n < 3; n++) {
+    const p = pendingOf(t);
+    if (p.type !== 'reveal') break;
+    const pos = p.positions[0] as number;
+    const r = step(t, {
+      type: 'reveal',
+      actor: 'deck',
+      deck: 'pile',
+      pos,
+      card: t.plain?.[String(pos)] as number,
+    });
+    t = r.state;
+    events = r.events;
+  }
+  return { state: t, events };
+}

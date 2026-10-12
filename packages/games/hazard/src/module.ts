@@ -1,4 +1,5 @@
 import type { GameModule } from '@bored-games/game-kit';
+import { installDeckOrder, shufflePlaintexts } from './charters.ts';
 import {
   applyAction,
   beaconFor,
@@ -38,5 +39,7 @@ export const hazard: GameModule<HazardState, HazardEvent, HazardRules> = {
   rolls: (s) => s.rolls,
   beaconOf: beaconFor,
   rollShape: rollShapeOf,
+  installDeckOrder,
+  shufflePlaintexts,
   resignAllowed: () => false,
 };
