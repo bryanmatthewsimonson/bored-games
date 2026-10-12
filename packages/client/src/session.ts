@@ -77,11 +77,11 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
-import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
+import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } from './mixed-beacon.ts';
 import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
-import { ShareStore, sealedOwed, sealedPositions } from './shares.ts';
+import { ciphertextKey, ShareStore, sealedOwed, sealedPositions } from './shares.ts';
 import type {
   Duty,
   Identity,
@@ -962,12 +962,18 @@ export class GameSession {
     this.see(s.id, now);
     if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no sealed shares');
     for (const x of s.sealed) {
-      if (x.pos >= this.deckSize) return this.rejectEvent(s.id, `position ${x.pos} is outside the deck`);
+      if (!this.cardPosition(x.pos)) return this.rejectEvent(s.id, `position ${x.pos} is outside the deck`);
       if (x.to >= this.seats || x.to === seat)
         return this.rejectEvent(s.id, `seat ${x.to} cannot receive it`);
     }
     const deck = this.finalDeck();
-    if (deck !== null && s.sealed.some((x) => !this.sealedVerifies(s, seat, x.pos, x.to))) {
+    // A position of an epoch this client has not accepted yet is checked when it is read (`sealedShare`).
+    if (
+      deck !== null &&
+      s.sealed.some(
+        (x) => this.ciphertextAt(x.pos) !== undefined && !this.sealedVerifies(s, seat, x.pos, x.to),
+      )
+    ) {
       return this.rejectEvent(s.id, 'a sealed share does not verify');
     }
     const before = this.stallMark();
@@ -981,15 +987,17 @@ export class GameSession {
 
   /** Whether event `s` (signed by `from`) holds a verified sealed share of `pos` to `to` for the final deck. */
   private sealedVerifies(s: ParsedSealed, from: number, pos: number, to: number): boolean {
-    const deck = this.finalDeck();
+    const ct = this.ciphertextAt(pos);
     const x = s.sealed.find((y) => y.pos === pos && y.to === to);
-    if (deck === null || x === undefined) return false;
-    const key = `${s.id}|${pos}|${to}|${this.deckSteps().at(-1) ?? ''}`;
+    if (this.finalDeck() === null || ct === undefined || x === undefined) return false;
+    // Keyed by the ciphertext itself: an opening position's comes from the canonical shuffle, an epoch's from the
+    // accepted output, and either may change with fork choice.
+    const key = `${s.id}|${pos}|${to}|${ciphertextKey(ct)}`;
     let ok = this.sealedChecked.get(key);
     if (ok === undefined) {
       ok = verifySealedShare(
         this.keys[from] as Point,
-        deck[pos] as Ciphertext,
+        ct,
         this.keys[to] as Point,
         x.sealed,
         this.shareCtx(pos),
@@ -1032,10 +1040,14 @@ export class GameSession {
 
   private intakeShares(s: ParsedShares, seat: number): ReceiveResult {
     if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no shares');
+    let early = false;
     for (const { pos } of s.shares) {
-      if (!this.positionLive(pos)) return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
+      if (this.positionLive(pos)) continue;
+      // A slot of a reshuffle this client has not accepted yet: its Shares wait for it (D087).
+      if (this.earlyEpochPosition(pos)) early = true;
+      else return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
-    if (this.timedOut !== null || this.resignedBy?.cancels === true) {
+    if (early || this.timedOut !== null || this.resignedBy?.cancels === true) {
       // A timeout, or a resign that cancelled the game, stopped the fold.
       this.waitingShares.set(s.id, s);
       return { status: 'stored' };
@@ -1664,6 +1676,45 @@ export class GameSession {
   }
 
   /**
+   * Whether `pos` can hold a card: an opening position, or in a game that reshuffles in play, an epoch slot
+   * `stride·k + i` with `i` below the deck size (D087). Whether that epoch exists yet is checked when it is read.
+   */
+  private cardPosition(pos: number): boolean {
+    if (!Number.isSafeInteger(pos) || pos < 0) return false;
+    return pos < this.deckSize || this.epochOf(pos) !== null;
+  }
+
+  /** The reshuffle whose card slot `pos` is, in a game that reshuffles in play; else null (D073, D087). */
+  private epochOf(pos: number): number | null {
+    return this.usesEpochs() ? epochSlot(pos, this.deckSize, epochStride(this.deckSize)) : null;
+  }
+
+  /**
+   * Whether a share of `pos` may wait for its reshuffle (D087): a card slot of one of the next two epochs, which a
+   * Shares event can reach this client before the steps that complete it. Anything else not live is refused.
+   */
+  private earlyEpochPosition(pos: number): boolean {
+    const k = this.epochOf(pos);
+    const latest = this.latestEpoch();
+    return k !== null && k > latest && k <= latest + 2;
+  }
+
+  /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
+  private rollStride(): number | null {
+    return this.usesEpochs() && this.usesBeacon() ? epochStride(this.deckSize) : null;
+  }
+
+  /** The share position of roll `id` (D087). */
+  private rollPos(id: number): number {
+    return beaconPosition(this.deckSize, id, this.rollStride());
+  }
+
+  /** Whether a share at `pos` is a roll's rather than a card's (D087). */
+  private isRollPos(pos: number): boolean {
+    return isRollPosition(pos, this.deckSize, this.rollStride());
+  }
+
+  /**
    * A share of `pos` is for this deck: an opening position, one an accepted epoch owns, or one `dealt` already
    * lists. A position that exists only on a rival epoch output is not live.
    */
@@ -1745,7 +1796,7 @@ export class GameSession {
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
-    const cardShares = this.usesBeacon() ? c.shares.filter((x) => x.pos < this.deckSize) : c.shares;
+    const cardShares = this.usesBeacon() ? c.shares.filter((x) => !this.isRollPos(x.pos)) : c.shares;
     const bad =
       this.actionProofs(m.id, seat, cardShares, c.reveals) ??
       (this.usesBeacon() ? this.beaconShareOk(m.id, state, seat, c) : null);
@@ -1976,13 +2027,13 @@ export class GameSession {
     const cached = this.actionChecked.get(cacheId);
     if (cached !== undefined) return cached;
     const owed = this.module.beaconOf?.(state, c.action) ?? null;
-    const shares = c.shares.filter((x) => x.pos >= this.deckSize);
+    const shares = c.shares.filter((x) => this.isRollPos(x.pos));
     let result: string | null = null;
     if (owed === null) {
       if (shares.length > 0) result = 'this action carries no roll share';
     } else {
       const share = shares[0];
-      if (shares.length !== 1 || share === undefined || share.pos !== beaconPosition(this.deckSize, owed)) {
+      if (shares.length !== 1 || share === undefined || share.pos !== this.rollPos(owed)) {
         result = 'the roll share must be the one share for this roll';
       } else if (!verifyRollShare(this.keys[seat] as Point, this.rollDomain(owed), owed, share.share)) {
         result = 'the roll share does not verify';
@@ -2242,9 +2293,18 @@ export class GameSession {
     let progressed = false;
     if (this.finalDeck() !== null) {
       for (const s of byId(this.waitingShares.values())) {
+        // Still before a reshuffle it needs: it waits on, unless that reshuffle came and the slot is not in it (D087).
+        const dead = s.shares.filter(({ pos }) => !this.positionLive(pos));
+        if (dead.some(({ pos }) => !this.earlyEpochPosition(pos))) {
+          this.waitingShares.delete(s.id);
+          this.rejected.set(s.id, `position ${(dead[0] as { pos: number }).pos} is outside the deck`);
+          continue;
+        }
+        if (dead.length > 0) continue;
         this.waitingShares.delete(s.id);
         const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
         if (r === 'accepted') progressed = true;
+        else if (r === 'wait') this.waitingShares.set(s.id, s);
         else if (typeof r === 'object') {
           this.badShares.set(s.id, s);
           this.rejected.set(s.id, r.reject);
@@ -2643,7 +2703,7 @@ export class GameSession {
   private epochGrantedElsewhere(seat: number): boolean {
     for (const shares of this.badShares.values()) {
       if (this.seatOf.get(shares.pubkey) !== seat) continue;
-      if (shares.shares.some((share) => share.pos >= this.deckSize)) return true;
+      if (shares.shares.some((share) => this.epochOf(share.pos) !== null)) return true;
     }
     return false;
   }
@@ -2852,7 +2912,7 @@ export class GameSession {
     for (;;) {
       const p = this.module.pending(this.state);
       if (p.type !== 'beacon') return progressed;
-      const position = beaconPosition(this.deckSize, p.id);
+      const position = this.rollPos(p.id);
       if (!this.shares.covered(position)) return progressed;
       const slots = this.shares.slots(position);
       const shares = slots.filter((slot): slot is Share => slot !== null);
@@ -3511,13 +3571,12 @@ export class GameSession {
    */
   buildSealed(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('seal');
-    const deck = this.finalDeck() as Ciphertext[];
     const sealed = this.sealedDue(me.seat).map(({ pos, to }) => ({
       pos,
       to,
       sealed: sealShare(
         me.deckSecret,
-        deck[pos] as Ciphertext,
+        this.ciphertextAt(pos) as Ciphertext,
         this.keys[to] as Point,
         this.shareCtx(pos),
         rnd,
@@ -3641,11 +3700,14 @@ export class GameSession {
       reveals = shown.sort((a, b) => a - b).map((pos) => this.shareOf(me, pos, rnd, shareRandom));
     }
     const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
-    if (rollId !== null)
+    if (rollId !== null) {
       shares.push({
-        pos: beaconPosition(this.deckSize, rollId),
+        pos: this.rollPos(rollId),
         share: makeRollShare(me.deckSecret, this.rollDomain(rollId), rollId, rnd),
       });
+      // A roll slot may sit below a later epoch's cards (D087); the wire wants ascending positions.
+      shares.sort((a, b) => a.pos - b.pos);
+    }
     const t = moveTemplate(
       {
         rootId: this.root.id,

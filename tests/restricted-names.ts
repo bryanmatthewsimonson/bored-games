@@ -119,17 +119,28 @@ const ROOM_FOR_DOUBT_REFERENCE: readonly string[] = [
   'Dr. Orchid',
 ];
 
+/** Hazard's reference game (D088): its designers and its first, French title. Its publishers are listed above. */
+const HAZARD_REFERENCE: readonly string[] = [
+  'Lamorisse',
+  'Michael I. Levin',
+  'Michael Levin',
+  'Conquête du Monde',
+  'Conquete du Monde',
+];
+
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...HAZARD_REFERENCE.flatMap(nameForms),
   ...['Rio Grande Games', 'Donald X. Vaccarino'].flatMap(nameForms),
   ...ROOM_FOR_DOUBT_REFERENCE.flatMap(nameForms),
 ];
 
 /**
- * Words restricted only as a whole word in exactly this case (D074, spec §8): Room for Doubt's reference title is
- * an everyday English word, so lowercase `clue`, `clues` and `ClueAction` are not restricted.
+ * Words restricted only as a whole word in exactly this case (D074, spec §8): Room for Doubt's and Hazard's (D088)
+ * reference titles are everyday English words, so lowercase `clue`, `clues`, `ClueAction` and `risky` are not
+ * restricted.
  */
-export const RESTRICTED_EXACT_WORDS: readonly string[] = ['Clue', 'CLUE'];
+export const RESTRICTED_EXACT_WORDS: readonly string[] = ['Clue', 'CLUE', 'Risk', 'RISK'];
 
 /** Ordinary words that contain a restricted name (lower case). Keep this short: each entry is a hole. */
 export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
@@ -154,6 +165,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/driftwrights/src/compare.ts': 'Compare to Catan',
   'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
   'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
+  'packages/games/hazard/src/compare.ts': 'Compare to Risk',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

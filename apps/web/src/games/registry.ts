@@ -21,6 +21,9 @@ import { ChessRulesPage } from './chess/rules-page.tsx';
 import { DriftwrightsGame } from './driftwrights/game.tsx';
 import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
 import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
+import { HAZARD_SETUP_COPY, HazardGame } from './hazard/game.tsx';
+import { HAZARD_META } from './hazard/meta.ts';
+import { HazardRulesPage } from './hazard/rules-page.tsx';
 import { HollerGame } from './holler/game.tsx';
 import { HOLLER_META } from './holler/meta.ts';
 import { HollerRulesPage } from './holler/rules-page.tsx';
@@ -135,6 +138,12 @@ export const GAMES: readonly WebGame[] = [
       dealing: 'Preparing the first performance…',
       share: { act: 'deliver a card', owed: 'a card contribution' },
     }),
+  },
+  {
+    ...HAZARD_META,
+    Component: HazardGame,
+    RulesPage: HazardRulesPage,
+    setupCopy: () => HAZARD_SETUP_COPY,
   },
 ];
 

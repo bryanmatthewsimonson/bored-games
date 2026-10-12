@@ -25,6 +25,7 @@ describe('D052: every registered module with a deck pends public reveals only be
       'right-of-way',
       'driftwrights',
       'room-for-doubt',
+      'hazard',
       'quill-and-quarry',
       'gilt-and-guile',
     ]);
@@ -51,6 +52,14 @@ describe('D052: every registered module with a deck pends public reveals only be
         it('driftwrights: keeps Resign disabled for private supply transfers and mixed card/dice operations', () => {
           expect(module.privateSelection).toBeTypeOf('function');
           expect(module.rolls).toBeTypeOf('function');
+          expect(resignSeatCounts(module)).toEqual([]);
+        });
+        continue;
+      }
+      if (module.id === 'hazard') {
+        it('hazard: keeps Resign disabled for cashed sets, re-dealt charters and the dice beacon', () => {
+          expect(module.rolls).toBeTypeOf('function');
+          expect(module.installDeckOrder).toBeTypeOf('function');
           expect(resignSeatCounts(module)).toEqual([]);
         });
         continue;

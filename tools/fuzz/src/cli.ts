@@ -1,6 +1,6 @@
 /**
  * pnpm fuzz [--game chain-reaction] [--games 1000] [--seed fuzz] [--players 3-6]
- *           [--workers 4] [--no-views] [--max-steps 20000] [--json]
+ *           [--workers 4] [--no-views] [--max-steps <game's, else 20000>] [--json]
  * pnpm fuzz --one "<game seed>" --players <n>     (re-run one game, verbose)
  *
  * Runs seeded random-legal-move games and checks every invariant after every
@@ -93,7 +93,7 @@ async function main(): Promise<void> {
       players: { type: 'string' },
       workers: { type: 'string' },
       'no-views': { type: 'boolean', default: false },
-      'max-steps': { type: 'string', default: '20000' },
+      'max-steps': { type: 'string' },
       one: { type: 'string' },
       json: { type: 'boolean', default: false },
     },
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   }
   const seatCounts = values.players ? parsePlayers(values.players) : [...target.defaultSeatCounts];
   const checkViews = !values['no-views'];
-  const maxSteps = Number(values['max-steps']);
+  const maxSteps = Number(values['max-steps'] ?? target.maxSteps ?? 20_000);
 
   if (values.one) {
     const r = runOne({ game, checkViews, maxSteps }, values.one, seatCounts[0] as number);

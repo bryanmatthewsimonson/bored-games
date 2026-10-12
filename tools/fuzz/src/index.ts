@@ -5,6 +5,7 @@ import { driftwrights } from '@bored-games/driftwrights';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { packetOrder } from '@bored-games/game-kit';
 import { giltAndGuile } from '@bored-games/gilt-and-guile';
+import { hazard } from '@bored-games/hazard';
 import { holler } from '@bored-games/holler';
 import { luster } from '@bored-games/luster';
 import { quillAndQuarry } from '@bored-games/quill-and-quarry';
@@ -19,6 +20,7 @@ import {
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
 import { GILT_AND_GUILE_POLICIES } from './gilt-and-guile.ts';
+import { HAZARD_EXPECTED_COVERAGE, HAZARD_POLICIES, HAZARD_SIM_DEADLINE } from './hazard.ts';
 import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
 import { LUSTER_EXPECTED_COVERAGE, LUSTER_POLICIES, lusterDeckOrder } from './luster.ts';
 import { QUILL_POLICIES } from './quill-and-quarry.ts';
@@ -47,6 +49,8 @@ export interface FuzzTarget {
   readonly defaultSeatCounts: readonly number[];
   /** The move deadline `pnpm sim` gives this game's tables, in seconds; the sim's own default is one day. */
   readonly simDeadline?: number;
+  /** The fuzzer's step limit for one game when `--max-steps` is not given; the default is 20000. */
+  readonly maxSteps?: number;
 }
 
 export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
@@ -115,6 +119,15 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: ROOM_FOR_DOUBT_EXPECTED_COVERAGE,
     defaultSeatCounts: [3, 4, 5, 6],
     simDeadline: ROOM_FOR_DOUBT_SIM_DEADLINE,
+  },
+  hazard: {
+    module: hazard,
+    policies: HAZARD_POLICIES,
+    expectedCoverage: HAZARD_EXPECTED_COVERAGE,
+    defaultSeatCounts: [3, 4, 5, 6],
+    simDeadline: HAZARD_SIM_DEADLINE,
+    // Late sets pay hundreds of troops, and a battle of hundreds takes as many rolls: six-seat games run long.
+    maxSteps: 150_000,
   },
 };
 

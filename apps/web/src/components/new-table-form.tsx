@@ -2,6 +2,7 @@ import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@b
 import { BANK_THEME } from '@bored-games/bank/theme';
 import { CARDS, INTRO, KINGDOM, type Kind, PRESETS } from '@bored-games/gilt-and-guile';
 import { CARD_NAMES } from '@bored-games/gilt-and-guile/theme';
+import { DEFAULT_RULES as HAZARD_DEFAULT_RULES, type HazardRules } from '@bored-games/hazard';
 import {
   GEM_RULES,
   DEFAULT_RULES as LUSTER_DEFAULT_RULES,
@@ -27,6 +28,13 @@ export const SUBMIT_CHOICES: readonly { readonly value: RfdRules['submit']; read
   { value: 'required', label: 'Required' },
 ];
 
+/** Hazard's table option (D088): whether defenders choose their dice, as in the rulebook, or always roll the most. */
+export const DEFENSE_CHOICES: readonly { readonly value: HazardRules['defense']; readonly label: string }[] =
+  [
+    { value: 'choose', label: 'Defenders choose their dice' },
+    { value: 'auto', label: 'Defenders always roll the most dice' },
+  ];
+
 /**
  * The New table form on a game's page (D046): seats, deadline, invited players and the computed open seats, for
  * the page's game.
@@ -50,6 +58,7 @@ export function NewTableForm(props: { game: string }) {
   const [kingdom, setKingdom] = useState<Kind[]>([...INTRO]);
   const [windfall, setWindfall] = useState<'available' | 'two'>('available');
   const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
+  const [defense, setDefense] = useState<HazardRules['defense']>(HAZARD_DEFAULT_RULES.defense);
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
@@ -57,6 +66,7 @@ export function NewTableForm(props: { game: string }) {
     setWindfall('available');
     setKingdom([...INTRO]);
     setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
+    setDefense(HAZARD_DEFAULT_RULES.defense);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -104,6 +114,12 @@ export function NewTableForm(props: { game: string }) {
       }
       if (game === 'driftwrights') {
         const address = await lobby.createTable({ ...spec, rules: { layout: 'classic', windfall } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'hazard') {
+        const address = await lobby.createTable({ ...spec, rules: { defense } });
         const a = splitAddress(address);
         if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
         return;
@@ -316,6 +332,30 @@ export function NewTableForm(props: { game: string }) {
               {choice === 'available' ? 'Take whatever remains' : 'Require two available supplies'}
             </label>
           ))}
+        </fieldset>
+      )}
+
+      {game === 'hazard' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Defending dice</legend>
+          <div class="radio-row">
+            {DEFENSE_CHOICES.map((choice) => (
+              <label key={choice.value} class="radio">
+                <input
+                  type="radio"
+                  name="defense"
+                  value={choice.value}
+                  checked={defense === choice.value}
+                  onChange={() => setDefense(choice.value)}
+                />
+                {choice.label}
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            In the classic rules the defender picks one or two dice for every battle, which waits for the
+            defender each time. The faster option has every defender roll as many dice as the troops allow.
+          </p>
         </fieldset>
       )}
 

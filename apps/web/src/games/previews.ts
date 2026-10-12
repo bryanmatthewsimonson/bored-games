@@ -178,6 +178,26 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
       caption: 'Playing treasures to collect coins.',
     },
   ],
+  hazard: [
+    {
+      file: 'hazard-1.jpg',
+      width: 1280,
+      height: 725,
+      caption: 'The opening: each player claims an empty province in turn.',
+    },
+    {
+      file: 'hazard-2.jpg',
+      width: 1280,
+      height: 860,
+      caption: 'Under attack: choose one or two dice to defend Windtail.',
+    },
+    {
+      file: 'hazard-3.jpg',
+      width: 1280,
+      height: 860,
+      caption: 'Late in the game: five realms held, and a set now worth 115 troops.',
+    },
+  ],
 };
 
 /** The URL of a preview picture, relative to the page, so it works from any sub-path (base './'). */

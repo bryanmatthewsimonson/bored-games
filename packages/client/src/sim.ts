@@ -427,8 +427,13 @@ export function simulateGame(opts: SimOptions): SimReport {
   const build = (c: Client, duty: Duty): NostrEvent => {
     const s = c.session;
     switch (duty.kind) {
-      case 'shuffle':
-        return s.buildShuffle(c.rnd, clock);
+      case 'shuffle': {
+        // A play-phase shuffle is a reshuffle epoch (D073); the opening shuffle stays `buildShuffle`.
+        const v = s.view();
+        return v.phase === 'play' && v.pending.type === 'shuffle'
+          ? s.buildEpoch(c.rnd, clock)
+          : s.buildShuffle(c.rnd, clock);
+      }
       case 'deal':
         return s.buildDeal(c.rnd, clock);
       case 'share':

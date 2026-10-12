@@ -1,0 +1,507 @@
+/* Hazard (D088): an engraved sea chart. Parchment, ink and the six seat colours; the atlas scrolls inside its own
+   frame on a phone, so the page never scrolls sideways. */
+
+main:has(.hz-game) {
+  max-width: 1320px;
+}
+
+.hz-game,
+.hz-card,
+.hz-cover {
+  --hz-ink: #2b241b;
+  --hz-parchment: #f3e9d2;
+  --hz-paper: #fbf5e6;
+  --hz-rule: #c8b48a;
+  --hz-sea: #b9d0cd;
+  --hz-red: #a8322d;
+  --hz-muted: #6b5d48;
+  --hz-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+.hz-game {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  color: var(--hz-ink);
+}
+
+.hz-head {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hz-status {
+  margin: 0;
+  font-family: var(--hz-serif);
+  font-size: 1.2rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.hz-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.9rem;
+  color: var(--hz-muted);
+}
+
+.hz-you {
+  font-weight: 700;
+}
+
+.hz-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+.hz-main,
+.hz-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.hz-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--hz-paper);
+  border: 1px solid var(--hz-rule);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgb(43 36 27 / 8%);
+}
+
+.hz-panel h3 {
+  margin: 0;
+  font-family: var(--hz-serif);
+  font-size: 1.05rem;
+}
+
+.hz-alert {
+  border-color: var(--hz-red);
+  box-shadow: 0 0 0 2px rgb(168 50 45 / 18%);
+}
+
+.hz-note,
+.hz-hint {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--hz-muted);
+}
+
+.hz-hint {
+  font-style: italic;
+}
+
+.hz-error {
+  margin: 0;
+  color: var(--hz-red);
+  font-weight: 600;
+}
+
+.hz-out {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f6e2c2;
+  border: 1px solid #d4a65a;
+}
+
+.hz-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hz-btn.hz-primary {
+  background: var(--hz-ink);
+  color: var(--hz-parchment);
+  border-color: var(--hz-ink);
+}
+
+.hz-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hz-count-label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.hz-count-input {
+  width: 4.5em;
+  text-align: center;
+}
+
+.hz-step {
+  min-width: 2.4em;
+}
+
+/* The atlas */
+.hz-atlas-wrap {
+  min-width: 0;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid #4a3f2f;
+  background: var(--hz-sea);
+}
+
+.hz-atlas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.hz-lane {
+  fill: none;
+  stroke: #3d5a66;
+  stroke-width: 1.6;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.hz-lane-edge {
+  stroke-dasharray: 2 4;
+}
+
+.hz-coast-glow {
+  fill: none;
+  stroke: #f5ecd3;
+  stroke-width: 7;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+
+.hz-coast {
+  fill: none;
+  stroke: var(--hz-ink);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.hz-border {
+  fill: none;
+  stroke: rgb(43 36 27 / 55%);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.hz-realm {
+  font-family: var(--hz-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  fill: #3f3424;
+  paint-order: stroke;
+  stroke: rgb(232 223 196 / 85%);
+  stroke-width: 3px;
+}
+
+.hz-cartouche-title {
+  font-family: var(--hz-serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  fill: #3f3424;
+}
+
+.hz-cartouche-sub {
+  font-family: var(--hz-serif);
+  font-size: 9.5px;
+  font-style: italic;
+  fill: #5b4d38;
+}
+
+.hz-compass-n {
+  font-family: var(--hz-serif);
+  font-size: 11px;
+  font-weight: 700;
+  fill: #3b3226;
+}
+
+.hz-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+.hz-prov[aria-disabled="false"] {
+  cursor: pointer;
+}
+
+.hz-prov:focus {
+  outline: none;
+}
+
+.hz-outline {
+  fill: none;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.hz-prov-open .hz-outline {
+  stroke: #fffaf0;
+  stroke-width: 2.4;
+  stroke-dasharray: 4 3;
+}
+
+.hz-prov-target .hz-outline {
+  stroke: #ffd36b;
+  stroke-width: 3.2;
+}
+
+.hz-prov-selected .hz-outline {
+  stroke: #fff;
+  stroke-width: 3.6;
+}
+
+.hz-prov:focus-visible .hz-outline,
+.hz-prov:hover .hz-outline {
+  stroke: #fff;
+  stroke-width: 4;
+  stroke-dasharray: none;
+}
+
+.hz-battle {
+  stroke: #7a1f1f;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 6 3;
+}
+
+.hz-token {
+  pointer-events: none;
+}
+
+.hz-token-n {
+  font:
+    700 10px / 1 system-ui,
+    sans-serif;
+}
+
+/* Charters */
+.hz-hand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hz-card {
+  display: block;
+  width: 72px;
+  height: auto;
+}
+
+.hz-card-small {
+  width: 56px;
+}
+
+.hz-card-name {
+  font-family: var(--hz-serif);
+  font-size: 7.2px;
+  font-weight: 700;
+  fill: var(--hz-ink);
+}
+
+.hz-card-realm {
+  font-family: var(--hz-serif);
+  font-size: 5.6px;
+  fill: var(--hz-muted);
+  letter-spacing: 0.06em;
+}
+
+.hz-sets {
+  display: grid;
+  gap: 8px;
+}
+
+.hz-set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px dashed var(--hz-rule);
+  border-radius: 8px;
+}
+
+.hz-set-cards {
+  display: flex;
+  gap: 4px;
+}
+
+/* Players and the side column */
+.hz-players {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hz-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--hz-paper);
+  border: 1px solid var(--hz-rule);
+  border-radius: 10px;
+}
+
+.hz-player-turn {
+  border-color: var(--hz-ink);
+  box-shadow: inset 4px 0 0 var(--hz-ink);
+}
+
+.hz-player-out {
+  opacity: 0.6;
+}
+
+.hz-swatch {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fdf6e3;
+  box-shadow: 0 0 0 1px var(--hz-ink);
+  background: var(--hz-seat);
+}
+
+.hz-pat-stripe {
+  background:
+    repeating-linear-gradient(45deg, var(--hz-seat) 0 4px, rgb(255 255 255 / 30%) 4px 6px), var(--hz-seat);
+}
+
+.hz-pat-dot {
+  background:
+    radial-gradient(circle, rgb(255 255 255 / 40%) 1.5px, transparent 2px) 0 0 / 7px 7px,
+    var(--hz-seat);
+}
+
+.hz-pat-cross {
+  background:
+    repeating-linear-gradient(45deg, transparent 0 4px, rgb(255 255 255 / 30%) 4px 5px),
+    repeating-linear-gradient(-45deg, transparent 0 4px, rgb(255 255 255 / 30%) 4px 5px), var(--hz-seat);
+}
+
+.hz-pat-chevron {
+  background:
+    repeating-linear-gradient(135deg, var(--hz-seat) 0 4px, rgb(58 42 16 / 30%) 4px 5px), var(--hz-seat);
+}
+
+.hz-pat-ring {
+  background:
+    radial-gradient(circle, transparent 3px, rgb(255 255 255 / 40%) 3.5px, transparent 4.5px), var(--hz-seat);
+}
+
+.hz-player-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hz-player-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.hz-player-facts,
+.hz-player-realms {
+  font-size: 0.85rem;
+  color: var(--hz-muted);
+}
+
+.hz-place {
+  font-weight: 700;
+}
+
+.hz-facts {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 12px;
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.hz-facts dt {
+  color: var(--hz-muted);
+}
+
+.hz-facts dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
+
+.hz-dice {
+  gap: 6px;
+}
+
+.hz-dice-row {
+  display: flex;
+  gap: 6px;
+}
+
+.hz-die {
+  width: 32px;
+  height: 32px;
+}
+
+.hz-log ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.86rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.hz-log li {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgb(200 180 138 / 45%);
+}
+
+@media (max-width: 900px) {
+  .hz-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A phone scrolls the atlas inside its frame rather than shrinking it past reading. */
+  .hz-atlas {
+    min-width: 760px;
+  }
+}
+
+/* The rules page */
+.hz-rules-map {
+  margin: 12px 0;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid #4a3f2f;
+}
+
+.hz-rules-dice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
