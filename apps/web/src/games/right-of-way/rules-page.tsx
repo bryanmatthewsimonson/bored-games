@@ -181,6 +181,10 @@ export function RightOfWayRulesContent() {
           <li>
             Each turn has a deadline chosen with the table. Once it has passed, another player can claim it.
           </li>
+          <li>
+            Resign is always open: with two players you lose the game, with three or more the game ends for
+            everyone, unrated, and you come last.
+          </li>
           <li>At the end every player's app reveals their charters, and the whole deck is checked.</li>
         </ul>
       </Section>

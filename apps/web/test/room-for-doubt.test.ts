@@ -612,7 +612,7 @@ describe('the rules page', () => {
     expect(words).toContain('even when only one is possible');
     // A dismissed player's app is still needed.
     expect(words).toContain('After a wrong indictment you take no more turns, but keep the game open');
-    expect(words).toContain('Resign is not offered');
+    expect(words).toContain('Resign ends the game for everyone');
     expect(words).toContain('Enlarge board');
     expect(words).toContain('Docket');
   });

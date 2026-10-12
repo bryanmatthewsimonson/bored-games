@@ -89,8 +89,8 @@ export function DriftwrightsRulesPage({ section }: { section: string | null }) {
         Your supplies and ventures stay private; rivals see their counts and public prestige. Keep your game
         open to deliver card and dice contributions. Theft requires the victim to deliver its encrypted
         selection. Every guild checks the full history when the game ends, after releasing the deck keys. A
-        result is final when the audit passes. The deadline applies to outstanding duties; resignation is
-        unavailable for this game.
+        result is final when the audit passes. The deadline applies to outstanding duties. Resign ends the
+        game for everyone: it is unrated, the others are placed as if the game ended now, and you come last.
       </p>
     </article>
   );

@@ -206,8 +206,8 @@ export function HollerRulesContent() {
             {HOLLER_THEME.declaration} on the play that leaves you one card.
           </li>
           <li>
-            <strong>Resigning:</strong> at two players the table refuses Resign. At three or more, Resign ends
-            the game unrated and you come last.
+            <strong>Resigning:</strong> at two players you lose the game. At three or more, Resign ends the
+            game for everyone, unrated, and you come last.
           </li>
           <li>
             <strong>Timeouts:</strong> each turn has a deadline ({deadlineList}, chosen with the table). There

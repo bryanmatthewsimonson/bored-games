@@ -154,9 +154,10 @@ export function QuillRulesContent() {
           through the platform’s timeout controls.
         </p>
         <p>
-          Resigning early is disabled because revealing a deck key could expose tiles returned to the bag. The
-          final audit checks tile ownership and mechanical rules; it cannot audit the table’s external
-          dictionary decisions.
+          Resign is always open: with two players you lose the game, with three or more the game ends for
+          everyone, unrated, and you come last. Your app then reveals your deck key at once, which shows the
+          tiles you held. The final audit checks tile ownership and mechanical rules; it cannot audit the
+          table’s external dictionary decisions.
         </p>
       </section>
     </article>

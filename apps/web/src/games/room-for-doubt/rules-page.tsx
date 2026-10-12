@@ -421,9 +421,9 @@ export function RoomForDoubtRulesContent() {
             bigger inside its frame, which you can scroll, and Fit board puts it back.
           </li>
           <li>
-            <strong>Resign.</strong> Resign is not offered, at any number of players: giving up early would
-            hand out the key to the hands, the shown cards and {THEME.verdict}. A player who cannot go on is
-            timed out instead.
+            <strong>Resign.</strong> Resign ends the game for everyone: it is unrated, the others are placed
+            as if the game ended now, and you come last. Your app reveals your deck key with it, so the cards
+            you held and were shown become public, as they would at the end of the game.
           </li>
           <li>
             <strong>Deadlines.</strong> Each turn has a deadline chosen with the table. Once it has passed,
