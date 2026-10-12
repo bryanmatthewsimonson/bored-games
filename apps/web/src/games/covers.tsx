@@ -8,6 +8,7 @@ import { ChainReactionCover } from './chain-reaction/cover.tsx';
 import { ChessCover } from './chess/cover.tsx';
 import { DriftwrightsArt } from './driftwrights/art.tsx';
 import { StageArt } from './gilt-and-guile/art.tsx';
+import { HazardCover } from './hazard/cover.tsx';
 import { HollerCover } from './holler/cover.tsx';
 import { LusterCover } from './luster/cover.tsx';
 import { QuarryArt } from './quill-and-quarry/art.tsx';
@@ -26,4 +27,5 @@ export const GAME_COVERS: Readonly<Record<string, ComponentType<{ thumb?: boolea
   'quill-and-quarry': QuarryArt,
   driftwrights: DriftwrightsArt,
   'gilt-and-guile': () => <StageArt kind="grandstage" />,
+  hazard: HazardCover,
 };
