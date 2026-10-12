@@ -51,68 +51,46 @@ interface Zone {
   readonly rings: number | null;
 }
 
+/** The work places, in one row: the hunt, then the four grounds from wood to amber. */
+const WORK_Y = 80;
+const WORK_H = 212;
+/** The village, together in the second row. */
+const VILLAGE_Y = 338;
+const VILLAGE_H = 176;
+const ground = (spot: Spot, x: number, good: number, name: string): Zone => ({
+  spot,
+  x,
+  y: WORK_Y,
+  w: 200,
+  h: WORK_H,
+  gives: [`1 ${name} per ${good + 3} on the dice`, `${GROUND_ROOM} people in all`],
+  good,
+  per: good + 3,
+  rings: GROUND_ROOM,
+});
+
 const ZONES: readonly Zone[] = [
   {
     spot: 'hunt',
     x: 54,
-    y: 54,
-    w: 330,
-    h: 236,
+    y: WORK_Y,
+    w: 252,
+    h: WORK_H,
     gives: ['1 food per 2 on the dice', 'any number of people'],
     good: -1,
     per: 2,
     rings: null,
   },
-  {
-    spot: 'wood',
-    x: 394,
-    y: 54,
-    w: 248,
-    h: 236,
-    gives: ['1 wood per 3 on the dice', `${GROUND_ROOM} people in all`],
-    good: 0,
-    per: 3,
-    rings: GROUND_ROOM,
-  },
-  {
-    spot: 'brick',
-    x: 652,
-    y: 54,
-    w: 248,
-    h: 236,
-    gives: ['1 clay per 4 on the dice', `${GROUND_ROOM} people in all`],
-    good: 1,
-    per: 4,
-    rings: GROUND_ROOM,
-  },
-  {
-    spot: 'stone',
-    x: 910,
-    y: 54,
-    w: 236,
-    h: 236,
-    gives: ['1 stone per 5 on the dice', `${GROUND_ROOM} people in all`],
-    good: 2,
-    per: 5,
-    rings: GROUND_ROOM,
-  },
-  {
-    spot: 'gold',
-    x: 54,
-    y: 300,
-    w: 248,
-    h: 200,
-    gives: ['1 amber per 6 on the dice', `${GROUND_ROOM} people in all`],
-    good: 3,
-    per: 6,
-    rings: GROUND_ROOM,
-  },
+  ground('wood', 316, 0, 'wood'),
+  ground('brick', 524, 1, 'clay'),
+  ground('stone', 732, 2, 'stone'),
+  ground('gold', 940, 3, 'amber'),
   {
     spot: 'tools',
-    x: 312,
-    y: 300,
-    w: 206,
-    h: 200,
+    x: 70,
+    y: VILLAGE_Y,
+    w: 280,
+    h: VILLAGE_H,
     gives: ['+1 tool: a new tile,', 'or raise your lowest'],
     good: null,
     per: null,
@@ -120,10 +98,10 @@ const ZONES: readonly Zone[] = [
   },
   {
     spot: 'hut',
-    x: 528,
-    y: 300,
-    w: 206,
-    h: 200,
+    x: 362,
+    y: VILLAGE_Y,
+    w: 280,
+    h: VILLAGE_H,
     gives: ['+1 person (up to 10)', 'two of yours go in'],
     good: null,
     per: null,
@@ -131,10 +109,10 @@ const ZONES: readonly Zone[] = [
   },
   {
     spot: 'field',
-    x: 744,
-    y: 300,
-    w: 206,
-    h: 200,
+    x: 654,
+    y: VILLAGE_Y,
+    w: 280,
+    h: VILLAGE_H,
     gives: ['+1 harvest (up to 10):', '+1 food every feeding'],
     good: null,
     per: null,
@@ -252,14 +230,14 @@ function Location(props: {
   const rings: ComponentChildren[] = [];
   if (z.rings === null) {
     // The hunting grounds: any number, drawn as small figures in rows.
-    const per = 12;
+    const per = 10;
     people.forEach((seat, i) => {
       const row = Math.floor(i / per);
       const col = i % per;
       rings.push(
         <Place
           key={i}
-          x={z.x + 14 + col * 25}
+          x={z.x + 12 + col * 23}
           y={z.y + z.h - 46 + row * 24 - Math.floor(people.length / per) * 12}
           size={24}
         >
@@ -282,10 +260,11 @@ function Location(props: {
         </text>,
       );
   } else {
-    const gap = Math.min(30, (z.w - 30) / z.rings);
+    const gap = Math.min(30, (z.w - 20) / z.rings);
+    const r = gap < 27 ? Math.floor(gap / 2) - 1 : 13;
     const start = z.x + z.w / 2 - (gap * (z.rings - 1)) / 2;
     for (let i = 0; i < z.rings; i++)
-      rings.push(<Ring key={i} x={start + i * gap} y={ringY} seat={people[i] ?? null} />);
+      rings.push(<Ring key={i} x={start + i * gap} y={ringY} seat={people[i] ?? null} r={r} />);
   }
   return (
     <Area
@@ -360,7 +339,7 @@ function Location(props: {
         y={z.y + sceneH + 36}
         text-anchor="middle"
         font-family={SANS}
-        font-size="16"
+        font-size={z.w < 230 ? 14 : 16}
         font-weight="600"
         fill={INK}
       >
@@ -480,7 +459,7 @@ export function Board(props: BoardProps) {
   const row: ComponentChildren[] = [];
   const cardW = 96;
   const rowX = 54;
-  const rowY = 506;
+  const rowY = 528;
   for (const slot of [3, 2, 1, 0]) {
     const i = 3 - slot;
     const x = rowX + 18 + i * 132;
@@ -620,6 +599,41 @@ export function Board(props: BoardProps) {
         stroke-width="2"
       />
       <ScoreTrack s={s} />
+      {/* The two groups of places: the work places in a row, the village together below. */}
+      <rect
+        x="46"
+        y="48"
+        width="1102"
+        height="252"
+        rx="18"
+        fill="rgb(255 248 230 / 35%)"
+        stroke="#7a6446"
+        stroke-width="1.5"
+        stroke-dasharray="8 6"
+      />
+      <text x="62" y="70" font-family={SERIF} font-weight="700" font-size="19" fill={INK}>
+        Work places
+      </text>
+      <text x="214" y="70" font-family={SANS} font-size="14" fill="#4a3a28">
+        roll a die for each person there, add tools, divide
+      </text>
+      <rect
+        x="58"
+        y="306"
+        width="890"
+        height="216"
+        rx="18"
+        fill="rgb(255 248 230 / 35%)"
+        stroke="#7a6446"
+        stroke-width="1.5"
+        stroke-dasharray="8 6"
+      />
+      <text x="74" y="328" font-family={SERIF} font-weight="700" font-size="19" fill={INK}>
+        The village
+      </text>
+      <text x="214" y="328" font-family={SANS} font-size="14" fill="#4a3a28">
+        no dice: each place gives its gift
+      </text>
       {ZONES.map((z) => (
         <Location
           key={z.spot}
@@ -632,10 +646,10 @@ export function Board(props: BoardProps) {
       ))}
       {/* The village note and the round. */}
       <g>
-        <rect x="960" y="300" width="186" height="200" rx="16" fill="#5b3a24" stroke={INK} stroke-width="2" />
+        <rect x="960" y="306" width="186" height="216" rx="16" fill="#5b3a24" stroke={INK} stroke-width="2" />
         <text
           x="1053"
-          y="334"
+          y="354"
           text-anchor="middle"
           font-family={SERIF}
           font-weight="700"
@@ -644,7 +658,7 @@ export function Board(props: BoardProps) {
         >
           Round {s.round}
         </text>
-        <text x="1053" y="360" text-anchor="middle" font-family={SANS} font-size="14" fill="#f2e2c0">
+        <text x="1053" y="380" text-anchor="middle" font-family={SANS} font-size="14" fill="#f2e2c0">
           {s.stage === 'place'
             ? 'Send people out'
             : s.stage === 'feed'
@@ -653,20 +667,20 @@ export function Board(props: BoardProps) {
                 ? 'Game over'
                 : 'Bring people home'}
         </text>
-        <text x="1053" y="394" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
+        <text x="1053" y="414" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
           One place per turn;
         </text>
-        <text x="1053" y="412" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
+        <text x="1053" y="432" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
           never the same place twice
         </text>
-        <text x="1053" y="430" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
+        <text x="1053" y="450" text-anchor="middle" font-family={SANS} font-size="13" fill="#f2e2c0">
           in a round.
         </text>
         {village && (
           <>
             <text
               x="1053"
-              y="458"
+              y="478"
               text-anchor="middle"
               font-family={SANS}
               font-size="13"
@@ -677,7 +691,7 @@ export function Board(props: BoardProps) {
             </text>
             <text
               x="1053"
-              y="476"
+              y="496"
               text-anchor="middle"
               font-family={SANS}
               font-size="13"
@@ -688,7 +702,7 @@ export function Board(props: BoardProps) {
             </text>
             <text
               x="1053"
-              y="494"
+              y="514"
               text-anchor="middle"
               font-family={SANS}
               font-size="13"
