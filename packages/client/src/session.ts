@@ -962,12 +962,18 @@ export class GameSession {
     this.see(s.id, now);
     if (!this.hasDeck()) return this.rejectEvent(s.id, 'a deckless game has no sealed shares');
     for (const x of s.sealed) {
-      if (x.pos >= this.deckSize) return this.rejectEvent(s.id, `position ${x.pos} is outside the deck`);
+      if (!this.cardPosition(x.pos)) return this.rejectEvent(s.id, `position ${x.pos} is outside the deck`);
       if (x.to >= this.seats || x.to === seat)
         return this.rejectEvent(s.id, `seat ${x.to} cannot receive it`);
     }
     const deck = this.finalDeck();
-    if (deck !== null && s.sealed.some((x) => !this.sealedVerifies(s, seat, x.pos, x.to))) {
+    // A position of an epoch this client has not accepted yet is checked when it is read (`sealedShare`).
+    if (
+      deck !== null &&
+      s.sealed.some(
+        (x) => this.ciphertextAt(x.pos) !== undefined && !this.sealedVerifies(s, seat, x.pos, x.to),
+      )
+    ) {
       return this.rejectEvent(s.id, 'a sealed share does not verify');
     }
     const before = this.stallMark();
@@ -981,15 +987,17 @@ export class GameSession {
 
   /** Whether event `s` (signed by `from`) holds a verified sealed share of `pos` to `to` for the final deck. */
   private sealedVerifies(s: ParsedSealed, from: number, pos: number, to: number): boolean {
-    const deck = this.finalDeck();
+    const ct = this.ciphertextAt(pos);
     const x = s.sealed.find((y) => y.pos === pos && y.to === to);
-    if (deck === null || x === undefined) return false;
-    const key = `${s.id}|${pos}|${to}|${this.deckSteps().at(-1) ?? ''}`;
+    if (this.finalDeck() === null || ct === undefined || x === undefined) return false;
+    // Keyed by the ciphertext itself: an opening position's comes from the canonical shuffle, an epoch's from the
+    // accepted output, and either may change with fork choice.
+    const key = `${s.id}|${pos}|${to}|${ct.a.toHex(true)}${ct.b.toHex(true)}`;
     let ok = this.sealedChecked.get(key);
     if (ok === undefined) {
       ok = verifySealedShare(
         this.keys[from] as Point,
-        deck[pos] as Ciphertext,
+        ct,
         this.keys[to] as Point,
         x.sealed,
         this.shareCtx(pos),
@@ -1661,6 +1669,16 @@ export class GameSession {
   /** An accepted epoch output owns `epochStride(deckSize) * k + i`, from the deck size on. */
   private epochOwns(pos: number): boolean {
     return pos >= this.deckSize && this.ciphertextAt(pos) !== undefined;
+  }
+
+  /**
+   * Whether `pos` can hold a card: an opening position, or in a game that reshuffles in play, an epoch slot
+   * `stride·k + i` with `i` below the deck size (D087). Whether that epoch exists yet is checked when it is read.
+   */
+  private cardPosition(pos: number): boolean {
+    if (!Number.isSafeInteger(pos) || pos < 0) return false;
+    if (pos < this.deckSize) return true;
+    return this.usesEpochs() && pos % epochStride(this.deckSize) < this.deckSize;
   }
 
   /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
@@ -3527,13 +3545,12 @@ export class GameSession {
    */
   buildSealed(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireDuty('seal');
-    const deck = this.finalDeck() as Ciphertext[];
     const sealed = this.sealedDue(me.seat).map(({ pos, to }) => ({
       pos,
       to,
       sealed: sealShare(
         me.deckSecret,
-        deck[pos] as Ciphertext,
+        this.ciphertextAt(pos) as Ciphertext,
         this.keys[to] as Point,
         this.shareCtx(pos),
         rnd,

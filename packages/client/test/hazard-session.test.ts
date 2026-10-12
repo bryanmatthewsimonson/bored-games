@@ -49,10 +49,50 @@ function farm(s: HazardState, seat: number, legal: readonly HazardAction[]): Haz
   return pick;
 }
 
+type Chooser = (s: HazardState, seat: number, legal: readonly HazardAction[]) => HazardAction;
+
+/** No decisions: only the automatic duties (shares, seals, rolls) go out. */
+const settle: Chooser = () => {
+  throw new Error('settling makes no decision');
+};
+
+/** A seat that keeps its charters (it cashes only when it must) and never attacks. */
+function hoard(_s: HazardState, _seat: number, legal: readonly HazardAction[]): HazardAction {
+  const musters = ofType(legal, 'muster');
+  const pick =
+    ofType(legal, 'cash')[0] ??
+    musters.find((a) => a.count === Math.max(...musters.map((m) => m.count))) ??
+    ofType(legal, 'defend').at(-1) ??
+    legal.find((a) => a.type === 'endAttack' || a.type === 'endTurn') ??
+    legal[0];
+  if (pick === undefined) throw new Error('no move');
+  return pick;
+}
+
+/** A seat that hunts `prey`: everything goes at its provinces, from the biggest stack. */
+const hunt =
+  (prey: number): Chooser =>
+  (s, seat, legal) => {
+    const troops = (p: ProvinceId) => s.troops[PROVINCES.indexOf(p)] ?? 0;
+    const near = (p: ProvinceId) => neighbors(p).some((n) => s.owner[PROVINCES.indexOf(n)] === prey);
+    const pick =
+      ofType(legal, 'cash')[0] ??
+      ofType(legal, 'muster')
+        .filter((a) => near(a.province))
+        .sort((x, y) => y.count - x.count || troops(y.province) - troops(x.province))[0] ??
+      ofType(legal, 'attack')
+        .filter(
+          (a) => s.owner[PROVINCES.indexOf(a.to)] === prey && a.dice === Math.min(3, troops(a.from) - 1),
+        )
+        .sort((x, y) => troops(y.from) - troops(x.from))[0];
+    return pick ?? farm(s, seat, legal);
+  };
+
 function build(
   s: GameSession,
   game: ReturnType<typeof makeModuleGame>,
   all: GameSession[],
+  choose: Chooser = farm,
 ): NostrEvent | null {
   const duty = s.duties()[0];
   if (!duty) return null;
@@ -71,9 +111,10 @@ function build(
     case 'beacon':
       return s.buildBeacon(game.rnd, NOW);
     case 'decide': {
+      if (choose === settle) return null;
       const v = s.view();
       return s.buildAction(
-        farm(v.state as HazardState, v.mySeat as number, s.legalActions() as HazardAction[]),
+        choose(v.state as HazardState, v.mySeat as number, s.legalActions() as HazardAction[]),
         game.rnd,
         NOW,
       );
@@ -147,4 +188,50 @@ it('plays past a reshuffle with roll ids beyond the first epoch slot, every clie
       for (const x of hand)
         expect(x.card !== null, `seat ${seat} sees ${holder}'s ${x.pos}`).toBe(x.holders.includes(seat));
   }
+});
+
+it('re-deals a charter drawn after a reshuffle to the seat that wipes out its holder', {
+  timeout: 900_000,
+}, () => {
+  const game = makeModuleGame(hazard, 3, 'hazard-sealed-epoch', { defense: 'auto' });
+  game.modules = new Map([[hazard.id, hazard]]);
+  const players = [0, 1, 2].map((seat) => newSession(game, seat));
+  const spectator = newSession(game, null);
+  const all = [...players, spectator];
+  const rejected: string[] = [];
+  let hunting = false;
+  let settling = false;
+  let state: HazardState | null = null;
+  for (let step = 0; step < 40_000; step++) {
+    let progressed = false;
+    for (const [seat, s] of players.entries()) {
+      const choose = settling ? settle : !hunting ? farm : seat === 1 ? hoard : hunt(1);
+      const ev = build(s, game, all, choose);
+      if (ev === null) continue;
+      for (const r of deliver(all, [ev], undefined, NOW)[0] ?? [])
+        if (r.status === 'rejected') rejected.push(r.reason);
+      progressed = true;
+    }
+    state = spectator.view().state as HazardState | null;
+    if (state === null) continue;
+    // Hunt once seat 1 holds a charter dealt after a reshuffle.
+    if (!hunting && state.hands[1]?.some((x) => x.pos >= EPOCH_STRIDE)) hunting = true;
+    // Once seat 1 is out, let its sealed shares and the other duties go out, with no more decisions.
+    if (state.out.includes(1) || state.stage === 'over') settling = true;
+    if (!progressed) break;
+  }
+  expect(rejected).toEqual([]);
+  const s = state as HazardState;
+  expect(s.out).toContain(1);
+  // The charters seat 1 held went to its conqueror, and at least one was dealt after a reshuffle.
+  const taken = s.hands.flatMap((h, holder) =>
+    h.filter((x) => x.holders.includes(1)).map((x) => ({ ...x, holder })),
+  );
+  expect(taken.some((x) => x.pos >= EPOCH_STRIDE)).toBe(true);
+  for (const x of taken) {
+    const conqueror = players[x.holder] as GameSession;
+    const seen = (conqueror.view().state as HazardState).hands[x.holder]?.find((y) => y.pos === x.pos);
+    expect(seen?.card, `charter ${x.pos}`).not.toBeNull();
+  }
+  for (const p of players) expect(p.view().head).toEqual(spectator.view().head);
 });
