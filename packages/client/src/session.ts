@@ -77,7 +77,7 @@ import {
 } from '@bored-games/protocol';
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
-import { beaconDomain, beaconPosition, rollOrigin } from './mixed-beacon.ts';
+import { beaconDomain, beaconPosition, isRollPosition, rollOrigin } from './mixed-beacon.ts';
 import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
@@ -1663,6 +1663,21 @@ export class GameSession {
     return pos >= this.deckSize && this.ciphertextAt(pos) !== undefined;
   }
 
+  /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
+  private rollStride(): number | null {
+    return this.usesEpochs() && this.usesBeacon() ? epochStride(this.deckSize) : null;
+  }
+
+  /** The share position of roll `id` (D087). */
+  private rollPos(id: number): number {
+    return beaconPosition(this.deckSize, id, this.rollStride());
+  }
+
+  /** Whether a share at `pos` is a roll's rather than a card's (D087). */
+  private isRollPos(pos: number): boolean {
+    return isRollPosition(pos, this.deckSize, this.rollStride());
+  }
+
   /**
    * A share of `pos` is for this deck: an opening position, one an accepted epoch owns, or one `dealt` already
    * lists. A position that exists only on a rival epoch output is not live.
@@ -1745,7 +1760,7 @@ export class GameSession {
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
-    const cardShares = this.usesBeacon() ? c.shares.filter((x) => x.pos < this.deckSize) : c.shares;
+    const cardShares = this.usesBeacon() ? c.shares.filter((x) => !this.isRollPos(x.pos)) : c.shares;
     const bad =
       this.actionProofs(m.id, seat, cardShares, c.reveals) ??
       (this.usesBeacon() ? this.beaconShareOk(m.id, state, seat, c) : null);
@@ -1976,13 +1991,13 @@ export class GameSession {
     const cached = this.actionChecked.get(cacheId);
     if (cached !== undefined) return cached;
     const owed = this.module.beaconOf?.(state, c.action) ?? null;
-    const shares = c.shares.filter((x) => x.pos >= this.deckSize);
+    const shares = c.shares.filter((x) => this.isRollPos(x.pos));
     let result: string | null = null;
     if (owed === null) {
       if (shares.length > 0) result = 'this action carries no roll share';
     } else {
       const share = shares[0];
-      if (shares.length !== 1 || share === undefined || share.pos !== beaconPosition(this.deckSize, owed)) {
+      if (shares.length !== 1 || share === undefined || share.pos !== this.rollPos(owed)) {
         result = 'the roll share must be the one share for this roll';
       } else if (!verifyRollShare(this.keys[seat] as Point, this.rollDomain(owed), owed, share.share)) {
         result = 'the roll share does not verify';
@@ -2643,7 +2658,8 @@ export class GameSession {
   private epochGrantedElsewhere(seat: number): boolean {
     for (const shares of this.badShares.values()) {
       if (this.seatOf.get(shares.pubkey) !== seat) continue;
-      if (shares.shares.some((share) => share.pos >= this.deckSize)) return true;
+      if (shares.shares.some((share) => share.pos >= this.deckSize && !this.isRollPos(share.pos)))
+        return true;
     }
     return false;
   }
@@ -2852,7 +2868,7 @@ export class GameSession {
     for (;;) {
       const p = this.module.pending(this.state);
       if (p.type !== 'beacon') return progressed;
-      const position = beaconPosition(this.deckSize, p.id);
+      const position = this.rollPos(p.id);
       if (!this.shares.covered(position)) return progressed;
       const slots = this.shares.slots(position);
       const shares = slots.filter((slot): slot is Share => slot !== null);
@@ -3641,11 +3657,14 @@ export class GameSession {
       reveals = shown.sort((a, b) => a - b).map((pos) => this.shareOf(me, pos, rnd, shareRandom));
     }
     const rollId = this.module.beaconOf?.(this.state, legal) ?? null;
-    if (rollId !== null)
+    if (rollId !== null) {
       shares.push({
-        pos: beaconPosition(this.deckSize, rollId),
+        pos: this.rollPos(rollId),
         share: makeRollShare(me.deckSecret, this.rollDomain(rollId), rollId, rnd),
       });
+      // A roll slot may sit below a later epoch's cards (D087); the wire wants ascending positions.
+      shares.sort((a, b) => a.pos - b.pos);
+    }
     const t = moveTemplate(
       {
         rootId: this.root.id,

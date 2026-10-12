@@ -1,6 +1,6 @@
 import { G, initialDeck, makeRollShare, makeShare, reEncrypt, verifyRollShare } from '@bored-games/deck';
 import { describe, expect, it } from 'vitest';
-import { beaconDomain, beaconPosition, rollOrigin } from '../src/mixed-beacon.ts';
+import { beaconDomain, beaconPosition, isRollPosition, rollOrigin } from '../src/mixed-beacon.ts';
 import { ShareStore } from '../src/shares.ts';
 
 const root = 'ab'.repeat(32),
@@ -45,5 +45,27 @@ describe('mixed card and dice proof isolation', () => {
     expect(rollOrigin(0, [{ id: request, before, after }], read)).toBe(request);
     expect(rollOrigin(0, [{ id: 'ef'.repeat(32), before, after }], read)).toBe('ef'.repeat(32));
     expect(rollOrigin(1, [{ id: request, before, after }], read)).toBe(null);
+  });
+});
+
+describe('roll positions beside play-phase reshuffles (D087)', () => {
+  it('fill only the slots no epoch card can take, and match the old positions while they fit', () => {
+    // A 44-card deck reshuffles into 128·k + i with i < 44: rolls take 44–127, then 172–255, and so on.
+    expect(beaconPosition(44, 0, 128)).toBe(44);
+    expect(beaconPosition(44, 83, 128)).toBe(127);
+    expect(beaconPosition(44, 84, 128)).toBe(172);
+    expect(beaconPosition(44, 84 + 83, 128)).toBe(255);
+    expect(beaconPosition(44, 168, 128)).toBe(300);
+    for (let id = 0; id < 84; id++) expect(beaconPosition(44, id, 128)).toBe(beaconPosition(44, id));
+    expect(isRollPosition(127, 44, 128)).toBe(true);
+    expect(isRollPosition(128, 44, 128)).toBe(false);
+    expect(isRollPosition(171, 44, 128)).toBe(false);
+    expect(isRollPosition(172, 44, 128)).toBe(true);
+    expect(isRollPosition(43, 44, 128)).toBe(false);
+    // Without reshuffles nothing changes: every position from the deck size on is a roll's.
+    expect(beaconPosition(25, 7)).toBe(32);
+    expect(isRollPosition(25, 25, null)).toBe(true);
+    expect(isRollPosition(24, 25, null)).toBe(false);
+    expect(() => beaconPosition(128, 0, 128)).toThrow();
   });
 });
