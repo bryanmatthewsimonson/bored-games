@@ -56,7 +56,7 @@ describe('elimination, victory and the end of a turn', () => {
     expect(placed.midTurn).toBe(false);
   });
 
-  it('C25 the conqueror whose captured charters are not yet learned is offered nothing', () => {
+  it('a conqueror whose captured charters are not yet learned is offered nothing', () => {
     const t = takeA2(withHand(withHand(lastStand(), 0, [0, 3, 6, 1]), 1, [9, 12, 15])).state;
     expect(legalActions(unlearned(t, 0), 0)).toEqual([]);
   });
@@ -68,7 +68,7 @@ describe('elimination, victory and the end of a turn', () => {
     expect(legalActions(t, 0).some((a) => a.type === 'cash')).toBe(false);
   });
 
-  it('C26 a seat with no charters is wiped out without any re-deal', () => {
+  it('a seat with no charters is wiped out without any re-deal', () => {
     const s = lastStand();
     const t = takeA2(s).state;
     expect(t.out).toEqual([1]);

@@ -194,10 +194,6 @@ function moveIn(s: HazardState, adv: Advance, count: number): Applied {
  */
 function afterCapture(s: HazardState, beaten: number | null): Applied {
   const seat = s.turn;
-  if (s.owner.every((o) => o === seat)) {
-    const out = beaten === null || s.out.includes(beaten) ? s.out : [...s.out, beaten];
-    return finish({ ...s, out }, seat);
-  }
   if (beaten === null || s.owner.includes(beaten)) return { state: s, events: [] };
   const taken = s.hands[beaten] ?? [];
   const gained = taken.map((x) => ({ ...x, holders: [...x.holders, seat] }));
@@ -210,6 +206,10 @@ function afterCapture(s: HazardState, beaten: number | null): Applied {
     dealt: [...s.dealt, ...taken.map((x) => ({ deck: 'pile', pos: x.pos, to: seat }))],
   };
   const events: HazardEvent[] = [{ type: 'eliminated', seat: beaten, by: seat, charters: taken.length }];
+  if (next.owner.every((o) => o === seat)) {
+    const won = finish(next, seat);
+    return { state: won.state, events: [...events, ...won.events] };
+  }
   if ((hands[seat]?.length ?? 0) >= 6)
     return { state: { ...next, stage: 'muster', midTurn: true, pool: 0 }, events };
   return { state: next, events };

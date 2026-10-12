@@ -6,12 +6,15 @@ import {
   DEFAULT_RULES,
   legalActions,
   PILE,
+  parseAction,
   pendingOf,
   rollShapeOf,
   setupGame,
   validateRules,
 } from './engine.ts';
+import { checkInvariants, coverageOf } from './invariants.ts';
 import type { HazardEvent, HazardRules, HazardState } from './types.ts';
+import { knownTo, learnCard, viewOf } from './view.ts';
 
 export const HAZARD_ID = 'hazard';
 export const HAZARD_VERSION = '0.1.0';
@@ -28,14 +31,22 @@ export const hazard: GameModule<HazardState, HazardEvent, HazardRules> = {
   pending: pendingOf,
   legalActions,
   apply: applyAction,
-  learn: (state) => ({ ok: true, state, events: [] }),
-  knownTo: () => [],
-  view: (s) => s,
+  validateIntent: (s, seat, raw) => {
+    const a = parseAction(raw);
+    if (a === null || a.actor !== seat)
+      return { ok: false, error: { code: 'actor', message: 'Use your own seat.' } };
+    const r = applyAction(s, a);
+    return r.ok ? { ok: true, value: a } : r;
+  },
+  learn: learnCard,
+  knownTo,
+  view: viewOf,
   outcome: (s) => s.result,
   standings: (s) => Array.from({ length: s.seats }, (_, seat) => s.owner.filter((o) => o === seat).length),
   dealt: (s) => s.dealt,
   revealsOf: () => [],
-  invariants: () => [],
+  invariants: checkInvariants,
+  coverage: coverageOf,
   rolls: (s) => s.rolls,
   beaconOf: beaconFor,
   rollShape: rollShapeOf,

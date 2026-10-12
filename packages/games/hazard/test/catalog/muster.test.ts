@@ -87,7 +87,7 @@ describe('the muster', () => {
     expect(done.stage).toBe('attack');
   });
 
-  it('C09 placed one troop at a time, the pool stays exact and the attack opens on the last one only', () => {
+  it('placed one troop at a time, the pool stays exact and the attack opens on the last one only', () => {
     let t = opened(3);
     const before = t.troops.reduce((a, b) => a + b, 0);
     for (let n = 4; n > 0; n--) {
