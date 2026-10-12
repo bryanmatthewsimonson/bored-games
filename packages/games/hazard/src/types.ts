@@ -94,6 +94,8 @@ export interface HazardState {
   /** The faces of the last battle, attacker's then defender's, each sorted high to low. Display only. */
   readonly dice: { readonly attack: readonly number[]; readonly defend: readonly number[] } | null;
   readonly advance: Advance | null;
+  /** The seat whose province was just captured, until the move in (then checked for elimination). */
+  readonly beaten: number | null;
   readonly hands: readonly (readonly Slot[])[];
   /** Positions still to be drawn, in draw order. */
   readonly pile: readonly number[];

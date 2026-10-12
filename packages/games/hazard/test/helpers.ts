@@ -164,3 +164,25 @@ export function revealCash(s: HazardState): { state: HazardState; events: readon
   }
   return { state: t, events };
 }
+
+/**
+ * Seat 0 attacking, seat 1 down to its last province a2 (one troop), seat 0 on a1 with six troops: every other
+ * province of seat 1 goes to seat 2. With `alone`, seat 2 is already out and seat 0 holds the rest of the map.
+ */
+export function lastStand(alone = false): HazardState {
+  const s = attacking({ a1: [0, 6], a2: [1, 1] });
+  const owner = s.owner.map((o, i) => {
+    if (i === 1) return 1;
+    if (alone) return 0;
+    return o === 1 ? 2 : o;
+  });
+  return deepFreeze({ ...s, owner, out: alone ? [2] : [] });
+}
+
+/** Seat 0 takes a2 from lastStand-like `s` with three dice, moving in three. */
+export function takeA2(s: HazardState): { state: HazardState; events: readonly HazardEvent[] } {
+  const r = rollStep(act(s, { type: 'attack', actor: 0, from: 'a1', to: 'a2', dice: 3 }), [6, 6, 6, 1]);
+  if (r.state.stage !== 'advance') return r;
+  const m = step(r.state, { type: 'advance', actor: 0, count: 3 });
+  return { state: m.state, events: [...r.events, ...m.events] };
+}

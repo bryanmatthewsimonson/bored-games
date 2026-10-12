@@ -8,12 +8,15 @@ import type { ApplyResult, DeckSpec, Pending, Result, SetupInput } from '@bored-
 import { applyBattle, battleLegal } from './battle.ts';
 import { CARD_COUNT } from './cards.ts';
 import { applyCharters, chartersLegal } from './charters.ts';
-import { isProvince, PROVINCES, REALMS } from './map.ts';
+import { isProvince, PROVINCES } from './map.ts';
 import type { HazardAction, HazardEvent, HazardRules, HazardState } from './types.ts';
 import { type Applied, at, failure, heldBy, int, keys, obj, plainArray, withArray } from './util.ts';
 
+export { reinforcements, startTurn } from './turn.ts';
 export type { Applied } from './util.ts';
 export { alive, at, heldBy, nextAlive, withArray } from './util.ts';
+
+import { startTurn } from './turn.ts';
 
 export const DEFAULT_RULES: HazardRules = { defense: 'choose' };
 
@@ -83,6 +86,7 @@ export function setupGame(input: SetupInput<HazardRules>): Result<HazardState> {
         battle: null,
         dice: null,
         advance: null,
+        beaten: null,
         hands: Array.from({ length: seats }, () => []),
         pile: Array.from({ length: CARD_COUNT }, (_, i) => i),
         discard: [],
@@ -275,32 +279,6 @@ export function openRoll(s: HazardState, seat: number, stage: 'orderRoll' | 'rol
 }
 
 /* ---------------------------------------------------------------------------------------- the opening */
-
-/** Troops `seat` musters at the start of its turn: a third of its provinces (at least 3) and its whole realms. */
-export function reinforcements(s: HazardState, seat: number): number {
-  const held = s.owner.filter((o) => o === seat).length;
-  const realms = REALMS.filter((r) => r.provinces.every((p) => s.owner[at(p)] === seat));
-  return Math.max(3, Math.floor(held / 3)) + realms.reduce((n, r) => n + r.bonus, 0);
-}
-
-/** Start `seat`'s turn: count its troops and open the muster. */
-export function startTurn(s: HazardState, seat: number): Applied {
-  const pool = reinforcements(s, seat);
-  return {
-    state: {
-      ...s,
-      stage: 'muster',
-      turn: seat,
-      pool,
-      midTurn: false,
-      bonusUsed: false,
-      captured: false,
-      battle: null,
-      advance: null,
-    },
-    events: [{ type: 'turn', seat, troops: pool }],
-  };
-}
 
 function applyOrderRolled(s: HazardState, dice: readonly number[]): Applied | string {
   if (dice.length !== s.tied.length) return 'The roll has the wrong number of dice.';

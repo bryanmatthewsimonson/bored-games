@@ -4,6 +4,7 @@
  * attacker's first, then the defender's.
  */
 import { adjacent, neighbors, type ProvinceId } from './map.ts';
+import { finish, nextTurn } from './turn.ts';
 import type { Advance, HazardAction, HazardEvent, HazardState } from './types.ts';
 import { type Applied, at, heldBy, withArray } from './util.ts';
 
@@ -43,6 +44,20 @@ export function battleLegal(s: HazardState, seat: number): HazardAction[] {
       return s.advance === null
         ? []
         : range(s.advance.min, s.advance.max).map((count) => ({ type: 'advance', actor: seat, count }));
+    case 'march': {
+      const out: HazardAction[] = [];
+      for (const from of heldBy(s, seat)) {
+        const most = troopsAt(s, from) - 1;
+        if (most < 1) continue;
+        for (const to of neighbors(from)) {
+          if (ownerAt(s, to) !== seat) continue;
+          for (const count of [...new Set([1, most])])
+            out.push({ type: 'march', actor: seat, from, to, count });
+        }
+      }
+      out.push({ type: 'endTurn', actor: seat });
+      return out;
+    }
     default:
       return [];
   }
@@ -90,6 +105,25 @@ export function applyBattle(s: HazardState, a: HazardAction, openRoll: OpenRoll)
       if (a.count < adv.min || a.count > adv.max) return `Move ${adv.min} to ${adv.max} troops.`;
       return moveIn(s, adv, a.count);
     }
+    case 'march': {
+      if (s.stage !== 'march' || s.turn !== a.actor) return 'It is not your turn to march.';
+      if (ownerAt(s, a.from) !== a.actor || ownerAt(s, a.to) !== a.actor)
+        return 'March between your own provinces.';
+      if (!adjacent(a.from, a.to)) return 'March to a province linked to it.';
+      const most = troopsAt(s, a.from) - 1;
+      if (a.count < 1 || a.count > most) return `March 1 to ${most} troops.`;
+      let troops = withArray(s.troops, at(a.from), troopsAt(s, a.from) - a.count);
+      troops = withArray(troops, at(a.to), (troops[at(a.to)] ?? 0) + a.count);
+      const next = nextTurn({ ...s, troops });
+      return {
+        state: next.state,
+        events: [{ type: 'marched', seat: a.actor, from: a.from, to: a.to, count: a.count }, ...next.events],
+      };
+    }
+    case 'endTurn': {
+      if (s.stage !== 'march' || s.turn !== a.actor) return 'It is not your turn.';
+      return nextTurn(s);
+    }
     default:
       return 'That move is not possible now.';
   }
@@ -127,7 +161,13 @@ function resolve(s: HazardState, dice: readonly number[]): Applied | string {
   if ((troops[to] ?? 0) > 0) return { state: { ...base, stage: 'attack' }, events };
   // Captured: the province changes hands, and troops must move in.
   const advance: Advance = { from: b.from, to: b.to, min: b.attack, max: (troops[from] ?? 0) - 1 };
-  const captured: HazardState = { ...base, owner: withArray(s.owner, to, s.turn), captured: true, advance };
+  const captured: HazardState = {
+    ...base,
+    owner: withArray(s.owner, to, s.turn),
+    captured: true,
+    advance,
+    beaten: s.owner[to] ?? null,
+  };
   events.push({ type: 'captured', seat: s.turn, from: b.from, to: b.to });
   if (advance.min === advance.max) {
     const moved = moveIn(captured, advance, advance.min);
@@ -141,8 +181,36 @@ function moveIn(s: HazardState, adv: Advance, count: number): Applied {
   const to = at(adv.to);
   let troops = withArray(s.troops, from, (s.troops[from] ?? 0) - count);
   troops = withArray(troops, to, (troops[to] ?? 0) + count);
-  return {
-    state: { ...s, troops, advance: null, stage: 'attack' },
-    events: [{ type: 'advanced', seat: s.turn, to: adv.to, count }],
+  const moved: HazardState = { ...s, troops, advance: null, beaten: null, stage: 'attack' };
+  const events: HazardEvent[] = [{ type: 'advanced', seat: s.turn, to: adv.to, count }];
+  const after = afterCapture(moved, s.beaten);
+  return { state: after.state, events: [...events, ...after.events] };
+}
+
+/**
+ * After the move in: a seat left with no province is out, and its charters go to the conqueror, re-dealt privately
+ * (D067). The world held: the game is over. Six or more charters: the conqueror cashes at once (RULES.md
+ * "Eliminating a rival").
+ */
+function afterCapture(s: HazardState, beaten: number | null): Applied {
+  const seat = s.turn;
+  if (s.owner.every((o) => o === seat)) {
+    const out = beaten === null || s.out.includes(beaten) ? s.out : [...s.out, beaten];
+    return finish({ ...s, out }, seat);
+  }
+  if (beaten === null || s.owner.includes(beaten)) return { state: s, events: [] };
+  const taken = s.hands[beaten] ?? [];
+  const gained = taken.map((x) => ({ ...x, holders: [...x.holders, seat] }));
+  let hands = withArray(s.hands, beaten, []);
+  hands = withArray(hands, seat, [...(hands[seat] ?? []), ...gained]);
+  const next: HazardState = {
+    ...s,
+    out: [...s.out, beaten],
+    hands,
+    dealt: [...s.dealt, ...taken.map((x) => ({ deck: 'pile', pos: x.pos, to: seat }))],
   };
+  const events: HazardEvent[] = [{ type: 'eliminated', seat: beaten, by: seat, charters: taken.length }];
+  if ((hands[seat]?.length ?? 0) >= 6)
+    return { state: { ...next, stage: 'muster', midTurn: true, pool: 0 }, events };
+  return { state: next, events };
 }
