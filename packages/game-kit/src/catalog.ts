@@ -41,6 +41,8 @@ export const MECHANISMS = [
   'bluffing',
   'negotiation-trading',
   'simultaneous-selection',
+  // Sticks & Stones (D089): players take turns claiming spots on a shared board for their people.
+  'worker-placement',
 ] as const;
 export type Mechanism = (typeof MECHANISMS)[number];
 

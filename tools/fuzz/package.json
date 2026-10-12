@@ -21,6 +21,7 @@
     "@bored-games/right-of-way": "workspace:*",
     "@bored-games/room-for-doubt": "workspace:*",
     "@bored-games/gilt-and-guile": "workspace:*",
-    "@bored-games/hazard": "workspace:*"
+    "@bored-games/hazard": "workspace:*",
+    "@bored-games/sticks-and-stones": "workspace:*"
   }
 }

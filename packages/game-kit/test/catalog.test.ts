@@ -35,8 +35,8 @@ describe('catalogProblems', () => {
 
   it('has the documented vocabularies', () => {
     expect(GENRES).toHaveLength(8);
-    expect(MECHANISMS).toHaveLength(20);
-    expect(new Set(MECHANISMS).size).toBe(20);
+    expect(MECHANISMS).toHaveLength(21);
+    expect(new Set(MECHANISMS).size).toBe(21);
     expect(MODES).toEqual(['competitive', 'team', 'cooperative', 'solo']);
   });
 

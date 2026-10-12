@@ -217,6 +217,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/sticks-and-stones:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/protocol:
     dependencies:
       '@bored-games/deck':
@@ -296,6 +302,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/sticks-and-stones':
+        specifier: workspace:*
+        version: link:../../packages/games/sticks-and-stones
 
   tools/protocol-model: {}
 

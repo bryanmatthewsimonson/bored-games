@@ -22,6 +22,8 @@ import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog
 import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
 import { ROOM_FOR_DOUBT_CATALOG } from '../packages/games/room-for-doubt/src/catalog.ts';
 import * as ROOM_FOR_DOUBT_COMPARE from '../packages/games/room-for-doubt/src/compare.ts';
+import { STICKS_CATALOG } from '../packages/games/sticks-and-stones/src/catalog.ts';
+import * as STICKS_COMPARE from '../packages/games/sticks-and-stones/src/compare.ts';
 import {
   ALLOWED_PHRASE_HOMES,
   ALLOWED_PHRASES,
@@ -419,6 +421,25 @@ describe('branding', () => {
         // An everyday word, restricted only as the exact-case whole words `Risk` and `RISK` (D088, as D074).
         exactCase: true,
       },
+      {
+        game: 'Sticks & Stones',
+        home: 'packages/games/sticks-and-stones/src/compare.ts',
+        phrase: 'Compare to Stone Age',
+        compare: STICKS_COMPARE,
+        entry: STICKS_CATALOG,
+        bggId: 34635,
+        companies: [
+          'Bernd Brunnhofer',
+          'Brunnhofer',
+          'Michael Tummelhofer',
+          'Tummelhofer',
+          'Hans im Glück',
+          'Hans im Gluck',
+          'Z-Man Games',
+          'Rio Grande Games',
+        ],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -431,6 +452,7 @@ describe('branding', () => {
         'Compare to Clue',
         'Compare to Dominion',
         'Compare to Risk',
+        'Compare to Stone Age',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

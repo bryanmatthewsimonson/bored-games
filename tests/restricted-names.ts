@@ -128,8 +128,25 @@ const HAZARD_REFERENCE: readonly string[] = [
   'Conquete du Monde',
 ];
 
+/**
+ * Sticks & Stones' reference game (D089): its title, its designer under his name and his pen name, and its
+ * publishers (Rio Grande Games is listed above).
+ */
+const STICKS_REFERENCE: readonly string[] = [
+  'Stone Age',
+  'Bernd Brunnhofer',
+  'Brunnhofer',
+  'Michael Tummelhofer',
+  'Tummelhofer',
+  'Hans im Glück',
+  'Hans im Gluck',
+  'Hans im Glueck',
+  'Z-Man Games',
+];
+
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...STICKS_REFERENCE.flatMap(nameForms),
   ...HAZARD_REFERENCE.flatMap(nameForms),
   ...['Rio Grande Games', 'Donald X. Vaccarino'].flatMap(nameForms),
   ...ROOM_FOR_DOUBT_REFERENCE.flatMap(nameForms),
@@ -166,6 +183,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/room-for-doubt/src/compare.ts': 'Compare to Clue',
   'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
   'packages/games/hazard/src/compare.ts': 'Compare to Risk',
+  'packages/games/sticks-and-stones/src/compare.ts': 'Compare to Stone Age',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

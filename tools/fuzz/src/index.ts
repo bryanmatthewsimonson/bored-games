@@ -11,6 +11,7 @@ import { luster } from '@bored-games/luster';
 import { quillAndQuarry } from '@bored-games/quill-and-quarry';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
+import { sticksAndStones } from '@bored-games/sticks-and-stones';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
   CHAIN_REACTION_EXPECTED_COVERAGE,
@@ -35,6 +36,7 @@ import {
   ROOM_FOR_DOUBT_SIM_DEADLINE,
   roomForDoubtDeckOrder,
 } from './room-for-doubt.ts';
+import { STICKS_EXPECTED_COVERAGE, STICKS_POLICIES } from './sticks-and-stones.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
 export interface FuzzTarget {
@@ -128,6 +130,13 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     simDeadline: HAZARD_SIM_DEADLINE,
     // Late sets pay hundreds of troops, and a battle of hundreds takes as many rolls: six-seat games run long.
     maxSteps: 150_000,
+  },
+  'sticks-and-stones': {
+    module: sticksAndStones,
+    policies: STICKS_POLICIES,
+    deckOrder: packetOrder,
+    expectedCoverage: STICKS_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4],
   },
 };
 
