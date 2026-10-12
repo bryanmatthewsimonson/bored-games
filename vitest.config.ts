@@ -45,6 +45,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'hazard',
+          root: 'packages/games/hazard',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
           name: 'room-for-doubt',
           root: 'packages/games/room-for-doubt',
           include: ['test/**/*.test.ts'],

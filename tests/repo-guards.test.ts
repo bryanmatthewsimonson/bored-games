@@ -13,6 +13,8 @@ import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog
 import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
 import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
 import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
+import { HAZARD_CATALOG } from '../packages/games/hazard/src/catalog.ts';
+import * as HAZARD_COMPARE from '../packages/games/hazard/src/compare.ts';
 import { COMPARE_PHRASE as HOLLER_PHRASE } from '../packages/games/holler/src/compare.ts';
 import { LUSTER_CATALOG } from '../packages/games/luster/src/catalog.ts';
 import * as LUSTER_COMPARE from '../packages/games/luster/src/compare.ts';
@@ -395,6 +397,28 @@ describe('branding', () => {
         companies: ['Rio Grande Games', 'Donald X. Vaccarino'],
         exactCase: false,
       },
+      {
+        game: 'Hazard',
+        home: 'packages/games/hazard/src/compare.ts',
+        phrase: 'Compare to Risk',
+        compare: HAZARD_COMPARE,
+        entry: HAZARD_CATALOG,
+        bggId: 181,
+        companies: [
+          'Lamorisse',
+          'Albert Lamorisse',
+          'AlbertLamorisse',
+          'Michael I. Levin',
+          'Michael Levin',
+          'Michael_Levin',
+          'Conquête du Monde',
+          'Conquete du Monde',
+          'Hasbro',
+          'Parker Brothers',
+        ],
+        // An everyday word, restricted only as the exact-case whole words `Risk` and `RISK` (D088, as D074).
+        exactCase: true,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -406,6 +430,7 @@ describe('branding', () => {
         'Compare to Catan',
         'Compare to Clue',
         'Compare to Dominion',
+        'Compare to Risk',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

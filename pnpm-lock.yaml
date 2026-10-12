@@ -29,9 +29,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@bored-games/gilt-and-guile':
-        specifier: workspace:*
-        version: link:../../packages/games/gilt-and-guile
       '@bored-games/bank':
         specifier: workspace:*
         version: link:../../packages/games/bank
@@ -56,6 +53,9 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/gilt-and-guile':
+        specifier: workspace:*
+        version: link:../../packages/games/gilt-and-guile
       '@bored-games/holler':
         specifier: workspace:*
         version: link:../../packages/games/holler
@@ -65,6 +65,9 @@ importers:
       '@bored-games/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@bored-games/quill-and-quarry':
+        specifier: workspace:*
+        version: link:../../packages/games/quill-and-quarry
       '@bored-games/relay':
         specifier: workspace:*
         version: link:../../packages/relay
@@ -74,9 +77,6 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
-      '@bored-games/quill-and-quarry':
-        specifier: workspace:*
-        version: link:../../packages/games/quill-and-quarry
       '@preact/signals':
         specifier: 2.11.3
         version: 2.11.3(preact@11.0.0)
@@ -172,13 +172,19 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
-  packages/games/holler:
+  packages/games/gilt-and-guile:
     dependencies:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../game-kit
 
-  packages/games/gilt-and-guile:
+  packages/games/hazard:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
+  packages/games/holler:
     dependencies:
       '@bored-games/game-kit':
         specifier: workspace:*
@@ -251,9 +257,6 @@ importers:
 
   tools/fuzz:
     dependencies:
-      '@bored-games/gilt-and-guile':
-        specifier: workspace:*
-        version: link:../../packages/games/gilt-and-guile
       '@bored-games/bank':
         specifier: workspace:*
         version: link:../../packages/games/bank
@@ -269,21 +272,24 @@ importers:
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
+      '@bored-games/gilt-and-guile':
+        specifier: workspace:*
+        version: link:../../packages/games/gilt-and-guile
       '@bored-games/holler':
         specifier: workspace:*
         version: link:../../packages/games/holler
       '@bored-games/luster':
         specifier: workspace:*
         version: link:../../packages/games/luster
+      '@bored-games/quill-and-quarry':
+        specifier: workspace:*
+        version: link:../../packages/games/quill-and-quarry
       '@bored-games/right-of-way':
         specifier: workspace:*
         version: link:../../packages/games/right-of-way
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
-      '@bored-games/quill-and-quarry':
-        specifier: workspace:*
-        version: link:../../packages/games/quill-and-quarry
 
   tools/protocol-model: {}
 
