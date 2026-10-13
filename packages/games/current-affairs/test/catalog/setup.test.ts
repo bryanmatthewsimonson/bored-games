@@ -1,27 +1,36 @@
+import { packetOrderFits } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
-import { STACK_STATIONS, TABLES } from '../../src/data.ts';
+import { DECK_STATIONS, STACK_STATIONS, TABLES } from '../../src/data.ts';
 import {
   buildCost,
   buildOptions,
   DEFAULT_RULES,
   ORDER_SIDES,
   pendingOf,
+  REGION_CHOOSER,
   rankedOrder,
+  regionChoices,
+  STATION_DECK,
   setupGame,
 } from '../../src/engine.ts';
 import { citiesIn, lineCosts, regionSets } from '../../src/graph.ts';
 import { CITY_COUNT, CITY_REGION } from '../../src/map.ts';
+import { currentAffairs } from '../../src/module.ts';
 import type { CurrentState } from '../../src/types.ts';
 import {
   act,
+  chosen,
+  deckOrder,
   fresh,
+  legal,
   nextRound,
   refused,
-  rollStep,
+  revealStep,
   rollWith,
   sell,
   skipPhase,
   started,
+  step,
   turnOf,
   wired,
   withCompany,
@@ -31,11 +40,12 @@ import {
 const TOUCH: readonly (readonly [number, number])[] = [
   [0, 1],
   [0, 3],
-  [0, 4],
+  [0, 5],
   [1, 2],
   [1, 4],
-  [2, 5],
-  [3, 4],
+  [1, 5],
+  [2, 4],
+  [3, 5],
   [4, 5],
 ];
 
@@ -63,12 +73,26 @@ const subsets = (k: number): number[][] =>
 describe('setup', () => {
   it('C01 two to six companies with $50 and nothing else; the yard, the market and the stack', () => {
     for (const seats of [0, 1, 7, 2.5, -2]) {
-      const r = setupGame({ rules: DEFAULT_RULES, seats, mode: 'full', deckOrders: {} });
+      const r = setupGame({ rules: DEFAULT_RULES, seats, mode: 'full', deckOrders: { pile: deckOrder() } });
       expect(r.ok).toBe(false);
     }
     expect(
-      setupGame({ rules: { rulesVersion: 2 } as never, seats: 3, mode: 'full', deckOrders: {} }).ok,
+      setupGame({
+        rules: { rulesVersion: 2 } as never,
+        seats: 3,
+        mode: 'full',
+        deckOrders: { pile: deckOrder() },
+      }).ok,
     ).toBe(false);
+    // Full mode needs the deck's order, and one that fits it: 13 alone on top.
+    for (const deckOrders of [
+      {},
+      { pile: [] },
+      { pile: [1, 0, ...deckOrder().slice(2)] },
+      { pile: deckOrder().slice(1) },
+    ])
+      expect(setupGame({ rules: DEFAULT_RULES, seats: 3, mode: 'full', deckOrders }).ok).toBe(false);
+    expect(packetOrderFits(STATION_DECK, deckOrder())).toBe(true);
     const drawable = [25, 25, 29, 33, 33];
     for (const seats of [2, 3, 4, 5, 6]) {
       const s = fresh(seats);
@@ -79,46 +103,77 @@ describe('setup', () => {
       expect(s.houses.every((h) => h.length === 0)).toBe(true);
       expect(s.yard).toEqual([24, 18, 6, 2]);
       expect(s.market).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
-      expect(s.stack.top).toEqual([13]);
-      expect(s.stack.pool).toHaveLength(33);
-      expect(s.stack.pool).toEqual(STACK_STATIONS);
-      expect(s.stack.pool).not.toContain(13);
-      expect(s.stack.pool.some((n) => n <= 10)).toBe(false);
-      expect(s.stack.draws).toBe(drawable[seats - 2]);
+      // The stack is the deck: 13 alone on top (position 0), then the 33 others shuffled.
+      expect(DECK_STATIONS).toEqual([13, ...STACK_STATIONS]);
+      expect(STACK_STATIONS).toHaveLength(33);
+      expect(STACK_STATIONS.some((n) => n <= 10 || n === 13)).toBe(false);
+      expect(currentAffairs.decks(DEFAULT_RULES)).toEqual([STATION_DECK]);
+      expect(STATION_DECK).toEqual({
+        id: 'pile',
+        size: 34,
+        partitions: [
+          { id: 'top', size: 1 },
+          { id: 'stack', size: 33 },
+        ],
+        promptShares: true,
+      });
+      // 25, 25, 29, 33 or 33 positions are drawn before the Era III card; the last 8, 8, 4, 0 or 0 never are.
+      const drawn = drawable[seats - 2] as number;
+      expect(s.stack.next).toEqual(Array.from({ length: drawn + 1 }, (_, i) => i));
+      expect(s.stack.out).toEqual(Array.from({ length: 33 - drawn }, (_, i) => drawn + 1 + i));
       expect(s.stack.eraCard).toBe(true);
       expect(s.stack.under).toEqual([]);
+      expect([s.stack.shuffling, s.stack.shuffled, s.reveal]).toEqual([false, false, null]);
+      expect(s.dealt).toEqual([]);
       expect([s.era, s.round, s.phase, s.gone.length]).toEqual([1, 0, 'opening', 0]);
-      // Nothing to decide before the regions are drawn: the first roll is open.
-      expect(s.roll?.purpose).toBe('regions');
+      // Nothing else happens before the first seat chooses the regions: no roll is open.
+      expect(s.roll).toBeNull();
+      expect(s.rolls).toEqual([]);
+      expect(pendingOf(s)).toEqual({ type: 'player', seat: 0, decision: 'regions' });
     }
   });
 
-  it('C02 the first roll picks one block of touching regions, evenly; cities out of play take no part', () => {
+  it('C02 the first seat chooses a block of touching regions of the right size; cities out of play take no part', () => {
     const sizes = [3, 3, 4, 5, 5];
-    const counts: Record<number, number> = { 3: 11, 4: 11, 5: 6 };
+    const counts: Record<number, number> = { 3: 12, 4: 12, 5: 6 };
     for (const seats of [2, 3, 4, 5, 6]) {
       const k = sizes[seats - 2] as number;
       expect(TABLES[seats]?.regions).toBe(k);
       const s = fresh(seats);
-      // One face per set: each set of k touching regions is drawn with the same chance.
+      expect(REGION_CHOOSER).toBe(0);
+      expect(pendingOf(s)).toEqual({ type: 'player', seat: 0, decision: 'regions' });
+      // The choices are exactly the sets of k regions that touch as one block, by RULES.md's list.
       const blocks = subsets(k).filter(block);
       expect(blocks).toHaveLength(counts[k] as number);
-      expect(s.roll).toEqual({ id: 0, purpose: 'regions', count: 1, sides: blocks.length });
-      const drawn = blocks.map((_, f) => rollWith(s, [f + 1]).regions);
-      expect(drawn.map(String).sort()).toEqual(blocks.map(String).sort());
-      expect(new Set(drawn.map((x) => x.join())).size).toBe(blocks.length);
+      expect(regionChoices(s).map(String).sort()).toEqual(blocks.map(String).sort());
       expect(regionSets(k).map(String).sort()).toEqual(blocks.map(String).sort());
-      // A face outside the die is refused.
-      let t = s;
-      for (const seat of s.contributors) t = act(t, { type: 'contribute', actor: seat, id: 0 });
-      expect(refused(t, { type: 'rolled', actor: 'beacon', id: 0, dice: [blocks.length + 1] })).toMatch(
-        /dice/,
-      );
-      expect(refused(t, { type: 'rolled', actor: 'beacon', id: 0, dice: [0] })).toMatch(/dice/);
+      expect(
+        legal(s, 0)
+          .map((a) => (a.type === 'regions' ? a.regions.join() : ''))
+          .sort(),
+      ).toEqual(blocks.map(String).sort());
+      for (let seat = 1; seat < seats; seat++) expect(legal(s, seat)).toEqual([]);
+      // Every listed set is accepted; any other set of regions is refused.
+      for (const regions of blocks) expect(chosen(s, regions).regions).toEqual(regions);
+      for (const regions of subsets(k).filter((x) => !block(x)))
+        expect(refused(s, { type: 'regions', actor: 0, regions })).toMatch(/touch as one block/);
+      for (const size of [k - 1, k + 1])
+        for (const regions of subsets(size).filter(block))
+          expect(refused(s, { type: 'regions', actor: 0, regions })).toMatch(/touch as one block/);
+      // Only the first seat chooses.
+      expect(refused(s, { type: 'regions', actor: 1, regions: blocks[0] })).toMatch(/not your decision/);
+      // Nothing else comes first.
+      expect(refused(s, { type: 'open', actor: 0, station: 3, bid: 3 })).toMatch(/cannot open/);
     }
-    const r = rollStep(fresh(3), [1]);
-    expect(r.state.regions).toEqual([0, 1, 2]);
-    expect(r.events).toContainEqual({ type: 'regions', kind: 'regions', regions: [0, 1, 2] });
+    // Not in RULES.md's list: Frostmere, Highcopper and Heartfield touch; Frostmere, Ambergate and Saltmarsh do not.
+    expect(block([0, 1, 4])).toBe(true);
+    expect(block([0, 2, 3])).toBe(false);
+    const r = step(fresh(3), { type: 'regions', actor: 0, regions: [0, 1, 4] });
+    expect(r.events).toEqual([{ type: 'regions', kind: 'regions', regions: [0, 1, 4] }]);
+    // The order roll follows, and the regions cannot be chosen again.
+    expect(r.state.roll).toEqual({ id: 0, purpose: 'order', count: 2, sides: 60 });
+    expect(refused(r.state, { type: 'regions', actor: 0, regions: [0, 1, 2] })).toMatch(/not your decision/);
+    expect(rollWith(r.state, [1, 1]).regions).toEqual([0, 1, 4]);
 
     // No city outside the regions in play can be wired.
     let s = skipPhase(sell(sell(sell(started(3), 3), 4), 5));
@@ -130,24 +185,24 @@ describe('setup', () => {
     for (let city = 21; city < CITY_COUNT; city++) expect(buildCost(s, seat, city)).toBeNull();
     expect(refused(s, { type: 'build', actor: seat, city: 30 })).toMatch(/cannot wire/);
 
-    // No line passes through them: from city 6 the cheapest way to 19 runs through Saltmarsh, out of play.
+    // No line passes through them: from city 5 the cheapest way to 12 runs through Emberreach, out of play.
     const all = Array.from({ length: CITY_COUNT }, () => true);
     const ours = Array.from({ length: CITY_COUNT }, (_, c) => [0, 1, 2].includes(CITY_REGION[c] as number));
-    expect(lineCosts([6], all)[19]).toBe(47);
-    expect(lineCosts([6], ours)[19]).toBe(48);
-    s = withCompany(wired(s, seat, [6]), seat, (c) => ({ ...c, money: 100 }));
-    expect(buildCost(s, seat, 19)).toBe(48 + 10);
-    s = act(s, { type: 'build', actor: seat, city: 19 });
-    expect(s.companies[seat]?.money).toBe(100 - 58);
+    expect(lineCosts([5], all)[12]).toBe(11);
+    expect(lineCosts([5], ours)[12]).toBe(23);
+    s = withCompany(wired(s, seat, [5]), seat, (c) => ({ ...c, money: 100 }));
+    expect(buildCost(s, seat, 12)).toBe(23 + 10);
+    s = act(s, { type: 'build', actor: seat, city: 12 });
+    expect(s.companies[seat]?.money).toBe(100 - 33);
   });
 
-  it('C05 the second roll draws the opening order evenly; then cities and the highest station rank the companies', () => {
+  it('C05 the opening roll, after the regions, draws the opening order evenly; then cities and the highest station rank the companies', () => {
     // 60 faces divide by 2, 3, 4, 5 and 6: each die picks evenly among the companies not yet placed.
     expect(ORDER_SIDES).toBe(60);
-    const afterRegions = (seats: number): CurrentState => rollWith(fresh(seats), [1]);
+    const afterRegions = (seats: number): CurrentState => chosen(fresh(seats));
     for (const seats of [2, 3, 4, 5, 6]) {
       const s = afterRegions(seats);
-      expect(s.roll).toEqual({ id: 1, purpose: 'order', count: seats - 1, sides: 60 });
+      expect(s.roll).toEqual({ id: 0, purpose: 'order', count: seats - 1, sides: 60 });
     }
     const tally = (seats: number, faces: readonly number[]): Map<string, number> => {
       const s = afterRegions(seats);
@@ -181,11 +236,11 @@ describe('setup', () => {
     );
     expect(four.size).toBe(24);
     expect([...four.values()].every((n) => n === 72)).toBe(true);
-    expect(started(4, 1, [2, 1, 1]).order).toEqual([1, 0, 2, 3]);
-    expect(started(4, 1, [60, 60, 60]).order).toEqual([3, 0, 1, 2]);
+    expect(started(4, null, [2, 1, 1]).order).toEqual([1, 0, 2, 3]);
+    expect(started(4, null, [60, 60, 60]).order).toEqual([3, 0, 1, 2]);
 
     // Round 1's auction runs in the drawn order; after it, the order is worked out again by stations alone.
-    let s = started(3, 1, [3, 1]);
+    let s = started(3, null, [3, 1]);
     expect(s.order).toEqual([2, 1, 0]);
     expect(turnOf(s)).toBe(2);
     s = sell(s, 3);
@@ -229,8 +284,8 @@ describe('setup', () => {
     s = act(s, { type: 'power', actor: 0, stations: [3], hybridCoal: 0 });
     seen(s);
     expect(s.phase).toBe('power');
-    expect(s.roll?.purpose).toBe('draw');
-    const r = rollStep(s, [1]);
+    expect(pendingOf(s)).toEqual({ type: 'reveal', deck: 'pile', positions: [3] });
+    const r = revealStep(s);
     seen(r.state);
     expect(phases).toEqual(['auction', 'fuel', 'build', 'power', 'auction']);
     expect(r.state.round).toBe(2);

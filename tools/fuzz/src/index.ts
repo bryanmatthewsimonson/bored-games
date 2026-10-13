@@ -143,6 +143,7 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
   'current-affairs': {
     module: currentAffairs,
     policies: CURRENT_POLICIES,
+    deckOrder: packetOrder,
     expectedCoverage: CURRENT_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],
   },

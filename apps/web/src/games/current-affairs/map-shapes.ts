@@ -1,8 +1,8 @@
 /*
  * The drawing of the Commonwealth (docs/games/current-affairs/RULES.md, "The map"), worked out once from the city
  * points of the package's atlas: the coastline, the six regions as merged Voronoi cells of their cities, the Long
- * Water between the northern and southern regions, the peaks of the Copper Range, and where each city's name and
- * each line's cost badge go so that they keep clear of the lines. Pure and deterministic: no randomness, only a
+ * Water running south to the gulf, the peaks of the Copper Range, and where each city's name and each line's cost
+ * badge go so that they keep clear of the lines. The river and the range are scenery: they set no costs. Pure and deterministic: no randomness, only a
  * fixed hash, so every client draws the same land. Presentation only; the engine never reads it.
  * Original art, CC0-1.0 (packages/games/current-affairs/ART-LICENSE.md).
  */
@@ -15,7 +15,7 @@ export type Pt = readonly [number, number];
 
 export const W = ATLAS_WIDTH;
 export const H = ATLAS_HEIGHT;
-export const CITY_R = 20;
+export const CITY_R = 17;
 
 const pt = (c: number): Pt => CITY_POINTS[c] ?? [0, 0];
 
@@ -126,61 +126,76 @@ const boxesMeet = (p: Box, q: Box): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.y
 /* ---------------------------------------------------------------- the coast */
 
 /**
- * The west and south coasts, north to east: the sea lies to the west and the south, and the land runs on past the
- * sheet's northern and eastern edges. Each point keeps 40 or more from every city.
+ * The coast, clockwise from the north-west: down the western shore, round the southern cape, east along the gulf and
+ * the southern shore, then up the long eastern coast. The land runs on past the sheet's northern edge. Each point
+ * keeps 38 or more from every city (the art test checks it).
  */
-const COAST_POINTS: readonly Pt[] = [
-  [64, -14],
-  [60, 30],
-  [42, 72],
-  [50, 118],
-  [30, 160],
-  [42, 214],
-  [58, 262],
-  [36, 304],
-  [18, 340],
-  [34, 372],
-  [40, 412],
-  [70, 448],
-  [62, 492],
-  [74, 540],
-  [92, 578],
-  [104, 628],
-  [146, 660],
-  [206, 666],
-  [262, 648],
-  [314, 660],
-  [376, 672],
-  [438, 648],
-  [500, 660],
-  [548, 642],
-  [604, 650],
-  [652, 672],
-  [722, 664],
-  [780, 676],
-  [846, 668],
-  [906, 652],
-  [960, 664],
-  [1014, 650],
+export const COAST_POINTS: readonly Pt[] = [
+  [203, -14],
+  [182, 36],
+  [130, 72],
+  [92, 118],
+  [42, 150],
+  [38, 190],
+  [63, 228],
+  [81, 262],
+  [94, 312],
+  [110, 352],
+  [117, 404],
+  [169, 424],
+  [182, 470],
+  [212, 516],
+  [221, 566],
+  [185, 612],
+  [178, 660],
+  [228, 682],
+  [275, 662],
+  [309, 630],
+  [343, 594],
+  [381, 566],
+  [436, 578],
+  [490, 568],
+  [542, 586],
+  [591, 574],
+  [632, 556],
+  [674, 552],
+  [712, 566],
+  [757, 548],
+  [800, 566],
+  [844, 556],
+  [882, 528],
+  [914, 494],
+  [940, 462],
+  [962, 420],
+  [965, 372],
+  [968, 318],
+  [972, 262],
+  [970, 202],
+  [965, 150],
+  [957, 108],
+  [951, 62],
+  [962, 22],
+  [959, -14],
 ];
 
-const LAND_POINTS: readonly Pt[] = [...crinkle(COAST_POINTS, 3, 6, false), [1014, -14]];
+const COAST_FINE: readonly Pt[] = crinkle(COAST_POINTS, 3, 6, false);
+const LAND_POINTS: readonly Pt[] = [...COAST_FINE, [968, -60], [168, -60]];
 
 /** The land, as one closed path. */
 export const LAND_PATH: string = smoothPath(LAND_POINTS, true);
-/** The coastline alone (open: the land's other edges run off the sheet). */
-export const COAST_PATH: string = smoothPath(crinkle(COAST_POINTS, 3, 6, false), false);
+/** The coastline alone (open: the land runs on past the sheet's northern edge). */
+export const COAST_PATH: string = smoothPath(COAST_FINE, false);
 
-/** Two islets in the south-western sea. */
+/** Two islets: one in the gulf, one off the eastern coast. */
 export const ISLETS: readonly string[] = [
   smoothPath(
     crinkle(
       [
-        [16, 456],
-        [34, 446],
-        [44, 462],
-        [32, 480],
-        [14, 476],
+        [372, 630],
+        [398, 620],
+        [418, 634],
+        [402, 652],
+        [376, 648],
       ],
       2,
       2.5,
@@ -191,10 +206,10 @@ export const ISLETS: readonly string[] = [
   smoothPath(
     crinkle(
       [
-        [56, 660],
-        [74, 652],
-        [86, 666],
-        [70, 680],
+        [940, 556],
+        [958, 548],
+        [972, 562],
+        [956, 578],
       ],
       2,
       2,
@@ -319,38 +334,29 @@ export const REGION_BORDERS: readonly { readonly a: number; readonly b: number; 
 
 /* ---------------------------------------------------------------- the Long Water */
 
+/** The Long Water, from the northern hills south through the open country east of the heartland to the gulf. */
 const RIVER_POINTS: readonly Pt[] = [
-  [1014, 346],
-  [958, 354],
-  [902, 338],
-  [846, 352],
-  [790, 340],
-  [744, 350],
-  [692, 340],
-  [640, 330],
-  [588, 344],
-  [530, 334],
-  [480, 342],
-  [430, 334],
-  [376, 344],
-  [322, 334],
-  [268, 346],
-  [214, 338],
-  [160, 346],
-  [110, 336],
-  [66, 344],
-  [22, 340],
+  [668, -14],
+  [662, 40],
+  [654, 96],
+  [652, 150],
+  [644, 204],
+  [640, 256],
+  [636, 306],
+  [646, 352],
+  [652, 398],
+  [646, 446],
+  [656, 494],
+  [662, 530],
+  [668, 580],
 ];
 
 const RIVER_FINE: readonly Pt[] = crinkle(RIVER_POINTS, 2, 3, false);
-/** The Long Water, east to west, into the western sea. */
+/** The Long Water, north to south, into the gulf. */
 export const RIVER_PATH: string = smoothPath(RIVER_FINE, false);
-/** A stretch of the river, west to east, for its name. */
+/** A stretch beside the river, north to south, for its name. */
 export const RIVER_LABEL_PATH: string = smoothPath(
-  RIVER_FINE.filter((p) => p[0] >= 588 && p[0] <= 712)
-    .slice()
-    .reverse()
-    .map((p): Pt => [p[0], p[1] - 11]),
+  RIVER_FINE.filter((p) => p[1] >= 0 && p[1] <= 110).map((p): Pt => [p[0] + 10, p[1]]),
   false,
 );
 
@@ -379,29 +385,103 @@ const clearOfLines = (p: Pt): number => Math.min(...SEGMENTS.map(([a, b]) => dis
 const clearOfCities = (p: Pt): number =>
   Math.min(...CITY_POINTS.map((c) => Math.hypot(c[0] - p[0], c[1] - p[1])));
 
+/* ---------------------------------------------------------------- lettering */
+
+export const REGION_NAME_SIZE = 17;
+export const REGION_NAME_SPACING = 3;
+const regionNameWidth = (r: number): number =>
+  CURRENT_THEME.regions[REGIONS[r] ?? 'frost'].length * (REGION_NAME_SIZE * 0.8 + REGION_NAME_SPACING);
+const REGION_NAME_H = REGION_NAME_SIZE * 0.78;
+const RANGE_W = 128;
+const RANGE_H = 12;
+
+/** The box a line of lettering `w` wide and `h` high takes, its baseline's middle at (x, y). */
+const letteringBox = (x: number, y: number, w: number, h: number): Box => ({
+  x0: x - w / 2,
+  y0: y - h,
+  x1: x + w / 2,
+  y1: y + 2,
+});
+
+/**
+ * Each region's name's baseline middle, placed by hand in open ground; `letteringClashes` checks them. A coastal
+ * region with no room among its cities has its name lettered offshore, in its own tint, as charts do.
+ */
+export const REGION_NAME_SPOTS: readonly Pt[] = [
+  [780, 66],
+  [402, 72],
+  [216, 78],
+  [774, 528],
+  [112, 548],
+  [520, 628],
+];
+/** The Copper Range's name's baseline middle. */
+export const RANGE_NAME_SPOT: Pt = [430, 38];
+
+const LETTERING_BOXES: readonly Box[] = [
+  ...REGION_NAME_SPOTS.map((p, r) => letteringBox(p[0], p[1], regionNameWidth(r), REGION_NAME_H)),
+  letteringBox(RANGE_NAME_SPOT[0], RANGE_NAME_SPOT[1], RANGE_W, RANGE_H),
+];
+
 /* ---------------------------------------------------------------- badges */
 
-/** Where each line's cost badge sits: its middle, slid along the line if a city is close. */
-export const BADGES: readonly Pt[] = LINKS.map(([a, b]) => {
+/** Where along a line its badge may sit, middle first; never on a medallion. */
+const SLIDES: readonly number[] = [0.5, 0.44, 0.56, 0.38, 0.62, 0.32, 0.68, 0.26, 0.74, 0.2, 0.8];
+
+const badgeBox = (p: Pt, l: number): Box => {
+  const half = LINKS[l]?.[2] === 0 ? 16 : 12;
+  return { x0: p[0] - half, y0: p[1] - 9, x1: p[0] + half, y1: p[1] + 9 };
+};
+
+/**
+ * Where each line's cost badge sits: its middle, slid along the line away from cities, the river, the lettering and
+ * (on the second pass) the cities' names.
+ */
+function slideBadges(names: readonly Box[]): Pt[] {
+  return LINKS.map(([a, b], l) => {
+    const pa = pt(a);
+    const pb = pt(b);
+    let best: Pt = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+    let bestScore = -Infinity;
+    for (const t of SLIDES) {
+      const p: Pt = [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t];
+      const river = Math.min(...RIVER_FINE.map((r) => Math.hypot(r[0] - p[0], r[1] - p[1])));
+      const box = badgeBox(p, l);
+      const lettering = LETTERING_BOXES.some((q) => boxesMeet(q, box)) ? 80 : 0;
+      const named = names.filter((q) => boxesMeet(q, box)).length * 50;
+      const clear = clearOfCities(p);
+      const onMedallion = clear < CITY_R + 13 ? 200 : 0;
+      const score =
+        Math.min(clear, 60) +
+        Math.min(river, 22) * 2 -
+        Math.abs(t - 0.5) * 20 -
+        lettering -
+        named -
+        onMedallion;
+      if (score > bestScore) {
+        bestScore = score;
+        best = p;
+      }
+    }
+    return best;
+  });
+}
+
+/** Each line's possible badge boxes: every slide that keeps off the medallions and the lettering. */
+const BADGE_ROOM: readonly (readonly Box[])[] = LINKS.map(([a, b], l) => {
   const pa = pt(a);
   const pb = pt(b);
-  let best: Pt = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
-  let bestScore = -1;
-  for (const t of [0.5, 0.44, 0.56, 0.38, 0.62]) {
-    const p: Pt = [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t];
-    const score = Math.min(clearOfCities(p), 60) - Math.abs(t - 0.5) * 20;
-    if (score > bestScore) {
-      bestScore = score;
-      best = p;
-    }
-  }
-  return best;
+  const room = SLIDES.map((t): Pt => [pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t])
+    .filter((p) => clearOfCities(p) >= CITY_R + 13)
+    .map((p) => badgeBox(p, l))
+    .filter((box) => !LETTERING_BOXES.some((q) => boxesMeet(q, box)));
+  return room.length > 0 ? room : [badgeBox([(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2], l)];
 });
 
 /* ---------------------------------------------------------------- city names */
 
 export const NAME_SIZE = 15;
-const charW = NAME_SIZE * 0.6;
+const charW = NAME_SIZE * 0.66;
 
 export interface NameSpot {
   readonly x: number;
@@ -415,67 +495,13 @@ function nameBox(s: NameSpot, chars: number): Box {
   return { x0: x0 - 2, y0: s.y - NAME_SIZE * 0.8, x1: x0 + w + 2, y1: s.y + NAME_SIZE * 0.25 };
 }
 
-const BADGE_BOXES: readonly Box[] = BADGES.map((b) => ({
-  x0: b[0] - 12,
-  y0: b[1] - 9,
-  x1: b[0] + 12,
-  y1: b[1] + 9,
-}));
-const CITY_BOXES: readonly Box[] = CITY_POINTS.map((c) => ({
-  x0: c[0] - CITY_R - 2,
-  y0: c[1] - CITY_R - 2,
-  x1: c[0] + CITY_R + 2,
-  y1: c[1] + CITY_R + 2,
-}));
-
-/** Each city's name position, given the names' lengths: below, above, right or left, whichever crosses least. */
-export function placeNames(names: readonly string[]): readonly NameSpot[] {
-  const placed: Box[] = [];
-  const spots: NameSpot[] = [];
-  for (let c = 0; c < CITY_COUNT; c++) {
-    const [x, y] = pt(c);
-    const len = (names[c] ?? '').length;
-    const d = CITY_R + 5;
-    const options: NameSpot[] = [
-      { x, y: y + d + NAME_SIZE * 0.72, anchor: 'middle' },
-      { x, y: y - d - 3, anchor: 'middle' },
-      { x: x + d, y: y + NAME_SIZE * 0.32, anchor: 'start' },
-      { x: x - d, y: y + NAME_SIZE * 0.32, anchor: 'end' },
-      { x: x + d - 6, y: y + d + NAME_SIZE * 0.5, anchor: 'start' },
-      { x: x - d + 6, y: y + d + NAME_SIZE * 0.5, anchor: 'end' },
-      { x: x + d - 6, y: y - d, anchor: 'start' },
-      { x: x - d + 6, y: y - d, anchor: 'end' },
-    ];
-    let best = options[0] as NameSpot;
-    let bestScore = Infinity;
-    options.forEach((o, rank) => {
-      const box = nameBox(o, len);
-      let score = rank * 0.6;
-      for (const [a, b] of SEGMENTS) if (segmentHitsBox(a, b, box)) score += 4;
-      for (const b of BADGE_BOXES) if (boxesMeet(b, box)) score += 6;
-      CITY_BOXES.forEach((b, k) => {
-        if (k !== c && boxesMeet(b, box)) score += 10;
-      });
-      for (const b of placed) if (boxesMeet(b, box)) score += 12;
-      if (box.x0 < 16 || box.x1 > W - 16 || box.y0 < 16 || box.y1 > H - 16) score += 40;
-      if (!onLand([box.x0, box.y1]) || !onLand([box.x1, box.y1]) || !onLand([box.x0, box.y0])) score += 30;
-      if (score < bestScore) {
-        bestScore = score;
-        best = o;
-      }
-    });
-    spots.push(best);
-    placed.push(nameBox(best, len));
-  }
-  return spots;
+/** Whether `box` comes within `pad` of city `c`'s medallion. */
+function meetsCity(box: Box, c: number, pad = 2): boolean {
+  const [x, y] = pt(c);
+  const dx = Math.max(box.x0 - x, 0, x - box.x1);
+  const dy = Math.max(box.y0 - y, 0, y - box.y1);
+  return Math.hypot(dx, dy) < CITY_R + pad;
 }
-
-const STOCK_NAMES: readonly Box[] = (() => {
-  const spots = placeNames(CURRENT_THEME.cities);
-  return spots.map((s, c) => nameBox(s, (CURRENT_THEME.cities[c] ?? '').length));
-})();
-
-/* ---------------------------------------------------------------- lettering */
 
 /** Whether `p` lies on land (the coast's polygon, before smoothing; close enough to keep lettering ashore). */
 function onLand(p: Pt): boolean {
@@ -490,6 +516,136 @@ function onLand(p: Pt): boolean {
   return inside;
 }
 
+/** The places a city's name may go: below, above, beside, or at a corner. */
+function nameOptions(c: number): NameSpot[] {
+  const [x, y] = pt(c);
+  const d = CITY_R + 5;
+  return [
+    { x, y: y + d + NAME_SIZE * 0.72, anchor: 'middle' },
+    { x, y: y - d - 3, anchor: 'middle' },
+    { x: x + d, y: y + NAME_SIZE * 0.32, anchor: 'start' },
+    { x: x - d, y: y + NAME_SIZE * 0.32, anchor: 'end' },
+    { x: x + d - 6, y: y + d + NAME_SIZE * 0.5, anchor: 'start' },
+    { x: x - d + 6, y: y + d + NAME_SIZE * 0.5, anchor: 'end' },
+    { x: x + d - 6, y: y - d, anchor: 'start' },
+    { x: x - d + 6, y: y - d, anchor: 'end' },
+    { x: x + d - 2, y: y - 10, anchor: 'start' },
+    { x: x - d + 2, y: y - 10, anchor: 'end' },
+    { x: x + d - 2, y: y + 18, anchor: 'start' },
+    { x: x - d + 2, y: y + 18, anchor: 'end' },
+    { x, y: y + d + NAME_SIZE * 0.72 + 8, anchor: 'middle' },
+    { x, y: y - d - 11, anchor: 'middle' },
+  ];
+}
+
+/**
+ * Each city's name position, for these names: clear of the lines, cities and each other where it can be, and never
+ * where it would leave a line's badge nowhere to go (badges then slide clear of the names).
+ */
+export function placeNames(names: readonly string[]): readonly NameSpot[] {
+  const spots: (NameSpot | null)[] = Array.from({ length: CITY_COUNT }, () => null);
+  const boxes: (Box | null)[] = Array.from({ length: CITY_COUNT }, () => null);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let c = 0; c < CITY_COUNT; c++) {
+      const len = (names[c] ?? '').length;
+      let best = nameOptions(c)[0] as NameSpot;
+      let bestScore = Infinity;
+      nameOptions(c).forEach((o, rank) => {
+        const box = nameBox(o, len);
+        let score = rank * 0.6;
+        for (const [a, b] of SEGMENTS) if (segmentHitsBox(a, b, box)) score += 4;
+        // A name may cover part of a line, but never every place its badge could go; a free tag least of all.
+        BADGE_ROOM.forEach((room, l) => {
+          if (!room.some((b) => boxesMeet(b, box))) return;
+          const open = room.filter((b) => !boxes.some((q, k) => k !== c && q !== null && boxesMeet(q, b)));
+          if (open.every((b) => boxesMeet(b, box))) score += LINKS[l]?.[2] === 0 ? 200 : 60;
+          else score += 2;
+        });
+        for (const b of LETTERING_BOXES) if (boxesMeet(b, box)) score += 20;
+        if (RIVER_FINE.some((p) => p[0] > box.x0 && p[0] < box.x1 && p[1] > box.y0 - 6 && p[1] < box.y1 + 6))
+          score += 6;
+        for (let k = 0; k < CITY_COUNT; k++) if (k !== c && meetsCity(box, k)) score += 40;
+        boxes.forEach((b, k) => {
+          if (k !== c && b && boxesMeet(b, box)) score += 50;
+        });
+        // A name must read as its own city's: nearer it than any other.
+        const mid: Pt = [(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2];
+        const own = Math.hypot(mid[0] - pt(c)[0], mid[1] - pt(c)[1]);
+        for (let k = 0; k < CITY_COUNT; k++) {
+          if (k === c) continue;
+          const other = Math.hypot(mid[0] - pt(k)[0], mid[1] - pt(k)[1]);
+          if (other < own - 4) score += 40;
+          else if (other < own * 1.3) score += 14;
+        }
+        if (box.x0 < 16 || box.x1 > W - 16 || box.y0 < 16 || box.y1 > H - 16) score += 40;
+        if (!onLand([box.x0, box.y1]) || !onLand([box.x1, box.y1]) || !onLand([box.x0, box.y0])) score += 30;
+        if (score < bestScore) {
+          bestScore = score;
+          best = o;
+        }
+      });
+      spots[c] = best;
+      boxes[c] = nameBox(best, len);
+    }
+  }
+  return spots.map((s) => s as NameSpot);
+}
+
+const boxesOfNames = (spots: readonly NameSpot[]): Box[] =>
+  spots.map((s, c) => nameBox(s, (CURRENT_THEME.cities[c] ?? '').length));
+
+const STOCK_NAMES: readonly Box[] = boxesOfNames(placeNames(CURRENT_THEME.cities));
+
+/** Where each line's cost badge is drawn: slid clear of the cities' names too. */
+export const BADGES: readonly Pt[] = slideBadges(STOCK_NAMES);
+const FINAL_BADGE_BOXES: readonly Box[] = BADGES.map(badgeBox);
+
+/**
+ * What each piece of lettering runs into (a city, a city's name, a cost badge, another piece of lettering, the river
+ * or the sea), as readable strings; empty when the lettering sits clear. The art test checks it stays empty.
+ */
+export function letteringClashes(): string[] {
+  const out: string[] = [];
+  const labels = [...REGIONS.map((r) => CURRENT_THEME.regions[r]), 'the Copper Range'];
+  LETTERING_BOXES.forEach((box, i) => {
+    const what = labels[i];
+    for (let c = 0; c < CITY_COUNT; c++) if (meetsCity(box, c)) out.push(`${what} meets city ${c}`);
+    STOCK_NAMES.forEach((b, c) => {
+      if (boxesMeet(b, box)) out.push(`${what} meets the name of city ${c}`);
+    });
+    FINAL_BADGE_BOXES.forEach((b, l) => {
+      if (boxesMeet(b, box)) out.push(`${what} meets badge ${l}`);
+    });
+    LETTERING_BOXES.forEach((b, k) => {
+      if (k > i && boxesMeet(b, box)) out.push(`${what} meets ${labels[k]}`);
+    });
+    if (
+      RIVER_FINE.some((p) => p[0] > box.x0 - 4 && p[0] < box.x1 + 4 && p[1] > box.y0 - 4 && p[1] < box.y1 + 4)
+    )
+      out.push(`${what} meets the river`);
+    const corners: Pt[] = [
+      [box.x0, box.y0],
+      [box.x1, box.y0],
+      [box.x0, box.y1],
+      [box.x1, box.y1],
+      [(box.x0 + box.x1) / 2, box.y0],
+      [(box.x0 + box.x1) / 2, box.y1],
+    ];
+    const ashore = onLand([(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2]);
+    if (ashore && !corners.every(onLand)) out.push(`${what} runs into the sea`);
+    if (!ashore && corners.some(onLand)) out.push(`${what} runs ashore`);
+  });
+  return out;
+}
+
+/** Whether a region's name is lettered offshore (in the sea beside its coast). */
+export const NAME_OFFSHORE: readonly boolean[] = REGION_NAME_SPOTS.map(
+  (p) => !onLand([p[0], p[1] - REGION_NAME_H / 2]),
+);
+
+/* ---------------------------------------------------------------- the Copper Range */
+
+/** Whether `p` is nearer a city of `region` than any other city. */
 function inCellOf(p: Pt, region: number): boolean {
   let best = -1;
   let bestD = Infinity;
@@ -504,111 +660,18 @@ function inCellOf(p: Pt, region: number): boolean {
   return CITY_REGION[best] === region;
 }
 
-/** The box a line of lettering `w` wide and `h` high takes, its baseline's middle at (x, y). */
-const letteringBox = (x: number, y: number, w: number, h: number): Box => ({
-  x0: x - w / 2,
-  y0: y - h,
-  x1: x + w / 2,
-  y1: y + 2,
-});
-
-/** The clearest spot in `region` for a line of lettering `w` wide and `h` high, near the region's middle. */
-function letteringSpot(region: number, w: number, h: number, avoid: readonly Box[]): Pt {
-  const cities = CITY_POINTS.filter((_, i) => CITY_REGION[i] === region);
-  const cx = cities.reduce((s, p) => s + p[0], 0) / cities.length;
-  const cy = cities.reduce((s, p) => s + p[1], 0) / cities.length;
-  let best: Pt = [cx, cy];
-  let bestScore = -Infinity;
-  const xs = cities.map((p) => p[0]);
-  const ys = cities.map((p) => p[1]);
-  const top = Math.max(30, Math.min(...ys) - 60);
-  const bottom = Math.min(H - 20, Math.max(...ys) + 60);
-  const left = Math.max(30, Math.min(...xs) - 80);
-  const right = Math.min(W - 30, Math.max(...xs) + 80);
-  for (let y = top; y <= bottom; y += 6) {
-    for (let x = left; x <= right; x += 8) {
-      const box = letteringBox(x, y, w, h);
-      if (box.x0 < 22 || box.x1 > W - 22 || box.y0 < 22 || box.y1 > H - 22) continue;
-      const corners: Pt[] = [
-        [x, y - h / 2],
-        [box.x0 - 8, box.y0 - 8],
-        [box.x1 + 8, box.y0 - 8],
-        [box.x0 - 8, box.y1 + 8],
-        [box.x1 + 8, box.y1 + 8],
-      ];
-      if (!corners.every((p) => inCellOf(p, region) && onLand(p))) continue;
-      let score = -Math.hypot(x - cx, y - cy) * 0.04;
-      for (const [a, b] of SEGMENTS) if (segmentHitsBox(a, b, box)) score -= 3;
-      for (const b of BADGE_BOXES) if (boxesMeet(b, box)) score -= 9;
-      for (const b of CITY_BOXES) if (boxesMeet(b, box)) score -= 60;
-      for (const b of STOCK_NAMES) if (boxesMeet(b, box)) score -= 60;
-      for (const b of avoid) if (boxesMeet(b, box)) score -= 60;
-      for (const p of RIVER_FINE) {
-        if (p[0] > box.x0 && p[0] < box.x1 && Math.abs(p[1] - (y - h / 2)) < h / 2 + 6) {
-          score -= 40;
-          break;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = [x, y];
-      }
-    }
-  }
-  return best;
-}
-
-export const REGION_NAME_SIZE = 19;
-export const REGION_NAME_SPACING = 5;
-const regionNameWidth = (r: number): number =>
-  CURRENT_THEME.regions[REGIONS[r] ?? 'frost'].length * (REGION_NAME_SIZE * 0.78 + REGION_NAME_SPACING);
-const REGION_NAME_H = REGION_NAME_SIZE * 0.78;
-const RANGE_W = 128;
-const RANGE_H = 12;
-
-/**
- * Where the regions' names and the Copper Range's are lettered: the clearest spot in each region, near its cities'
- * middle. The search takes a few hundred milliseconds, too long for a page load, so its answer is kept below as
- * REGION_NAME_SPOTS and RANGE_NAME_SPOT; the art test checks that they still match.
- */
-export function searchLettering(): { regions: readonly Pt[]; range: Pt } {
-  const regions: Pt[] = [];
-  const boxes: Box[] = [];
-  REGIONS.forEach((_, r) => {
-    const spot = letteringSpot(r, regionNameWidth(r), REGION_NAME_H, boxes);
-    regions.push(spot);
-    boxes.push(letteringBox(spot[0], spot[1], regionNameWidth(r), REGION_NAME_H));
-  });
-  const range = letteringSpot(REGIONS.indexOf('copper'), RANGE_W, RANGE_H, boxes);
-  return { regions, range };
-}
-
-/** Each region's name's baseline middle (searchLettering's answer). */
-export const REGION_NAME_SPOTS: readonly Pt[] = [
-  [214, 228],
-  [504, 246],
-  [810, 240],
-  [198, 577],
-  [504, 646],
-  [818, 588],
-];
-/** The Copper Range's name's baseline middle (searchLettering's answer). */
-export const RANGE_NAME_SPOT: Pt = [448, 36];
-
-const LETTERING_BOXES: readonly Box[] = [
-  ...REGION_NAME_SPOTS.map((p, r) => letteringBox(p[0], p[1], regionNameWidth(r), REGION_NAME_H)),
-  letteringBox(RANGE_NAME_SPOT[0], RANGE_NAME_SPOT[1], RANGE_W, RANGE_H),
-];
-
-/* ---------------------------------------------------------------- the Copper Range */
-
 /** The peaks of the Copper Range: in Highcopper, wherever the lines, cities, badges and lettering leave room. */
 export const PEAKS: readonly { readonly x: number; readonly y: number; readonly s: number }[] = (() => {
   const out: { x: number; y: number; s: number }[] = [];
   const copper = REGIONS.indexOf('copper');
   const lettering = LETTERING_BOXES;
-  for (let y = 40; y <= 300; y += 13) {
-    for (let x = 360; x <= 660; x += 15) {
+  const mine = CITY_POINTS.filter((_, i) => CITY_REGION[i] === copper);
+  const y0 = Math.min(...mine.map((p) => p[1])) - 50;
+  const y1 = Math.max(...mine.map((p) => p[1])) + 50;
+  const x0 = Math.min(...mine.map((p) => p[0])) - 60;
+  const x1 = Math.max(...mine.map((p) => p[0])) + 60;
+  for (let y = Math.max(30, y0); y <= y1; y += 13) {
+    for (let x = x0; x <= x1; x += 15) {
       const jx = x + (hash(x, y) - 0.5) * 8 + ((y / 13) % 2) * 7;
       const jy = y + (hash(y, x) - 0.5) * 6;
       const p: Pt = [jx, jy];
@@ -616,7 +679,8 @@ export const PEAKS: readonly { readonly x: number; readonly y: number; readonly 
       const lines = clearOfLines(p);
       const cities = clearOfCities(p);
       const badges = Math.min(...BADGES.map((b) => Math.hypot(b[0] - p[0], b[1] - p[1])));
-      if (lines < 13 || cities < 40 || badges < 20) continue;
+      const river = Math.min(...RIVER_FINE.map((r) => Math.hypot(r[0] - jx, r[1] - jy)));
+      if (lines < 13 || cities < 40 || badges < 20 || river < 16) continue;
       const peakBox: Box = { x0: jx - 12, y0: jy - 10, x1: jx + 12, y1: jy + 7 };
       if (lettering.some((b) => boxesMeet(b, peakBox))) continue;
       if (STOCK_NAMES.some((b) => boxesMeet(b, peakBox))) continue;

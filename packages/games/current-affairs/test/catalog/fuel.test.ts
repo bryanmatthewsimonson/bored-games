@@ -179,12 +179,22 @@ describe('fuel', () => {
     expect(offers.every((b) => canBuy(fuelPhase(), 0, b))).toBe(true);
     expect(legal(fuelPhase(), 0).at(-1)).toEqual({ type: 'done', actor: 0 });
 
-    // A company that can buy nothing is passed over.
+    // A company that only cannot pay still decides, and finishes: money is hidden, and decides nothing.
     let t = sell(sell(started(3), 3), 4);
     t = withCompany(t, 0, (c) => ({ ...c, money: 0 }));
     t = sell(t, 5);
     expect(t.phase).toBe('fuel');
-    expect(t.queue).toEqual([1, 2]);
+    expect(t.queue).toEqual([0, 1, 2]);
+    expect(legal(t, 0)).toEqual([{ type: 'done', actor: 0 }]);
+    expect(refused(t, { type: 'fuel', actor: 0, buy: [0, 1, 0, 0] })).toMatch(/cannot buy/);
+    // A company that could store none of the yard's fuel is passed over: here, no oil is left for 3.
+    let o = patch(sell(sell(started(3), 3), 4), { yard: [24, 0, 6, 2] });
+    o = sell(o, 5);
+    expect(o.queue).toEqual([1, 2]);
+    // Nor when its stations are full.
+    let f = fuelled(sell(sell(started(3), 3), 4), 0, [0, 4, 0, 0]);
+    f = sell(f, 5);
+    expect(f.queue).toEqual([1, 2]);
     // So is one whose stations are green.
     let g = own(sell(sell(started(3), 3), 4), 0, [13]);
     g = patch(g, {

@@ -8,10 +8,10 @@ The owner: "Don't disable Resign. It shouldn't be disabled anywhere in Bored Gam
 
 ## Current Affairs — 2026-10-13 (D091)
 
-Current Affairs, the power-network auction game under its own names (Compare to Power Grid, BoardGameGeek 2651), is built as beta: engine `packages/games/current-affairs` (catalog C01–C26), an original map of 42 cities in six regions, web game, rules page, original SVG art and cover, three screens in play and an e2e spec. It is deckless: every unknown station, the regions and the opening order come from the dice beacon. **OPEN for the owner:** trademark clearance of the name; Era II when Era III comes first; station 29's city count (4 in two of three sources).
+Current Affairs, the power-network auction game under its own names (Compare to Power Grid, BoardGameGeek 2651), is built as beta: engine `packages/games/current-affairs` (catalog C01–C26), an original map of 42 cities in six regions, web game, rules page, original SVG art and cover, three screens in play and an e2e spec. After the owner's rulings that the game follow the rules exactly: the map is the reference board's graph (87 lines) under new names and a new drawing, the first seat chooses the regions in play, the stack is a real encrypted deck with public reveals and an Era III reshuffle epoch, and money is hidden on the screen. **OPEN for the owner:** trademark clearance of the name; Era II when Era III comes first; station 29's city count (4 in two of three sources).
 
 - **Fuzz:** `pnpm fuzz --game current-affairs --games 300`: every game ended, no invariant failure.
-- **Simulations:** `pnpm sim --game current-affairs --seats 2,3,4,5,6 --games 5`: 5 of 5 done, audit pass, no timeout claims (2566 actions); `--adversary resignAny --vanish-at 30 --seats 2,3,4 --games 6`: every game ended by the Resign.
+- **Simulations (real deck):** `pnpm sim --game current-affairs --seats 2,3,4,5,6 --games 5 --max-rounds 200000`: 5 of 5 done, audit pass, no timeout claims (1951 actions); `--adversary resignAny --seats 2,3 --games 2` with `--resign-when any|reveal|shuffle` at `--vanish-at 25` and `beacon` at 0: every game ended by the Resign.
 
 ## Sticks & Stones — 2026-10-12 (D089)
 

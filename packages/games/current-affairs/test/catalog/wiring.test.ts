@@ -38,25 +38,28 @@ describe('wiring', () => {
     s = r.state;
     expect(s.companies[0]).toMatchObject({ money: 37, cities: [1] });
     expect(s.houses[1]).toEqual([0]);
-    // From 1: the line to 0 costs 9, to 2 costs 6.
+    // From 1: the line to 0 costs 9, to 4 costs 9; 2 is reached through 0 (9 + 3).
     expect(buildCost(s, 0, 0)).toBe(19);
-    expect(buildCost(s, 0, 2)).toBe(16);
+    expect(buildCost(s, 0, 4)).toBe(19);
+    expect(buildCost(s, 0, 2)).toBe(22);
     s = done(s);
-    // Seat 1 starts in 0. Its way to 2 runs through 1, though seat 0 holds it: 9 + 6.
+    // Seat 1 starts in 0. Its way to 4 runs through 1, though seat 0 holds it: 9 + 9 (0→3→4 costs 36).
     s = build(
       withCompany(s, 1, (c) => ({ ...c, money: 100 })),
       1,
       0,
     );
-    expect(buildCost(s, 1, 2)).toBe(15 + 10);
-    // Before 2 is wired, 5 costs 0→4→5 (11 + 7); a city wired this turn joins the network: then 2→5 is 11.
-    expect(buildCost(s, 1, 5)).toBe(18 + 10);
-    s = build(s, 1, 2);
-    expect(s.companies[1]).toMatchObject({ money: 100 - 10 - 25, cities: [0, 2] });
-    expect(buildCost(s, 1, 5)).toBe(11 + 10);
+    expect(buildCost(s, 1, 4)).toBe(18 + 10);
+    // Before 4 is wired, 5 costs 0→1→4→5 (9 + 9 + 14); a city wired this turn joins the network: then 4→5 is 14.
+    expect(buildCost(s, 1, 5)).toBe(32 + 10);
+    s = build(s, 1, 4);
+    expect(s.companies[1]).toMatchObject({ money: 100 - 10 - 28, cities: [0, 4] });
+    expect(buildCost(s, 1, 5)).toBe(14 + 10);
+    // A line that costs nothing: 4→6.
+    expect(buildCost(s, 1, 6)).toBe(10);
     // Every cost is the cheapest route through the cities in play plus the substation.
     const inPlay = Array.from({ length: CITY_COUNT }, (_, c) => citiesIn(s.regions).includes(c));
-    const lines = lineCosts([0, 2], inPlay);
+    const lines = lineCosts([0, 4], inPlay);
     for (const { city, cost } of buildOptions(s, 1)) expect(cost).toBe((lines[city] as number) + 10);
     // In Era II a second company pays $15, in Era III a third pays $20 (here, first cities: no line).
     let t = patch(buildPhase(), { era: 2 });
@@ -95,21 +98,33 @@ describe('wiring', () => {
     five = wired(five, 0, [citiesIn(five.regions)[21] as number]);
     expect(five.companies[0]?.cities).toHaveLength(22);
     expect(buildOptions(five, 0)).toEqual([]);
-    // A company that can wire nothing (here, under $10) is passed over.
+    // A company that only cannot pay still decides, and finishes: money is hidden, and decides nothing.
     let u = sell(sell(sell(started(3), 3), 4), 5);
     u = act(u, { type: 'done', actor: 0 });
     u = withCompany(u, 0, (c) => ({ ...c, money: 9 }));
     u = skipPhase(u);
     expect(u.phase).toBe('build');
-    expect(u.queue).toEqual([1, 2]);
+    expect(u.queue).toEqual([0, 1, 2]);
+    expect(legal(u, 0)).toEqual([{ type: 'done', actor: 0 }]);
+    expect(buildOptions(u, 0, true).length).toBe(21);
     // Nobody has to wire: every company may finish at once.
     expect(skipPhase(u).phase).toBe('power');
-    // A company keeps wiring until it finishes or can wire no more.
-    let v = withCompany(buildPhase(), 0, (c) => ({ ...c, money: 26 }));
-    v = build(v, 0, 1);
+    // A company that could wire no city whatever its money (here, 22 substations) is passed over.
+    let four = sell(sell(sell(sell(started(4), 3), 4), 5), 6);
+    four = wired(four, 0, citiesIn(four.regions).slice(0, 22));
+    expect(buildOptions(four, 0, true)).toEqual([]);
+    four = skipPhase(four);
+    expect(four.phase).toBe('build');
+    expect(four.order).toEqual([3, 2, 1, 0]);
+    expect(four.queue).toEqual([1, 2, 3]);
+    // A company keeps wiring until it finishes.
+    let v = withCompany(buildPhase(), 0, (c) => ({ ...c, money: 23 }));
+    v = build(v, 0, 0);
     expect(turnOf(v)).toBe(0);
     v = build(v, 0, 2);
     expect(v.companies[0]?.money).toBe(0);
+    expect(legal(v, 0)).toEqual([{ type: 'done', actor: 0 }]);
+    v = done(v);
     expect(turnOf(v)).toBe(1);
   });
 
@@ -120,7 +135,7 @@ describe('wiring', () => {
     s = withCompany(wired(s, 0, [0, 1, 2, 3, 4]), 0, (c) => ({ ...c, money: 100 }));
     s = build(s, 0, 5);
     expect(s.gone).toEqual([6]);
-    expect(s.roll?.sides).toBe(s.stack.pool.length);
+    expect(pendingOf(s)).toEqual({ type: 'reveal', deck: 'pile', positions: [3] });
     s = drawAll(s);
     expect(s.market).toEqual([7, 8, 9, 10, 11, 12, 13, 14]);
     expect(s.companies[0]?.stations).toEqual([3]);

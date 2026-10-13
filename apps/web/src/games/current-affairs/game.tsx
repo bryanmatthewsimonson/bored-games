@@ -16,6 +16,7 @@ import {
   FUELS,
   fits,
   pendingOf,
+  REGION_CHOOSER,
   SUBSTATIONS,
   stationOf,
   tableOf,
@@ -25,7 +26,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { rulesHref } from '../../router.ts';
-import type { GameViewProps } from '../types.ts';
+import type { GameViewProps, SetupCopy } from '../types.ts';
 import { FuelToken, FuelYard, Money, SEAT_COLORS, SEAT_INKS, SEAT_MARKS, StationCard } from './art.tsx';
 import { CommonwealthMap } from './map.tsx';
 import {
@@ -51,6 +52,7 @@ import {
   phaseName,
   refuelBasket,
   regionName,
+  regionsText,
   roomOf,
   seatName,
   splitsOf,
@@ -61,6 +63,13 @@ import {
   stepBuy,
 } from './model.ts';
 import './current-affairs-game.css';
+
+/** The setup steps and the share owed out of turn, in this game's words (D060), for the registry. */
+export const CURRENT_SETUP_COPY: SetupCopy = {
+  shuffling: 'Shuffling the power stations',
+  dealing: 'Laying out the station market…',
+  share: { act: 'turn up a station', owed: 'a station reveal' },
+};
 
 export const seatColor = (seat: number): string => SEAT_COLORS[seat] ?? '#777';
 export const seatMark = (seat: number): string => SEAT_MARKS[seat] ?? String(seat + 1);
@@ -80,6 +89,8 @@ export interface Ui {
   /** The stations picked to fire, and the coal burnt on the hybrids. */
   readonly fire: readonly number[] | null;
   readonly hybridCoal: number | null;
+  /** The set of regions picked at the opening, shown on the map until it is chosen. */
+  readonly regions: readonly number[] | null;
 }
 
 export const EMPTY_UI: Ui = {
@@ -91,6 +102,7 @@ export const EMPTY_UI: Ui = {
   keep: null,
   fire: null,
   hybridCoal: null,
+  regions: null,
 };
 
 export interface TableProps {
@@ -193,6 +205,72 @@ function Amount(props: {
   );
 }
 
+/* ------------------------------------------------------------------------------------ the regions */
+
+const sameRegions = (a: readonly number[] | null, b: readonly number[]): boolean =>
+  a !== null && a.join(',') === b.join(',');
+
+/** The opening: the first seat chooses the regions in play for the table (C02); the others wait. */
+function RegionsPanel(props: Props) {
+  const { state: s, me, offers, ui, enabled, names, onSend } = props;
+  if (s.phase !== 'opening' || s.regions.length > 0 || s.roll !== null) return null;
+  const chooser = REGION_CHOOSER;
+  const count = tableOf(s).regions;
+  if (me !== chooser || offers.regionSets.length === 0)
+    return (
+      <section class="ca-panel" aria-labelledby="ca-regions-h">
+        <h3 id="ca-regions-h">The regions in play</h3>
+        <p class="ca-hint">
+          <SeatMark seat={chooser} /> <bdi>{seatName(names, chooser)}</bdi> is choosing the regions for the
+          table.
+        </p>
+        <p class="ca-note">
+          {count} of the six regions of {THEME.land}, touching as one block. Cities outside them take no part.
+        </p>
+      </section>
+    );
+  const picked = offers.regionSets.find((set) => sameRegions(ui.regions, set)) ?? null;
+  return (
+    <section class="ca-panel ca-alert" aria-labelledby="ca-regions-h">
+      <h3 id="ca-regions-h">Choose the regions in play</h3>
+      <p class="ca-note">
+        As the table's creator you choose {count} regions that touch as one block. Cities outside them take no
+        part, and no line may pass through them. Pick a set to see it on the map, then confirm it.
+      </p>
+      <fieldset class="ca-region-sets">
+        <legend class="sr-only">Region sets</legend>
+        {offers.regionSets.map((set) => (
+          <button
+            key={set.join(',')}
+            type="button"
+            class="btn ca-btn ca-region-set"
+            aria-pressed={sameRegions(ui.regions, set)}
+            data-regions={set.join(',')}
+            disabled={!enabled}
+            onClick={() => props.onUi({ regions: set })}
+          >
+            {regionsText(set)}
+          </button>
+        ))}
+      </fieldset>
+      <div class="ca-actions">
+        {picked === null ? (
+          <p class="ca-hint">Pick a set of regions above.</p>
+        ) : (
+          <Send
+            action={{ type: 'regions', actor: chooser, regions: [...picked] }}
+            enabled={enabled}
+            onSend={onSend}
+            primary
+          >
+            Play in {regionsText(picked)}
+          </Send>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /* ------------------------------------------------------------------------------------- the market */
 
 function Card(props: { n: number | 'era'; size: number; dim?: boolean; selected?: boolean }) {
@@ -258,7 +336,15 @@ function Lot(props: Props) {
             </li>
           ))}
         </ul>
-        {mine && me !== null && (
+        {mine && me !== null && offers.raises.length === 0 && (
+          <div class="ca-actions">
+            <p class="ca-hint">You cannot beat a bid of {money(lot.bid)}.</p>
+            <Send action={{ type: 'fold', actor: me }} enabled={enabled} onSend={onSend} primary>
+              Fold
+            </Send>
+          </div>
+        )}
+        {mine && me !== null && offers.raises.length > 0 && (
           <div class="ca-actions">
             {offers.raises.map((amount) => (
               <Send
@@ -301,8 +387,19 @@ function Lot(props: Props) {
 /** The viewer's turn to put a station up: the bid for the station picked, or a pass. */
 function Opening(props: Props) {
   const { state: s, me, offers, ui, enabled, onSend } = props;
-  if (me === null || offers.opens.length === 0) return null;
+  if (me === null || (offers.opens.length === 0 && !offers.pass)) return null;
   const cash = s.companies[me]?.money ?? 0;
+  if (offers.opens.length === 0)
+    return (
+      <div class="ca-open ca-alert">
+        <p class="ca-hint">You cannot afford any station on offer: pass for this round.</p>
+        <div class="ca-actions">
+          <Send action={{ type: 'pass', actor: me }} enabled={enabled} onSend={onSend} primary>
+            Pass this round
+          </Send>
+        </div>
+      </div>
+    );
   const station = ui.station !== null && offers.opens.includes(ui.station) ? ui.station : null;
   const bid = station === null ? 0 : Math.max(station, Math.min(cash, ui.bid ?? station));
   return (
@@ -488,6 +585,18 @@ function Basket(props: Props) {
   const { state: s, me, ui, enabled, onSend } = props;
   if (me === null) return null;
   const c = s.companies[me] as Company;
+  if (![0, 1, 2, 3].some((r) => canAdd(s, me, [0, 0, 0, 0], r)))
+    return (
+      <div class="ca-basket ca-alert">
+        <h4>Your purchase</h4>
+        <p class="ca-hint">You cannot buy any fuel now: finish your fuel turn.</p>
+        <div class="ca-actions">
+          <Send action={{ type: 'done', actor: me }} enabled={enabled} onSend={onSend} primary>
+            Finish
+          </Send>
+        </div>
+      </div>
+    );
   const refuel = refuelBasket(s, me);
   const buy = ui.buy ?? refuel ?? [0, 0, 0, 0];
   const { cost, problem } = basketOf(s, me, buy);
@@ -597,7 +706,7 @@ function YardPanel(props: Props) {
 
 function MapPanel(props: Props) {
   const { state: s, me, offers, enabled, names, onSend } = props;
-  const wiring = me !== null && offers.builds.size > 0;
+  const wiring = me !== null && (offers.builds.size > 0 || (s.phase === 'build' && offers.done));
   const c = me === null ? undefined : s.companies[me];
   const cheapest = [...offers.builds.entries()]
     .sort((a, b) => a[1] - b[1] || cityName(a[0]).localeCompare(cityName(b[0])))
@@ -608,17 +717,21 @@ function MapPanel(props: Props) {
         <h3 id="ca-map-h">{THEME.land.replace(/^the /, 'The ')}</h3>
         <p class="ca-note">
           {s.regions.length === 0
-            ? 'The regions in play are being drawn.'
+            ? 'The regions in play are being chosen.'
             : `In play: ${listText(s.regions.map(regionName))}. ${eraName(s.era)}: ${s.era === 1 ? 'one company' : `${s.era} companies`} a city.`}
         </p>
       </div>
       {wiring && me !== null && c !== undefined && (
         <div class="ca-wire ca-alert">
-          <p class="ca-hint">
-            Click a lit city to wire it: {money(10)}, {money(15)} or {money(20)} for the substation plus the
-            cheapest lines from your network. You have {money(c.money)} and {SUBSTATIONS - c.cities.length}{' '}
-            substations left.
-          </p>
+          {offers.builds.size === 0 ? (
+            <p class="ca-hint">You cannot wire any city now: finish your wiring turn.</p>
+          ) : (
+            <p class="ca-hint">
+              Click a lit city to wire it: {money(10)}, {money(15)} or {money(20)} for the substation plus the
+              cheapest lines from your network. You have {money(c.money)} and {SUBSTATIONS - c.cities.length}{' '}
+              substations left.
+            </p>
+          )}
           <div class="ca-actions">
             {cheapest.map(([city, cost]) => (
               <Send
@@ -633,7 +746,7 @@ function MapPanel(props: Props) {
             ))}
             {offers.done && (
               <Send action={{ type: 'done', actor: me }} enabled={enabled} onSend={onSend} primary>
-                Done wiring
+                {offers.builds.size === 0 ? 'Finish' : 'Done wiring'}
               </Send>
             )}
           </div>
@@ -641,7 +754,7 @@ function MapPanel(props: Props) {
       )}
       <div class="ca-map-wrap">
         <CommonwealthMap
-          regions={s.regions}
+          regions={s.regions.length === 0 && props.ui.regions !== null ? props.ui.regions : s.regions}
           houses={s.houses}
           names={THEME.cities}
           {...(wiring && enabled && me !== null
@@ -816,9 +929,7 @@ function CompanyPanel(props: {
       <dl class="ca-stats">
         <div>
           <dt>Money</dt>
-          <dd>
-            <Money amount={row.money} />
-          </dd>
+          <dd>{row.money === null ? <span class="ca-hidden">hidden</span> : <Money amount={row.money} />}</dd>
         </div>
         <div title={`${row.left} of ${SUBSTATIONS} substations left`}>
           <dt>Cities</dt>
@@ -934,7 +1045,7 @@ export function CurrentTable(props: TableProps) {
   const { state: s, me, names } = props;
   const offers = offersOf(s, me, props.legal);
   const p: Props = { ...props, offers };
-  const rows = companyRows(s, names);
+  const rows = companyRows(s, names, me);
   const market = <MarketPanel key="market" {...p} />;
   const yard = <YardPanel key="yard" {...p} />;
   const map = <MapPanel key="map" {...p} />;
@@ -947,7 +1058,9 @@ export function CurrentTable(props: TableProps) {
           ? [<PaydayPanel key="pay" {...p} />, map, market, yard]
           : s.phase === 'over'
             ? [<FinalResult key="final" s={s} names={names} me={me} />, map, market, yard]
-            : [map, market, yard];
+            : s.phase === 'opening'
+              ? [<RegionsPanel key="regions" {...p} />, map, market, yard]
+              : [map, market, yard];
   return (
     <div class="ca-table">
       <div class="ca-main">{panels}</div>

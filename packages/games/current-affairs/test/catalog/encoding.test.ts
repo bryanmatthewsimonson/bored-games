@@ -1,8 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, DEFAULT_RULES, parseAction, validateIntent, validateRules } from '../../src/engine.ts';
+import {
+  applyAction,
+  DEFAULT_RULES,
+  parseAction,
+  pendingOf,
+  STATION_DECK,
+  validateIntent,
+  validateRules,
+} from '../../src/engine.ts';
 import { currentAffairs } from '../../src/module.ts';
 import type { CurrentState } from '../../src/types.ts';
-import { act, fuelled, legal, nextRound, own, sell, skipPhase, started, turnOf } from '../helpers.ts';
+import {
+  act,
+  chosen,
+  drawAll,
+  fresh,
+  fuelled,
+  legal,
+  nextRound,
+  own,
+  sell,
+  skipPhase,
+  started,
+  turnOf,
+} from '../helpers.ts';
 
 /** Round 1's fuel phase with three companies: seat 0 owns 3 (oil), seat 1 4 (coal), seat 2 5 (coal or oil). */
 const fuelPhase = (): CurrentState => sell(sell(sell(started(3), 3), 4), 5);
@@ -12,6 +33,7 @@ describe('encoding, rules and views', () => {
     // The accepted forms.
     const good = [
       { type: 'contribute', actor: 0, id: 3 },
+      { type: 'regions', actor: 0, regions: [0, 1, 4] },
       { type: 'rolled', actor: 'beacon', id: 3, dice: [5] },
       { type: 'open', actor: 1, station: 4, bid: 9 },
       { type: 'pass', actor: 2 },
@@ -22,6 +44,8 @@ describe('encoding, rules and views', () => {
       { type: 'build', actor: 0, city: 7 },
       { type: 'done', actor: 0 },
       { type: 'power', actor: 0, stations: [3, 13], hybridCoal: 0 },
+      { type: 'reveal', actor: 'deck', deck: 'pile', pos: 3, card: 33 },
+      { type: 'epoch', actor: 'deck', epoch: 1, size: 2 },
     ];
     for (const a of good) expect(parseAction(a)).toEqual(a);
     // Anything else is no action: extra or missing keys, other types, strings, fractions, negatives, -0.
@@ -50,12 +74,32 @@ describe('encoding, rules and views', () => {
       { type: 'power', actor: 0, stations: [3, 3], hybridCoal: 0 },
       { type: 'power', actor: 0, stations: [3] },
       { type: 'learn', actor: 0 },
+      { type: 'regions', actor: 0 },
+      { type: 'regions', actor: 0, regions: [1, 0, 4] },
+      { type: 'regions', actor: 0, regions: [0, 1, 1] },
+      { type: 'regions', actor: 0, regions: '0,1,4' },
+      { type: 'regions', actor: 0, regions: [0, 1, 4], extra: 1 },
+      { type: 'regions', actor: '0', regions: [0, 1, 4] },
+      { type: 'reveal', actor: 'deck', deck: 'other', pos: 3, card: 1 },
+      { type: 'reveal', actor: 'deck', deck: 'pile', pos: 3, card: 34 },
+      { type: 'reveal', actor: 0, deck: 'pile', pos: 3, card: 1 },
+      { type: 'reveal', actor: 'deck', deck: 'pile', pos: 3 },
+      { type: 'reveal', actor: 'deck', deck: 'pile', pos: -1, card: 1 },
+      { type: 'reveal', actor: 'deck', deck: 'pile', pos: 3, card: 1, to: null },
+      { type: 'epoch', actor: 'deck', epoch: 1 },
+      { type: 'epoch', actor: 'beacon', epoch: 1, size: 2 },
+      { type: 'epoch', actor: 'deck', epoch: '1', size: 2 },
     ];
     for (const a of bad) expect(parseAction(a), JSON.stringify(a)).toBeNull();
     const s = fuelPhase();
     for (const a of bad) expect(applyAction(s, a).ok).toBe(false);
     // A purchase of nothing is refused.
     expect(applyAction(s, { type: 'fuel', actor: 0, buy: [0, 0, 0, 0] }).ok).toBe(false);
+
+    // The regions are a choice from the list, never an intent.
+    const choosing = fresh(3);
+    for (const a of legal(choosing, 0)) expect(applyAction(choosing, a).ok).toBe(true);
+    expect(validateIntent(choosing, 0, { type: 'regions', actor: 0, regions: [0, 1, 2] }).ok).toBe(false);
 
     // validateIntent: an opening bid above the number, any raise, any purchase that fits, any scrap that fits.
     const opening = started(3);
@@ -102,31 +146,41 @@ describe('encoding, rules and views', () => {
       expect(validateRules(r).ok).toBe(false);
     expect(currentAffairs.seatRange(DEFAULT_RULES)).toEqual({ min: 2, max: 6 });
 
-    // Every view is the whole state; nothing is dealt, learnt or revealed.
-    for (const t of [opening, lot, s, sc]) {
-      for (const viewer of [0, 1, 2, null]) expect(currentAffairs.view(t, viewer)).toBe(t);
-      expect(currentAffairs.dealt(t)).toEqual([]);
+    // A view is the whole state but the deck's order; nothing is learnt; the stations turned up are dealt in public.
+    const drawing = act(act(lot, { type: 'fold', actor: 1 }), { type: 'fold', actor: 2 });
+    expect(pendingOf(drawing)).toEqual({ type: 'reveal', deck: 'pile', positions: [0] });
+    const drawn = drawAll(drawing);
+    for (const t of [opening, lot, s, sc, drawing, drawn]) {
+      expect(t.plain).not.toBeNull();
+      for (const viewer of [0, 1, 2, null])
+        expect(currentAffairs.view(t, viewer)).toEqual({ ...t, plain: null });
+      expect(currentAffairs.dealt(t)).toBe(t.dealt);
+      expect(currentAffairs.dealt(t).every((d) => d.deck === 'pile' && d.to === null)).toBe(true);
       expect(currentAffairs.knownTo(t, 0)).toEqual([]);
       expect(currentAffairs.revealsOf(t, { type: 'done', actor: 0 })).toEqual([]);
-      expect(currentAffairs.learn(t, { deck: 'x', pos: 0, card: 0 }).ok).toBe(false);
+      expect(currentAffairs.learn(t, { deck: 'pile', pos: 0, card: 0 }).ok).toBe(false);
     }
-    expect(currentAffairs.decks(DEFAULT_RULES)).toEqual([]);
-    // Rolls go through the beacon: a contribution carries the open roll's share; a player cannot send the faces.
-    expect(currentAffairs.beaconOf?.(started(3), { type: 'contribute', actor: 0, id: 1 })).toBeNull();
-    const rolling = act(act(lot, { type: 'fold', actor: 1 }), { type: 'fold', actor: 2 });
-    expect(rolling.roll).toBeNull();
-    const drawing = act(rolling, { type: 'open', actor: 1, station: 3, bid: 3 });
-    const open = act(drawing, { type: 'fold', actor: 2 });
-    expect(open.roll?.purpose).toBe('draw');
-    expect(currentAffairs.beaconOf?.(open, { type: 'contribute', actor: 2, id: open.roll?.id })).toBe(
-      open.roll?.id,
-    );
-    expect(currentAffairs.rollShape?.(open)).toEqual({ count: 1, sides: open.stack.pool.length });
-    expect(currentAffairs.rolls?.(open)).toBe(open.rolls);
-    expect(applyAction(open, { type: 'rolled', actor: 2, id: open.roll?.id, dice: [1] }).ok).toBe(false);
-    expect(applyAction(open, { type: 'rolled', actor: 'beacon', id: open.roll?.id, dice: [1] }).ok).toBe(
+    expect(currentAffairs.dealt(opening)).toEqual([]);
+    expect(currentAffairs.dealt(drawn)).toEqual([{ deck: 'pile', pos: 0, to: null }]);
+    // A view sets up without an order, and a view's view is itself.
+    const view = currentAffairs.setup({ rules: DEFAULT_RULES, seats: 3, mode: 'view', viewer: 1 });
+    expect(view.ok && view.value.plain).toBeNull();
+    expect(view.ok && currentAffairs.view(view.value, 1)).toBe(view.ok ? view.value : null);
+    expect(currentAffairs.decks(DEFAULT_RULES)).toEqual([STATION_DECK]);
+    // The only roll is the opening order's: a contribution carries its share; a player cannot send the faces.
+    const ordering = chosen(fresh(3));
+    expect(ordering.roll).toEqual({ id: 0, purpose: 'order', count: 2, sides: 60 });
+    expect(currentAffairs.beaconOf?.(ordering, { type: 'contribute', actor: 1, id: 0 })).toBe(0);
+    expect(currentAffairs.beaconOf?.(drawn, { type: 'contribute', actor: 1, id: 0 })).toBeNull();
+    expect(currentAffairs.rollShape?.(ordering)).toEqual({ count: 2, sides: 60 });
+    expect(currentAffairs.rolls?.(drawn)).toEqual([{ id: 0, last: 0 }]);
+    expect(applyAction(ordering, { type: 'rolled', actor: 1, id: 0, dice: [1, 1] }).ok).toBe(false);
+    expect(applyAction(ordering, { type: 'rolled', actor: 'beacon', id: 0, dice: [1, 1] }).ok).toBe(false);
+    expect(applyAction(ordering, { type: 'contribute', actor: 1, id: 1 }).ok).toBe(false);
+    // The deck's actions only when the deck is awaited.
+    expect(applyAction(drawn, { type: 'reveal', actor: 'deck', deck: 'pile', pos: 1, card: 1 }).ok).toBe(
       false,
     );
-    expect(applyAction(open, { type: 'contribute', actor: 2, id: (open.roll?.id ?? 0) + 1 }).ok).toBe(false);
+    expect(applyAction(drawn, { type: 'epoch', actor: 'deck', epoch: 1, size: 1 }).ok).toBe(false);
   });
 });

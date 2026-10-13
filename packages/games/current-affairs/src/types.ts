@@ -1,8 +1,9 @@
 /*
  * The Current Affairs state, actions and events (docs/games/current-affairs/RULES.md). Plain JSON: money and fuel are
- * integers, absent values are null. Nothing is hidden from any seat, so every view is the whole state.
+ * integers, absent values are null. The station stack is an encrypted deck (`stations`): only a full state knows its
+ * order (`plain`); every view learns a station when it is turned up by a public reveal.
  */
-import type { DiceRoll, Outcome } from '@bored-games/game-kit';
+import type { DealtPosition, DiceRoll, Outcome } from '@bored-games/game-kit';
 
 export interface CurrentRules {
   readonly rulesVersion: 1;
@@ -36,25 +37,24 @@ export interface Lot {
 }
 
 /**
- * The stack (C03, C19, C20): `top` holds the known cards on top (the green 13 at first); then `draws` cards drawn
- * evenly at random from `pool`, the stations shuffled at setup (the rest of the pool was taken out unseen); then,
- * while `eraCard`, the Era III card; then `under`, the stations laid under the stack, in the order they were laid.
- * Once Era III has shuffled the stack (`shuffled`), `under` is empty and `pool` holds what was under it, all of it
- * to be drawn (`draws` is its length).
+ * The stack (C03, C19, C21, C23), as deck positions of the deck `pile` (a card id is an index into DECK_STATIONS):
+ * `next` holds the positions still to be drawn before the Era III card, position 0 (the green 13) first, then the
+ * shuffled stations; `out` the positions taken out unseen at setup, never drawn; while `eraCard`, the Era III card
+ * comes next; `under` holds the stations laid under the stack at paydays, with their positions, in the order they
+ * were laid. When the Era III card comes up, what lies under it is reshuffled by a deck epoch (`shuffling` until the
+ * epoch is in); then `next` holds the epoch's positions and `shuffled` is true.
  */
 export interface Stack {
-  readonly top: readonly number[];
-  readonly pool: readonly number[];
-  readonly draws: number;
+  readonly next: readonly number[];
+  readonly out: readonly number[];
   readonly eraCard: boolean;
-  readonly under: readonly number[];
+  readonly under: readonly { readonly pos: number; readonly station: number }[];
+  readonly shuffling: boolean;
   readonly shuffled: boolean;
-  /** The stations taken out unseen at setup, once Era III's shuffle has shown which they were; else empty. */
-  readonly boxed: readonly number[];
 }
 
-/** What an open roll decides: the regions in play, the opening order, or a card drawn from the pool. */
-export type RollPurpose = 'regions' | 'order' | 'draw';
+/** What an open roll decides: the opening order (the stations come from the deck). */
+export type RollPurpose = 'order';
 
 export interface OpenRoll {
   readonly id: number;
@@ -99,7 +99,7 @@ export interface CurrentState {
   readonly game: 'current-affairs';
   readonly rules: CurrentRules;
   readonly seats: number;
-  /** The regions in play, ascending; empty until the opening roll. */
+  /** The regions in play, ascending; empty until the first seat chooses them (C02). */
   readonly regions: readonly number[];
   /** 1-based; 0 during the opening. */
   readonly round: number;
@@ -130,6 +130,14 @@ export interface CurrentState {
   readonly scrapping: { readonly seat: number; readonly bought: number } | null;
   /** Replacement draws owed to the market. */
   readonly owed: number;
+  /** The deck position being turned up, or null. */
+  readonly reveal: number | null;
+  /** Each drawn station's deck position, by station number (for the Era III reshuffle). */
+  readonly posOf: Readonly<Record<string, number>>;
+  /** Every deck position assigned so far, in order (all public). */
+  readonly dealt: readonly DealtPosition[];
+  /** Full mode only: the card id at each deck position; null in every view. */
+  readonly plain: Readonly<Record<string, number>> | null;
   /** The seats still to act in the fuel, wiring or payday phase, the next first. */
   readonly queue: readonly number[];
   /** The open roll, if any. */
@@ -147,6 +155,15 @@ export interface CurrentState {
 
 export type CurrentAction =
   | { readonly type: 'contribute'; readonly actor: number; readonly id: number }
+  | {
+      readonly type: 'reveal';
+      readonly actor: 'deck';
+      readonly deck: string;
+      readonly pos: number;
+      readonly card: number;
+    }
+  | { readonly type: 'epoch'; readonly actor: 'deck'; readonly epoch: number; readonly size: number }
+  | { readonly type: 'regions'; readonly actor: number; readonly regions: readonly number[] }
   | {
       readonly type: 'rolled';
       readonly actor: 'beacon';

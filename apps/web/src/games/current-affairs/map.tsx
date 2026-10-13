@@ -1,10 +1,10 @@
 /*
  * The Commonwealth (docs/games/current-affairs/RULES.md, "The map"), drawn as a utility company's wall chart: a
- * navy sea to the west and south, six tinted regions, the Long Water dividing the north from the south and the
- * peaks of the Copper Range in Highcopper (why the lines there cost more), every line with its cost on a brass
- * badge, and each city as a round medallion with three sockets, 10, 15 and 20, filled in build order with the
- * companies' colours and marks. Regions out of play are fogged. Cities the viewer may wire glow and are focusable
- * buttons. Original art, CC0-1.0 (packages/games/current-affairs/ART-LICENSE.md).
+ * navy sea along the west, the southern gulf and the long eastern coast, six tinted regions, the Long Water and the
+ * peaks of the Copper Range as scenery (they set no costs), every line with its cost on a brass badge (a free line
+ * is drawn doubled, with a "free" tag), and each city as a round medallion with three sockets, 10, 15 and 20,
+ * filled in build order with the companies' colours and marks. Regions out of play are fogged. Cities the viewer
+ * may wire glow and are focusable buttons. Original art, CC0-1.0 (packages/games/current-affairs/ART-LICENSE.md).
  */
 import { CITY_COUNT, CITY_REGION, LINKS, REGIONS, SLOT_COST } from '@bored-games/current-affairs';
 import { CITY_POINTS } from '@bored-games/current-affairs/atlas';
@@ -18,6 +18,7 @@ import {
   H,
   ISLETS,
   LAND_PATH,
+  NAME_OFFSHORE,
   NAME_SIZE,
   type NameSpot,
   PEAKS,
@@ -67,11 +68,11 @@ const BRASS_LO = '#7d5d22';
 const LINE_INK = '#2b2a2c';
 /** The three sockets of a city, 10 at the top, 15 bottom left, 20 bottom right. */
 const SOCKETS: readonly (readonly [number, number])[] = [
-  [0, -9.4],
-  [-8.2, 4.8],
-  [8.2, 4.8],
+  [0, -7.9],
+  [-6.9, 4],
+  [6.9, 4],
 ];
-const SOCKET_R = 7;
+const SOCKET_R = 6.1;
 
 let nameCache: { key: string; spots: readonly NameSpot[] } | null = null;
 
@@ -298,8 +299,8 @@ export function CommonwealthMap(props: MapProps) {
                 y={y}
                 font-size={REGION_NAME_SIZE}
                 letter-spacing={REGION_NAME_SPACING}
-                fill={look.ink}
-                opacity={inPlay.has(i) ? 0.66 : 0.45}
+                fill={NAME_OFFSHORE[i] ? look.fill : look.ink}
+                opacity={(inPlay.has(i) ? 0.66 : 0.45) + (NAME_OFFSHORE[i] ? 0.25 : 0)}
               >
                 {CURRENT_THEME.regions[r].toUpperCase()}
               </text>
@@ -341,35 +342,44 @@ export function CommonwealthMap(props: MapProps) {
             const pb = pt(b);
             const on = live(a) && live(b);
             const [bx, by] = BADGES[i] ?? [0, 0];
+            const free = cost === 0;
             return (
               <g key={`${a}-${b}`} class={on ? 'ca-link' : 'ca-link ca-link-fog'}>
+                {free && on ? (
+                  <path
+                    d={`M${pa[0]} ${pa[1]}L${pb[0]} ${pb[1]}`}
+                    stroke={LINE_INK}
+                    stroke-width="6"
+                    class="ca-link-free"
+                  />
+                ) : null}
                 <path
                   d={`M${pa[0]} ${pa[1]}L${pb[0]} ${pb[1]}`}
-                  stroke={LINE_INK}
-                  stroke-width={on ? 2.4 : 1.6}
+                  stroke={free && on ? '#efe5cc' : LINE_INK}
+                  stroke-width={free && on ? 2 : on ? 2.4 : 1.6}
                   stroke-dasharray={on ? undefined : '5 4'}
                 />
-                {on && <path d={ticks(pa, pb)} stroke={LINE_INK} stroke-width="1.2" />}
+                {on && !free && <path d={ticks(pa, pb)} stroke={LINE_INK} stroke-width="1.2" />}
                 <rect
-                  x={bx - 11}
+                  x={bx - (free ? 15 : 11)}
                   y={by - 8}
-                  width="22"
+                  width={free ? 30 : 22}
                   height="16"
                   rx="8"
-                  fill={on ? BRASS : '#cfc9bb'}
-                  stroke={on ? '#5b4417' : '#8d877b'}
+                  fill={free ? (on ? '#e3f0d4' : '#dcdcd2') : on ? BRASS : '#cfc9bb'}
+                  stroke={free ? (on ? '#2f6b45' : '#8d877b') : on ? '#5b4417' : '#8d877b'}
                   stroke-width="1.2"
                 />
                 <text
                   x={bx}
-                  y={by + 4.2}
+                  y={by + (free ? 3.8 : 4.2)}
                   text-anchor="middle"
                   font-family={DECO_FONT}
                   font-weight="700"
-                  font-size="11.5"
-                  fill={on ? '#14233a' : '#6d685e'}
+                  font-size={free ? 10.5 : 11.5}
+                  fill={free ? (on ? '#1f5a34' : '#6d685e') : on ? '#14233a' : '#6d685e'}
                 >
-                  {cost}
+                  {free ? 'free' : cost}
                 </text>
               </g>
             );
@@ -405,7 +415,7 @@ export function CommonwealthMap(props: MapProps) {
             const cls = `ca-city${on ? '' : ' ca-city-fog'}${offered ? ' ca-city-offer' : ''}${highlight ? ' ca-city-highlight' : ''}`;
             const body = (
               <>
-                {offered && <circle cx={x} cy={y} r="34" fill="url(#ca-offer-glow)" class="ca-offer-halo" />}
+                {offered && <circle cx={x} cy={y} r="31" fill="url(#ca-offer-glow)" class="ca-offer-halo" />}
                 {highlight && (
                   <g class="ca-highlight" fill="none" stroke="#f39a33" stroke-linecap="round">
                     <circle cx={x} cy={y} r={CITY_R + 7} stroke-width="3" />
@@ -431,7 +441,7 @@ export function CommonwealthMap(props: MapProps) {
                   stroke={offered ? '#ffcf7a' : BRASS}
                   stroke-width={offered ? 3 : 2.2}
                 />
-                <circle cx={x} cy={y} r={CITY_R - 3.4} fill="none" stroke={BRASS_LO} stroke-width=".8" />
+                <circle cx={x} cy={y} r={CITY_R - 1.6} fill="none" stroke={BRASS_LO} stroke-width=".7" />
                 {SOCKETS.map(([dx, dy], k) => {
                   const seat = here[k];
                   return seat === undefined ? (
@@ -446,11 +456,11 @@ export function CommonwealthMap(props: MapProps) {
                       />
                       <text
                         x={x + dx}
-                        y={y + dy + 2.3}
+                        y={y + dy + 2.1}
                         text-anchor="middle"
                         font-family={DECO_FONT}
                         font-weight="700"
-                        font-size="6.4"
+                        font-size="5.8"
                         fill={BRASS_HI}
                       >
                         {SLOT_COST[k]}
@@ -460,22 +470,6 @@ export function CommonwealthMap(props: MapProps) {
                     <SeatDisc key={k} seat={seat} cx={x + dx} cy={y + dy} r={SOCKET_R} />
                   );
                 })}
-                <text
-                  class="ca-city-name"
-                  x={spot.x}
-                  y={spot.y}
-                  text-anchor={spot.anchor}
-                  font-family={DECO_FONT}
-                  font-weight="700"
-                  font-size={NAME_SIZE}
-                  fill="#14233a"
-                  stroke="#fbf6ea"
-                  stroke-width="3.6"
-                  stroke-linejoin="round"
-                  paint-order="stroke"
-                >
-                  {name}
-                </text>
                 {offered && (
                   <g class="ca-offer-tag">
                     <rect
@@ -532,6 +526,30 @@ export function CommonwealthMap(props: MapProps) {
                 <title>{label}</title>
                 {body}
               </g>
+            );
+          })}
+        </g>
+
+        {/* The names, above every medallion. */}
+        <g class="ca-city-names" font-family={DECO_FONT} font-weight="700" font-size={NAME_SIZE}>
+          {Array.from({ length: CITY_COUNT }, (_, c) => {
+            const [x, y] = pt(c);
+            const spot = spots[c] ?? { x, y: y + 30, anchor: 'middle' as const };
+            return (
+              <text
+                key={c}
+                class={live(c) ? 'ca-city-name' : 'ca-city-name ca-city-fog'}
+                x={spot.x}
+                y={spot.y}
+                text-anchor={spot.anchor}
+                fill="#14233a"
+                stroke="#fbf6ea"
+                stroke-width="3.6"
+                stroke-linejoin="round"
+                paint-order="stroke"
+              >
+                {names[c] ?? ''}
+              </text>
             );
           })}
         </g>

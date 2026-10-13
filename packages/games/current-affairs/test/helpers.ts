@@ -1,12 +1,40 @@
 import { deepFreeze } from '@bored-games/game-kit';
-import { FUEL_TOTAL } from '../src/data.ts';
-import { applyAction, DEFAULT_RULES, legalActions, pendingOf, setupGame } from '../src/engine.ts';
+import { DECK_STATIONS, FUEL_TOTAL } from '../src/data.ts';
+import {
+  applyAction,
+  DECK_ID,
+  DEFAULT_RULES,
+  installDeckOrder,
+  legalActions,
+  pendingOf,
+  REGION_CHOOSER,
+  regionChoices,
+  setupGame,
+  shufflePlaintexts,
+} from '../src/engine.ts';
 import { checkInvariants } from '../src/invariants.ts';
 import type { Company, CurrentAction, CurrentEvent, CurrentRules, CurrentState } from '../src/types.ts';
 
-/** The frozen full state at setup: the regions roll is open. */
-export function fresh(seats: number, rules: CurrentRules = DEFAULT_RULES): CurrentState {
-  const r = setupGame({ rules, seats, mode: 'full', deckOrders: {} });
+/** The card id of a station in the deck `pile` (13 is card 0; the stack's stations follow, ascending). */
+export const cardOf = (station: number): number => DECK_STATIONS.indexOf(station);
+
+/**
+ * A deck order: 13 on top (position 0), then `stations` in the order given, then every other station ascending. The
+ * default draws 13, 11, 12, 14, 15, … (the lowest unseen each time).
+ */
+export function deckOrder(stations: readonly number[] = []): number[] {
+  const first = stations.map(cardOf);
+  const rest = DECK_STATIONS.map((_, card) => card).filter((card) => card !== 0 && !first.includes(card));
+  return [0, ...first, ...rest];
+}
+
+/** The frozen full state at setup, with the deck in `order`: seat 0 is to choose the regions in play. */
+export function fresh(
+  seats: number,
+  order: readonly number[] = deckOrder(),
+  rules: CurrentRules = DEFAULT_RULES,
+): CurrentState {
+  const r = setupGame({ rules, seats, mode: 'full', deckOrders: { [DECK_ID]: order } });
   if (!r.ok) throw new Error(r.error.message);
   return deepFreeze(r.value);
 }
@@ -48,20 +76,55 @@ export function rollStep(
 }
 export const rollWith = (s: CurrentState, faces: readonly number[]): CurrentState => rollStep(s, faces).state;
 
-/** Resolve every open draw roll with `face` (1 draws the lowest station still unseen). */
-export function drawAll(s: CurrentState, face = 1): CurrentState {
+/** Turn up the pending position, with the station the full state knows is there. */
+export function revealStep(s: CurrentState): { state: CurrentState; events: readonly CurrentEvent[] } {
+  const pos = s.reveal;
+  if (pos === null || s.plain === null) throw new Error('no reveal is pending');
+  return step(s, { type: 'reveal', actor: 'deck', deck: DECK_ID, pos, card: s.plain[String(pos)] as number });
+}
+export const revealNext = (s: CurrentState): CurrentState => revealStep(s).state;
+
+/**
+ * The Era III reshuffle: install `order` (card ids of the stations under the stack; by default as they were laid)
+ * and apply the epoch.
+ */
+export function epochStep(
+  s: CurrentState,
+  order: readonly number[] = shufflePlaintexts(s),
+): { state: CurrentState; events: readonly CurrentEvent[] } {
+  const r = installDeckOrder(s, 1, order);
+  if (!r.ok) throw new Error(r.error.message);
+  return step(deepFreeze(r.state), { type: 'epoch', actor: 'deck', epoch: 1, size: order.length });
+}
+
+/** Turn up every pending draw, and apply the Era III reshuffle as laid, until a player decides. */
+export function drawAll(s: CurrentState): CurrentState {
   let t = s;
-  while (t.roll !== null) t = rollWith(t, [face]);
+  for (let p = pendingOf(t); p.type === 'reveal' || p.type === 'shuffle'; p = pendingOf(t))
+    t = p.type === 'reveal' ? revealNext(t) : epochStep(t).state;
   return t;
 }
 
-/** The game at its first auction: the regions roll gives `regionFace`, the order roll `orderDice` (all ones: 0, 1, …). */
+/** Seat 0 chooses `regions` (by default the first set listed: 0, 1, 2 for three regions, so cities 0–20 are in play). */
+export function chosen(
+  s: CurrentState,
+  regions: readonly number[] = regionChoices(s)[0] as number[],
+): CurrentState {
+  return act(s, { type: 'regions', actor: REGION_CHOOSER, regions });
+}
+
+/**
+ * The game at its first auction: seat 0 chooses `regions`, the order roll gives `orderDice` (all ones: 0, 1, …), the
+ * deck is in `order`.
+ */
 export function started(
   seats: number,
-  regionFace = 1,
+  regions: readonly number[] | null = null,
   orderDice: readonly number[] = Array.from({ length: seats - 1 }, () => 1),
+  order: readonly number[] = deckOrder(),
 ): CurrentState {
-  return rollWith(rollWith(fresh(seats), [regionFace]), orderDice);
+  const s = fresh(seats, order);
+  return rollWith(chosen(s, regions ?? (regionChoices(s)[0] as number[])), orderDice);
 }
 
 /** The seat the engine waits on (a player decision). */
@@ -74,13 +137,13 @@ export function turnOf(s: CurrentState): number {
 /** Every bidder still in the lot folds, so the opener (or the leader) takes it. */
 export function foldAll(s: CurrentState): CurrentState {
   let t = s;
-  while (t.lot !== null && t.roll === null) t = act(t, { type: 'fold', actor: t.lot.turn });
+  while (t.lot !== null && pendingOf(t).type === 'player') t = act(t, { type: 'fold', actor: t.lot.turn });
   return t;
 }
 
-/** The seat to choose opens `station` at `bid` (its number by default); everyone else folds; draws take `face`. */
-export function sell(s: CurrentState, station: number, bid = station, face = 1): CurrentState {
-  return drawAll(foldAll(act(s, { type: 'open', actor: turnOf(s), station, bid })), face);
+/** The seat to choose opens `station` at `bid` (its number by default); everyone else folds; draws are turned up. */
+export function sell(s: CurrentState, station: number, bid = station): CurrentState {
+  return drawAll(foldAll(act(s, { type: 'open', actor: turnOf(s), station, bid })));
 }
 
 /** The company whose turn it is ends its fuel or wiring turn. */
@@ -90,7 +153,7 @@ export const done = (s: CurrentState): CurrentState => act(s, { type: 'done', ac
 export function skipPhase(s: CurrentState): CurrentState {
   const phase = s.phase;
   let t = s;
-  while (t.phase === phase && t.roll === null) t = done(t);
+  while (t.phase === phase && pendingOf(t).type === 'player') t = done(t);
   return t;
 }
 
@@ -110,30 +173,57 @@ export function wired(s: CurrentState, seat: number, cities: readonly number[]):
 }
 
 /**
- * `seat` owns `stations` too, taken from wherever they lie (the market, the stack, out of the game, another
- * company), so every station stays in one place.
+ * `seat` owns `stations` too, taken from wherever they lie (the market, under the stack, out of the game, another
+ * company, or the deck: the position that holds it is no longer drawn), so every station stays in one place.
  */
 export function own(s: CurrentState, seat: number, stations: readonly number[]): CurrentState {
-  const out = (xs: readonly number[]) => xs.filter((n) => !stations.includes(n));
-  const pool = out(s.stack.pool);
-  const t = patch(s, {
-    market: out(s.market),
-    gone: out(s.gone),
-    stack: {
-      ...s.stack,
-      top: out(s.stack.top),
-      pool,
-      draws: Math.min(s.stack.draws, pool.length),
-      under: out(s.stack.under),
-      boxed: out(s.stack.boxed),
-    },
-    companies: s.companies.map((c) => ({ ...c, stations: out(c.stations) })),
-  });
+  const t = patch(s, { ...offBoard(s, stations), stack: offStack(s, stations) });
   return withCompany(t, seat, (c) => ({
     ...c,
     stations: [...c.stations, ...stations].sort((a, b) => a - b),
   }));
 }
+
+/** The market, the stations out of the game and the companies, without `stations`. */
+function offBoard(s: CurrentState, stations: readonly number[]): Partial<CurrentState> {
+  const out = (xs: readonly number[]) => xs.filter((n) => !stations.includes(n));
+  return {
+    market: out(s.market),
+    gone: out(s.gone),
+    companies: s.companies.map((c) => ({ ...c, stations: out(c.stations) })),
+  };
+}
+
+/** The stack without `stations`: their deck positions are dropped, and they leave the stations under it. */
+function offStack(s: CurrentState, stations: readonly number[]): CurrentState['stack'] {
+  const cards = stations.map(cardOf);
+  const holds = (pos: number) => cards.includes(s.plain?.[String(pos)] ?? -1);
+  return {
+    ...s.stack,
+    next: s.stack.next.filter((pos) => !holds(pos)),
+    out: s.stack.out.filter((pos) => !holds(pos)),
+    under: s.stack.under.filter((u) => !stations.includes(u.station)),
+  };
+}
+
+/** Lay `stations` under the stack (from wherever they lie), each with the deck position that held it. */
+export function layUnder(s: CurrentState, stations: readonly number[]): CurrentState {
+  const plain = s.plain ?? {};
+  const posOf = (station: number): number =>
+    Number(Object.keys(plain).find((pos) => plain[pos] === cardOf(station)) ?? -1);
+  const stack = offStack(s, stations);
+  return patch(s, {
+    ...offBoard(s, stations),
+    stack: {
+      ...stack,
+      under: [...stack.under, ...stations.map((station) => ({ pos: posOf(station), station }))],
+    },
+  });
+}
+
+/** The stack with its draws before the Era III card set aside unseen: the next draw is the Era III card. */
+export const eraCardNext = (s: CurrentState): CurrentState =>
+  patch(s, { stack: { ...s.stack, next: [], out: [...s.stack.next, ...s.stack.out] } });
 
 /** `seat` holds `fuel`; what the supply cannot give comes off the yard (its cheapest units). */
 export function fuelled(s: CurrentState, seat: number, fuel: readonly number[]): CurrentState {
@@ -146,20 +236,20 @@ export function fuelled(s: CurrentState, seat: number, fuel: readonly number[]):
 
 /**
  * Play on to the next round's auction: every company passes (round 2 on) or folds, buys no fuel and wires nothing,
- * fires the last firing listed; draws take `face`.
+ * and fires the last firing listed; draws are turned up as the deck lies.
  */
-export function nextRound(s: CurrentState, face = 1): CurrentState {
+export function nextRound(s: CurrentState): CurrentState {
   const round = s.round;
   let t = s;
-  // A round with nothing on offer has no auction to wait in: it starts at the fuel phase.
-  while (!(t.round > round && t.roll === null && (t.phase === 'auction' || t.sold === 0))) {
-    if (t.phase === 'over') return t;
-    if (t.roll !== null) t = rollWith(t, [face]);
-    else if (t.phase === 'fuel' || t.phase === 'build') t = done(t);
-    else if (t.phase === 'power') t = act(t, legal(t, turnOf(t)).at(-1) as CurrentAction);
-    else if (t.lot !== null) t = act(t, { type: 'fold', actor: t.lot.turn });
-    else if (t.phase === 'auction' && t.scrapping === null) t = act(t, { type: 'pass', actor: turnOf(t) });
-    else throw new Error(`nextRound from ${t.phase}`);
+  for (let p = pendingOf(t); !(t.round > round && p.type === 'player'); p = pendingOf(t)) {
+    if (p.type === 'over') return t;
+    if (p.type === 'reveal' || p.type === 'shuffle') t = drawAll(t);
+    else if (p.type !== 'player') throw new Error(`nextRound at ${JSON.stringify(p)}`);
+    else if (p.decision === 'fuel' || p.decision === 'build') t = done(t);
+    else if (p.decision === 'power') t = act(t, legal(t, p.seat).at(-1) as CurrentAction);
+    else if (p.decision === 'bid') t = act(t, { type: 'fold', actor: p.seat });
+    else if (p.decision === 'open') t = act(t, { type: 'pass', actor: p.seat });
+    else throw new Error(`nextRound at ${p.decision}`);
   }
   return t;
 }

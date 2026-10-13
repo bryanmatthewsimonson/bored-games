@@ -11,7 +11,7 @@ import {
   own,
   patch,
   refused,
-  rollStep,
+  revealStep,
   sell,
   skipPhase,
   started,
@@ -168,19 +168,24 @@ describe('payday', () => {
   it('C19 the market moves on: Eras I and II lay the highest under the stack; Era III takes the lowest away', () => {
     let s = skipPhase(buildPhase());
     expect(s.market).toEqual([6, 7, 8, 9, 10, 11, 12]);
-    expect(s.stack.under).toEqual([13]);
+    // 13 goes under the stack with its deck position; the replacement is the next position, turned up.
+    expect(s.stack.under).toEqual([{ pos: 0, station: 13 }]);
     expect(last(s, 'under')).toEqual({ kind: 'under', station: 13 });
-    const r = rollStep(s, [1]);
+    expect(pendingOf(s)).toEqual({ type: 'reveal', deck: 'pile', positions: [3] });
+    const r = revealStep(s);
     expect(r.events[0]).toEqual({ type: 'drew', kind: 'drew', station: 14 });
     s = r.state;
     expect(s.market).toEqual([6, 7, 8, 9, 10, 11, 12, 14]);
     // A second round lays 14 under 13.
     s = nextRound(s);
-    expect(s.stack.under).toEqual([13, 15]);
+    expect(s.stack.under.map((u) => u.station)).toEqual([13, 15]);
     // Era II as well.
     const two = nextRound(patch(nextRound(roundOne(3)), { era: 2 }));
     expect(two.era).toBe(2);
-    expect(two.stack.under).toEqual([13, 15]);
+    expect(two.stack.under).toEqual([
+      { pos: 0, station: 13 },
+      { pos: 4, station: 15 },
+    ]);
     // Era III: the lowest leaves the game and a replacement is drawn.
     let t = skipPhase(patch(buildPhase(), { era: 3 }));
     expect(t.gone).toEqual([6]);

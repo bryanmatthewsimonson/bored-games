@@ -4,6 +4,7 @@ import { capsOf, keepOptions } from '../../src/fuel.ts';
 import type { CurrentState } from '../../src/types.ts';
 import {
   act,
+  deckOrder,
   drawAll,
   foldAll,
   fuelled,
@@ -31,18 +32,19 @@ const open = (s: CurrentState, station: number, bid = station): CurrentState =>
 
 describe('the auction', () => {
   it('C03 the four lowest stations are on offer in Eras I and II, and the market stays in number order', () => {
-    let s = started(3);
+    // The deck: 13 on top, then 11 and 27.
+    let s = started(3, null, undefined, deckOrder([11, 27]));
     expect(onOffer(s)).toEqual([3, 4, 5, 6]);
     expect(legal(s, 0)).toEqual([3, 4, 5, 6].map((n) => ({ type: 'open', actor: 0, station: n, bid: n })));
     expect(refused(s, { type: 'open', actor: 0, station: 7, bid: 7 })).toMatch(/not on offer/);
-    // 13 is drawn first, without a roll, and joins the market at its place.
+    // 13 is turned up first and joins the market at its place.
     s = sell(s, 3);
     expect(s.market).toEqual([4, 5, 6, 7, 8, 9, 10, 13]);
     expect(onOffer(s)).toEqual([4, 5, 6, 7]);
-    // An unknown station sorts in: face 1 draws 11, the lowest unseen.
+    // Each station sorts in where it belongs.
     s = sell(s, 4);
     expect(s.market).toEqual([5, 6, 7, 8, 9, 10, 11, 13]);
-    s = sell(s, 7, 7, 15);
+    s = sell(s, 7);
     expect(s.market).toEqual([5, 6, 8, 9, 10, 11, 13, 27]);
     expect(s.history.filter((h) => h.kind === 'drew')).toEqual([
       { kind: 'drew', station: 13 },
@@ -54,7 +56,7 @@ describe('the auction', () => {
   });
 
   it('C06 openings go in player order, only on offer, at least the number and at most the money; no pass in round 1', () => {
-    let s = started(3, 1, [2, 1]);
+    let s = started(3, null, [2, 1]);
     expect(s.order).toEqual([1, 0, 2]);
     expect(pendingOf(s)).toEqual({ type: 'player', seat: 1, decision: 'open' });
     expect(refused(s, { type: 'open', actor: 0, station: 3, bid: 3 })).toMatch(/not your decision/);
@@ -62,8 +64,11 @@ describe('the auction', () => {
     expect(legal(s, 1).some((a) => a.type === 'pass')).toBe(false);
     expect(refused(s, { type: 'open', actor: 1, station: 5, bid: 4 })).toMatch(/at least 5/);
     expect(refused(s, { type: 'open', actor: 1, station: 5, bid: 51 })).toMatch(/more than you have/);
-    // All its money: nobody can beat it, so the others fold by themselves.
+    // All its money: nobody can beat it, but each of the others still decides, and can only fold.
     s = open(s, 5, 50);
+    expect(s.lot?.turn).toBe(2);
+    expect(legal(s, 2)).toEqual([{ type: 'fold', actor: 2 }]);
+    s = drawAll(foldAll(s));
     expect(s.companies[1]).toMatchObject({ money: 0, stations: [5] });
     expect(pendingOf(s)).toEqual({ type: 'player', seat: 0, decision: 'open' });
     s = sell(sell(s, 3), 4);
@@ -84,30 +89,25 @@ describe('the auction', () => {
     s = drawAll(foldAll(open(s, s.market[0] as number)));
     expect(s.phase).toBe('fuel');
 
-    // A company that can afford no station on offer passes without a decision.
+    // A company that can afford no station on offer still decides: it passes.
     let t = nextRound(s);
-    const [first, second, third] = t.order as [number, number, number];
+    const [first, second] = t.order as [number, number, number];
     t = withCompany(t, second, (c) => ({ ...c, money: 2 }));
-    expect(
-      legal(
-        withCompany(t, first, (c) => ({ ...c, money: 2 })),
-        first,
-      ),
-    ).toEqual([{ type: 'pass', actor: first }]);
-    const r = step(t, {
-      type: 'open',
-      actor: first,
-      station: onOffer(t)[0] as number,
-      bid: onOffer(t)[0] as number,
-    });
-    // The broke company folds by itself; the third bids or folds.
-    expect(r.state.lot?.turn).toBe(third);
-    const before = r.state.history.length;
-    t = drawAll(foldAll(r.state));
-    expect(t.history.slice(before).filter((h) => h.kind === 'pass')).toEqual([
-      { kind: 'pass', seat: second },
-    ]);
-    expect(turnOf(t)).toBe(third);
+    expect(turnOf(t)).toBe(first);
+    t = drawAll(foldAll(open(t, onOffer(t)[0] as number)));
+    expect(pendingOf(t)).toEqual({ type: 'player', seat: second, decision: 'open' });
+    expect(legal(t, second)).toEqual([{ type: 'pass', actor: second }]);
+    expect(refused(t, { type: 'open', actor: second, station: onOffer(t)[0] as number, bid: 2 })).toMatch(
+      /at least/,
+    );
+    t = act(t, { type: 'pass', actor: second });
+    expect(t.auctionDone[second]).toBe(true);
+    // In round 1 too, where nobody else may pass.
+    let u = withCompany(started(3), 0, (c) => ({ ...c, money: 2 }));
+    expect(legal(u, 0)).toEqual([{ type: 'pass', actor: 0 }]);
+    u = act(u, { type: 'pass', actor: 0 });
+    expect(u.auctionDone).toEqual([true, false, false]);
+    expect(refused(u, { type: 'pass', actor: 1 })).toMatch(/must buy/);
   });
 
   it('C07 bids go clockwise from the opener, each beating the last; a fold leaves that lot; the last one in pays', () => {
@@ -144,12 +144,16 @@ describe('the auction', () => {
     s = drawAll(r.state);
     expect(s.companies[0]).toMatchObject({ money: 45, stations: [3, 7] });
 
-    // A bidder who cannot beat the bid folds by itself.
+    // A bidder who cannot beat the bid still decides, and can only fold.
     s = drawAll(foldAll(open(s, 8)));
     expect(s.companies[3]?.stations).toEqual([6, 8]);
     expect(turnOf(s)).toBe(2);
     s = withCompany(s, 1, (c) => ({ ...c, money: 30 }));
-    const broke = step(s, { type: 'open', actor: 2, station: 9, bid: 30 });
+    s = open(s, 9, 30);
+    expect(pendingOf(s)).toEqual({ type: 'player', seat: 1, decision: 'bid' });
+    expect(legal(s, 1)).toEqual([{ type: 'fold', actor: 1 }]);
+    expect(refused(s, { type: 'bid', actor: 1, amount: 31 })).toMatch(/more than you have/);
+    const broke = step(s, { type: 'fold', actor: 1 });
     expect(broke.events[0]).toEqual({ type: 'won', kind: 'won', seat: 2, station: 9, price: 30 });
     s = drawAll(broke.state);
     // The last company to put a station up takes it at its opening bid.
@@ -164,9 +168,12 @@ describe('the auction', () => {
     s = open(s, 7);
     s = act(s, { type: 'bid', actor: 0, amount: 8 });
     s = foldAll(s);
-    expect(s.roll?.purpose).toBe('draw');
-    // The replacement waits on a roll with one face per station still unseen.
-    expect(s.roll?.sides).toBe(s.stack.pool.length);
+    // The replacement is the stack's next position, turned up in public.
+    const pos = s.stack.next[0];
+    expect(pendingOf(s)).toEqual({ type: 'reveal', deck: 'pile', positions: [s.reveal] });
+    expect(s.dealt.at(-1)).toEqual({ deck: 'pile', pos: s.reveal, to: null });
+    expect(s.reveal).toBe(5);
+    expect(pos).toBe(6);
     s = drawAll(s);
     expect(s.market).toEqual([8, 9, 10, 11, 12, 13, 15, 16]);
     expect(s.auctionDone).toEqual([true, false, false, false]);
@@ -182,7 +189,7 @@ describe('the auction', () => {
     let u = nextRound(roundOne(3));
     expect(u.market).toEqual([6, 7, 8, 9, 10, 11, 12, 14]);
     for (const seat of u.order) u = act(u, { type: 'pass', actor: seat });
-    expect(u.roll?.purpose).toBe('draw');
+    expect(pendingOf(u).type).toBe('reveal');
     expect(u.market).toEqual([7, 8, 9, 10, 11, 12, 14]);
     expect(u.gone).toEqual([6]);
     u = drawAll(u);

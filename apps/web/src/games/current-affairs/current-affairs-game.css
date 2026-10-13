@@ -327,6 +327,28 @@ main:has(.ca-game) {
   opacity: 0.92;
 }
 
+/* The opening: the sets of regions. */
+.ca-region-sets {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+}
+
+.ca-region-set {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.ca-region-set[aria-pressed="true"] {
+  border-color: var(--ca-copper);
+  background: rgb(184 86 27 / 10%);
+  font-weight: 600;
+}
+
 /* The auction. */
 .ca-lot,
 .ca-open {
@@ -583,6 +605,13 @@ main:has(.ca-game) {
   margin: 0;
   font-weight: 700;
   font-size: 0.95rem;
+}
+
+.ca-hidden {
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-style: italic;
+  color: var(--ca-muted);
 }
 
 .ca-stats dd small {

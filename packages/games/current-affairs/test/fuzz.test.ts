@@ -1,4 +1,4 @@
-import { type FuzzPolicy, fuzzBatch, uniformPolicy } from '@bored-games/game-kit';
+import { type FuzzPolicy, fuzzBatch, packetOrder, uniformPolicy } from '@bored-games/game-kit';
 import { expect, it } from 'vitest';
 import { currentAffairs } from '../src/module.ts';
 import type { CurrentAction, CurrentState } from '../src/types.ts';
@@ -29,6 +29,7 @@ it('fuzzed games keep every invariant, views agree, and every game ends', { time
     rules: currentAffairs.defaultRules(),
     policies: [builder, uniformPolicy as FuzzPolicy<CurrentState>],
     maxSteps: 40_000,
+    deckOrder: packetOrder,
   });
   expect(report.failures).toEqual([]);
   expect(report.games).toBe(10);

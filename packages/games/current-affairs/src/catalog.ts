@@ -21,7 +21,7 @@ export const CURRENT_CATALOG: CatalogEntry = {
   mechanisms: ['auction-bidding', 'network-building', 'market'],
   modes: ['competitive'],
   turn: 'sequential',
-  hiddenInfo: false,
+  hiddenInfo: true,
   randomness: true,
   tags: ['electricity', 'power stations', 'utilities', 'auction', 'network', 'fuel market', 'map'],
   minAge: 12,

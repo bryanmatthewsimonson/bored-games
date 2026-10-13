@@ -1,22 +1,29 @@
 /*
  * The Current Affairs rules engine (docs/games/current-affairs/RULES.md). Pure: `apply` never throws or mutates, and
- * every move has one accepted encoding. Nothing is hidden, so the game has no deck: the stack's unknown cards are
- * drawn evenly at random by the dice beacon (D058) when they come up, which deals them exactly as a shuffled
- * face-down stack would (RULES.md "Online play").
+ * every move has one accepted encoding. The station stack is a shuffled encrypted deck (`pile`, with prompt
+ * shares, D075): each draw turns up its next position by a public reveal, and Era III reshuffles what lies under the
+ * stack as a deck epoch (D073). The opening order is drawn by the dice beacon (D058).
  */
-import type { ApplyResult, Outcome, Pending, Result, SetupInput } from '@bored-games/game-kit';
 import {
+  type ApplyResult,
+  type DeckSpec,
+  type Outcome,
+  type Pending,
+  packetOrderFits,
+  type Result,
+  type SetupInput,
+} from '@bored-games/game-kit';
+import {
+  DECK_STATIONS,
   OPENING_MARKET,
   OPENING_YARD,
   payFor,
   RESTOCK,
   SLOT_COST,
-  STACK_STATIONS,
   START_MONEY,
   SUBSTATIONS,
   TABLES,
   type Table,
-  TOP_STATION,
   YARD_PRICES,
 } from './data.ts';
 import {
@@ -51,6 +58,27 @@ export const MAX_SEATS = 6;
 export const HISTORY_LIMIT = 60;
 /** Sides of each opening-order die: 60 divides evenly by 2, 3, 4, 5 and 6 (C05). */
 export const ORDER_SIDES = 60;
+
+/** The deck's id: `pile`, the id the client runs reshuffle epochs for (D073), as Hazard's and Holler's. */
+export const DECK_ID = 'pile';
+/**
+ * The station stack (C03): the green 13 alone in its own group, so it lies on top, then the 33 stations shuffled by
+ * every seat. Every draw is a public reveal; every other seat's open app releases its share at once (D075).
+ */
+export const STATION_DECK: DeckSpec = {
+  id: DECK_ID,
+  size: DECK_STATIONS.length,
+  partitions: [
+    { id: 'top', size: 1 },
+    { id: 'stack', size: DECK_STATIONS.length - 1 },
+  ],
+  promptShares: true,
+};
+/** The stride between reshuffles' positions (PROTOCOL §5, D073): the Era III reshuffle deals positions 128 + i. */
+export const EPOCH_STRIDE = 128;
+/** The station a card id stands for. */
+export const stationOfCard = (card: number): number | undefined => DECK_STATIONS[card];
+const cardOfStation = (station: number): number => DECK_STATIONS.indexOf(station);
 
 /* --------------------------------------------------------------------------------------------- helpers */
 
@@ -112,6 +140,15 @@ export function setupGame(input: SetupInput<CurrentRules>): Result<CurrentState>
     return { ok: false, error: { code: 'seats', message: 'Current Affairs is played by 2 to 6 players' } };
   const seats = input.seats;
   const table = TABLES[seats] as Table;
+  let plain: Record<string, number> | null = null;
+  if (input.mode === 'full') {
+    const order = input.deckOrders[DECK_ID];
+    if (order === undefined || !packetOrderFits(STATION_DECK, order))
+      return { ok: false, error: { code: 'deck', message: 'The station order must fit the station deck.' } };
+    plain = Object.fromEntries(order.map((card, pos) => [String(pos), card]));
+  } else if (input.viewer !== null && (!int(input.viewer) || input.viewer >= seats))
+    return { ok: false, error: { code: 'viewer', message: 'Invalid viewer.' } };
+  const drawn = DECK_STATIONS.length - table.removed;
   const s: CurrentState = {
     game: 'current-affairs',
     rules: rules.value,
@@ -132,13 +169,12 @@ export function setupGame(input: SetupInput<CurrentRules>): Result<CurrentState>
     market: OPENING_MARKET,
     eraCardShown: false,
     stack: {
-      top: [TOP_STATION],
-      pool: STACK_STATIONS,
-      draws: STACK_STATIONS.length - table.removed,
+      next: Array.from({ length: drawn }, (_, i) => i),
+      out: Array.from({ length: table.removed }, (_, i) => drawn + i),
       eraCard: true,
       under: [],
+      shuffling: false,
       shuffled: false,
-      boxed: [],
     },
     gone: [],
     yard: OPENING_YARD,
@@ -147,6 +183,10 @@ export function setupGame(input: SetupInput<CurrentRules>): Result<CurrentState>
     lot: null,
     scrapping: null,
     owed: 0,
+    reveal: null,
+    posOf: {},
+    dealt: [],
+    plain,
     queue: [],
     roll: null,
     contributors: [],
@@ -156,8 +196,15 @@ export function setupGame(input: SetupInput<CurrentRules>): Result<CurrentState>
     history: [],
     result: null,
   };
-  return { ok: true, value: openRoll(s, 'regions', 1, regionSets(table.regions).length) };
+  // The first decision is the regions in play (C02); the order is drawn after it.
+  return { ok: true, value: s };
 }
+
+/** The seat that chooses the regions in play for the table (C02): the first seat, the table's creator. */
+export const REGION_CHOOSER = 0;
+
+/** Every set of regions the table may play in: as many as the player count asks, touching as one block (C02). */
+export const regionChoices = (s: { readonly seats: number }): number[][] => regionSets(tableOf(s).regions);
 
 /** Open a roll: every seat adds a share, from the one after the last actor round to it (D058). */
 function openRoll(s: CurrentState, purpose: RollPurpose, count: number, sides: number): CurrentState {
@@ -183,10 +230,25 @@ export function parseAction(raw: unknown): CurrentAction | null {
       if (!plainArray(dice) || dice.length < 1 || dice.length > 64 || !dice.every(int)) return null;
       return { type, actor, id, dice: [...(dice as number[])] };
     }
+    if (type === 'reveal') {
+      const { deck, pos, card } = raw;
+      if (!keys(raw, ['type', 'actor', 'deck', 'pos', 'card']) || actor !== 'deck' || deck !== DECK_ID)
+        return null;
+      return int(pos) && int(card) && card < DECK_STATIONS.length ? { type, actor, deck, pos, card } : null;
+    }
+    if (type === 'epoch') {
+      const { epoch, size } = raw;
+      if (!keys(raw, ['type', 'actor', 'epoch', 'size']) || actor !== 'deck') return null;
+      return int(epoch) && int(size) ? { type, actor, epoch, size } : null;
+    }
     if (!int(actor)) return null;
     switch (type) {
       case 'contribute':
         return keys(raw, ['type', 'actor', 'id']) && int(raw.id) ? { type, actor, id: raw.id } : null;
+      case 'regions':
+        return keys(raw, ['type', 'actor', 'regions']) && ascending(raw.regions)
+          ? { type, actor, regions: [...raw.regions] }
+          : null;
       case 'open':
         return keys(raw, ['type', 'actor', 'station', 'bid']) && int(raw.station) && int(raw.bid)
           ? { type, actor, station: raw.station, bid: raw.bid }
@@ -233,11 +295,21 @@ export function chooserOf(s: CurrentState): number | null {
 
 export function pendingOf(s: CurrentState): Pending {
   if (s.phase === 'over') return { type: 'over' };
+  if (s.reveal !== null) return { type: 'reveal', deck: DECK_ID, positions: [s.reveal] };
+  if (s.stack.shuffling)
+    return {
+      type: 'shuffle',
+      deck: DECK_ID,
+      epoch: 1,
+      from: s.stack.under.map((u) => ({ deck: DECK_ID, pos: u.pos })),
+    };
   if (s.roll !== null) {
     const next = s.contributors[0];
     if (next !== undefined) return { type: 'player', seat: next, decision: 'contribute' };
     return { type: 'beacon', id: s.roll.id };
   }
+  if (s.phase === 'opening' && s.regions.length === 0)
+    return { type: 'player', seat: REGION_CHOOSER, decision: 'regions' };
   if (s.scrapping !== null) return { type: 'player', seat: s.scrapping.seat, decision: 'scrap' };
   if (s.lot !== null) return { type: 'player', seat: s.lot.turn, decision: 'bid' };
   if (s.phase === 'auction') return { type: 'player', seat: chooserOf(s) ?? 0, decision: 'open' };
@@ -265,6 +337,7 @@ export function buildCost(
   seat: number,
   city: number,
   costs?: readonly number[],
+  anyMoney = false,
 ): number | null {
   if (!int(city) || city >= CITY_COUNT) return null;
   const c = companyOf(s, seat);
@@ -274,15 +347,19 @@ export function buildCost(
   const line = (costs ?? lineCosts(c.cities, inPlayOf(s)))[city] ?? Number.POSITIVE_INFINITY;
   if (!Number.isFinite(line)) return null;
   const cost = line + (SLOT_COST[here.length] as number);
-  return cost <= c.money ? cost : null;
+  return anyMoney || cost <= c.money ? cost : null;
 }
 
 /** Every city `seat` can wire now, with its cost. */
-export function buildOptions(s: CurrentState, seat: number): { city: number; cost: number }[] {
+export function buildOptions(
+  s: CurrentState,
+  seat: number,
+  anyMoney = false,
+): { city: number; cost: number }[] {
   const costs = lineCosts(companyOf(s, seat).cities, inPlayOf(s));
   const out: { city: number; cost: number }[] = [];
   for (let city = 0; city < CITY_COUNT; city++) {
-    const cost = buildCost(s, seat, city, costs);
+    const cost = buildCost(s, seat, city, costs, anyMoney);
     if (cost !== null) out.push({ city, cost });
   }
   return out;
@@ -356,6 +433,8 @@ export function legalActions(s: CurrentState, seat: number): readonly CurrentAct
   switch (p.decision) {
     case 'contribute':
       return [{ type: 'contribute', actor: seat, id: s.roll?.id ?? 0 }];
+    case 'regions':
+      return regionChoices(s).map((regions): CurrentAction => ({ type: 'regions', actor: seat, regions }));
     case 'scrap': {
       const sc = s.scrapping;
       if (sc === null) return [];
@@ -433,6 +512,10 @@ function dispatch(s: CurrentState, a: CurrentAction, ev: CurrentEvent[]): Curren
   const p = pendingOf(s);
   if (a.type === 'rolled')
     return p.type === 'beacon' && p.id === a.id ? applyRolled(s, a.dice, ev) : 'No roll is awaited.';
+  if (a.type === 'reveal')
+    return p.type === 'reveal' ? applyReveal(s, a.pos, a.card, ev) : 'No reveal is pending.';
+  if (a.type === 'epoch')
+    return p.type === 'shuffle' ? applyEpoch(s, a.epoch, a.size, ev) : 'No reshuffle is pending.';
   if (p.type !== 'player' || p.seat !== a.actor) return 'It is not your decision.';
   const t: CurrentState = { ...s, actor: a.actor };
   switch (a.type) {
@@ -440,6 +523,14 @@ function dispatch(s: CurrentState, a: CurrentAction, ev: CurrentEvent[]): Curren
       return p.decision === 'contribute' && s.roll?.id === a.id
         ? { ...s, contributors: s.contributors.slice(1) }
         : 'No share of that roll is owed.';
+    case 'regions': {
+      if (p.decision !== 'regions') return 'The regions are already chosen.';
+      const regions = a.regions;
+      if (!regionChoices(s).some((set) => set.join(',') === regions.join(',')))
+        return `Choose ${tableOf(s).regions} regions that touch as one block.`;
+      const u = note({ ...t, regions }, ev, { kind: 'regions', regions });
+      return openRoll(u, 'order', s.seats - 1, ORDER_SIDES);
+    }
     case 'scrap':
       return p.decision === 'scrap'
         ? applyScrap(t, a.actor, a.station, a.keep, ev)
@@ -489,13 +580,7 @@ function applyRolled(s: CurrentState, dice: readonly number[], ev: CurrentEvent[
   if (dice.length !== roll.count || dice.some((d) => d < 1 || d > roll.sides))
     return 'Those dice do not fit the roll.';
   const t: CurrentState = { ...s, roll: null, contributors: [] };
-  const face = dice[0] as number;
   switch (roll.purpose) {
-    case 'regions': {
-      const regions = regionSets(tableOf(s).regions)[face - 1] ?? [];
-      const u = note({ ...t, regions }, ev, { kind: 'regions', regions });
-      return openRoll(u, 'order', s.seats - 1, ORDER_SIDES);
-    }
     case 'order': {
       // Fisher–Yates: die i picks among the seats not yet placed; 60 divides evenly, so each pick is even (C05).
       const order = Array.from({ length: s.seats }, (_, i) => i);
@@ -505,15 +590,6 @@ function applyRolled(s: CurrentState, dice: readonly number[], ev: CurrentEvent[
       }
       return startRound(note({ ...t, order }, ev, { kind: 'order', order }), ev);
     }
-    case 'draw': {
-      const st = t.stack;
-      const card = st.pool[face - 1] as number;
-      const drawn: CurrentState = {
-        ...t,
-        stack: { ...st, pool: st.pool.filter((n) => n !== card), draws: st.draws - 1 },
-      };
-      return settle(placeDrawn(drawn, card, ev), ev);
-    }
     default:
       return 'Unknown roll.';
   }
@@ -522,24 +598,74 @@ function applyRolled(s: CurrentState, dice: readonly number[], ev: CurrentEvent[
 /* --------------------------------------------------------------------------------------- the market */
 
 /**
- * Draw the next card (C19, C21, C23): a known card, a card from the pool (by a roll when more than one could come),
- * the Era III card, or nothing when the stack is empty. What lies under the stack is reached only through the Era III
- * card, whose shuffle makes it the pool. Returns the state with the roll opened when it must wait.
+ * Draw the next card (C19, C21, C23): the stack's next position is turned up by a public reveal (play waits for it),
+ * or the Era III card comes, or nothing when the stack is empty.
  */
 function drawCard(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   const st = s.stack;
-  const top = st.top[0];
-  if (top !== undefined) return placeDrawn({ ...s, stack: { ...st, top: st.top.slice(1) } }, top, ev);
-  if (st.draws > 0) {
-    if (st.pool.length === 1) {
-      const card = st.pool[0] as number;
-      return placeDrawn({ ...s, stack: { ...st, pool: [], draws: st.draws - 1 } }, card, ev);
-    }
-    return openRoll(s, 'draw', 1, st.pool.length);
-  }
+  const pos = st.next[0];
+  if (pos !== undefined)
+    return {
+      ...s,
+      stack: { ...st, next: st.next.slice(1) },
+      reveal: pos,
+      dealt: [...s.dealt, { deck: DECK_ID, pos, to: null }],
+    };
   if (st.eraCard) return placeDrawn({ ...s, stack: { ...st, eraCard: false } }, 'era', ev);
   return note(s, ev, { kind: 'drew', station: null });
 }
+
+/** The pending position is turned up: its station joins the market (or leaves, if small), and play goes on. */
+function applyReveal(s: CurrentState, pos: number, card: number, ev: CurrentEvent[]): CurrentState | string {
+  if (s.reveal !== pos) return 'That station is not being turned up.';
+  if (s.plain !== null && s.plain[String(pos)] !== card) return 'That is not the station at that position.';
+  const station = stationOfCard(card) as number;
+  const seen =
+    s.market.includes(station) ||
+    s.gone.includes(station) ||
+    s.stack.under.some((u) => u.station === station) ||
+    s.companies.some((c) => c.stations.includes(station));
+  if (seen || (s.posOf[String(station)] !== undefined && !s.stack.shuffled))
+    return 'That station is already face up.';
+  const t: CurrentState = { ...s, reveal: null, posOf: { ...s.posOf, [String(station)]: pos } };
+  return settle(placeDrawn(t, station, ev), ev);
+}
+
+/** Era III's reshuffle is in (C21): the stations that were under the stack are drawn from its new positions. */
+function applyEpoch(s: CurrentState, epoch: number, size: number, ev: CurrentEvent[]): CurrentState | string {
+  const st = s.stack;
+  if (!st.shuffling || epoch !== 1 || size !== st.under.length) return 'That is not the pending reshuffle.';
+  const next = st.under.map((_, i) => EPOCH_STRIDE * epoch + i);
+  if (s.plain !== null && next.some((pos) => s.plain?.[String(pos)] === undefined))
+    return 'The reshuffled order is not installed.';
+  const t: CurrentState = { ...s, stack: { ...st, next, under: [], shuffling: false, shuffled: true } };
+  return settle(note(t, ev, { kind: 'shuffled', cards: size }), ev);
+}
+
+/** Full mode only: the stations under the stack in their new order (PROTOCOL §5, D073). Emits nothing. */
+export function installDeckOrder(
+  s: CurrentState,
+  epoch: number,
+  order: readonly number[],
+): ApplyResult<CurrentState, CurrentEvent> {
+  if (s.plain === null) return fail('A view has no station order.');
+  if (!s.stack.shuffling || epoch !== 1) return fail('No such reshuffle is pending.');
+  const want = shufflePlaintexts(s)
+    .slice()
+    .sort((x, y) => x - y);
+  const got = [...order].sort((x, y) => x - y);
+  if (got.length !== want.length || got.some((c, i) => c !== want[i]))
+    return fail('The order is not a shuffle of the stations under the stack.');
+  const plain = { ...s.plain };
+  order.forEach((card, i) => {
+    plain[String(EPOCH_STRIDE * epoch + i)] = card;
+  });
+  return { ok: true, state: { ...s, plain }, events: [] };
+}
+
+/** The card ids of the stations being reshuffled, in `from` order; empty outside full mode. */
+export const shufflePlaintexts = (s: CurrentState): readonly number[] =>
+  s.plain !== null && s.stack.shuffling ? s.stack.under.map((u) => cardOfStation(u.station)) : [];
 
 /** Take the lowest station of the market out of the game. */
 function removeLowest(s: CurrentState, ev: CurrentEvent[]): CurrentState {
@@ -551,26 +677,12 @@ function removeLowest(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   });
 }
 
-/** Era III's shuffle (C20): what lies under the stack becomes the pool, all of it to be drawn. */
+/** Era III's shuffle (C21): what lies under the stack is reshuffled at once, by a deck epoch when it holds any. */
 function shuffleStack(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   const st = s.stack;
-  const pool = [...st.under].sort((a, b) => a - b);
-  return note(
-    {
-      ...s,
-      stack: {
-        top: st.top,
-        pool,
-        draws: pool.length,
-        eraCard: false,
-        under: [],
-        shuffled: true,
-        boxed: st.draws === 0 ? st.pool : [],
-      },
-    },
-    ev,
-    { kind: 'shuffled', cards: pool.length },
-  );
+  if (st.under.length === 0)
+    return note({ ...s, stack: { ...st, shuffled: true } }, ev, { kind: 'shuffled', cards: 0 });
+  return { ...s, stack: { ...st, shuffling: true } };
 }
 
 /** A drawn card joins the market, in number order; the Era III card does what its phase says (C20). */
@@ -595,7 +707,7 @@ function placeDrawn(s: CurrentState, card: number | 'era', ev: CurrentEvent[]): 
 function settle(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   let t = s;
   for (let guard = 0; guard < 200; guard++) {
-    if (t.roll !== null) return t;
+    if (t.roll !== null || t.reveal !== null || t.stack.shuffling) return t;
     const low = t.market[0];
     if (low !== undefined && low <= maxCities(t)) {
       t = { ...removeLowest(t, ev), owed: t.owed + 1 };
@@ -669,15 +781,9 @@ function startRound(s: CurrentState, ev: CurrentEvent[]): CurrentState {
 
 /* --------------------------------------------------------------------------------------------- auction */
 
-/** The next seat to put a station up; one that can only pass passes without a decision (C06). */
+/** The next seat to put a station up, or the end of the auction (C06). Every seat decides for itself. */
 function nextChooser(s: CurrentState, ev: CurrentEvent[]): CurrentState {
-  let t = s;
-  for (;;) {
-    const seat = chooserOf(t);
-    if (seat === null) return endAuction(t, ev, false);
-    if (openOffers(t, seat).length > 0) return t;
-    t = note({ ...t, auctionDone: t.auctionDone.map((d, i) => d || i === seat) }, ev, { kind: 'pass', seat });
-  }
+  return chooserOf(s) === null ? endAuction(s, ev, false) : s;
 }
 
 function applyOpen(
@@ -699,7 +805,7 @@ function applyOpen(
     active: [seat, ...rivals],
     turn: rivals[0] ?? seat,
   };
-  return foldBroke({ ...s, lot }, ev);
+  return lastIn({ ...s, lot }, ev);
 }
 
 /** Who bids after `seat`: the next active seat clockwise. */
@@ -712,7 +818,7 @@ function applyBid(s: CurrentState, seat: number, amount: number, ev: CurrentEven
   if (lot === null) return 'No auction is under way.';
   if (amount <= lot.bid) return `A bid must beat ${lot.bid}.`;
   if (amount > companyOf(s, seat).money) return 'You cannot bid more than you have.';
-  return foldBroke(
+  return lastIn(
     { ...s, lot: { ...lot, bid: amount, leader: seat, turn: nextBidder(lot.active, s.seats, seat) } },
     ev,
   );
@@ -722,17 +828,15 @@ function applyFold(s: CurrentState, seat: number, ev: CurrentEvent[]): CurrentSt
   const lot = s.lot;
   if (lot === null) return 'No auction is under way.';
   const active = lot.active.filter((x) => x !== seat);
-  return foldBroke({ ...s, lot: { ...lot, active, turn: nextBidder(active, s.seats, seat) } }, ev);
+  return lastIn({ ...s, lot: { ...lot, active, turn: nextBidder(active, s.seats, seat) } }, ev);
 }
 
-/** A bidder who cannot beat the bid folds without a decision; the last one in wins (C07). */
-function foldBroke(s: CurrentState, ev: CurrentEvent[]): CurrentState {
-  let lot = s.lot;
-  while (lot !== null && lot.active.length > 1 && companyOf(s, lot.turn).money <= lot.bid) {
-    const out = lot.turn;
-    const active: number[] = lot.active.filter((x) => x !== out);
-    lot = { ...lot, active, turn: nextBidder(active, s.seats, out) };
-  }
+/**
+ * The last company in wins (C07). A bidder who cannot beat the bid still folds by its own decision: money is hidden,
+ * so the game never folds for it.
+ */
+function lastIn(s: CurrentState, ev: CurrentEvent[]): CurrentState {
+  const lot = s.lot;
   if (lot === null) return s;
   if (lot.active.length > 1) return { ...s, lot };
   return win({ ...s, lot: null }, lot.leader, lot.station, lot.bid, ev);
@@ -806,20 +910,27 @@ function endAuction(s: CurrentState, ev: CurrentEvent[], unsoldDone: boolean): C
 
 /* ------------------------------------------------------------------------------------------------ fuel */
 
-/** Whether `seat` could buy even one unit of any fuel. */
-const canBuyAny = (s: CurrentState, seat: number): boolean =>
-  [0, 1, 2, 3].some((r) =>
-    canBuy(
-      s,
-      seat,
-      [0, 1, 2, 3].map((i) => (i === r ? 1 : 0)),
-    ),
+/**
+ * Whether one unit of some fuel the yard holds would fit on `seat`'s stations: public facts only, never its money,
+ * which is hidden (a company that cannot pay still decides, and finishes).
+ */
+const canStoreAny = (s: CurrentState, seat: number): boolean => {
+  const c = companyOf(s, seat);
+  const caps = capsOf(c.stations);
+  return [0, 1, 2, 3].some(
+    (r) =>
+      (s.yard[r] ?? 0) > 0 &&
+      fits(
+        c.fuel.map((f, i) => f + (i === r ? 1 : 0)),
+        caps,
+      ),
   );
+};
 
-/** Pass over companies that can buy nothing; after the last, wiring begins (C12). */
+/** Pass over companies that could store no fuel the yard holds; after the last, wiring begins (C12). */
 function toNextFuel(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   let queue = s.queue;
-  while (queue.length > 0 && !canBuyAny(s, queue[0] as number)) queue = queue.slice(1);
+  while (queue.length > 0 && !canStoreAny(s, queue[0] as number)) queue = queue.slice(1);
   if (queue.length > 0) return { ...s, queue };
   return toNextBuild({ ...s, phase: 'build', queue: [...s.order].reverse() }, ev);
 }
@@ -848,10 +959,13 @@ function applyFuel(
 
 /* ---------------------------------------------------------------------------------------------- wiring */
 
-/** Pass over companies that can wire nothing; after the last, the end of wiring (C14). */
+/**
+ * Pass over companies that could wire no city whatever their money (no room, no substation, no route); a company
+ * that only cannot pay still decides, and finishes, as money is hidden (C15).
+ */
 function toNextBuild(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   let queue = s.queue;
-  while (queue.length > 0 && buildOptions(s, queue[0] as number).length === 0) queue = queue.slice(1);
+  while (queue.length > 0 && buildOptions(s, queue[0] as number, true).length === 0) queue = queue.slice(1);
   if (queue.length > 0) return { ...s, queue };
   return endBuild({ ...s, queue: [] }, ev);
 }
@@ -930,7 +1044,12 @@ function endRound(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   const top = t.market.at(-1);
   if (top === undefined) return replace(t, 0, 'round', ev);
   t = note(
-    { ...t, market: t.market.slice(0, -1), stack: { ...t.stack, under: [...t.stack.under, top] } },
+    {
+      ...t,
+      market: t.market.slice(0, -1),
+      // The highest station of Eras I and II was always drawn from the deck, so it has a position (invariants).
+      stack: { ...t.stack, under: [...t.stack.under, { pos: t.posOf[String(top)] ?? -1, station: top }] },
+    },
     ev,
     { kind: 'under', station: top },
   );

@@ -1,10 +1,11 @@
 /*
  * Current Affairs' artwork (D091), without a browser: every station card and the Era III card, the four fuels, the
  * fuel yard, the money glyph, the seat tokens, the map and the cover render to an <svg>; the cards' spoken labels
- * come from `stationLabel`; cities on offer are focusable buttons; the kept lettering spots still match the search;
- * and nothing rendered names the reference game, its designer or its publishers (CLAUDE.md, D046).
+ * come from `stationLabel`; cities on offer are focusable buttons; the map's lettering sits clear of every city,
+ * name and badge; and nothing rendered names the reference game, its designer or its publishers (CLAUDE.md, D046).
  */
 import { CITY_COUNT, LINKS, STATIONS } from '@bored-games/current-affairs';
+import { CITY_POINTS } from '@bored-games/current-affairs/atlas';
 import { CURRENT_THEME } from '@bored-games/current-affairs/theme';
 import { type ComponentChildren, h } from 'preact';
 import { describe, expect, it } from 'vitest';
@@ -22,11 +23,7 @@ import {
   stationLabel,
 } from '../src/games/current-affairs/art.tsx';
 import { CommonwealthMap } from '../src/games/current-affairs/map.tsx';
-import {
-  RANGE_NAME_SPOT,
-  REGION_NAME_SPOTS,
-  searchLettering,
-} from '../src/games/current-affairs/map-shapes.ts';
+import { COAST_POINTS, distToSegment, letteringClashes } from '../src/games/current-affairs/map-shapes.ts';
 import { classOf, findAll, type Node, renderTree, textOf } from './render-tree.ts';
 
 const svgs = (tree: readonly Node[]) => findAll(tree, (el) => el.tag === 'svg');
@@ -92,7 +89,7 @@ describe('Current Affairs art', () => {
       expect(rendered(h(SeatToken, { seat: s, title: `seat ${s}` })).label).toBe(`seat ${s}`);
   });
 
-  it('draws the map: 42 cities, 95 lines, fogged regions and the houses', () => {
+  it('draws the map: 42 cities, 87 lines, fogged regions and the houses', () => {
     const houses = Array.from({ length: CITY_COUNT }, (_, c) => (c === 0 ? [0, 2, 5] : c === 25 ? [1] : []));
     const tree = renderTree(
       h(CommonwealthMap, {
@@ -105,9 +102,13 @@ describe('Current Affairs art', () => {
     const cities = findAll(tree, (el) => classOf(el).includes('ca-city'));
     expect(cities).toHaveLength(42);
     expect(findAll(tree, (el) => classOf(el).includes('ca-link'))).toHaveLength(LINKS.length);
-    expect(LINKS).toHaveLength(95);
+    expect(LINKS).toHaveLength(87);
+    // The free lines (cost 0) carry a "free" tag instead of a number.
+    const tags = findAll(tree, (el) => el.tag === 'text').map((el) => textOf([el]));
+    expect(tags.filter((t) => t === 'free')).toHaveLength(LINKS.filter((l) => l[2] === 0).length);
+    expect(LINKS.filter((l) => l[2] === 0)).toHaveLength(3);
     // Amber, Heart and Ember are out of play here: their 21 cities are fogged.
-    expect(findAll(tree, (el) => classOf(el).includes('ca-city-fog'))).toHaveLength(21);
+    expect(findAll(tree, (el) => el.tag === 'g' && classOf(el).includes('ca-city-fog'))).toHaveLength(21);
     expect(findAll(tree, (el) => classOf(el).includes('ca-region-fog'))).toHaveLength(3);
     const text = textOf(tree);
     for (const name of CURRENT_THEME.cities) expect(text).toContain(name);
@@ -157,10 +158,15 @@ describe('Current Affairs art', () => {
     expect(findAll(tree, (el) => classOf(el).includes('ca-city-highlight'))).toHaveLength(1);
   });
 
-  it('keeps the lettering where the search puts it', () => {
-    const found = searchLettering();
-    expect(found.regions).toEqual(REGION_NAME_SPOTS);
-    expect(found.range).toEqual(RANGE_NAME_SPOT);
+  it('keeps the lettering clear and every city ashore', () => {
+    expect(letteringClashes()).toEqual([]);
+    for (const c of CITY_POINTS) {
+      let d = Number.POSITIVE_INFINITY;
+      for (let k = 0; k + 1 < COAST_POINTS.length; k++) {
+        d = Math.min(d, distToSegment(c, COAST_POINTS[k] ?? [0, 0], COAST_POINTS[k + 1] ?? [0, 0]));
+      }
+      expect(d).toBeGreaterThan(34);
+    }
   });
 
   it('draws the cover, with the title, and the thumbnail without it', () => {

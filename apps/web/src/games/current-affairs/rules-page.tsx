@@ -3,10 +3,13 @@
  * come from the theme; the station cards, fuel tokens, yard and map are the same drawings the table uses.
  */
 import {
+  CITY_COUNT,
   currentAffairs,
   FUEL_TOTAL,
+  LINKS,
   OPENING_YARD,
   PAYDAY,
+  REGION_LINKS,
   REGIONS,
   RESTOCK,
   START_MONEY,
@@ -62,6 +65,8 @@ const SEAT_COUNTS = [2, 3, 4, 5, 6] as const;
 const ERAS = ['I', 'II', 'III'] as const;
 const NO_HOUSES: readonly (readonly number[])[] = THEME.cities.map(() => []);
 const ALL_REGIONS: readonly number[] = REGIONS.map((_, r) => r);
+const LINE_MIN = Math.min(...LINKS.map((l) => l[2]));
+const LINE_MAX = Math.max(...LINKS.map((l) => l[2]));
 
 export function CurrentRulesContent() {
   const seats = currentAffairs.seatRange(currentAffairs.defaultRules());
@@ -117,9 +122,11 @@ export function CurrentRulesContent() {
       <Section id="components">
         <h3>{THEME.land.replace(/^the /, 'The ')}</h3>
         <p>
-          The map has 42 cities in six regions of seven: {listText(ALL_REGIONS.map(regionName))}. Lines join
-          them, each with a cost from $4 to $19: the Copper Range makes the lines inside Highcopper dear, and
-          the Long Water, which divides the north from the south, adds to every line across it.
+          The map has {CITY_COUNT} cities in six regions of seven: {listText(ALL_REGIONS.map(regionName))}.{' '}
+          {LINKS.length} lines join them, each with its own cost, from ${LINE_MIN} to ${LINE_MAX}
+          {LINE_MIN === 0 ? ' (a few neighbours are joined by a free line)' : ''}. Two regions touch where a
+          line crosses between them:{' '}
+          {REGION_LINKS.map(([a, b]) => `${regionName(a)} and ${regionName(b)}`).join('; ')}.
         </p>
         <figure class="ca-rules-map">
           <CommonwealthMap regions={ALL_REGIONS} houses={NO_HOUSES} names={THEME.cities} />
@@ -254,8 +261,9 @@ export function CurrentRulesContent() {
             Each company takes ${START_MONEY} and {SUBSTATIONS} substations.
           </li>
           <li>
-            The regions in play are drawn: 3, 3, 4, 5 or 5 of them for 2 to 6 players, always touching as one
-            block. Cities of the other regions take no part, and no line may pass through them.
+            The table's creator (the first seat) chooses the regions in play for the table: 3, 3, 4, 5 or 5 of
+            them for 2 to 6 players, always touching as one block. Cities of the other regions take no part,
+            and no line may pass through them.
           </li>
           <li>The order of the first round is drawn.</li>
           <li>
@@ -427,22 +435,29 @@ export function CurrentRulesContent() {
       <Section id="online">
         <ul>
           <li>
-            <strong>Everything is public:</strong> money, stations, fuel, the market and the stations still
-            unseen. There are no hidden cards and no setup phase.
+            <strong>Money is hidden:</strong> the screen shows each company only its own money. Bids, prices
+            and pay are made openly, as at a real table, and everyone's money appears in the final count,
+            where it breaks ties.
+          </li>
+          <li>Stations, fuel, the market and the cities wired are public.</li>
+          <li>
+            <strong>The regions</strong> are the game's first decision: the table's creator chooses them for
+            everyone, from every set of the right size that touches as one block.
           </li>
           <li>
-            <strong>Dice instead of shuffling.</strong> The regions in play, the first round's order and every
-            unknown station drawn from the stack come from a roll made by all the players' apps together,
-            after the move that needs it, so nobody can know it in advance. Each unknown station is picked
-            evenly from the stations not yet seen, which deals them exactly as a shuffled stack would; the
-            stations taken out unseen are never drawn. Keep the page open: your app adds its share to every
-            roll by itself.
+            <strong>The stack.</strong> The power stations are shuffled and signed by every player's app
+            before the game starts, so nobody knows their order; each station drawn turns up for everyone at
+            once, and the stations taken out unseen are never turned up. When the Era III card comes up, the
+            stations laid under the stack are shuffled again the same way. The first round's order comes from
+            a roll made by all the apps together. Keep the page open: your app adds its share to every station
+            and every roll by itself.
           </li>
           <li>
-            <strong>Nothing to decide, nothing asked.</strong> A company that can afford no station on offer
-            passes by itself; a bidder who cannot beat the bid folds by itself; a company that can buy no
-            fuel, or wire no city, is passed over; a company with no city, or no station it can fire, is paid
-            $10 by itself.
+            <strong>Your choices stay yours.</strong> Because money is hidden, a company that cannot beat a
+            bid, afford a station or pay for fuel or a city still decides for itself (it folds, passes or
+            finishes), so nobody learns what it can afford. Only a company whose stations can store no more
+            fuel, or that can reach no city, is passed over, and one with no city or no station it can fire is
+            paid $10 by itself.
           </li>
           <li>
             <strong>One fuel purchase a turn:</strong> choose all the fuel you want, then buy it in one go (or

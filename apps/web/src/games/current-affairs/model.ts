@@ -22,6 +22,7 @@ import {
   pendingOf,
   poweredBy,
   priceOf,
+  REGION_CHOOSER,
   REGIONS,
   SUBSTATIONS,
   stationOf,
@@ -38,6 +39,8 @@ export const seatName = (names: readonly string[], seat: number): string =>
   names[seat] ?? `Player ${seat + 1}`;
 export const cityName = (city: number): string => THEME.cities[city] ?? `City ${city + 1}`;
 export const regionName = (r: number): string => THEME.regions[REGIONS[r] ?? 'frost'];
+/** A set of regions in words: "Frostmere, Highcopper and Saltmarsh". */
+export const regionsText = (regions: readonly number[]): string => listText(regions.map(regionName));
 export const fuelName = (r: number): string => THEME.fuels[FUELS[r] ?? 'coal'];
 export const money = (n: number): string => `${THEME.words.money}${n}`;
 
@@ -95,20 +98,17 @@ export function statusLine(s: CurrentState, names: readonly string[], me: number
     const wins = winners.length === 1 && winners[0] !== me ? 'wins' : 'win';
     return `Game over. ${list} ${wins}, powering ${best} ${best === 1 ? 'city' : 'cities'}.`;
   }
-  if (s.roll !== null) {
-    switch (s.roll.purpose) {
-      case 'regions':
-        return 'Drawing the regions in play…';
-      case 'order':
-        return 'Drawing the order of the first round…';
-      default:
-        return 'Drawing a power station from the stack…';
-    }
-  }
+  if (s.reveal !== null) return 'Turning up a station…';
+  if (s.stack.shuffling) return 'Reshuffling the stations under the stack…';
+  if (s.roll !== null) return 'Drawing the order of the first round…';
   const p = pendingOf(s);
   if (p.type !== 'player') return '';
   const seat = p.seat;
   switch (p.decision) {
+    case 'regions':
+      return seat === me
+        ? `Choose the ${tableOf(s).regions} regions in play for the table.`
+        : `${seatName(names, seat)} is choosing the regions for the table.`;
     case 'scrap':
       return `${who(seat)} ${verb(seat, 'are', 'is')} over the limit of ${tableOf(s).maxStations} stations: ${verb(seat, 'scrap', 'scraps')} an older one.`;
     case 'bid': {
@@ -136,7 +136,7 @@ export function logLine(e: Entry, names: readonly string[]): string {
   const who = (seat: number): string => seatName(names, seat);
   switch (e.kind) {
     case 'regions':
-      return `The regions in play: ${listText(e.regions.map(regionName))}.`;
+      return `${who(REGION_CHOOSER)} chooses the regions in play: ${listText(e.regions.map(regionName))}.`;
     case 'order':
       return `Player order: ${e.order.map(who).join(', ')}.`;
     case 'round':
@@ -185,6 +185,8 @@ export interface Offers {
   /** Stations the viewer may put up (at their number or more). */
   readonly opens: readonly number[];
   readonly pass: boolean;
+  /** The opening: every set of regions the first seat may choose for the table (C02). */
+  readonly regionSets: readonly (readonly number[])[];
   /** The raises the list offers (1, 5 and 10 over the bid, as far as money goes); any other is accepted too. */
   readonly raises: readonly number[];
   readonly fold: boolean;
@@ -202,6 +204,7 @@ export interface Offers {
 
 export const NO_OFFERS: Offers = {
   opens: [],
+  regionSets: [],
   pass: false,
   raises: [],
   fold: false,
@@ -215,6 +218,7 @@ export const NO_OFFERS: Offers = {
 export function offersOf(s: CurrentState, me: number | null, legal: readonly CurrentAction[]): Offers {
   if (me === null || legal.length === 0) return NO_OFFERS;
   const opens: number[] = [];
+  const regionSets: number[][] = [];
   const raises: number[] = [];
   const scraps = new Map<number, number[][]>();
   const builds = new Map<number, number>();
@@ -225,6 +229,9 @@ export function offersOf(s: CurrentState, me: number | null, legal: readonly Cur
   let done = false;
   for (const a of legal) {
     switch (a.type) {
+      case 'regions':
+        regionSets.push([...a.regions]);
+        break;
       case 'open':
         opens.push(a.station);
         break;
@@ -260,7 +267,7 @@ export function offersOf(s: CurrentState, me: number | null, legal: readonly Cur
         break;
     }
   }
-  return { opens, pass, raises, fold, scraps, fuel, builds, done, firings: fires };
+  return { opens, regionSets, pass, raises, fold, scraps, fuel, builds, done, firings: fires };
 }
 
 /* ------------------------------------------------------------------------------------------- the market */
@@ -274,12 +281,13 @@ export function marketRows(s: CurrentState): { offer: readonly number[]; coming:
 /** The stack in words. */
 export function stackText(s: CurrentState): string {
   const st = s.stack;
-  const toDraw = st.top.length + st.draws;
+  const toDraw = st.next.length;
+  if (st.shuffling) return 'The stations under the stack are being shuffled for Era III.';
   if (st.shuffled) {
     if (toDraw === 0) return 'The stack is empty.';
     return `Stack: ${toDraw} ${toDraw === 1 ? 'station' : 'stations'} to draw.`;
   }
-  const out = st.pool.length - st.draws;
+  const out = st.out.length;
   const parts = [`${toDraw} to draw`];
   if (st.eraCard) parts.push('then the Era III card');
   if (st.under.length > 0) parts.push(`${st.under.length} laid under`);
@@ -407,7 +415,8 @@ export function firingResult(c: Company, f: Firing): { powered: number; pay: num
 export interface CompanyRow {
   readonly seat: number;
   readonly name: string;
-  readonly money: number;
+  /** Money is hidden (the FAQ): only the viewer's own, or everyone's once the game is over; else null. */
+  readonly money: number | null;
   readonly cities: number;
   /** Substations still unbuilt. */
   readonly left: number;
@@ -421,12 +430,16 @@ export interface CompanyRow {
   readonly place: number | null;
 }
 
-export function companyRows(s: CurrentState, names: readonly string[]): CompanyRow[] {
+/** Whether `viewer` may see `seat`'s money: its own, or anyone's once the game is over (money is hidden). */
+export const seesMoney = (s: CurrentState, viewer: number | null, seat: number): boolean =>
+  s.phase === 'over' || viewer === seat;
+
+export function companyRows(s: CurrentState, names: readonly string[], viewer: number | null): CompanyRow[] {
   const acting = s.phase === 'over' || s.roll !== null ? null : actingSeat(s);
   return s.companies.map((c, seat) => ({
     seat,
     name: seatName(names, seat),
-    money: c.money,
+    money: seesMoney(s, viewer, seat) ? c.money : null,
     cities: c.cities.length,
     left: SUBSTATIONS - c.cities.length,
     stations: c.stations,

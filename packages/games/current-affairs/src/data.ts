@@ -88,6 +88,12 @@ export const STACK_STATIONS: readonly number[] = STATIONS.map((s) => s.n).filter
   (n) => !OPENING_MARKET.includes(n) && n !== TOP_STATION,
 );
 
+/**
+ * The station deck's cards, by card id: the green 13 alone (it lies on top), then the stations shuffled into the
+ * stack, ascending. The opening market (3–10) is laid out face up and is not in the deck.
+ */
+export const DECK_STATIONS: readonly number[] = [TOP_STATION, ...STACK_STATIONS];
+
 /** Units each fuel has in the game, and its yard spaces. */
 export const FUEL_TOTAL: readonly number[] = [24, 24, 24, 12];
 /** The price of each yard space of a fuel, cheapest first. */

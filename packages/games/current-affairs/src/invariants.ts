@@ -30,20 +30,23 @@ export function checkInvariants(s: CurrentState): string[] {
     const held = s.companies.reduce((t, c) => t + (c.fuel[r] ?? 0), 0);
     if (yard + held > (FUEL_TOTAL[r] ?? 0)) out.push(`fuel ${r}: ${yard} in the yard and ${held} held`);
   }
-  // Every station is in exactly one place.
+  // Every station face up is in exactly one place; the rest are the stack's unseen cards, one per position to draw.
   const st = s.stack;
-  const places = [
+  const placed = [
     ...s.market,
     ...s.companies.flatMap((c) => c.stations),
     ...s.gone,
-    ...st.top,
-    ...st.pool,
-    ...st.under,
-    ...st.boxed,
-  ].sort((a, b) => a - b);
-  const all = STATIONS.map((x) => x.n);
-  if (places.join(',') !== all.join(',')) out.push(`stations are not each in one place: ${places.join(',')}`);
-  if (!int(st.draws) || st.draws > st.pool.length) out.push(`stack draws ${st.draws} of ${st.pool.length}`);
+    ...st.under.map((u) => u.station),
+  ];
+  if (new Set(placed).size !== placed.length) out.push(`a station is in two places: ${placed.join(',')}`);
+  const unseen = STATIONS.length - placed.length;
+  const owed = st.next.length + st.out.length + (s.reveal !== null ? 1 : 0);
+  if (unseen !== owed) out.push(`${unseen} stations unseen but ${owed} stack positions`);
+  if (st.under.some((u) => u.pos < 0)) out.push('a station under the stack has no deck position');
+  if (st.shuffling && st.shuffled) out.push('the stack is shuffling and shuffled');
+  if (s.plain !== null)
+    for (const pos of [...st.next, ...st.out])
+      if (s.plain[String(pos)] === undefined) out.push(`position ${pos} has no card`);
   if (s.market.some((n, i) => i > 0 && (s.market[i - 1] as number) >= n)) out.push('market not ascending');
   if (s.houses.length !== CITY_COUNT) out.push('houses length');
   s.houses.forEach((h, city) => {
@@ -73,9 +76,11 @@ export function coverageOf(_s: CurrentState, events: readonly CurrentEvent[]): s
     if (e.type === 'end') tags.push('end:cities');
   }
   if (events.some((e) => e.type === 'era' && e.era === 3)) {
-    if (_s.phase === 'fuel') tags.push('era3:auction');
-    if (_s.phase === 'power') tags.push('era3:build');
-    if (_s.phase === 'auction' && _s.round > 0) tags.push('era3:payday');
+    // Which timing of the Era III card (C21): at payday the market moved on in the same action; in an auction Era
+    // III begins with the fuel phase; otherwise the card came up while wiring.
+    if (events.some((e) => e.type === 'restock' || e.type === 'under')) tags.push('era3:payday');
+    else if (_s.phase === 'fuel' || _s.phase === 'build') tags.push('era3:auction');
+    else tags.push('era3:build');
   }
   return tags;
 }

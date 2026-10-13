@@ -3,10 +3,12 @@ import { type Browser, expect, type Page, test } from '@playwright/test';
 
 /*
  * Current Affairs end to end (D091): three players, each in a browser context of its own, over the dev relay. The
- * game is deckless: the regions, the first order and every station drawn from the stack come from dice that all the
- * open apps roll together (D058), with no click. The driver plays the first round by simple clicks: everyone puts up
- * the lowest station it can (the others fold), buys the fuel to fire it, wires one city and fires at payday. Then a
- * reload, and at 390 px the page does not scroll sideways. Run it with `pnpm e2e current-affairs.spec.ts`.
+ * power stations are shuffled in the browsers as an encrypted deck and every station turns up for everyone at once;
+ * the first order comes from dice that all the open apps roll together (D058); neither needs a click. The first
+ * seat chooses the regions for the table with two clicks. The driver then plays the first round by simple clicks:
+ * everyone puts up the lowest station it can (the others fold), buys the fuel to fire it, wires one city and fires
+ * at payday. Each player sees only its own money. Then a reload, and at 390 px the page does not scroll sideways.
+ * Run it with `pnpm e2e current-affairs.spec.ts`.
  */
 
 const root = (p: Page) => p.getByTestId('ca-game');
@@ -44,6 +46,9 @@ async function decide(p: Page): Promise<void> {
   const decision = await root(p).getAttribute('data-decision');
   switch (decision) {
     case 'open':
+      // A company that can afford nothing passes.
+      if ((await root(p).locator('button[data-station]:not([disabled])').count()) === 0)
+        return sends(p, () => button(p, 'pass').first().click());
       // Pick the lowest station on offer, then put it up at its number.
       return sends(p, async () => {
         await root(p).locator('button[data-station]:not([disabled])').first().click();
@@ -112,9 +117,19 @@ test('three players play the first round of Current Affairs', async ({ browser }
   expect(players.filter((p) => p !== undefined)).toHaveLength(3);
   const watch = players[0] as Page;
 
-  // 2. The opening rolls (the regions, then the order) go through by themselves: the first auction opens.
+  // 2. The first seat chooses the regions for the table by clicking; the others wait. Then the order roll goes
+  // through by itself and the first auction opens.
+  const other = players[1] as Page;
+  await expect(root(watch)).toHaveAttribute('data-decision', 'regions', { timeout: 300_000 });
+  await expect(root(other)).toContainText('is choosing the regions for the table');
+  await expect(root(other).locator('button[data-regions]')).toHaveCount(0);
+  const sets = root(watch).locator('button[data-regions]:not([disabled])');
+  await expect(sets).toHaveCount(12);
+  await sets.nth(2).click();
+  await expect(sets.nth(2)).toHaveAttribute('aria-pressed', 'true');
+  await sends(watch, () => button(watch, 'regions').click());
   await expect(root(watch)).toHaveAttribute('data-phase', 'auction', { timeout: 300_000 });
-  await expect(root(watch).locator('.ca-log')).toContainText('The regions in play');
+  await expect(root(watch).locator('.ca-log')).toContainText('chooses the regions in play');
   await expect(root(watch).locator('.ca-log')).toContainText('Player order');
   await expect(root(watch).locator('.ca-market')).toBeVisible();
 
@@ -157,6 +172,14 @@ test('three players play the first round of Current Affairs', async ({ browser }
       .locator('.ca-company')
       .first(),
   ).toBeVisible();
+
+  // Each player sees its own money and nobody else's.
+  for (const [seat, p] of players.entries()) {
+    const panels = root(p).locator('.ca-company');
+    await expect(panels).toHaveCount(3);
+    await expect(root(p).locator(`.ca-company[data-seat="${seat}"] .ca-money`)).toHaveCount(1);
+    await expect(root(p).locator('.ca-company .ca-hidden')).toHaveCount(2);
+  }
 
   // 4. A reload keeps the game.
   const p0 = players[0] as Page;

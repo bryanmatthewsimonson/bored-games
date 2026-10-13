@@ -7,13 +7,18 @@ import {
   type CurrentAction,
   type CurrentState,
   currentAffairs,
+  DECK_ID,
   legalActions,
   pendingOf,
+  REGION_CHOOSER,
+  regionChoices,
+  STATION_DECK,
 } from '@bored-games/current-affairs';
 import { COMPARE_PHRASE } from '@bored-games/current-affairs/compare';
 import { h } from 'preact';
 import { describe, expect, it } from 'vitest';
 import {
+  CURRENT_SETUP_COPY,
   CurrentAffairsGame,
   CurrentTable,
   EMPTY_UI,
@@ -27,6 +32,7 @@ import {
   logLine,
   offersOf,
   refuelBasket,
+  regionsText,
   stackText,
   statusLine,
 } from '../src/games/current-affairs/model.ts';
@@ -42,11 +48,17 @@ function applied(s: CurrentState, a: unknown): CurrentState {
   return r.state;
 }
 
-/** Every share and roll the dice owe, each die showing `face` (the first face picks the first choice). */
+/**
+ * Every automatic step: each station turned up from the deck (its card from the full state's order), each share
+ * and roll the dice owe, each die showing `face`.
+ */
 function rollAll(s0: CurrentState, face = 1): CurrentState {
   let s = s0;
   for (let p = pendingOf(s); ; p = pendingOf(s)) {
-    if (p.type === 'player' && p.decision === 'contribute')
+    if (p.type === 'reveal')
+      for (const pos of p.positions)
+        s = applied(s, { type: 'reveal', actor: 'deck', deck: DECK_ID, pos, card: s.plain?.[String(pos)] });
+    else if (p.type === 'player' && p.decision === 'contribute')
       s = applied(s, { type: 'contribute', actor: p.seat, id: s.roll?.id });
     else if (p.type === 'beacon')
       s = applied(s, {
@@ -61,15 +73,24 @@ function rollAll(s0: CurrentState, face = 1): CurrentState {
 
 const act = (s: CurrentState, a: CurrentAction): CurrentState => rollAll(applied(s, a));
 
-function started(seats = 3): CurrentState {
+/** A new game: the first seat has the regions to choose. */
+function opening(seats = 3): CurrentState {
   const r = currentAffairs.setup({
     rules: currentAffairs.defaultRules(),
     seats,
     mode: 'full',
-    deckOrders: {},
+    deckOrders: { [DECK_ID]: Array.from({ length: STATION_DECK.size }, (_, i) => i) },
   });
   if (!r.ok) throw new Error(r.error.message);
   return rollAll(r.value);
+}
+
+/** Round 1's auction: the first set of regions chosen, the order rolled. */
+function started(seats = 3): CurrentState {
+  const s = opening(seats);
+  const choice = legalActions(s, REGION_CHOOSER)[0];
+  if (choice === undefined) throw new Error('no regions to choose');
+  return act(s, choice);
 }
 
 const seatOf = (s: CurrentState): number => {
@@ -114,8 +135,54 @@ const actions = (tree: ReturnType<typeof renderTree>) =>
     (el) => el.tag === 'button' && el.attrs['data-action'] !== undefined && el.attrs.disabled !== true,
   ).map((b) => JSON.parse(String(b.attrs['data-action'])) as CurrentAction);
 
+describe('the regions', () => {
+  it('the first seat chooses the regions for the table; the others wait', () => {
+    const s = opening();
+    expect(s.phase).toBe('opening');
+    expect(pendingOf(s)).toEqual({ type: 'player', seat: REGION_CHOOSER, decision: 'regions' });
+    const offers = offersOf(s, REGION_CHOOSER, legalActions(s, REGION_CHOOSER));
+    expect(offers.regionSets).toEqual(regionChoices(s));
+    expect(offers.regionSets.every((set) => set.length === 3)).toBe(true);
+    expect(statusLine(s, NAMES, REGION_CHOOSER)).toBe('Choose the 3 regions in play for the table.');
+    expect(statusLine(s, NAMES, 1)).toBe('Ada is choosing the regions for the table.');
+    // One button per set, by region names; nothing is sent until a set is picked.
+    const tree = table(s, REGION_CHOOSER);
+    expect(findAll(tree, (el) => el.attrs['data-regions'] !== undefined)).toHaveLength(
+      offers.regionSets.length,
+    );
+    expect(actions(tree).filter((a) => a.type === 'regions')).toEqual([]);
+    const set = offers.regionSets[1] as number[];
+    const picked = table(s, REGION_CHOOSER, { regions: set });
+    expect(actions(picked)).toContainEqual({ type: 'regions', actor: REGION_CHOOSER, regions: set });
+    expect(textOf(picked)).toContain(regionsText(set));
+    // The others see who is choosing, and have nothing to send.
+    const other = table(s, 1);
+    expect(textOf(other)).toMatch(/is choosing the regions for the table/);
+    expect(actions(other)).toEqual([]);
+    // Once chosen, the order roll goes through and the auction opens.
+    const t = act(s, { type: 'regions', actor: REGION_CHOOSER, regions: set });
+    expect(t.regions).toEqual(set);
+    expect(t.phase).toBe('auction');
+    expect(logLine(t.history[0] as never, NAMES)).toBe(
+      `Ada chooses the regions in play: ${regionsText(set)}.`,
+    );
+  });
+});
+
+describe('the deck', () => {
+  it('turns up stations and reshuffles without asking anyone', () => {
+    const s = started();
+    const turning: CurrentState = { ...s, reveal: 3 };
+    expect(statusLine(turning, NAMES, 0)).toBe('Turning up a station…');
+    expect(legalActions(turning, seatOf(s))).toEqual([]);
+    const shuffling: CurrentState = { ...s, stack: { ...s.stack, shuffling: true } };
+    expect(statusLine(shuffling, NAMES, null)).toBe('Reshuffling the stations under the stack…');
+    expect(stackText(shuffling)).toMatch(/being shuffled/);
+  });
+});
+
 describe('the auction', () => {
-  it('opens round 1 with the regions and the order drawn, and the lowest four stations on offer', () => {
+  it('opens round 1 with the regions chosen and the order drawn, and the lowest four stations on offer', () => {
     const s = started();
     expect(s.phase).toBe('auction');
     expect(s.regions).toHaveLength(3);
@@ -261,7 +328,7 @@ describe('fuel, wiring and payday', () => {
 describe('the companies, the history and the end', () => {
   it('counts each company and writes the history in plain words', () => {
     const s = afterAuction();
-    const rows = companyRows(s, NAMES);
+    const rows = companyRows(s, NAMES, 0);
     expect(rows.map((r) => [r.cities, r.left, r.stations.length])).toEqual([
       [0, 22, 1],
       [0, 22, 1],
@@ -279,7 +346,7 @@ describe('the companies, the history and the end', () => {
       'Ada powers 3 cities and is paid $44.',
     );
     expect(logLine({ kind: 'regions', regions: [0, 1, 4] }, NAMES)).toBe(
-      'The regions in play: Frostmere, Highcopper and Heartfield.',
+      'Ada chooses the regions in play: Frostmere, Highcopper and Heartfield.',
     );
     expect(logLine({ kind: 'era', era: 2 }, NAMES)).toBe('Era II begins.');
     expect(logLine({ kind: 'scrap', seat: 1, station: 4, lost: [2, 0, 0, 0] }, NAMES)).toBe(
@@ -293,6 +360,31 @@ describe('the companies, the history and the end', () => {
     for (const name of NAMES.slice(1)) expect(text).toContain(name);
     expect(text).toMatch(/What happened/);
     expect(text).toMatch(/buys station/);
+  });
+
+  it("hides every company's money but the viewer's own until the game is over", () => {
+    const s0 = afterAuction();
+    // Distinct sums, so a leak would show.
+    const s: CurrentState = {
+      ...s0,
+      companies: s0.companies.map((c, i) => ({ ...c, money: [41, 37, 29][i] ?? 0 })),
+    };
+    expect(companyRows(s, NAMES, 1).map((r) => r.money)).toEqual([null, 37, null]);
+    expect(companyRows(s, NAMES, null).map((r) => r.money)).toEqual([null, null, null]);
+    const leaks = (text: string, n: number) => new RegExp(`\\$\\s*${n}\\b`).test(text);
+    const mine = textOf(table(s, 1));
+    expect(leaks(mine, 37)).toBe(true);
+    expect(leaks(mine, 41) || leaks(mine, 29)).toBe(false);
+    const spectator = textOf(table(s, null));
+    expect([41, 37, 29].some((n) => leaks(spectator, n))).toBe(false);
+    // Over: everyone's money, in the final table.
+    const over: CurrentState = {
+      ...s,
+      phase: 'over',
+      result: { places: [1, 2, 3], scores: [3, 2, 1], reason: 'cities' },
+    };
+    expect(companyRows(over, NAMES, null).map((r) => r.money)).toEqual([41, 37, 29]);
+    expect([41, 37, 29].every((n) => leaks(textOf(table(over, null)), n))).toBe(true);
   });
 
   it('shows the final count when the game is over', () => {
@@ -328,11 +420,11 @@ describe('the rules page and the registration', () => {
     expect(text).toMatch(/Resign\s+is always open/);
   });
 
-  it('registers the game without a setup phase or an automatic move', () => {
+  it('registers the game, its setup copy and no automatic move', () => {
     const game = webGame('current-affairs');
     expect(game?.Component).toBe(CurrentAffairsGame);
     expect(game?.RulesPage).toBe(CurrentAffairsRulesPage);
-    expect(game?.setupCopy(false)).toBeNull();
+    expect(game?.setupCopy(true)).toEqual(CURRENT_SETUP_COPY);
     expect(game?.autoMove).toBeUndefined();
   });
 });

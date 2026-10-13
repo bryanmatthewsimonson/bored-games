@@ -233,14 +233,14 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
       width: 1280,
       height: 860,
       caption:
-        'The fuel phase in Era II: the cheapest units go first, and every unit taken raises the yard’s price.',
+        'The fuel phase: the cheapest units go first, every unit raises the price, and rivals’ money stays hidden.',
     },
     {
       file: 'current-affairs-3.jpg',
       width: 1280,
       height: 860,
       caption:
-        'Era III: all six stations are on offer, and bidding goes round the table until one company is left.',
+        'Wiring: each lit city shows what its substation and the cheapest lines from your network cost.',
     },
   ],
 };
