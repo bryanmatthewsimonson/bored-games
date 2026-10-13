@@ -93,7 +93,7 @@ describe('Luster public presentation', () => {
       'at most ten tokens',
       'at least four',
       'fewer purchased developments',
-      'Resigning is currently unavailable',
+      'Resign is always open',
       'A starting player is chosen at random',
       'player immediately before the starting player',
     ])

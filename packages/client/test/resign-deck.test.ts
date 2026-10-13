@@ -895,42 +895,25 @@ describe('where a resign is scored (D052, fix round 2)', () => {
   );
 });
 
-describe('where Resign is not allowed (D052)', () => {
-  it('a 2-seat game with a deck rejects every Resign: the secret would open the whole deck', () => {
+describe('Resign in every game, at every seat count (D090)', () => {
+  it('a 2-seat game with a deck takes a Resign: before the first action it cancels, and the secrets are still owed', () => {
     const twoSeats = { ...chainReaction, seatRange: () => ({ min: 2, max: 6 }) };
     const g = makeGame(2, 'resign-two-deck');
     const game = { ...g, modules: new Map([[chainReaction.id, twoSeats]]) } as unknown as TestGame;
     const s = newSession(game, 0);
-    expect(s.canResign()).toBe(false);
-    expect(() => s.buildResign(game.rnd, T0 + 50)).toThrow(/not allowed/);
+    expect(s.canResign()).toBe(true);
     const id = game.ids[1] as Identity;
     const ev = finalizeEvent(
       resignTemplate({ rootId: game.rootId, headId: game.rootId, secret: id.deckSecret }, T0 + 50),
       id.sessionSk,
       game.rnd,
     );
-    const reason = 'resigning is not allowed in this game';
-    expect(s.receive(ev, NOW)).toEqual({ status: 'rejected', reason });
-    expect(s.receive(ev, NOW)).toEqual({ status: 'rejected', reason });
-    expect(s.view()).toMatchObject({ phase: 'shuffle', resigned: [] });
-  });
-
-  it('a module can opt out of Resign (a co-op game, or one where a seat cannot see its own cards)', () => {
-    const coop = { ...chainReaction, resignAllowed: () => false };
-    const g = makeGame(3, 'resign-opt-out');
-    const game = { ...g, modules: new Map([[chainReaction.id, coop]]) } as unknown as TestGame;
-    const s = newSession(game, 1);
+    expect(s.receive(ev, NOW)).toEqual({ status: 'accepted' });
+    expect(s.receive(ev, NOW)).toEqual({ status: 'duplicate' });
+    expect(s.view()).toMatchObject({ phase: 'cancelled', resigned: [1], outcome: null });
+    // Every seat still owes its secret after a cancel (D052); the resigner's came with its Resign.
+    expect(s.duties()).toEqual([{ kind: 'secret' }]);
     expect(s.canResign()).toBe(false);
-    const id = game.ids[2] as Identity;
-    const ev = finalizeEvent(
-      resignTemplate({ rootId: game.rootId, headId: game.rootId, secret: id.deckSecret }, T0 + 50),
-      id.sessionSk,
-      game.rnd,
-    );
-    expect(s.receive(ev, NOW)).toEqual({
-      status: 'rejected',
-      reason: 'resigning is not allowed in this game',
-    });
-    expect(newSession(makeGame(3, 'resign-opt-in'), 1).canResign()).toBe(true);
+    expect(() => s.buildResign(game.rnd, T0 + 60)).toThrow(/the game is over/);
   });
 });

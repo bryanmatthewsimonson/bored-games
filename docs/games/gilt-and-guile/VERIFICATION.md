@@ -15,4 +15,4 @@ The implemented scope is the current base edition: 26 selectable company cards a
 
 The first browser run identified an inaccessible select label, which was corrected. The real browser cleanup test identified the saved-share ownership check; cleanup now appends a public assignment before requesting its reveal, using the established protocol flow. Final rules, session, and browser tests pass with that correction.
 
-This is an experimental implementation. These tests do not constitute trademark clearance or an adversarial cryptographic review. Existing platform prompt-share limitations and disabled Resign are documented in RULES.md and D080.
+This is an experimental implementation. These tests do not constitute trademark clearance or an adversarial cryptographic review. Existing platform prompt-share limitations are documented in RULES.md and D080; Resign is on at every seat count (D090).

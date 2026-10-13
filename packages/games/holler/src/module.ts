@@ -40,11 +40,6 @@ export function coverageTags(s: HollerState, events: readonly HollerEvent[]): st
   return tags;
 }
 
-/** Two-seat refusal belongs to the session. The module allows a resign at every count. */
-export function resignAllowed(_rules: HollerRules, _seats: number): boolean {
-  return true;
-}
-
 export const holler: GameModule<HollerState, HollerEvent, HollerRules> = {
   id: HOLLER_ID,
   version: HOLLER_VERSION,
@@ -68,5 +63,4 @@ export const holler: GameModule<HollerState, HollerEvent, HollerRules> = {
   installDeckOrder,
   shufflePlaintexts,
   handsReveal,
-  resignAllowed,
 };

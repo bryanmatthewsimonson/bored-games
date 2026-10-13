@@ -363,7 +363,8 @@ export function SticksRulesContent() {
           </li>
           <li>
             <strong>Timeouts:</strong> each move has a deadline ({deadlineList}, chosen with the table).{' '}
-            <strong>Resign</strong> is not offered in this game.
+            <strong>Resign</strong> is always open: with two players you lose the game, with three or more the
+            game ends for everyone, unrated, and you come last.
           </li>
         </ul>
       </Section>

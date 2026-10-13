@@ -18,7 +18,7 @@ Exclusive ownership: packages/games/luster/**, apps/web/src/games/luster/**, doc
 
 ## Public reveal and resignation analysis
 
-Luster pends market refills during play. The existing fold continues derived public reveals after a resignation, but enabling resignation would require a dedicated review of that path. Luster opts out with resignAllowed returning false for all seat counts. Existing platform timeout and post-game audit remain available. This leaves Bank and the protocol unchanged.
+Luster pends market refills during play. The fold continues derived public reveals after a resignation; D090 reviewed that path (PROTOCOL §8.3, "Mid-game pendings") and Resign is on at every seat count. There is no opt-out hook any more. Existing platform timeout and post-game audit remain available. This leaves Bank and the protocol unchanged.
 
 ## Numerical references
 

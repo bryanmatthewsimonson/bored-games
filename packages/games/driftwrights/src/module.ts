@@ -383,7 +383,6 @@ export const driftwrights: GameModule<NetworkState, NetworkEvent, DriftRules> = 
   rollShape: (s) =>
     s.chance?.kind === 'theft' ? { count: 1, sides: s.chance.size } : { count: 2, sides: 6 },
   privateSelection: selection,
-  resignAllowed: () => false,
   validateIntent: (s, seat, raw) => {
     if (
       !raw ||

@@ -1,96 +1,57 @@
 /*
- * The D052 Resign contract (PROTOCOL §8.3) over every module the app registers (`MODULES`, net.ts), the list that
- * ships, rather than the client tests' own registry: a module with a deck pends a public reveal only before the
- * first player action, at every seat count where it allows a Resign. The only exemption is a module that opts out
- * of Resign at every seat count (`resignAllowed(rules, seats) → false`, Luster today), and the test says which.
+ * The Resign contract (PROTOCOL §4.9, §8.3, D052, D090) over every module the app registers (`MODULES`, net.ts),
+ * the list that ships, rather than the client tests' own registry. The owner: "Don't disable Resign. It shouldn't
+ * be disabled anywhere in Bored Games." So every registered module allows Resign at every seat count (there is no
+ * opt-out hook), and in every one a seat that resigns mid-game, whatever the game is waiting for then (a public or
+ * scoring reveal, a dice beacon, a reshuffle epoch, a sealed share, a private show, another seat's decision), ends
+ * the game for everyone: every remaining seat publishes its secret, the partial audit passes, the resigner is last,
+ * and every client agrees (packages/client/test/resign-contract.ts), each game played by its first fuzz policy.
  */
 import type { GameModule } from '@bored-games/game-kit';
 import { describe, expect, it } from 'vitest';
-import { checkRevealContract, resignSeatCounts } from '../../../packages/client/test/reveal-contract.ts';
+import {
+  checkResignMidGame,
+  checkResignOffered,
+  seatCounts,
+} from '../../../packages/client/test/resign-contract.ts';
+import { TARGETS } from '../../../tools/fuzz/src/index.ts';
 import { MODULES } from '../src/net.ts';
 
 // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
 type AnyModule = GameModule<any, any, any>;
 
-const hasDeck = (m: AnyModule): boolean => m.decks(m.defaultRules()).length > 0;
+const LONG = 900_000;
 
-describe('D052: every registered module with a deck pends public reveals only before the first action', () => {
-  const deckModules = [...MODULES.values()].filter(hasDeck);
+describe('D090: Resign in every registered game, at every seat count', () => {
+  const modules = [...MODULES.values()] as AnyModule[];
 
-  it('covers every registered module with a deck, and exempts exactly those that never allow a Resign', () => {
-    expect(deckModules.map((m) => m.id)).toContain('chain-reaction');
-    const exempt = deckModules.filter((m) => resignSeatCounts(m).length === 0).map((m) => m.id);
-    expect(exempt).toEqual([
-      'luster',
-      'right-of-way',
-      'driftwrights',
-      'room-for-doubt',
-      'hazard',
-      'sticks-and-stones',
-      'quill-and-quarry',
-      'gilt-and-guile',
-    ]);
-    for (const id of exempt) {
-      const m = MODULES.get(id) as AnyModule;
-      const { min, max } = m.seatRange(m.defaultRules());
-      for (let seats = min; seats <= max; seats++)
-        expect(m.resignAllowed?.(m.defaultRules(), seats), `${id} at ${seats} seats`).toBe(false);
-    }
+  it('covers every registered module, and none can opt out', () => {
+    expect(modules.map((m) => m.id)).toContain('chain-reaction');
+    expect(modules.filter((m) => 'resignAllowed' in m).map((m) => m.id)).toEqual([]);
   });
 
-  for (const module of deckModules) {
-    const seats = resignSeatCounts(module);
-    if (seats.length === 0) {
-      if (module.id === 'quill-and-quarry') {
-        it('quill-and-quarry: disables Resign for returned tiles and final rack reveals', () => {
-          expect(module.installDeckOrder).toBeTypeOf('function');
-          expect(module.handsReveal).toBeTypeOf('function');
-          expect(resignSeatCounts(module)).toEqual([]);
+  for (const module of modules) {
+    it(
+      `${module.id}: every seat may resign at every seat count (${seatCounts(module).join(', ')})`,
+      () => checkResignOffered(module),
+      LONG,
+    );
+    const seats = seatCounts(module)[0] as number;
+    it(
+      `${module.id}: a resign mid-game ends the game alike on every client (${seats} seats)`,
+      () => {
+        // Each game's first fuzz policy, as `pnpm sim` plays it: uniform moves end some games (Room for Doubt's
+        // wrong indictments) before anyone can resign.
+        const target = TARGETS[module.id];
+        const policy = target?.policies[0];
+        checkResignMidGame(module, seats, {
+          ...(policy === undefined
+            ? {}
+            : { policy: (state, seat, legal, rng) => policy.choose(state, seat, legal, rng) }),
+          ...(target?.simDeadline === undefined ? {} : { deadline: target.simDeadline }),
         });
-        continue;
-      }
-      if (module.id === 'driftwrights') {
-        it('driftwrights: keeps Resign disabled for private supply transfers and mixed card/dice operations', () => {
-          expect(module.privateSelection).toBeTypeOf('function');
-          expect(module.rolls).toBeTypeOf('function');
-          expect(resignSeatCounts(module)).toEqual([]);
-        });
-        continue;
-      }
-      if (module.id === 'hazard') {
-        it('hazard: keeps Resign disabled for cashed sets, re-dealt charters and the dice beacon', () => {
-          expect(module.rolls).toBeTypeOf('function');
-          expect(module.installDeckOrder).toBeTypeOf('function');
-          expect(resignSeatCounts(module)).toEqual([]);
-        });
-        continue;
-      }
-      if (module.id === 'sticks-and-stones') {
-        it('sticks-and-stones: keeps Resign disabled for refills, stack tops, the final turn-up and the dice beacon', () => {
-          expect(module.rolls).toBeTypeOf('function');
-          expect(module.handsReveal).toBeTypeOf('function');
-          expect(resignSeatCounts(module)).toEqual([]);
-        });
-        continue;
-      }
-      if (module.id === 'room-for-doubt') {
-        it('room-for-doubt: keeps Resign disabled for private shows and for the dice beacon', () => {
-          expect(module.privateShow).toBeTypeOf('function');
-          expect(module.rolls).toBeTypeOf('function');
-          expect(resignSeatCounts(module)).toEqual([]);
-        });
-        continue;
-      }
-      // Exempt, and for a reason: it does pend public reveals during play, so it must keep Resign disabled until
-      // a Resign rule for them exists (D052). This also proves the check can run a partitioned deck.
-      it(`${module.id}: exempt (Resign disabled at every seat count), and would fail the check`, () => {
-        const { min } = module.seatRange(module.defaultRules());
-        expect(() => checkRevealContract(module, [min])).toThrow(
-          /public reveal is pending after a player action/,
-        );
-      });
-      continue;
-    }
-    it(`${module.id} (seats ${seats.join(', ')})`, () => checkRevealContract(module, seats));
+      },
+      LONG,
+    );
   }
 });

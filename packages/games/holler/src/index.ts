@@ -28,7 +28,7 @@ export {
   viewFor,
 } from './engine.ts';
 export { checkInvariants } from './invariants.ts';
-export { coverageTags, HOLLER_ID, HOLLER_VERSION, holler, resignAllowed } from './module.ts';
+export { coverageTags, HOLLER_ID, HOLLER_VERSION, holler } from './module.ts';
 export { DEFAULT_RULES, type HollerRules, validateRules } from './rules.ts';
 export { HOLLER_THEME } from './theme.ts';
 export type {

@@ -12,7 +12,7 @@ Cards and dice use separate proof slots and verification caches. New mixed-game 
 
 Theft uses a uniform public index in the victim's privately permuted hand. Its committed deck key, root and requesting move fix the permutation before contributions arrive. Victim and thief receive separate authenticated NIP-44 packets. Other seats see the public count change. At game end, released deck keys let everyone verify both packets and the exact selection. Resource payments, discards and complete named-resource requisitions are concealed claims during play and checked against full hands by the final audit; this is not a live zero-knowledge inventory proof. A dishonest claim fails its signer. No future venture ciphertext changes owners.
 
-An immediately purchased landmark can win on its owner's turn, once its private draw is delivered. Public victory declarations include landmark identities and verified decryption shares. Resignation stays disabled. The ordinary session deadlines, forfeit handling and final secret/audit duties apply.
+An immediately purchased landmark can win on its owner's turn, once its private draw is delivered. Public victory declarations include landmark identities and verified decryption shares. Resignation is on at every seat count (D090). The ordinary session deadlines, forfeit handling and final secret/audit duties apply.
 
 D069 accepts the existing v1 fork/rollback limits for prompt release, as for Luster. It does not establish safety against equivocating prompt releases; protocol v2 remains the general remedy.
 

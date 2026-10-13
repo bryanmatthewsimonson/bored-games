@@ -121,7 +121,8 @@ export function LusterRulesContent() {
           remembered from the earlier public move. The desktop sidebar shows scores and resources; on smaller
           screens the player panels sit below the board. Moves can take time to arrive; controls unlock when
           it is your decision and the game has synced. A failed send can be retried. The table's deadline
-          applies to turns. Resigning is currently unavailable for this game.
+          applies to turns. Resign is always open: with two players you lose the game, with three or more the
+          game ends for everyone, unrated, and you come last.
         </p>
       </section>
     </article>

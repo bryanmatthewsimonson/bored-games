@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { actionCard, numberCard } from '../../src/cards.ts';
-import { applyAction, resignAllowed } from '../../src/index.ts';
-import { DEFAULT_RULES } from '../../src/rules.ts';
+import { applyAction, holler } from '../../src/index.ts';
 import { act, handPos, playCard, rejects, reveal, setup, starterPos } from '../helpers.ts';
 
 function live() {
@@ -15,8 +14,6 @@ describe('encoding', () => {
     const state = live();
     rejects(state, { type: 'resign' }, 'resign');
     rejects(state, { type: 'resign', actor: 0 }, 'resign');
-    expect(resignAllowed(DEFAULT_RULES, 2)).toBe(true);
-    expect(resignAllowed(DEFAULT_RULES, 10)).toBe(true);
   });
 
   it('C50 a second encoding is rejected', () => {
@@ -78,13 +75,14 @@ describe('encoding', () => {
     expect(state.hands[0]?.some((slot) => slot.card === seven)).toBe(false);
   });
 
-  it('C57 the engine has no resign action', () => {
-    expect(resignAllowed(DEFAULT_RULES, 2)).toBe(true);
+  it('C57 the engine has no resign action; Resign belongs to the platform at every seat count', () => {
+    // There is no opt-out hook any more (D090): the platform offers Resign in every game.
+    expect('resignAllowed' in holler).toBe(false);
     const rules = readFileSync(
       join(import.meta.dirname, '../../../../../docs/games/holler/RULES.md'),
       'utf8',
     );
-    expect(rules).toContain('A table of two seats refuses Resign; that refusal belongs to the platform.');
+    expect(rules).toContain('The platform offers it at every seat count (D090)');
     rejects(live(), { type: 'resign', actor: 0 }, 'resign');
   });
 

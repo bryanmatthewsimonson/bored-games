@@ -64,8 +64,6 @@ export const rightOfWay: GameModule<RowState, RowEvent, RowRules> = {
   dealt: (s) => s.dealt,
   revealsOf,
   invariants: checkInvariants,
-  // Public refills and reshuffles during play need their own Resign review first (D052), as Luster's do.
-  resignAllowed: () => false,
   coverage: (s, events) => {
     const tags = events.map((e) => `move:${e.action.type}`);
     for (const e of events) {

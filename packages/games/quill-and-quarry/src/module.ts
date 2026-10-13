@@ -38,7 +38,6 @@ export const quillAndQuarry: GameModule<State, Event, Rules> = {
   installDeckOrder,
   shufflePlaintexts,
   handsReveal: (s) => s.phase === 'ending',
-  resignAllowed: () => false,
   validateIntent: (s, seat, raw) => {
     const a = parseAction(raw);
     if (!a || a.actor !== seat) return { ok: false, error: { code: 'actor', message: 'Use your own seat.' } };
