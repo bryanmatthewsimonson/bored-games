@@ -43,6 +43,9 @@ export const PLANS: readonly PreviewPlan[] = [
   // Placing in an early round, bringing people home mid-game, and a late round with a legacy built.
   // Dice shares go out by themselves, so they are not pictured.
   { game: 'sticks-and-stones', seed: 'preview-1', seats: 4, at: [0.12, 0.5, 0.88], skip: ['contribute'] },
+  // Round 1's auction, a fuel purchase mid-game and wiring in Era III. Dice shares go out by themselves, so they
+  // are not pictured.
+  { game: 'current-affairs', seed: 'preview-1', seats: 4, at: [0.04, 0.54, 0.72], skip: ['contribute'] },
 ];
 
 const WIDTH = 1280;

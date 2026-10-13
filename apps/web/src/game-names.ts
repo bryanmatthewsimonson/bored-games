@@ -2,6 +2,7 @@ import { gameNames } from './brands.ts';
 import { BANK_META } from './games/bank/meta.ts';
 import { CHAIN_REACTION_META } from './games/chain-reaction/meta.ts';
 import { CHESS_META } from './games/chess/meta.ts';
+import { CURRENT_META } from './games/current-affairs/meta.ts';
 import { DRIFTWRIGHTS_META } from './games/driftwrights/meta.ts';
 import { GILT_AND_GUILE_META } from './games/gilt-and-guile/meta.ts';
 import { HAZARD_META } from './games/hazard/meta.ts';
@@ -27,6 +28,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [GILT_AND_GUILE_META.id, GILT_AND_GUILE_META],
   [HAZARD_META.id, HAZARD_META],
   [STICKS_META.id, STICKS_META],
+  [CURRENT_META.id, CURRENT_META],
 ]);
 
 /**

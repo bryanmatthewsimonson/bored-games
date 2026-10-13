@@ -60,6 +60,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'gilt-and-guile',
       'sticks-and-stones',
+      'current-affairs',
     ]);
     expect(ids({ players: 3 })).toEqual([
       'chain-reaction',
@@ -73,6 +74,7 @@ describe('catalog filters', () => {
       'gilt-and-guile',
       'hazard',
       'sticks-and-stones',
+      'current-affairs',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -86,8 +88,16 @@ describe('catalog filters', () => {
       'gilt-and-guile',
       'hazard',
       'sticks-and-stones',
+      'current-affairs',
     ]);
-    expect(ids({ players: 6 })).toEqual(['chain-reaction', 'bank', 'holler', 'room-for-doubt', 'hazard']);
+    expect(ids({ players: 6 })).toEqual([
+      'chain-reaction',
+      'bank',
+      'holler',
+      'room-for-doubt',
+      'hazard',
+      'current-affairs',
+    ]);
     expect(fitsPlayers(made({ players: { min: 2, max: 8, best: [4] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 6)).toBe(true);
     expect(fitsPlayers(made({ players: { min: 7, max: 10, best: [8] } }).entry, 5)).toBe(false);
@@ -97,7 +107,7 @@ describe('catalog filters', () => {
 
   it('filters by genre, mode, length and complexity', () => {
     expect(ids({ genre: 'abstract' })).toEqual(['chess', 'quill-and-quarry']);
-    expect(ids({ genre: 'economic' })).toEqual(['chain-reaction']);
+    expect(ids({ genre: 'economic' })).toEqual(['chain-reaction', 'current-affairs']);
     expect(ids({ genre: 'party' })).toEqual(['bank']);
     expect(ids({ genre: 'family' })).toEqual(['luster', 'right-of-way', 'room-for-doubt']);
     expect(ids({ genre: 'strategy' })).toEqual(['driftwrights', 'gilt-and-guile', 'sticks-and-stones']);
@@ -116,6 +126,7 @@ describe('catalog filters', () => {
       'gilt-and-guile',
       'hazard',
       'sticks-and-stones',
+      'current-affairs',
     ]);
     expect(ids({ mode: 'cooperative' })).toEqual([]);
     expect(ids({ mode: 'solo' })).toEqual([]);
@@ -131,6 +142,7 @@ describe('catalog filters', () => {
       'quill-and-quarry',
       'hazard',
       'sticks-and-stones',
+      'current-affairs',
     ]);
     expect(ids({ length: 'over-120' })).toEqual(['hazard']);
     expect(ids({ complexity: 'medium' })).toEqual([
@@ -141,7 +153,7 @@ describe('catalog filters', () => {
       'hazard',
       'sticks-and-stones',
     ]);
-    expect(ids({ complexity: 'heavy' })).toEqual(['chess']);
+    expect(ids({ complexity: 'heavy' })).toEqual(['chess', 'current-affairs']);
     expect(ids({ complexity: 'light' })).toEqual([
       'bank',
       'luster',
@@ -149,7 +161,7 @@ describe('catalog filters', () => {
       'holler',
       'room-for-doubt',
     ]);
-    expect(ids({ players: 2, genre: 'economic' })).toEqual([]);
+    expect(ids({ players: 2, genre: 'economic' })).toEqual(['current-affairs']);
     expect(activeFilters({ ...NO_FILTERS, players: 2, mode: 'team' })).toBe(2);
   });
 

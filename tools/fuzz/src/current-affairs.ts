@@ -4,6 +4,7 @@ import {
   type Company,
   type CurrentAction,
   type CurrentState,
+  costOf,
   poweredBy,
   stationOf,
   tableOf,
@@ -42,7 +43,13 @@ function play(s: CurrentState, seat: number, legal: readonly unknown[], rng: Rng
   if (opens.length > 0) {
     const useful = opens.filter((a) => gain(s, c, a.station) > 0 && a.bid <= c.money - 10);
     if (useful.length === 0) return all.find((a) => a.type === 'pass') ?? opens[0];
-    if (s.round > 1 && c.stations.length > 0 && capacity(c) > c.cities.length + 2 && rng.int(2) === 0)
+    // Enough capacity for the network and the next round's wiring: save the money for cities.
+    if (
+      s.round > 1 &&
+      c.stations.length > 0 &&
+      capacity(c) > c.cities.length + 2 &&
+      (!bold || rng.int(2) === 0)
+    )
       return all.find((a) => a.type === 'pass') ?? useful[0];
     return useful.reduce((x, y) => (gain(s, c, y.station) > gain(s, c, x.station) ? y : x));
   }
@@ -58,14 +65,19 @@ function play(s: CurrentState, seat: number, legal: readonly unknown[], rng: Rng
   const scraps = ofType(all, 'scrap');
   if (scraps.length > 0) return scraps.reduce((x, y) => (powersOf(y.station) < powersOf(x.station) ? y : x));
   const fuel = ofType(all, 'fuel');
-  if (fuel.length > 0) return fuel[0];
+  if (fuel.length > 0) {
+    // The first offer fuels every station; a careful company keeps most of its money for wiring.
+    if (bold || c.cities.length >= capacity(c) - 1) return fuel[0];
+    const cheap = fuel.find((a) => costOf(s.yard, a.buy) <= c.money / 3);
+    return cheap ?? all.find((a) => a.type === 'done');
+  }
   const builds = ofType(all, 'build');
   if (builds.length > 0 || s.phase === 'build') {
-    const want = bold ? 22 : capacity(c) + 1;
+    const want = bold ? 22 : capacity(c) + 2;
     if (c.cities.length < want && builds.length > 0) {
       const cost = (a: Of<'build'>) => buildCost(s, seat, a.city) ?? Number.POSITIVE_INFINITY;
       const best = builds.reduce((x, y) => (cost(y) < cost(x) ? y : x));
-      if (cost(best) <= c.money - (bold ? 0 : 15)) return best;
+      if (cost(best) <= c.money - (bold ? 0 : 5)) return best;
     }
     return all.find((a) => a.type === 'done');
   }

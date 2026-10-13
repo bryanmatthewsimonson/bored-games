@@ -1,0 +1,704 @@
+/* Current Affairs (D091), the game screen and the rules page: a utility's control room. Navy ink on warm paper, with
+   copper for the decision of the moment; everything wraps, so the page never scrolls sideways on a phone. */
+
+main:has(.ca-game) {
+  max-width: 1320px;
+}
+
+.ca-game,
+.ca-rules {
+  --ca-ink: #14233a;
+  --ca-paper: #fbf7ee;
+  --ca-card: #ffffff;
+  --ca-rule: #ddd2b8;
+  --ca-copper: #b4561a;
+  --ca-copper-dark: #8a3f10;
+  --ca-volt: #c9a24a;
+  --ca-muted: #5a6172;
+  --ca-navy: #14233a;
+  --ca-warn: #a3281c;
+}
+
+.ca-game {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  color: var(--ca-ink);
+}
+
+/* The head: status, round chips, order, meta. */
+.ca-head {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ca-status {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ca-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ca-chip {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--ca-navy);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ca-chip-phase {
+  background: var(--ca-volt);
+  color: var(--ca-ink);
+}
+
+.ca-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 0 6px;
+  padding: 0;
+  list-style: none;
+  counter-reset: ca-order;
+}
+
+.ca-order li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 3px;
+  border: 1px solid var(--ca-rule);
+  border-radius: 999px;
+  background: var(--ca-card);
+  font-size: 0.85rem;
+  counter-increment: ca-order;
+}
+
+.ca-order li::before {
+  content: counter(ca-order);
+  min-width: 1em;
+  color: var(--ca-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.ca-order li.ca-turn {
+  border-color: var(--ca-copper);
+  box-shadow: 0 0 0 2px rgb(184 86 27 / 25%);
+  font-weight: 700;
+}
+
+.ca-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 0.9rem;
+  color: var(--ca-muted);
+}
+
+.ca-error,
+.ca-warn {
+  margin: 0;
+  color: var(--ca-warn);
+  font-weight: 600;
+}
+
+/* A company's mark. */
+.ca-seat {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.35em;
+  height: 1.35em;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 35%);
+  font-size: 0.75rem;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.ca-seat-large {
+  font-size: 1rem;
+}
+
+/* The two columns. */
+.ca-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.ca-main,
+.ca-side {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ca-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--ca-paper);
+  border: 1px solid var(--ca-rule);
+  border-radius: 10px;
+  box-shadow: 0 1px 0 rgb(27 34 51 / 6%);
+}
+
+.ca-panel h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ca-panel h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ca-muted);
+}
+
+.ca-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.ca-alert {
+  border: 1px solid var(--ca-copper);
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px rgb(184 86 27 / 16%);
+}
+
+.ca-note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ca-muted);
+}
+
+.ca-hint {
+  margin: 0;
+  font-weight: 600;
+}
+
+.ca-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ca-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ca-btn.btn-primary {
+  background: var(--ca-copper);
+  border-color: var(--ca-copper-dark);
+}
+
+.ca-btn.btn-primary:hover {
+  background: var(--ca-copper-dark);
+}
+
+.ca-btn.btn-primary .ca-note {
+  color: inherit;
+}
+
+.ca-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ca-mini {
+  min-width: 2rem;
+  min-height: 32px;
+  padding: 2px 6px;
+}
+
+.ca-sep {
+  flex: none;
+  width: 1px;
+  height: 28px;
+  background: var(--ca-rule);
+}
+
+.ca-amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ca-amount label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 700;
+}
+
+.ca-amount input {
+  width: 4.5em;
+  min-height: 32px;
+  padding: 2px 6px;
+  font: inherit;
+  border: 1px solid var(--ca-rule);
+  border-radius: 6px;
+}
+
+/* Station cards. */
+.ca-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ca-cardwrap {
+  display: inline-block;
+  line-height: 0;
+}
+
+.ca-card-btn {
+  position: relative;
+  display: inline-grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 3px;
+  line-height: 0;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.ca-card-btn:not(:disabled) {
+  border-color: rgb(201 162 74 / 45%);
+}
+
+.ca-card-btn:not(:disabled):hover {
+  border-color: var(--ca-volt);
+  background: rgb(201 162 74 / 12%);
+}
+
+.ca-card-btn[aria-pressed="true"] {
+  border-color: var(--ca-copper);
+}
+
+.ca-card-btn:disabled {
+  cursor: default;
+}
+
+.ca-card-btn:focus-visible {
+  outline: 3px solid var(--ca-navy);
+  outline-offset: 2px;
+}
+
+.ca-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.ca-row {
+  display: grid;
+  gap: 6px;
+}
+
+.ca-coming .ca-cards {
+  opacity: 0.92;
+}
+
+/* The auction. */
+.ca-lot,
+.ca-open {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--ca-card);
+  border: 1px solid var(--ca-rule);
+  border-radius: 10px;
+}
+
+.ca-open {
+  display: grid;
+}
+
+.ca-lot-body {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.ca-lot-bid {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.ca-by {
+  font-weight: 400;
+  color: var(--ca-muted);
+}
+
+.ca-in {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.ca-in li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ca-in li.ca-turn {
+  font-weight: 700;
+}
+
+/* The fuel yard and the purchase, side by side when there is room. */
+.ca-yard-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ca-yard-art {
+  flex: 1 1 340px;
+  min-width: 0;
+  max-width: 520px;
+}
+
+.ca-basket {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ca-card);
+}
+
+.ca-steppers {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px 14px;
+}
+
+.ca-step {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ca-step-name {
+  min-width: 4.5em;
+  font-weight: 600;
+}
+
+.ca-step output {
+  min-width: 1.5em;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ca-total {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+/* The map. */
+.ca-map-wrap {
+  min-width: 0;
+}
+
+.ca-wire {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ca-card);
+}
+
+/* Payday. */
+.ca-fire {
+  border-color: var(--ca-rule);
+}
+
+.ca-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--ca-rule);
+  border-radius: 8px;
+}
+
+.ca-split legend {
+  padding: 0 4px;
+  font-size: 0.88rem;
+  color: var(--ca-muted);
+}
+
+.ca-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ca-stored {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1px;
+  max-width: 64px;
+  line-height: 0;
+}
+
+/* The companies. */
+.ca-company {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--ca-paper);
+  border: 1px solid var(--ca-rule);
+  border-left: 5px solid var(--ca-seat, var(--ca-rule));
+  border-radius: 10px;
+}
+
+.ca-company.ca-acting {
+  border-color: var(--ca-copper);
+  border-left-color: var(--ca-seat, var(--ca-copper));
+  box-shadow: 0 0 0 2px rgb(184 86 27 / 18%);
+}
+
+.ca-company-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ca-avatar {
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.ca-avatar:empty {
+  display: none;
+}
+
+.ca-avatar > * {
+  width: 100%;
+  height: 100%;
+}
+
+.ca-company-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ca-badge {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--ca-navy);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ca-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0;
+}
+
+.ca-stats > div {
+  display: grid;
+  gap: 0;
+  padding: 3px 4px;
+  background: var(--ca-card);
+  border: 1px solid var(--ca-rule);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.ca-stats dt {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ca-muted);
+  text-transform: uppercase;
+}
+
+.ca-stats dd {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.ca-stats dd small {
+  font-weight: 400;
+  color: var(--ca-muted);
+}
+
+.ca-owned {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ca-owned-st {
+  display: inline-grid;
+  justify-items: center;
+  gap: 2px;
+  line-height: 0;
+}
+
+/* The history and the end. */
+.ca-log ol {
+  display: grid;
+  gap: 3px;
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 0.88rem;
+}
+
+.ca-log li:first-child {
+  font-weight: 600;
+}
+
+.ca-final table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-final th,
+.ca-final td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--ca-rule);
+  text-align: left;
+}
+
+.ca-final tr.ca-winner {
+  background: rgb(240 180 41 / 22%);
+}
+
+/* The rules page. */
+.ca-rules-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ca-rules-map,
+.ca-rules-yard {
+  margin: 12px 0;
+}
+
+.ca-rules-yard {
+  max-width: 520px;
+}
+
+.ca-rules figcaption {
+  font-size: 0.88rem;
+  color: var(--ca-muted);
+}
+
+.ca-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.ca-rules-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+
+.ca-rules-table caption {
+  margin-bottom: 4px;
+  text-align: left;
+  color: var(--ca-muted);
+}
+
+.ca-rules-table th,
+.ca-rules-table td {
+  padding: 3px 8px;
+  border: 1px solid var(--ca-rule);
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 1000px) {
+  .ca-table {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .ca-panel {
+    padding: 10px;
+  }
+
+  .ca-steppers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ca-order {
+    margin-left: 0;
+  }
+}
