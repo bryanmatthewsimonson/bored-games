@@ -184,7 +184,7 @@ The first player passes to the left. The cards left in the display slide to the 
 - **The cards and tiles** are one encrypted deck of 64 in two groups (`camp`, with prompt shares under D075). The display and the stack tops are public reveals, so every app shares them as they come up. A face-down discovery is dealt to its buyer alone; at the end it is turned up by a public reveal before the count.
 - **What is public:** everything but the pile's order and a face-down discovery. Bought discoveries are face down in the box game, but every one was face up in the display when it was bought, and the public record shows it: the screen shows them.
 - **Standings** during the game are the final count of what is public now.
-- **Resign** is off (`resignAllowed` false), as for every deck game with public reveals, pending a D052 review.
+- **Resign** is on at every seat count (D090): with two players it is a rated loss; with three or more it ends the game for everyone, unrated, with the resigner last and the others placed by the standings as if the game ended now (PROTOCOL §8.3), whatever is pending (a roll, a refill, the final turn-up).
 
 ### Actions (one accepted encoding each)
 `{type:'contribute',actor,id}`, `{type:'place',actor,spot,count}`, `{type:'use',actor,spot}`, `{type:'buy',actor,slot,pay:[w,c,s,a]}`, `{type:'build',actor,stack,pay:[w,c,s,a]}`, `{type:'skip',actor,spot}`, `{type:'tools',actor,tools:[ascending tile indexes],spares:[ascending one-use indexes]}`, `{type:'pick',actor,face}`, `{type:'choose',actor,take:[w,c,s,a]}`, `{type:'feed',actor,pay:[w,c,s,a]|null}`; from the platform, `{type:'rolled',actor:'beacon',id,dice}` and `{type:'reveal',actor:'deck',deck:'camp',pos,card}`.

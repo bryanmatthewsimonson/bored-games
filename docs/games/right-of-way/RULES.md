@@ -352,7 +352,7 @@ event, dated at the preceding head, for both a keep and a skip (D066).
 
 Blind draws, refills, wipes and sifts reveal cards in the middle of a turn, so the other seats' open apps release their shares at once (`DeckSpec.promptShares`), the exception the owner made for Luster and, on 2026-10-06, for Right of Way. The same applies to sealed shares. The residual risk is Luster's: a seat that forks the chain after reading a released card is detected but not prevented (D050).
 
-**Laying track** reveals the paid cards drawn blind: the actor attaches its own shares, and the session checks them at once. **Final scoring** reveals every held charter publicly; every seat's app sends its share. **Resign (D052)** is disabled, as Luster's is, until public reveals during play have their own Resign review.
+**Laying track** reveals the paid cards drawn blind: the actor attaches its own shares, and the session checks them at once. **Final scoring** reveals every held charter publicly; every seat's app sends its share. **Resign** is on at every seat count (D052, D090): with two players it is a rated loss; with three or more it ends the game for everyone, unrated, the resigner last, whatever reveal or sealed share is pending (PROTOCOL §8.3).
 
 ### Actions (one accepted encoding each)
 - `{type:'take', actor, slot}` (a yard card) and `{type:'blind', actor}`;
