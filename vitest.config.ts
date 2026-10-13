@@ -45,6 +45,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'current-affairs',
+          root: 'packages/games/current-affairs',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
           name: 'sticks-and-stones',
           root: 'packages/games/sticks-and-stones',
           include: ['test/**/*.test.ts'],
