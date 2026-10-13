@@ -98,6 +98,7 @@ export const CURRENT_POLICIES: readonly FuzzPolicy<CurrentState>[] = [
 export const CURRENT_EXPECTED_COVERAGE: readonly string[] = [
   'era:2',
   'era:3',
+  'era2:beforeEra3',
   'move:scrap',
   'move:pass',
   'market:removed',

@@ -52,7 +52,7 @@ Game mechanics, rules as systems and the numbers that are part of a method of pl
 
 ## Sources and interpretations
 
-**Sources (research of 2026-10-13, paraphrased, never copied).** The Rio Grande Games English rulebooks in their printings of 2005 (the 2004 edition's text), 2007, March 2009 and August 2009 (the last before the 2018 edition), all from riograndegames.com through the Wayback Machine; the official 2F-Spiele English FAQ (archived 2008); the BoardGameGeek FAQ wiki with the official Step 3 ruling of 2009-02-23 (thread 383964); Eric Postpischil's condensed rules; and the 2018 edition's rulebook for comparison only. The 42 stations were checked card by card against three independent data sets; station 29 (coal or oil, burns 1, powers 4) is backed by two of the three. BoardGameGeek id **2651** (2004; 2–6 players, 120 minutes, age 12, weight 3.2) was confirmed through BoardGameGeek's own API. Rules a rulebook states are **verified**. Where printings differ, the latest pre-2018 printing and the official rulings win, and the choice is noted. Points no source settles are **platform** rules or **OPEN** (CLAUDE.md, "Never invent rules").
+**Sources (research of 2026-10-13, paraphrased, never copied).** The Rio Grande Games English rulebooks in their printings of 2005 (the 2004 edition's text), 2007, March 2009 and August 2009 (the last before the 2018 edition), all from riograndegames.com through the Wayback Machine; the official 2F-Spiele English FAQ (archived 2008); the BoardGameGeek FAQ wiki with the official Step 3 ruling of 2009-02-23 (thread 383964); Eric Postpischil's condensed rules; and the 2018 edition's rulebook, for comparison and where the earlier texts are silent (Era III before Era II). The 42 stations were checked card by card against three independent data sets; station 29 (coal or oil, burns 1, powers 4) is backed by two of the three. BoardGameGeek id **2651** (2004; 2–6 players, 120 minutes, age 12, weight 3.2) was confirmed through BoardGameGeek's own API. Rules a rulebook states are **verified**. Where printings differ, the latest pre-2018 printing and the official rulings win, and the choice is noted. Points no source settles are **platform** rules or **OPEN** (CLAUDE.md, "Never invent rules").
 
 | Topic | Rule | Basis |
 |---|---|---|
@@ -68,7 +68,7 @@ Game mechanics, rules as systems and the numbers that are part of a method of pl
 | Fuel | reverse order; the cheapest units first; only what the stations can hold; fuel moves freely between a company's stations | verified |
 | Wiring | reverse order; 10, 15, 20 a substation plus the cheapest lines from the network; never through regions out of play | verified (2007 printing on, for the regions) |
 | Payday | player order; any stations fired; the table; restock; then the market moves on | verified |
-| Era II | at 10, 7, 7, 7, 6 cities for 2–6 players, after wiring: the lowest station leaves once | verified |
+| Era II | at 10, 7, 7, 7, 6 cities for 2–6 players, after wiring: the lowest station leaves once; if Era III comes first, Era II's changes are made just before it | verified (the 2018 rulebook for Era III first; the 2004 edition's FAQ only says to go straight to Step 3) |
 | Era III | the card's three timings; the stack is shuffled at once | verified (the 2009 ruling, over the 2007 printing's "no replacements") |
 | End | 21, 17, 17, 15, 14 cities, after wiring; the most cities powered, then money, then cities | verified; no income in the final count (the FAQ calls it pointless; the 2018 edition pays none) |
 | Money | hidden (the official FAQ: play with hidden money; the rulebooks are silent) | verified (FAQ); each company sees only its own money until the end, though every payment is made in the open, as at the table |
@@ -156,6 +156,7 @@ At any time, a station of the market numbered no higher than the city count of s
 ## The eras
 - **Era I** is the start: one company a city.
 - **Era II** begins after the wiring phase in which a company first has 10, 7, 7, 7 or 6 cities (2–6 players): once, the lowest station of the market leaves the game and a replacement is drawn. From then on two companies a city, and the Era II restock.
+- **Era III before Era II.** If Era III begins before any company has reached the Era II count, Era II's changes are made first, at once: the lowest station leaves the game and is replaced. Then Era III's changes follow (the 2018 rulebook: "first perform all changes for Step 2 before directly continuing with the changes for Step 3"). In an auction this happens after the auction, before the Era III card leaves with the lowest station; while wiring, at payday, before Era III begins; at payday, after the Era III card and the lowest station leave.
 - **The Era III card.** When it is drawn, the stack is shuffled at once: it then holds the stations laid under it at paydays.
   - Drawn in the **auction**: it lies at the end of the market, as the highest card, and cannot be bought; replacements are drawn as usual. After the auction it leaves with the lowest station, without replacements. Era III begins with the fuel phase.
   - Drawn while **wiring** (a small station's replacement, or Era II's): it leaves with the lowest station, without replacements. Era III begins with payday.
@@ -178,7 +179,6 @@ After a wiring phase in which a company has 21, 17, 17, 15 or 14 cities (2–6 p
 None (`{ rulesVersion: 1 }`).
 
 ## OPEN
-- **Era III before Era II.** If Era III has begun before any company reaches the Era II count (the card came up in an auction or at a payday), Era II's one-time removal never happens (the 2005 FAQ says Era III can come first; the 2018 edition says to apply Era II's changes first). The engine skips Era II. If the card comes up in the very wiring phase in which a company reaches the Era II count, Era III has not begun yet (it begins at payday), so Era II's removal still happens first, its replacement drawn from the shuffled stack.
 - **Station 29** powers 4 cities in two of three data sets and 3 in one; the engine uses 4.
 
 ## Online play on this site
@@ -251,7 +251,7 @@ By players and era, from the supply only, each fuel up to its spaces.
 Eras I and II: the highest station goes under the stack and a replacement is drawn; Era III: the lowest leaves the game and a replacement is drawn.
 
 #### C20 Era II
-After the wiring in which a company reaches the Era II count: two companies a city, the lowest station leaves once and is replaced, the Era II restock.
+After the wiring in which a company reaches the Era II count: two companies a city, the lowest station leaves once and is replaced, the Era II restock. If Era III begins first, in each of its three timings, Era II's removal and replacement come just before it, and Era II never begins again.
 
 #### C21 The Era III card
 Shuffles the stack at once; in an auction it waits at the end of the market and leaves with the lowest station after the auction; while wiring or at payday it leaves at once with the lowest station; Era III begins as the timing says.

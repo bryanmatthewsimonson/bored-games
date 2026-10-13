@@ -697,8 +697,19 @@ function placeDrawn(s: CurrentState, card: number | 'era', ev: CurrentEvent[]): 
   // begins at the coming payday, or (drawn at payday) with the next round.
   const t = shuffleStack(removeLowest(s, ev), ev);
   if (s.phase === 'build') return { ...t, eraNext: true };
-  return note({ ...t, era: 3 }, ev, { kind: 'era', era: 3 });
+  // Era III begins with the next round; if Era II never began, its changes come first (C20): the lowest station
+  // leaves once and is replaced. The replacement is owed to the draw loop this card came from.
+  const u = t.era === 1 ? { ...eraTwoChange(t, ev), owed: t.owed + 1 } : t;
+  return note({ ...u, era: 3 }, ev, { kind: 'era', era: 3 });
 }
+
+/**
+ * Era II's changes (C20): from now on two companies a city and the Era II restock, and once, the lowest station of the
+ * market leaves the game. The caller owes its replacement. Also run first when Era III begins before Era II: the
+ * 2018 rulebook, "first perform all changes for Step 2 before directly continuing with the changes for Step 3".
+ */
+const eraTwoChange = (s: CurrentState, ev: CurrentEvent[]): CurrentState =>
+  removeLowest(note({ ...s, era: 2 }, ev, { kind: 'era', era: 2 }), ev);
 
 /**
  * Keep the market sound (C11): a station numbered no higher than some company's city count leaves the game, and
@@ -899,8 +910,11 @@ function applyScrap(
 function endAuction(s: CurrentState, ev: CurrentEvent[], unsoldDone: boolean): CurrentState {
   let t = s;
   if (!unsoldDone && t.round > 1 && t.sold === 0) return replace(removeLowest(t, ev), 1, 'auctionEnd', ev);
-  if (t.eraCardShown)
+  if (t.eraCardShown) {
+    // Era II's changes first if it never began, with their replacement; then this function runs again (C20, C21).
+    if (t.era === 1) return replace(eraTwoChange(t, ev), 1, 'auctionEnd', ev);
     t = note({ ...removeLowest({ ...t, eraCardShown: false }, ev), era: 3 }, ev, { kind: 'era', era: 3 });
+  }
   if (t.round === 1) {
     const order = rankedOrder(t);
     t = note({ ...t, order }, ev, { kind: 'order', order });
@@ -988,8 +1002,9 @@ function endBuild(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   const table = tableOf(s);
   const most = maxCities(s);
   if (most >= table.end) return finish(s, ev);
-  if (s.era === 1 && most >= table.eraTwo)
-    return replace(removeLowest(note({ ...s, era: 2 }, ev, { kind: 'era', era: 2 }), ev), 1, 'buildEnd', ev);
+  // Era II begins once a company reaches its count, or, if it has not, just before Era III does (C20, C21).
+  if (s.era === 1 && (most >= table.eraTwo || s.eraNext))
+    return replace(eraTwoChange(s, ev), 1, 'buildEnd', ev);
   let t: CurrentState = { ...s, phase: 'power', queue: [...s.order] };
   if (t.eraNext) t = note({ ...t, era: 3, eraNext: false }, ev, { kind: 'era', era: 3 });
   return toNextPower(t, ev);

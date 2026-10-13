@@ -67,6 +67,9 @@ export function coverageOf(_s: CurrentState, events: readonly CurrentEvent[]): s
   const tags: string[] = [];
   for (const e of events) {
     if (e.type === 'era') tags.push(`era:${e.era}`);
+    // Era II's changes run just before Era III when Era II never began (C20, C21).
+    if (e.type === 'era' && e.era === 2 && (_s.era === 3 || _s.eraNext || _s.eraCardShown))
+      tags.push('era2:beforeEra3');
     if (e.type === 'scrap') tags.push('move:scrap');
     if (e.type === 'scrap' && e.lost.some((n) => n > 0)) tags.push('move:scrapLost');
     if (e.type === 'shuffled') tags.push('stack:shuffled');

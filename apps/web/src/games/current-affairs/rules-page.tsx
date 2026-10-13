@@ -418,8 +418,8 @@ export function CurrentRulesContent() {
           </li>
         </ul>
         <p>
-          If the Era III card comes up before any company reaches the Era II count, Era II's one-time removal
-          never happens: the game goes straight to Era III.
+          If Era III begins before any company reaches the Era II count, Era II's changes come first: the
+          lowest station of the market leaves the game and is replaced, and then Era III's changes follow.
         </p>
       </Section>
 

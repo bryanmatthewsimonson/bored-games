@@ -41,6 +41,12 @@ function roundOne(seats: number): CurrentState {
 /** Round 1's wiring with three companies: seats 0, 1, 2 own 3, 4, 5; the order is 2, 1, 0; the market 6–13. */
 const buildPhase = (): CurrentState => skipPhase(roundOne(3));
 
+/** The game already in Era II (as if a company had reached the count earlier). */
+const eraTwo = (s: CurrentState): CurrentState => patch(s, { era: 2 });
+
+/** No Era II entry in the history: its changes were not made (again). */
+const noEraTwo = (s: CurrentState): boolean => !s.history.some((h) => h.kind === 'era' && h.era === 2);
+
 const kinds = (h: readonly Entry[]): string[] => h.map((e) => (e.kind === 'era' ? `era${e.era}` : e.kind));
 
 describe('the eras', () => {
@@ -70,11 +76,81 @@ describe('the eras', () => {
     // Round 2's unsold auction took one station; nothing else left.
     expect(s.gone.length).toBe(gone + 1);
     expect(s.era).toBe(2);
+
+    // Era III before Era II, in an auction: after the auction, Era II's removal and its replacement, then the card
+    // leaves with the lowest station. Under the stack: 13, 46 and 50.
+    let a = eraCardNext(layUnder(nextRound(roundOne(3)), [46, 50]));
+    expect(a.era).toBe(1);
+    a = drawAll(foldAll(act(a, { type: 'open', actor: 2, station: 6, bid: 6 })));
+    expect(a.stack.next).toEqual([128, 129, 130]);
+    a = drawAll(foldAll(act(a, { type: 'open', actor: 1, station: 7, bid: 7 })));
+    expect(a.market).toEqual([8, 9, 10, 11, 12, 13, 14]);
+    a = act(a, { type: 'open', actor: 0, station: 8, bid: 8 });
+    a = revealStep(a).state;
+    // 46 replaced 8 and the auction is over: Era II's changes come first, their replacement from the reshuffled stack.
+    expect(kinds(a.history).slice(-4)).toEqual(['won', 'drew', 'era2', 'removed']);
+    expect(a.gone).toEqual([9]);
+    expect(a.market).toEqual([10, 11, 12, 13, 14, 46]);
+    expect(pendingOf(a)).toEqual({ type: 'reveal', deck: 'pile', positions: [130] });
+    const after = revealStep(a);
+    expect(after.events.map((e) => (e.type === 'era' ? `era${e.era}` : e.type))).toEqual([
+      'drew',
+      'removed',
+      'era3',
+    ]);
+    a = after.state;
+    expect(a.market).toEqual([11, 12, 13, 14, 46, 50]);
+    expect(a.gone).toEqual([9, 10]);
+    expect([a.era, a.phase]).toEqual([3, 'fuel']);
+    expect(a.history.filter((h) => h.kind === 'era').map((h) => (h.kind === 'era' ? h.era : 0))).toEqual([
+      2, 3,
+    ]);
+
+    // While wiring: the card leaves at once with the lowest; at the end of wiring Era II's removal and replacement,
+    // then payday in Era III.
+    let w = eraCardNext(layUnder(buildPhase(), [46, 50]));
+    w = withCompany(wired(w, 0, [0, 1, 2, 3, 4]), 0, (c) => ({ ...c, money: 100 }));
+    w = epochStep(act(w, { type: 'build', actor: 0, city: 5 })).state;
+    expect([w.era, w.eraNext, w.market]).toEqual([1, true, [8, 9, 10, 11, 12, 13]]);
+    w = skipPhase(w);
+    expect(kinds(w.history).slice(-2)).toEqual(['era2', 'removed']);
+    expect(w.market).toEqual([9, 10, 11, 12, 13]);
+    expect(pendingOf(w)).toEqual({ type: 'reveal', deck: 'pile', positions: [128] });
+    w = revealStep(w).state;
+    // Era III's restock at this payday; it ends with the lowest leaving, replaced from position 129.
+    expect(w.era).toBe(3);
+    expect(w.history.find((e) => e.kind === 'restock')).toEqual({ kind: 'restock', added: [0, 4, 3, 1] });
+    expect(pendingOf(w)).toEqual({ type: 'reveal', deck: 'pile', positions: [129] });
+    w = drawAll(w);
+    expect(w.gone).toEqual([6, 7, 8, 9]);
+    expect(w.market).toEqual([10, 11, 12, 13, 46, 50]);
+    expect(w.history.filter((h) => h.kind === 'era').map((h) => (h.kind === 'era' ? h.era : 0))).toEqual([
+      2, 3,
+    ]);
+
+    // At payday: the card and the lowest leave, the stack is shuffled, then Era II's removal and replacement.
+    let p = eraCardNext(layUnder(buildPhase(), [46, 50]));
+    p = skipPhase(p);
+    expect(kinds(p.history).slice(-6)).toEqual(['restock', 'under', 'removed', 'era2', 'removed', 'era3']);
+    expect(p.history.find((e) => e.kind === 'restock')).toEqual({ kind: 'restock', added: [0, 2, 1, 1] });
+    expect(p.market).toEqual([8, 9, 10, 11, 12]);
+    expect(pendingOf(p).type).toBe('shuffle');
+    p = epochStep(p).state;
+    expect(pendingOf(p)).toEqual({ type: 'reveal', deck: 'pile', positions: [128] });
+    p = drawAll(p);
+    expect(p.market).toEqual([8, 9, 10, 11, 12, 46]);
+    expect(p.gone).toEqual([6, 7]);
+    expect([p.era, p.round, p.phase]).toEqual([3, 2, 'auction']);
+    // Era II never runs twice: its next wiring brings nothing more.
+    expect(nextRound(p).history.filter((h) => h.kind === 'era' && h.era === 2)).toHaveLength(
+      p.history.filter((h) => h.kind === 'era' && h.era === 2).length,
+    );
   });
 
   it('C21 the Era III card: shuffled at once; in an auction it waits at the end; while wiring or at payday it goes at once', () => {
+    // Each timing from Era II (C20 has Era III before Era II): Era II's changes are not made again.
     // In an auction: it lies at the end of the market, cannot be bought, and replacements go on.
-    let a = eraCardNext(layUnder(nextRound(roundOne(3)), [50]));
+    let a = eraCardNext(layUnder(eraTwo(nextRound(roundOne(3))), [50]));
     expect(a.stack.under).toEqual([
       { pos: 0, station: 13 },
       { pos: 33, station: 50 },
@@ -84,7 +160,7 @@ describe('the eras', () => {
     a = act(act(a, { type: 'open', actor: 2, station: 6, bid: 6 }), { type: 'fold', actor: 0 });
     a = act(a, { type: 'fold', actor: 1 });
     expect(a.eraCardShown).toBe(true);
-    expect(a.era).toBe(1);
+    expect(a.era).toBe(2);
     expect(a.market).toEqual([7, 8, 9, 10, 11, 12, 14]);
     // The stations under the stack are reshuffled at once: a deck epoch of their positions.
     expect(pendingOf(a)).toEqual({
@@ -117,9 +193,10 @@ describe('the eras', () => {
     expect(a.market).toEqual([10, 11, 12, 13, 14, 50]);
     expect(a.gone).toEqual([9]);
     expect([a.era, a.phase, a.eraCardShown]).toEqual([3, 'fuel', false]);
+    expect(noEraTwo(a)).toBe(true);
 
     // While wiring: a small station's replacement is the card; it leaves at once with the lowest, unreplaced.
-    let w = eraCardNext(layUnder(buildPhase(), [50]));
+    let w = eraCardNext(layUnder(eraTwo(buildPhase()), [50]));
     w = withCompany(wired(w, 0, [0, 1, 2, 3, 4]), 0, (c) => ({ ...c, money: 100 }));
     const built = step(w, { type: 'build', actor: 0, city: 5 });
     expect(built.events.map((e) => e.type)).toEqual(['built', 'removed', 'removed']);
@@ -128,7 +205,7 @@ describe('the eras', () => {
     w = epochStep(w).state;
     expect(w.market).toEqual([8, 9, 10, 11, 12, 13]);
     expect(w.gone).toEqual([6, 7]);
-    expect([w.era, w.eraNext, turnOf(w)]).toEqual([1, true, 0]);
+    expect([w.era, w.eraNext, turnOf(w)]).toEqual([2, true, 0]);
     // Era III begins with payday: its restock, and the lowest leaves at the end of it, replaced from position 128.
     w = skipPhase(w);
     expect(w.era).toBe(3);
@@ -138,9 +215,10 @@ describe('the eras', () => {
     expect(w.gone).toEqual([6, 7, 8]);
     expect(w.market).toEqual([9, 10, 11, 12, 13, 50]);
     expect([w.round, w.phase]).toEqual([2, 'auction']);
+    expect(noEraTwo(w)).toBe(true);
 
     // At payday: the highest goes under, the card comes up, and it leaves with the lowest; Era III from then.
-    let p = eraCardNext(layUnder(buildPhase(), [50]));
+    let p = eraCardNext(layUnder(eraTwo(buildPhase()), [50]));
     p = skipPhase(p);
     expect(kinds(p.history).slice(-7)).toEqual([
       'power',
@@ -151,7 +229,7 @@ describe('the eras', () => {
       'removed',
       'era3',
     ]);
-    expect(p.history.find((e) => e.kind === 'restock')).toEqual({ kind: 'restock', added: [0, 2, 1, 1] });
+    expect(p.history.find((e) => e.kind === 'restock')).toEqual({ kind: 'restock', added: [0, 3, 2, 1] });
     expect(pendingOf(p)).toMatchObject({
       type: 'shuffle',
       from: [
@@ -163,9 +241,10 @@ describe('the eras', () => {
     expect(p.market).toEqual([7, 8, 9, 10, 11, 12]);
     expect(p.stack).toMatchObject({ next: [128, 129], under: [], shuffled: true });
     expect([p.era, p.round, p.phase]).toEqual([3, 2, 'auction']);
+    expect(noEraTwo(p)).toBe(true);
 
     // With nothing under the stack (round 1's wiring) there is nothing to reshuffle: no epoch.
-    let n = withCompany(wired(eraCardNext(buildPhase()), 0, [0, 1, 2, 3, 4]), 0, (c) => ({
+    let n = withCompany(wired(eraCardNext(eraTwo(buildPhase())), 0, [0, 1, 2, 3, 4]), 0, (c) => ({
       ...c,
       money: 100,
     }));
@@ -179,7 +258,7 @@ describe('the eras', () => {
   });
 
   it('C22 Era III: three companies a city, six stations all on offer, payday takes the lowest, an empty stack shrinks the market', () => {
-    let s = epochStep(skipPhase(eraCardNext(layUnder(buildPhase(), [50])))).state;
+    let s = epochStep(skipPhase(eraCardNext(layUnder(eraTwo(buildPhase()), [50])))).state;
     expect(s.era).toBe(3);
     expect(onOffer(s)).toEqual([7, 8, 9, 10, 11, 12]);
     const first = turnOf(s);
@@ -192,7 +271,7 @@ describe('the eras', () => {
     t = wired(t, 2, [0]);
     expect(t.houses[0]).toEqual([0, 1, 2]);
     // An empty stack: Era III came in round 1's wiring with nothing under the stack.
-    let e = withCompany(wired(eraCardNext(buildPhase()), 0, [0, 1, 2, 3, 4]), 0, (c) => ({
+    let e = withCompany(wired(eraCardNext(eraTwo(buildPhase())), 0, [0, 1, 2, 3, 4]), 0, (c) => ({
       ...c,
       money: 100,
     }));
@@ -211,7 +290,7 @@ describe('the eras', () => {
     expect(legalActions(e, turnOf(e))).toEqual([{ type: 'pass', actor: turnOf(e) }]);
     e = nextRound(e);
     expect([e.market, e.era, e.round]).toEqual([[], 3, round + 1]);
-    // Era III before Era II (OPEN, the engine skips Era II): seven cities in Era III bring no Era II.
+    // Once Era III has begun, Era II never does: seven cities in Era III bring no Era II.
     let skip = withCompany(wired(skipPhase(roundOne(3)), 0, [0, 1, 2, 3, 4, 5, 6]), 0, (c) => ({
       ...c,
       money: 100,
