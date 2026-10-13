@@ -522,8 +522,9 @@ function applyRolled(s: CurrentState, dice: readonly number[], ev: CurrentEvent[
 /* --------------------------------------------------------------------------------------- the market */
 
 /**
- * Draw the next card (C19, C20): a known card, a card from the pool (by a roll when more than one could come), the
- * Era III card, or nothing when the stack is empty. Returns the state with the roll opened when it must wait.
+ * Draw the next card (C19, C21, C23): a known card, a card from the pool (by a roll when more than one could come),
+ * the Era III card, or nothing when the stack is empty. What lies under the stack is reached only through the Era III
+ * card, whose shuffle makes it the pool. Returns the state with the roll opened when it must wait.
  */
 function drawCard(s: CurrentState, ev: CurrentEvent[]): CurrentState {
   const st = s.stack;
@@ -537,9 +538,6 @@ function drawCard(s: CurrentState, ev: CurrentEvent[]): CurrentState {
     return openRoll(s, 'draw', 1, st.pool.length);
   }
   if (st.eraCard) return placeDrawn({ ...s, stack: { ...st, eraCard: false } }, 'era', ev);
-  const under = st.under[0];
-  if (!st.shuffled && under !== undefined)
-    return placeDrawn({ ...s, stack: { ...st, under: st.under.slice(1) } }, under, ev);
   return note(s, ev, { kind: 'drew', station: null });
 }
 

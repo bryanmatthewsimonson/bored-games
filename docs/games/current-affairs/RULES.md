@@ -167,7 +167,7 @@ After a wiring phase in which a company has 21, 17, 17, 15 or 14 cities (2–6 p
 ## Platform rules
 - **Regions** are drawn evenly from every set of the right size that touches as one block (11 sets of three, 11 of four, 6 of five), by the dice beacon.
 - **The first round's order** is drawn by the dice beacon: one die of 60 faces for each place but the last, each picking evenly among the companies not yet placed.
-- **Unknown stations come by the dice.** The stack's order is known to nobody, so instead of shuffling an encrypted deck, each draw of an unknown station picks evenly at random, by the beacon, from the stations not yet seen; the draws stop where the Era III card lies, so the stations taken out unseen are never seen, as in the box game. Every station is as likely in every place as in a shuffled stack. A known card (13, the Era III card, a station laid under the stack before the shuffle, the last unseen one) is drawn without dice.
+- **Unknown stations come by the dice.** The stack's order is known to nobody, so instead of shuffling an encrypted deck, each draw of an unknown station picks evenly at random, by the beacon, from the stations not yet seen; the draws stop where the Era III card lies, so the stations taken out unseen are never seen, as in the box game. Every station is as likely in every place as in a shuffled stack. A known card (13, the Era III card, the last station left to draw) is drawn without dice.
 - **Nothing to decide, nothing asked.** A company that can afford no station on offer passes the opening without a decision; a bidder who cannot beat the bid folds without a decision; a company that can buy no fuel, or wire no city, is passed over; a company with no city, or no station it can fire, is paid $10 without a decision.
 - **One fuel purchase a turn:** a company buys all the fuel it wants in one move, or finishes.
 - **The final count** is computed: the most cities each company's stations and fuel could power.
@@ -177,7 +177,7 @@ After a wiring phase in which a company has 21, 17, 17, 15 or 14 cities (2–6 p
 None (`{ rulesVersion: 1 }`).
 
 ## OPEN
-- **Era III before Era II.** If the Era III card comes up before any company reaches the Era II count, Era II's one-time removal never happens (the 2005 FAQ says Era III can come first; the 2018 edition says to apply Era II's changes first). The engine skips Era II.
+- **Era III before Era II.** If Era III has begun before any company reaches the Era II count (the card came up in an auction or at a payday), Era II's one-time removal never happens (the 2005 FAQ says Era III can come first; the 2018 edition says to apply Era II's changes first). The engine skips Era II. If the card comes up in the very wiring phase in which a company reaches the Era II count, Era III has not begun yet (it begins at payday), so Era II's removal still happens first, its replacement drawn from the shuffled stack.
 - **Station 29** powers 4 cities in two of three data sets and 3 in one; the engine uses 4.
 
 ## Online play on this site
@@ -258,7 +258,7 @@ Shuffles the stack at once; in an auction it waits at the end of the market and 
 Three companies a city; six stations, all on offer; payday removes the lowest; an empty stack draws nothing and the market shrinks.
 
 #### C23 Unknown stations
-Each unknown station is drawn by a roll with one face per station still unseen; a single unseen station, 13, the Era III card and the stations laid under the stack before the shuffle come without dice; the stations taken out unseen are never drawn.
+Each unknown station is drawn by a roll with one face per station still to draw (the shuffled stations under the stack included); the last one, 13 and the Era III card come without dice; the stations taken out unseen are never drawn.
 
 #### C24 The end
 After the wiring in which a company reaches the end count: no more buying, no income; places by cities powered, then money, then cities wired.
