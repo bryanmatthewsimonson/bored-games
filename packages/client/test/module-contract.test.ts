@@ -1,21 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { describe, it } from 'vitest';
 import { MODULES } from './helpers.ts';
-import { checkRevealContract, resignSeatCounts } from './reveal-contract.ts';
+import { checkResignMidGame, checkResignOffered, seatCounts } from './resign-contract.ts';
 
 /*
- * Contract checks the session relies on for every module with a deck that these tests register (PROTOCOL §8.3,
- * D052; reveal-contract.ts). The web tests run the same check over every module the app registers
- * (apps/web/test/module-contract.test.ts), which is the list that ships. Holler is the reviewed exception
- * inside the helper (D073): a scoring reveal, an epoch, and a grant may pend during play.
+ * The Resign contract (PROTOCOL §4.9, §8.3, D052, D090; resign-contract.ts) over every module these tests register.
+ * The web tests run it over every module the app registers (apps/web/test/module-contract.test.ts), which is the
+ * list that ships. Resign is never disabled: every module allows it at every seat count, and a seat that resigns
+ * mid-game, whatever the game is waiting for, ends the game the same way on every client.
  */
 
-describe('modules with a deck pend public reveals only before the first player action', () => {
+const LONG = 600_000;
+
+describe('Resign in every game, at every seat count (D090)', () => {
   for (const module of MODULES.values()) {
-    if (module.decks(module.defaultRules()).length === 0) continue;
-    it(`${module.id}`, () => {
-      const seats = resignSeatCounts(module);
-      expect(seats.length, `${module.id} opts out of Resign; the web test exempts it`).toBeGreaterThan(0);
-      checkRevealContract(module, seats);
-    });
+    it(
+      `${module.id}: every seat may resign at every seat count, and every client accepts it`,
+      () => checkResignOffered(module),
+      LONG,
+    );
+    const seats = seatCounts(module)[0] as number;
+    it(
+      `${module.id}: a resign mid-game ends the game alike on every client (${seats} seats)`,
+      () => {
+        checkResignMidGame(module, seats);
+      },
+      LONG,
+    );
   }
 });

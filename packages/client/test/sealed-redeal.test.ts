@@ -98,7 +98,6 @@ const passer: GameModule<S, { type: string }, Record<string, never>> = {
   dealt: (s) => s.dealt,
   revealsOf: () => [],
   invariants: () => [],
-  resignAllowed: () => false,
 };
 
 function table(seed: string) {

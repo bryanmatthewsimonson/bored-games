@@ -814,6 +814,5 @@ export const giltAndGuile: GameModule<GiltState, GiltEvent, Rules> = {
     d.orders.push([...order]);
     return yes(d);
   },
-  resignAllowed: () => false,
   coverage: (s) => (s.result ? ['end:supply'] : []),
 };

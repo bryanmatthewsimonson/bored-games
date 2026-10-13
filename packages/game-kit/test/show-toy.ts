@@ -217,8 +217,6 @@ export function createShowToy(
       }
       return out;
     },
-    // An early deck secret would open every show to or from its seat (PROTOCOL §14).
-    resignAllowed: () => false,
   };
 }
 

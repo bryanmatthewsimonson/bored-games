@@ -11,13 +11,7 @@ import {
 } from '@bored-games/deck';
 import { canonicalJson, range } from '@bored-games/game-kit';
 import { faceOf, type HollerState, holler } from '@bored-games/holler';
-import {
-  finalizeEvent,
-  moveTemplate,
-  type NostrEvent,
-  parseMove,
-  resignTemplate,
-} from '@bored-games/protocol';
+import { finalizeEvent, KIND, moveTemplate, type NostrEvent, parseMove } from '@bored-games/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { ClientError } from '../src/errors.ts';
 import type { GameSession } from '../src/session.ts';
@@ -430,11 +424,14 @@ function proveOpening(
 class Table {
   readonly players: GameSession[];
   readonly spectator: GameSession;
+  /** Every event of the game, in the order it was published. */
+  readonly log: NostrEvent[];
   t = LATE + 1;
 
   constructor(events: readonly NostrEvent[]) {
     this.players = [0, 1].map((seat) => catchUp(fx.game, seat, events));
     this.spectator = catchUp(fx.game, null, events);
+    this.log = [...events];
   }
 
   all(): GameSession[] {
@@ -447,6 +444,7 @@ class Table {
   }
 
   publish(ev: NostrEvent, allow: readonly string[] = ['accepted']): void {
+    this.log.push(ev);
     const results = statuses(deliver(this.all(), [ev], undefined, ev.created_at));
     if (results.some((status) => !allow.includes(status))) throw new Error(results.join(', '));
   }
@@ -632,6 +630,50 @@ describe('holler session (D073)', { timeout: 180_000 }, () => {
     expect(next.spectator.view().pending.type).not.toBe('grant');
   });
 
+  it('keeps an epoch step, and the first move after a grant, that arrive before the shares ahead of them (D090)', () => {
+    // The simulator found this at three seats: a seat that held every share of the hands' reveal signed its epoch
+    // step, and a client still missing one share rejected the step for good ("no shuffle is pending"), then timed
+    // the seat out; the first move after a grant was rejected the same way. Such a move waits, as an action does.
+    const round = fx.scripts.round;
+    if (round === null) throw new Error('missing round script');
+    const live = table();
+    live.replay(round);
+    expect(live.state(null).phase).toMatchObject({ type: 'epoch', purpose: 'round' });
+    // The Shares events after the last move completed the hands' reveal: hold them back.
+    const lastMove = live.log.findLastIndex((ev) => ev.kind === KIND.move);
+    const revealShares = live.log.slice(lastMove + 1).filter((ev) => ev.kind === KIND.shares);
+    expect(revealShares.length).toBeGreaterThan(0);
+    const before = live.log.filter((ev) => !revealShares.includes(ev));
+    const epochFrom = live.log.length;
+    live.playEpoch();
+    const epochSteps = live.log.slice(epochFrom);
+    expect(live.state(null).phase.type).toBe('grant');
+    const grantFrom = live.log.length;
+    live.pump();
+    const grantShares = live.log.slice(grantFrom);
+    expect(grantShares.length).toBeGreaterThan(0);
+    const pending = live.spectator.view().pending;
+    if (pending.type !== 'player') throw new Error(`no decision after the grant: ${pending.type}`);
+    const decider = live.players[pending.seat] as GameSession;
+    const first = decider.buildAction(decider.legalActions()[0], fx.game.rnd, live.t++);
+    live.publish(first);
+
+    const late = newSession(fx.game, null);
+    trust([late], live.log);
+    expect(statuses(deliver([late], before, undefined, LATE)).every((s) => s === 'accepted')).toBe(true);
+    expect(late.view().pending.type).toBe('reveal');
+    // The epoch steps wait for the reveal's shares, then link.
+    expect(statuses(deliver([late], epochSteps, undefined, LATE))).toEqual(epochSteps.map(() => 'stored'));
+    expect(statuses(deliver([late], revealShares, undefined, LATE))).toContain('accepted');
+    expect(late.view().head.seq).toBe(live.spectator.view().head.seq - 1);
+    expect(late.view().pending.type).toBe('grant');
+    // The first move after the grant waits for the grant's shares, then links.
+    expect(statuses(deliver([late], [first], undefined, LATE))).toEqual(['stored']);
+    deliver([late], grantShares, undefined, LATE);
+    expect(late.view().head).toEqual(live.spectator.view().head);
+    expect(canonicalJson(late.view().state)).toBe(canonicalJson(live.spectator.view().state));
+  });
+
   it('stalls the seat who publishes two epoch outputs, not the next shuffler', () => {
     const round = fx.scripts.round;
     if (round === null) throw new Error('missing round script');
@@ -720,23 +762,36 @@ describe('holler session (D073)', { timeout: 180_000 }, () => {
     expect(live.spectator.view().pending.type).not.toBe('shuffle');
   });
 
-  it('refuses a resign at two seats', () => {
+  it('takes a resign at two seats while an epoch is pending: a rated loss once both secrets are in (D090)', () => {
+    const script = fx.scripts.mid;
+    if (script === null) throw new Error('missing epoch script');
     const live = table();
+    live.replay(script);
+    expect(live.spectator.view().pending.type).toBe('shuffle');
     const seat0 = live.players[0] as GameSession;
+    const seat1 = live.players[1] as GameSession;
+    expect(seat0.canResign()).toBe(true);
+    live.publish(seat0.buildResign(fx.game.rnd, live.t++));
+    for (const session of live.all()) expect(session.view()).toMatchObject({ phase: 'end', resigned: [0] });
+    // The epoch is no longer owed: only the other seat's secret is.
+    expect(seat1.duties().map((duty) => duty.kind)).toEqual(['secret']);
     expect(seat0.canResign()).toBe(false);
     expect(() => seat0.buildResign(fx.game.rnd, live.t)).toThrow(ClientError);
-    expect(() => seat0.buildResign(fx.game.rnd, live.t)).toThrow(/resigning is not allowed in this game/);
-    const id = fx.game.ids[0];
-    if (id === undefined) throw new Error('missing seat 0');
-    const ev = finalizeEvent(
-      resignTemplate({ rootId: fx.game.rootId, headId: seat0.view().head.id, secret: id.deckSecret }, live.t),
-      id.sessionSk,
-      fx.game.rnd,
-    );
-    expect(seat0.receive(ev, live.t)).toEqual({
-      status: 'rejected',
-      reason: 'resigning is not allowed in this game',
-    });
+    live.publish(seat1.buildSecret(fx.game.rnd, live.t++));
+    const want = canonicalJson(live.spectator.view().outcome);
+    for (const session of live.all()) {
+      const view = session.view();
+      expect(view).toMatchObject({
+        phase: 'done',
+        outcome: { places: [2, 1], reason: 'resign' },
+        audit: { fail: [0], reason: 'resign' },
+        forfeits: [0],
+      });
+      expect(canonicalJson(view.outcome)).toBe(want);
+      // A 2-seat resign is an ordinary, rated loss.
+      expect(view.outcome).not.toHaveProperty('unrated');
+      expect(view.outcome).not.toHaveProperty('endedBy');
+    }
   });
 
   it('ends a three-seat resign unrated once the secrets are in', () => {

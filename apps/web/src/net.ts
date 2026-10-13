@@ -24,6 +24,7 @@ import {
 } from '@bored-games/relay';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
+import { sticksAndStones } from '@bored-games/sticks-and-stones';
 import { effect } from '@preact/signals';
 import type { Timers } from './clock.ts';
 import type { Signer } from './identity.ts';
@@ -47,6 +48,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [holler.id, holler],
   [roomForDoubt.id, roomForDoubt],
   [hazard.id, hazard],
+  [sticksAndStones.id, sticksAndStones],
   [quillAndQuarry.id, quillAndQuarry],
   [giltAndGuile.id, giltAndGuile],
 ]);

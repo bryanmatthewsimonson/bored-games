@@ -277,7 +277,8 @@ describe('rules catalog', () => {
     expect(installDeckOrder(s, s.epoch + 1, cards.slice(1)).ok).toBe(false);
     expect(installDeckOrder(view(s, 0), s.epoch + 1, cards).ok).toBe(false);
     expect(apply(s, { type: 'epoch', actor: 'deck', epoch: s.epoch + 1, size: cards.length }).ok).toBe(false);
-    expect(quillAndQuarry.resignAllowed?.(DEFAULT_RULES, 4)).toBe(false);
+    // No module opts out of Resign (D090).
+    expect('resignAllowed' in quillAndQuarry).toBe(false);
     expect(pending(s).type).toBe('shuffle');
   });
 });

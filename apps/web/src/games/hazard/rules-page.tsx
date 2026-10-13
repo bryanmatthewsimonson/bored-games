@@ -213,7 +213,8 @@ export function HazardRulesContent() {
           </li>
           <li>
             <strong>Timeouts:</strong> each move has a deadline ({deadlineList}, chosen with the table).{' '}
-            <strong>Resign</strong> is not offered in this game.
+            <strong>Resign</strong> ends the game for everyone: it is unrated, the others are placed as if the
+            game ended now, and you come last. Before the first move it cancels the game.
           </li>
         </ul>
       </Section>

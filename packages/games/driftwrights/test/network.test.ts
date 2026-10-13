@@ -140,6 +140,7 @@ describe('decentralized Driftwrights adapter', () => {
     expect(game.apply(s, { type: 'dice', actor: 0, faces: [6, 6] }).ok).toBe(false);
     expect(game.learn(s, { deck: 'supplies', pos: 0, card: 1 }).ok).toBe(false);
     expect(game.validateRules({ layout: 'classic', extra: true }).ok).toBe(false);
-    expect(game.resignAllowed?.(rules, 3)).toBe(false);
+    // No module opts out of Resign (D090).
+    expect('resignAllowed' in game).toBe(false);
   });
 });

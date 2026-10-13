@@ -122,9 +122,8 @@ import type {
  * good (the game is cancelled before the first game action, ends at once by forfeit during play, or ends with the
  * withheld secrets failed).
  *
- * Resigns (PROTOCOL §4.9, §8.3, D045, D052) are allowed in every game but 2-seat ones with a deck and those whose
- * module opts out. A Resign counts once the head it names is held: the root, a move on this client's chain, or a
- * valid move on a side branch that lost fork choice (an equivocation moved the chain off it); until then it is kept,
+ * Resigns (PROTOCOL §4.9, §8.3, D045, D052, D090) are allowed in every game at every seat count. A Resign counts
+ * once the head it names is held: the root, a move on this client's chain, or a valid move on a side branch that lost fork choice (an equivocation moved the chain off it); until then it is kept,
  * at most `MAX_PENDING_RESIGNS` per seat (the lowest ids). Once one counts, the game's ending by it is final for this
  * client: later claims and resigns change nothing. A resign that counts before any game action (by the cancel rule
  * of `countResign`) cancels the game and stops the fold. Any other ends it with the resigning seat last and the
@@ -288,6 +287,13 @@ interface Status {
 }
 
 const reject = (reason: string): { reject: string } => ({ reject: reason });
+
+/**
+ * A pending public reveal or grant: it resolves once Shares events arrive, with no move. A move judged against such a
+ * state waits for it, as a game action does (PROTOCOL §6.5): an epoch step signed by a seat that already held those
+ * shares is not invalid on a client that does not hold them yet (D090; the simulator found the split).
+ */
+const resolvesBySharesOnly = (p: Pending): boolean => p.type === 'reveal' || p.type === 'grant';
 
 function message(e: unknown): string {
   try {
@@ -1302,16 +1308,6 @@ export class GameSession {
     return { phase: snap.phase, state: snap.state, logLength: snap.logLength };
   }
 
-  /**
-   * Whether a seat may resign this game (D052): never in a 2-seat game with a deck (the resigner's published secret
-   * and the other seat's own key would open the whole deck), nor when the module opts out (`resignAllowed`).
-   * Fixed by the game, so order-independent.
-   */
-  private resignAllowed(): boolean {
-    if (this.hasDeck() && this.seats === 2) return false;
-    return this.module.resignAllowed?.(this.rules, this.seats) ?? true;
-  }
-
   /** `resignEnd`, with a secret still missing and no timeout accepted: claims about it still count. */
   private awaitingSecrets(): boolean {
     return this.resignEnd() && this.timedOut === null && this.secrets.size < this.seats;
@@ -1341,10 +1337,6 @@ export class GameSession {
     if (r.rootId !== this.root.id) return { status: 'rejected', reason: 'the event is for another game' };
     const seat = this.seatOf.get(r.pubkey);
     if (seat === undefined) return { status: 'rejected', reason: 'not signed by a seated session key' };
-    if (!this.resignAllowed()) {
-      this.see(r.id, now);
-      return this.rejectEvent(r.id, 'resigning is not allowed in this game');
-    }
     if (r.secret !== null && !this.secretMatches(seat, r.secret)) {
       this.see(r.id, now);
       return this.rejectEvent(r.id, `the resign's deck secret does not match seat ${seat}'s deck key`);
@@ -1559,6 +1551,8 @@ export class GameSession {
     if (this.phase === 'shuffle' || this.phase === 'deal') return 'wait';
     if (this.phase !== 'play') return reject('the game is not in play');
     const pending = this.module.pending(this.state);
+    // A reveal or a grant ahead of the epoch resolves once its shares arrive; the step may follow it.
+    if (resolvesBySharesOnly(pending)) return 'wait';
     if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
     if (c.epoch !== pending.epoch) return reject('epoch number');
     const progress = this.epochProgress(this.chain.length);
@@ -1791,8 +1785,8 @@ export class GameSession {
     // Faces are derived from the beacon. A seat that sends them is inventing the roll (D058).
     if (playerSentDice(c.action)) return reject('a player does not send the dice');
     const p = this.module.pending(state);
-    // A pending reveal resolves once its shares arrive; the move may follow it.
-    if (p.type === 'reveal') return 'wait';
+    // A pending reveal or grant resolves once its shares arrive; the move may follow it.
+    if (resolvesBySharesOnly(p)) return 'wait';
     if (p.type !== 'player') return reject('no player decision is pending');
     if (seat !== p.seat) return reject(`move ${m.seq} must be signed by seat ${p.seat}`);
 
@@ -2773,6 +2767,7 @@ export class GameSession {
     state: unknown,
   ): Judged {
     const pending = this.module.pending(state);
+    if (resolvesBySharesOnly(pending)) return 'unknown';
     if (pending.type !== 'shuffle' || pending.deck !== this.deckId) return reject('no shuffle is pending');
     if (c.epoch !== pending.epoch) return reject('epoch number');
     const progress = this.epochProgress(at);
@@ -3523,7 +3518,11 @@ export class GameSession {
   /** Only assigned positions authorized for this seat; an owner never shares its private card. */
   private sharesDue(seat: number): number[] {
     // Owner-authorized prompt decks deliver new private draws immediately, with any number of groups.
-    if (this.promptShares) return this.shares.missing(seat, this.module.dealt(this.state));
+    if (this.promptShares) {
+      const owed = this.shares.missing(seat, this.module.dealt(this.state));
+      const scoring = this.scoringSharesDue(seat);
+      return scoring.length === 0 ? owed : [...new Set([...owed, ...scoring])].sort((a, b) => a - b);
+    }
     const p = this.module.pending(this.state);
     if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
     const publicPositions = new Set(
@@ -3538,8 +3537,22 @@ export class GameSession {
   }
 
   /**
+   * A scoring reveal (`GameModule.handsReveal`, D089) turns up positions still dealt to their holders: every seat
+   * owes its share of them, the holder's own included, as an epoch game's reveal already asks (`playSharesDue`).
+   * Empty outside one, so a holder never publishes its private layer in play.
+   */
+  private scoringSharesDue(seat: number): number[] {
+    if (this.module.handsReveal?.(this.state) !== true) return [];
+    const p = this.module.pending(this.state);
+    if (p.type !== 'reveal' || p.deck !== this.deckId) return [];
+    return p.positions.filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
+  }
+
+  /**
    * Shares for a reveal or a grant that is not gated on `promptShares`. Empty without epoch capability. A reveal lists
-   * every position this seat has not shared, owner included. A grant lists the positions owed to someone else.
+   * every position this seat has not shared, owner included. A grant lists the positions owed to someone else. A
+   * player decision that waits for cards dealt to the deciding seat lists those this seat has not shared
+   * (`decisionSharesDue`).
    */
   private playSharesDue(seat: number): number[] {
     if (!this.hasDeck() || !this.usesEpochs() || this.epochGrantedElsewhere(seat)) return [];
@@ -3548,7 +3561,29 @@ export class GameSession {
       return [...pending.positions].filter((pos) => !this.shares.has(seat, pos)).sort((a, b) => a - b);
     }
     if (pending.type === 'grant') return this.shares.missing(seat, this.module.dealt(this.state));
+    if (pending.type === 'player' && pending.seat !== seat) return this.decisionSharesDue(pending.seat, seat);
     return [];
+  }
+
+  /**
+   * The positions dealt to `decider` that its pending decision needs and that `seat` has not shared: exactly what
+   * makes `seat` stalled at the head (`stalledInPlay`), so a seat the game waits for always has a duty to clear it
+   * (D090). In a game with three or more seats a seat can draw on its own move (Holler's accepted Levy), and the
+   * turn order can come back to it, a Swing reversing, before a seat that owes its share of those cards moves
+   * again: R1 alone then never delivers the share, and the honest seat was timed out. Never a position whose share
+   * `seat` must seal rather than publish (D066).
+   */
+  private decisionSharesDue(decider: number, seat: number): number[] {
+    const dealt = this.module.dealt(this.state);
+    const needed = dealt
+      .filter((d) => d.to === decider && d.deck === this.deckId && !this.readable(d.pos, decider))
+      .map((d) => d.pos);
+    if (needed.length === 0) return [];
+    if (this.module.legalActions(this.module.view(this.state, null), decider).length > 0) return [];
+    const sealed = sealedPositions(dealt);
+    return [...new Set(needed)]
+      .filter((pos) => sealed.get(pos) !== seat && !this.shares.has(seat, pos))
+      .sort((a, b) => a - b);
   }
 
   /** The highest completed epoch, or 0 before the first. */
@@ -3884,7 +3919,7 @@ export class GameSession {
    * (no timeout accepted, no resign, the chain not over). Any game, any seat count, on its turn or not.
    */
   canResign(): boolean {
-    return this.me !== null && this.resignAllowed() && !this.final();
+    return this.me !== null && !this.final();
   }
 
   /**
@@ -3894,8 +3929,7 @@ export class GameSession {
    */
   buildResign(rnd: RandomBytes, createdAt: number): NostrEvent {
     const me = this.requireMe();
-    if (!this.canResign())
-      throw new ClientError('resigning is not allowed in this game, or the game is over');
+    if (!this.canResign()) throw new ClientError('the game is over');
     const secret = this.hasDeck() ? me.deckSecret : null;
     const t = resignTemplate({ rootId: this.root.id, headId: this.headId(), secret }, createdAt);
     return finalizeEvent(t, me.sessionSk, rnd);

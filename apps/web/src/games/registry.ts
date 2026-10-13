@@ -41,6 +41,9 @@ import { ROOM_FOR_DOUBT_SETUP_COPY, RoomForDoubtGame } from './room-for-doubt/ga
 import { ROOM_FOR_DOUBT_META } from './room-for-doubt/meta.ts';
 import { automaticAnswer } from './room-for-doubt/model.ts';
 import { RoomForDoubtRulesPage } from './room-for-doubt/rules-page.tsx';
+import { STICKS_SETUP_COPY, SticksGame } from './sticks-and-stones/game.tsx';
+import { STICKS_META } from './sticks-and-stones/meta.ts';
+import { SticksRulesPage } from './sticks-and-stones/rules-page.tsx';
 import type { WebGame } from './types.ts';
 
 export const GAMES: readonly WebGame[] = [
@@ -144,6 +147,12 @@ export const GAMES: readonly WebGame[] = [
     Component: HazardGame,
     RulesPage: HazardRulesPage,
     setupCopy: () => HAZARD_SETUP_COPY,
+  },
+  {
+    ...STICKS_META,
+    Component: SticksGame,
+    RulesPage: SticksRulesPage,
+    setupCopy: () => STICKS_SETUP_COPY,
   },
 ];
 

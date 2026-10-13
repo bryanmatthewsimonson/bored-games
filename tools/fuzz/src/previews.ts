@@ -31,6 +31,11 @@ export interface PreviewPlan {
   /** Players in place of the fuzz policies, when those would not look like a real game. */
   // biome-ignore lint/suspicious/noExplicitAny: a policy matches its own game's state type
   readonly policies?: readonly FuzzPolicy<any>[];
+  /**
+   * Pending decisions that are not a player's choice and should not be pictured, such as a dice share the app
+   * sends by itself (`contribute`, D058). Older plans leave it out, so their pictures do not move.
+   */
+  readonly skip?: readonly string[];
 }
 
 /**
@@ -113,6 +118,7 @@ export function previewSnapshots(plan: PreviewPlan): PreviewSnapshot[] {
       const view = views[0];
       const pending = module.pending(view);
       if (pending.type !== 'player' || pending.seat !== 0) return;
+      if (plan.skip?.includes(pending.decision) === true) return;
       const legal = module.legalActions(view, 0);
       if (legal.length === 0) return;
       turns.push({

@@ -1,6 +1,6 @@
 import { chainReaction } from '@bored-games/chain-reaction';
 import { type Ciphertext, type Point, proveShuffle, type Share, shuffleDeck } from '@bored-games/deck';
-import { canonicalJson, type Rng } from '@bored-games/game-kit';
+import { canonicalJson, type GameModule, type Rng } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   type MoveContent,
@@ -189,6 +189,76 @@ export function resignAt(seat: number, atSeq: number): Adversary {
   };
 }
 
+/**
+ * When `resignAny` resigns (D090): `any` turn; while the game waits for a public `reveal` (a refill, a scoring
+ * reveal), a dice `beacon`, a reshuffle epoch (`shuffle`) or a `grant`; on `other` seat's decision; while the seat
+ * itself owes a `share` or a `seal`ed share; or while a private `show` is pending.
+ */
+export const RESIGN_WHEN = [
+  'any',
+  'reveal',
+  'beacon',
+  'shuffle',
+  'grant',
+  'other',
+  'share',
+  'seal',
+  'show',
+] as const;
+export type ResignWhen = (typeof RESIGN_WHEN)[number];
+
+// biome-ignore lint/suspicious/noExplicitAny: the session's module, read as cheat.ts reads its private fields.
+type AnyModule = GameModule<any, any, any>;
+
+/** Whether the game, as `t`'s seat sees it now, is at a point of kind `when`. */
+function isAt(t: SimTurn, when: ResignWhen): boolean {
+  const v = t.session.view();
+  switch (when) {
+    case 'any':
+      return true;
+    case 'beacon':
+      // A dice beacon's contributions: a pending roll, or a mixed beacon's `contribute` decision (D069).
+      return (
+        v.pending.type === 'beacon' || (v.pending.type === 'player' && v.pending.decision === 'contribute')
+      );
+    case 'reveal':
+    case 'shuffle':
+    case 'grant':
+      return v.pending.type === when;
+    case 'other':
+      return v.pending.type === 'player' && v.pending.seat !== t.seat;
+    case 'share':
+    case 'seal':
+      return t.session.duties().some((d) => d.kind === when);
+    case 'show': {
+      const module = (t.session as unknown as { module: AnyModule }).module;
+      return v.state !== null && (module.privateShow?.(v.state) ?? null) !== null;
+    }
+  }
+}
+
+/**
+ * `resignAny`: like `resign`, but the seat resigns at its first turn once the chain reaches `atSeq` moves and the
+ * game is at a point of kind `when` (`any` by default), whatever the game is waiting for then: another seat's
+ * decision, a public reveal's shares, a dice beacon's contributions, a reshuffle epoch, a sealed share, a private show
+ * or a scoring reveal (D090). Another seat's move can then race the resign; it links after it too and is scored only
+ * as that seat's raced turn (PROTOCOL §8.3), so once every client holds the same events they agree.
+ */
+export function resignAny(seat: number, atSeq: number, when: ResignWhen = 'any'): Adversary {
+  let done = false;
+  return {
+    name: 'resignAny',
+    seat,
+    turn(t) {
+      if (done) return 'honest';
+      if (t.session.view().head.seq < atSeq || !t.session.canResign() || !isAt(t, when)) return 'honest';
+      done = true;
+      t.publish(t.session.buildResign(t.rnd, t.now), 'resign');
+      return 'honest';
+    },
+  };
+}
+
 export const ADVERSARIES = [
   'badShare',
   'forgedSkip',
@@ -196,6 +266,7 @@ export const ADVERSARIES = [
   'vanish',
   'badShuffle',
   'resign',
+  'resignAny',
 ] as const;
 export type AdversaryName = (typeof ADVERSARIES)[number];
 
@@ -203,7 +274,13 @@ export type AdversaryName = (typeof ADVERSARIES)[number];
  * The named adversary at `seat`. `vanish` vanishes, and `resign` resigns, before the first game action unless
  * `vanishAt` (a chain length) says otherwise.
  */
-export function adversary(name: AdversaryName, seat: number, seats: number, vanishAt = seats): Adversary {
+export function adversary(
+  name: AdversaryName,
+  seat: number,
+  seats: number,
+  vanishAt = seats,
+  when: ResignWhen = 'any',
+): Adversary {
   switch (name) {
     case 'badShare':
       return badShare(seat);
@@ -217,6 +294,8 @@ export function adversary(name: AdversaryName, seat: number, seats: number, vani
       return badShuffle(seat);
     case 'resign':
       return resignAt(seat, vanishAt);
+    case 'resignAny':
+      return resignAny(seat, vanishAt, when);
   }
 }
 
@@ -317,6 +396,7 @@ export function unexpected(report: SimReport, seat: number): string[] {
       }
       break;
     case 'resign':
+    case 'resignAny':
       want(report.cheats.length === 1, 'it never resigned');
       want(same(report.forfeits, [seat]), `forfeits ${report.forfeits}`);
       want(report.claims === 0, `${report.claims} timeout claims`);

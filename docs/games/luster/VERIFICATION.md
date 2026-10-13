@@ -44,7 +44,7 @@ The duty publishes newly assigned non-owner layers immediately, including privat
 
 The full final `pnpm check` required by CLAUDE.md passed before committing and merging; its results are recorded above separately from the earlier baseline and follow-up runs.
 
-Resign is disabled until the refill/reveal path receives a dedicated review. The new engine and shared deck integration still need dedicated adversarial review before production readiness. Per the follow-up request, a random starting player deliberately replaces the tabletop youngest-player convention. The UI and rules are original, and original gemstone, landscape and noble illustrations are offered under CC0; jurisdiction-specific legal and name clearance remain outside the implementation's verification. Native independent multi-deck sessions are not implemented: the documented packet adapter provides the required behavior for Luster.
+Resign is on at every seat count since D090, whose review covers the refill/reveal path (PROTOCOL §8.3, "Mid-game pendings"). The new engine and shared deck integration still need dedicated adversarial review before production readiness. Per the follow-up request, a random starting player deliberately replaces the tabletop youngest-player convention. The UI and rules are original, and original gemstone, landscape and noble illustrations are offered under CC0; jurisdiction-specific legal and name clearance remain outside the implementation's verification. Native independent multi-deck sessions are not implemented: the documented packet adapter provides the required behavior for Luster.
 
 
 ## Interface revision verification — 2026-10-04

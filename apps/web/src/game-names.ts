@@ -10,6 +10,7 @@ import { LUSTER_META } from './games/luster/meta.ts';
 import { QUILL_META } from './games/quill-and-quarry/meta.ts';
 import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
 import { ROOM_FOR_DOUBT_META } from './games/room-for-doubt/meta.ts';
+import { STICKS_META } from './games/sticks-and-stones/meta.ts';
 import type { GameMeta } from './games/types.ts';
 
 /** Every game's names, by module id. Light: no game components, so cards and the lobby can use it. */
@@ -25,6 +26,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [QUILL_META.id, QUILL_META],
   [GILT_AND_GUILE_META.id, GILT_AND_GUILE_META],
   [HAZARD_META.id, HAZARD_META],
+  [STICKS_META.id, STICKS_META],
 ]);
 
 /**

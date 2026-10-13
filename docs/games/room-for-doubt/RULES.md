@@ -343,7 +343,7 @@ The build settled these points, the rulings of its plan (D078). Each refines how
 - Every submission also waits on responses in turn, so this is a slow asynchronous game; the catalog entry says so.
 
 ### Resign
-Resign is disabled at every seat count (`resignAllowed` false) until its D052 review, as for Luster and Right of Way. A Resign publishes the resigner's deck secret at once (PROTOCOL §8.3), which would open the resigner's hand, every private show it sent or received (PROTOCOL §14) and, once the resigner has indicted, the Verdict itself. A player who cannot go on is timed out instead.
+Resign is on at every seat count (D090). It ends the game for everyone, unrated, with the resigner last and the others placed by the standings as if the game ended now (PROTOCOL §8.3). It publishes the resigner's deck secret at once, which opens the resigner's hand, every private show it sent or received (PROTOCOL §14) and, once the resigner has indicted, the Verdict: every one of them a card the resigner already knew, and all of them open at the end of the game anyway.
 
 ### Catalog entry (for the build)
 `players {min: 3, max: 6, best: [4]}`, `playMinutes {min: 45, max: 90}` face to face, `weight` 1.6, `luck` 2, `genre: 'family'`, `mechanisms: ['deduction', 'dice-rolling', 'grid-movement']`, competitive, sequential, `hiddenInfo` and `randomness`, `minAge: 8`, "Compare to Clue" with BoardGameGeek 1294, art credit "Original board, card and cover art by Bored Games", CC0-1.0. As built (`src/catalog.ts`), the entry also has `status: 'beta'`, `typicalTurns: 60`, `bggId: null` (the game has no BoardGameGeek entry of its own) and the tags mystery, murder, courthouse and detective.
