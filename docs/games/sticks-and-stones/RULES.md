@@ -11,7 +11,7 @@ Sticks & Stones uses the mechanics of *Stone Age* (Bernd Brunnhofer, writing as 
 ### The name
 - **Sticks & Stones**: two of the goods the clans gather, and the start of the old rhyme. It names the game's stuff, wood and stone, without naming the era the reference title does.
 - **Tagline:** "Gather sticks and stones, feed the clan, and leave a mark that lasts."
-- **Clearance (not legal advice).** "Sticks and stones" is an everyday phrase. This is not a trademark search; as for Luster, Right of Way, Room for Doubt and Hazard, a lawyer must clear the name before release. Fallback title: *Ochre*.
+- **Clearance (not legal advice).** "Sticks and stones" is an everyday phrase. This is not a trademark search; as for Luster, Right of Way, Room for Doubt and Hazard, a lawyer must clear the name before release. The owner kept the name on 2026-10-12 (D089).
 
 ### What is the same, and why it may be
 Game mechanics, rules as systems and the numbers that are part of a method of play are not protected by copyright (17 U.S.C. §102(b); U.S. Copyright Office circular FL-108). A rulebook's wording, its board art and layout, its card and tile art and its trade dress are, and the title is a trademark. So:
