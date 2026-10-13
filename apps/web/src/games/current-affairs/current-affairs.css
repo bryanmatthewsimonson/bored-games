@@ -1,0 +1,135 @@
+/* Current Affairs (D091): the art and the map. Navy, brass, cream and sodium orange, after a 1930s power company's
+   posters. The drawings carry their own grounds, so they read the same on a light or a dark page; only the money
+   text and focus rings follow the page. */
+
+.ca-card,
+.ca-fuel,
+.ca-yard,
+.ca-seat-token {
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+}
+
+.ca-card {
+  border-radius: 7px;
+}
+
+.ca-card-dim {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}
+
+.ca-card-selected {
+  filter: drop-shadow(0 0 5px rgb(243 154 51 / 0.85));
+}
+
+.ca-yard {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+}
+
+.ca-money {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ca-coin {
+  flex: none;
+}
+
+/* The map: as wide as its column; on a phone it keeps a legible size and scrolls sideways inside its own box. */
+.ca-map {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-radius: 8px;
+  background: #16304a;
+}
+
+.ca-map-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media (max-width: 640px) {
+  .ca-map-svg {
+    width: 760px;
+    max-width: none;
+  }
+}
+
+.ca-city-active {
+  cursor: pointer;
+}
+
+.ca-city-hit {
+  fill: transparent;
+}
+
+.ca-city-active:focus {
+  outline: none;
+}
+
+.ca-city-active:focus-visible .ca-city-hit {
+  stroke: #ffcf7a;
+  stroke-width: 3;
+  stroke-dasharray: 5 3;
+}
+
+.ca-city-active:hover .ca-city-hit {
+  fill: rgb(255 207 122 / 0.18);
+}
+
+.ca-city-fog {
+  opacity: 0.45;
+}
+
+.ca-link-fog {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ca-offer-halo {
+    animation: ca-pulse 1.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .ca-highlight {
+    animation: ca-pulse 2.4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+}
+
+@keyframes ca-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .ca-map {
+    box-shadow: 0 0 0 1px rgb(201 162 74 / 0.35);
+  }
+
+  .ca-card {
+    box-shadow: 0 0 0 1px rgb(201 162 74 / 0.25);
+  }
+}
