@@ -1,5 +1,5 @@
 import type { GameModule, Pending } from '@bored-games/game-kit';
-import type { Hex, NostrEvent, Outcome } from '@bored-games/protocol';
+import type { Hex, NostrEvent, Outcome, ShuffleOrder } from '@bored-games/protocol';
 
 /** This client's seat and the secrets it plays with: its session signing key and its deck secret `x`. */
 export interface Identity {
@@ -40,7 +40,9 @@ export type ReceiveResult =
 
 /**
  * What this seat must publish next:
- * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`).
+ * - `shuffle`, `deal`, `decide`: `buildShuffle`, `buildDeal`, `buildAction` (with one of `legalActions()`). A
+ *   shuffle's `rank` is this seat's index among the seats that may sign the next setup step, in seat order (D093):
+ *   0 means go now. It is always 0 in a seat-order setup and for a play-phase epoch step, where one seat is due.
  * - `share`: `buildShares` supplies public reveals during play and new non-owner layers in grouped decks. It never
  *   shares an owner's private layer, except in Holler, where a scoring reveal asks every seat, owner included,
  *   and the grant between rounds asks only for cards dealt to someone else (D073). Kind stays `share`.
@@ -56,7 +58,7 @@ export type ReceiveResult =
  * Each signed event is published by the caller and fed back through `receive`; the builders do not apply it.
  */
 export type Duty =
-  | { kind: 'shuffle' }
+  | { kind: 'shuffle'; readonly rank: number }
   | { kind: 'deal' }
   | { kind: 'share'; readonly positions: readonly number[] }
   /** Sealed shares of re-dealt private positions this seat first held, one per later holder (D066). */
@@ -82,10 +84,23 @@ export interface SessionView {
   /**
    * While `phase` is `shuffle`, where the shuffle stands (PROTOCOL §5.5, D076); null in every other phase. `round`
    * is the round (1-based) the next step belongs to, `rounds` is 2 when the deck has a second round and 1 otherwise,
-   * and `seatsDone` is how many seats have finished that round: each seat shuffles all of a round's groups before
-   * the next seat starts, so it is the seat of the next step.
+   * and `seatsDone` is how many seats have finished that round: each seat shuffles all of a round's groups (its
+   * block) before another seat starts one, so it counts the round's finished blocks. In a seat-order setup that is
+   * the seat of the next step.
    */
   shuffleProgress: { readonly round: number; readonly rounds: number; readonly seatsDone: number } | null;
+  /**
+   * The order of the setup shuffle's blocks (D093): `seat` (a root without the tag) or `any` (the root's
+   * `["shuffle-order","any"]` tag), where each block goes to any seat that has none yet in its round.
+   */
+  shuffleOrder: ShuffleOrder;
+  /**
+   * Whether a rival setup step is held at a shuffle prev of the canonical chain (D093): a well-formed shuffle step on
+   * the prev of a chain shuffle step, other than that step and not rejected, by another seat (an honest race in an
+   * any-order setup) or by the chain step's own signer (an equivocation). The chain's final deck may then still lose
+   * fork choice, so the web client lets the deal settle first.
+   */
+  shuffleRivals: boolean;
   mySeat: number | null;
   /** The last accepted move, or the root (seq 0) before the first. */
   head: { id: Hex; seq: number };

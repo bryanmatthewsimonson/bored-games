@@ -16,6 +16,7 @@ import {
   parseTable,
   rootTemplate,
   rulesHash,
+  type ShuffleOrder,
   signSession,
   type TableSpec,
   validateRoot,
@@ -304,12 +305,15 @@ function explicitSeats(view: LobbyView, ids: readonly Hex[]): { joins: ParsedJoi
  * and it throws `ClientError` unless `view.full`. `seats`, the Join ids in seat order, lets the creator choose among
  * the open joiners instead (D021). It throws `ClientError` unless that list passes the seat checks of
  * `validateRoot`: the creator first, every invited npub present, the open count respected and no collisions.
+ * `opts.shuffleOrder` `'any'` lets the seats take the setup shuffle in any order (the root's `shuffle-order` tag,
+ * D093); by default it runs in seat order.
  */
 export function buildRootTemplate(
   view: LobbyView,
   relays: readonly string[],
   createdAt: number,
   seats?: readonly Hex[],
+  opts: { shuffleOrder?: ShuffleOrder } = {},
 ): EventTemplate {
   let joins: ParsedJoin[];
   if (seats === undefined) {
@@ -320,7 +324,16 @@ export function buildRootTemplate(
     if (picked.problems.length > 0) throw new ClientError(`invalid seat list: ${picked.problems.join('; ')}`);
     joins = picked.joins;
   }
-  return rootTemplate({ table: view.table, joins, rules: view.table.rules, relays: [...relays] }, createdAt);
+  return rootTemplate(
+    {
+      table: view.table,
+      joins,
+      rules: view.table.rules,
+      relays: [...relays],
+      ...(opts.shuffleOrder === undefined ? {} : { shuffleOrder: opts.shuffleOrder }),
+    },
+    createdAt,
+  );
 }
 
 /**

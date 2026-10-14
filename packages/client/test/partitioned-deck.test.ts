@@ -360,7 +360,7 @@ describe('second shuffle round (D076)', () => {
       for (const s of sessions) expect(s.view().shuffleProgress).toEqual(progress[step]);
       // Only the seat whose step is next owes a shuffle.
       expect(t.players.map((p) => p.duties())).toEqual(
-        seats[step] === 0 ? [[{ kind: 'shuffle' }], []] : [[], [{ kind: 'shuffle' }]],
+        seats[step] === 0 ? [[{ kind: 'shuffle', rank: 0 }], []] : [[], [{ kind: 'shuffle', rank: 0 }]],
       );
       const ev = t.players[seat!]!.buildShuffle(t.game.rnd, NOW);
       for (const s of sessions) expect(s.receive(ev, NOW).status).toBe('accepted');

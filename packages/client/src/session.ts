@@ -78,7 +78,7 @@ import {
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
 import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } from './mixed-beacon.ts';
-import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
+import { parsePartitionMove, type ShuffleStep, shuffleSchedule, shuffleSigners } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ciphertextKey, ShareStore, sealedOwed, sealedPositions } from './shares.ts';
@@ -105,7 +105,9 @@ import type {
  * played on is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
  * steps, or two epoch steps, by that seat on the chain's prev, proofs or not (Ruling 12, D073). Play goes on,
- * and at the end the flagged seats move to the last places (R5).
+ * and at the end the flagged seats move to the last places (R5). In an any-order setup (D093) a shuffle step's
+ * signer must also be one that may sign it at its prev (`shufflersAt`); two such seats' steps on one prev are an
+ * honest race, which fork choice settles and which flags nobody.
  *
  * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
  * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
@@ -876,8 +878,9 @@ export class GameSession {
   }
 
   /**
-   * Checks that hold whatever the state: the content type for its `seq`, a shuffle step's signer, and, in a
-   * deckless game, no shares or reveals.
+   * Checks that hold whatever the state: the content type for its `seq`, a shuffle step's group size and, in a
+   * seat-order setup, its signer, and, in a deckless game, no shares or reveals. In an any-order setup the signer
+   * depends on the steps before it, so `foldMove` and `judgeAtPrev` check it (D093).
    */
   private moveShape(m: ParsedMove, seat: number): string | null {
     const c = m.content;
@@ -885,7 +888,8 @@ export class GameSession {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
       const step = this.schedule[m.seq - 1];
       if (step === undefined) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
-      if (seat !== step.seat) return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
+      if (this.root.shuffleOrder === 'seat' && seat !== step.seat)
+        return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
       if (c.deck.length !== step.group.positions.length) return 'shuffle output has the wrong group size';
     } else if (c.type === 'epoch') {
       // Chess has no deck, so an epoch step is still "a game action" and the deckless rejection stays put.
@@ -1525,8 +1529,9 @@ export class GameSession {
       const at = m.seq - 1;
       const step = this.schedule[at];
       if (step === undefined) return reject('the game has no deck to shuffle');
-      if (seat !== step.seat) return reject(`shuffle step ${m.seq} must be signed by seat ${step.seat}`);
-      if (!this.shuffleVerifies(m.id, at, c.deck, c.proof))
+      const signer = this.signerProblem(at, seat);
+      if (signer !== null) return reject(signer);
+      if (!this.shuffleVerifies(m.id, at, seat, c.deck, c.proof))
         return reject('the shuffle proof does not verify');
       // The output goes back to the group's positions, in ascending order; every other position is unchanged.
       const next = (this.decks[at] as Ciphertext[]).slice();
@@ -2037,9 +2042,11 @@ export class GameSession {
     return result;
   }
 
+  /** Whether `signer`'s proof for shuffle step `step` (0-based) verifies; kept by event id. */
   private shuffleVerifies(
     id: Hex,
     step: number,
+    signer: number,
     output: readonly Ciphertext[],
     proof: Parameters<typeof verifyShuffle>[3],
   ): boolean {
@@ -2047,7 +2054,7 @@ export class GameSession {
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
     const input = this.shuffleInput(step);
-    const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step));
+    const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step, signer));
     this.shuffleChecked.set(id, ok);
     return ok;
   }
@@ -2065,14 +2072,37 @@ export class GameSession {
     return this.stepAt(step).group.positions.map((p) => deck[p] as Ciphertext);
   }
 
-  /** The seat that signs the next shuffle step, or null once the shuffle is over and in a deckless game. */
-  private nextShuffler(): number | null {
-    return this.schedule[this.chain.length]?.seat ?? null;
+  /**
+   * The seats that may sign shuffle step `at` (0-based) after the chain's first `at` moves, ascending (D093): the
+   * schedule's seat in a seat-order setup; in an any-order one, the step's block signer inside a block, and at a
+   * block's start every seat with no block yet in the round. Empty once the shuffle is over and in a deckless game.
+   * `at` is at most the chain's length.
+   */
+  private shufflersAt(at: number): readonly number[] {
+    if (at >= this.shuffleSteps) return [];
+    const signers = this.chain.slice(0, at).map((m) => this.seatOf.get(m.pubkey) as number);
+    return shuffleSigners(this.schedule, this.seats, this.root.shuffleOrder, signers);
   }
 
-  private shuffleCtx(step: number): ShuffleCtx {
-    const { seat, group } = this.stepAt(step);
-    return { rootId: this.root.id, seat, deckId: group.id };
+  /** The seats that may sign the next shuffle step, ascending; empty once the shuffle is over. */
+  private dueShufflers(): readonly number[] {
+    return this.shufflersAt(this.chain.length);
+  }
+
+  /**
+   * Why `seat` may not sign shuffle step `at` (0-based) after the chain's first `at` moves, or null when it may.
+   * A seat-order setup keeps its fixed signer's message.
+   */
+  private signerProblem(at: number, seat: number): string | null {
+    if (this.shufflersAt(at).includes(seat)) return null;
+    return this.root.shuffleOrder === 'seat'
+      ? `shuffle step ${at + 1} must be signed by seat ${this.stepAt(at).seat}`
+      : `shuffle step ${at + 1} may not be signed by seat ${seat}`;
+  }
+
+  /** The proof context of shuffle step `step` (0-based) signed by `signer`: `k` is the signer's seat (D093). */
+  private shuffleCtx(step: number, signer: number): ShuffleCtx {
+    return { rootId: this.root.id, seat: signer, deckId: this.stepAt(step).group.id };
   }
 
   private link(m: ParsedMove): void {
@@ -2651,8 +2681,8 @@ export class GameSession {
   /**
    * The seats with two distinct well-formed moves on one (prev, seq), the prev being the chain's move at seq − 1,
    * ascending:
-   * - shuffle steps (D030 Ruling 12): any two, proofs unchecked. Only the step's seat could sign both, and an honest
-   *   client never signs twice;
+   * - shuffle steps (D030 Ruling 12): any two, proofs unchecked, by a seat that may sign that step there (in an
+   *   any-order setup, eligible at that prev, D093). An honest client never signs twice on one prev;
    * - epoch steps (D073): the same, and not part of the opening-deal stall;
    * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
    *   never counts.
@@ -2667,8 +2697,9 @@ export class GameSession {
       if (out.has(seat)) continue;
       const at = first.seq - 1;
       if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
-      if (first.content.type === 'shuffle') out.add(seat);
-      else if (shuffleOnly) continue;
+      if (first.content.type === 'shuffle') {
+        if (this.shufflersAt(at).includes(seat)) out.add(seat);
+      } else if (shuffleOnly) continue;
       else if (first.content.type === 'epoch') out.add(seat);
       else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
@@ -2743,7 +2774,9 @@ export class GameSession {
     }
     const c = m.content;
     if (c.type === 'shuffle') {
-      return this.shuffleVerifies(m.id, at, c.deck, c.proof)
+      const signer = this.signerProblem(at, seat);
+      if (signer !== null) return reject(signer);
+      return this.shuffleVerifies(m.id, at, seat, c.deck, c.proof)
         ? 'valid'
         : reject('the shuffle proof does not verify');
     }
@@ -3030,7 +3063,8 @@ export class GameSession {
 
   /**
    * The seats stalled at the head (D030 R4), ascending:
-   * - shuffle: the seat whose step is next;
+   * - shuffle: the seats that may sign the next step (D093): its seat in a seat-order setup; in an any-order one,
+   *   the block's signer inside a block, and at a block's start every seat with no block yet in the round;
    * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held on the chain:
    *   then the shuffle equivocators alone (D056, review F7);
    * - play: the pending seat, unless the decision needs a card dealt to it that some other seat has not shared,
@@ -3044,10 +3078,8 @@ export class GameSession {
     // A resign has ended the game: nobody owes anything but, in a game with a deck, the missing secrets (D052).
     if (this.ended() !== null) return this.resignEnd() ? all.filter((k) => !this.secrets.has(k)) : [];
     switch (this.phase) {
-      case 'shuffle': {
-        const next = this.nextShuffler();
-        return next === null ? [] : [next];
-      }
+      case 'shuffle':
+        return [...this.dueShufflers()];
       case 'deal': {
         // A shuffle fork held during the deal (D056, review F7): the shuffle equivocator is the stalled seat, never
         // a seat that dealt on a rival deck and, under "never deal twice", will not deal again on this one.
@@ -3099,11 +3131,11 @@ export class GameSession {
   /* -------------------------------------------------------------------------------------------- views */
 
   /**
-   * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seat whose shuffle
-   * step is next, every seat still missing deal shares, the pending seat in play (or the seats whose shares it
-   * waits for), and at the end every seat whose secret is not in. Empty once nothing is owed, and once a timeout
-   * was accepted (its result is final). For the screens' "Waiting for …" lines; a timeout can be claimed only
-   * against one of these seats.
+   * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seats that may sign
+   * the next shuffle step (one, except at a block's start in an any-order setup, D093), every seat still missing
+   * deal shares, the pending seat in play (or the seats whose shares it waits for), and at the end every seat whose
+   * secret is not in. Empty once nothing is owed, and once a timeout was accepted (its result is final). For the
+   * screens' "Waiting for …" lines; a timeout can be claimed only against one of these seats.
    */
   waitingFor(): number[] {
     return this.timedOut === null ? [...this.stalled()] : [];
@@ -3117,6 +3149,8 @@ export class GameSession {
       seats: this.seats,
       shuffleSteps: this.shuffleSteps,
       shuffleProgress: status.phase === 'shuffle' ? this.progressOfShuffle() : null,
+      shuffleOrder: this.root.shuffleOrder,
+      shuffleRivals: this.shuffleRivals(),
       mySeat: this.me?.seat ?? null,
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
@@ -3141,14 +3175,36 @@ export class GameSession {
   }
 
   /**
-   * Where the shuffle stands (PROTOCOL §5.5): the round the next step belongs to, and the seats that have finished
-   * that round. A round runs seat after seat, each shuffling all of the round's groups, so the seats done are those
-   * before the next step's seat. Null when no step is left.
+   * Where the shuffle stands (PROTOCOL §5.5, D093): the round the next step belongs to, and the seats that have
+   * finished that round. A round runs block after block, each seat shuffling all of the round's groups in one, so
+   * the seats done are the round's finished blocks: in a seat-order setup, the seats before the next step's seat.
+   * Null when no step is left.
    */
   private progressOfShuffle(): SessionView['shuffleProgress'] {
-    const next = this.schedule[this.chain.length];
+    const at = this.chain.length;
+    const next = this.schedule[at];
     if (next === undefined) return null;
-    return { round: next.round, rounds: this.shuffleRounds, seatsDone: next.seat };
+    const start = this.schedule.findIndex((s) => s.round === next.round);
+    const groups = this.schedule.filter((s) => s.round === next.round).length / this.seats;
+    return { round: next.round, rounds: this.shuffleRounds, seatsDone: Math.floor((at - start) / groups) };
+  }
+
+  /**
+   * Whether a rival setup step is held at a shuffle prev of the canonical chain (`SessionView.shuffleRivals`): a
+   * well-formed shuffle step on the prev of chain step `j`, by any seat, that is not chain step `j` and was not
+   * rejected.
+   */
+  private shuffleRivals(): boolean {
+    const steps = Math.min(this.chain.length, this.shuffleSteps);
+    for (let j = 0; j < steps; j++) {
+      const own = (this.chain[j] as ParsedMove).id;
+      for (let seat = 0; seat < this.seats; seat++) {
+        const group = this.candidates.get(`${this.idAt(j)}:${j + 1}:${seat}`);
+        if (group === undefined) continue;
+        for (const id of group.keys()) if (id !== own && !this.rejected.has(id)) return true;
+      }
+    }
+    return false;
   }
 
   private logHash(): Hex {
@@ -3315,9 +3371,12 @@ export class GameSession {
     return ascending([...this.attests].filter(([, a]) => a.content === mine).map(([seat]) => seat));
   }
 
-  /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
+  /**
+   * During the shuffle, the first seat that may sign the next step (`stalled` lists them all); afterwards, the
+   * module's pending decision. A fresh copy.
+   */
   private pending(): Pending {
-    const shuffler = this.phase === 'shuffle' ? this.nextShuffler() : null;
+    const shuffler = this.phase === 'shuffle' ? (this.dueShufflers()[0] ?? null) : null;
     if (shuffler !== null) return { type: 'player', seat: shuffler, decision: 'shuffle' };
     const p = this.module.pending(this.state);
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
@@ -3329,7 +3388,9 @@ export class GameSession {
     if (me === null) return [];
     // After a timeout or a resign only the attestation can be due, and the secret a resign left owed (D052).
     const live = this.timedOut === null && this.ended() === null;
-    if (live && this.phase === 'shuffle' && this.nextShuffler() === me.seat) return [{ kind: 'shuffle' }];
+    // Every seat that may sign the next setup step owes it; `rank` orders them (D093).
+    const rank = live && this.phase === 'shuffle' ? this.dueShufflers().indexOf(me.seat) : -1;
+    if (rank >= 0) return [{ kind: 'shuffle', rank }];
     // Never deal twice (D056, review F7): a seat that dealt on a rival deck of a shuffle fork owes no deal here.
     if (
       live &&
@@ -3339,7 +3400,7 @@ export class GameSession {
     ) {
       return [{ kind: 'deal' }];
     }
-    if (live && this.phase === 'play' && this.epochShuffleDue(me.seat)) return [{ kind: 'shuffle' }];
+    if (live && this.phase === 'play' && this.epochShuffleDue(me.seat)) return [{ kind: 'shuffle', rank: 0 }];
     if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
       const positions = this.sharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
@@ -3428,7 +3489,8 @@ export class GameSession {
     const me = this.requireDuty('shuffle');
     const input = this.shuffleInput(this.chain.length);
     const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
-    const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(this.chain.length), rnd);
+    const ctx = this.shuffleCtx(this.chain.length, me.seat);
+    const proof = proveShuffle(input, out, this.X, psi, rPrime, ctx, rnd);
     const t = moveTemplate(
       {
         rootId: this.root.id,
