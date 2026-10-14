@@ -15,6 +15,7 @@ export {
 } from './lobby.ts';
 export { backupSeat, seatForGameKeys } from './recover.ts';
 export { GameSession } from './session.ts';
+export { DEAL_SETTLE_S, SHUFFLE_STAGGER_S } from './setup-timing.ts';
 export { sealedOwed, sealedPositions } from './shares.ts';
 export {
   type Adversary,

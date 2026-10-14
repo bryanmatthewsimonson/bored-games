@@ -1,5 +1,5 @@
 import { type DeckSpec, range } from '@bored-games/game-kit';
-import { type ParsedMove, parseMove } from '@bored-games/protocol';
+import { type ParsedMove, parseMove, type ShuffleOrder } from '@bored-games/protocol';
 import { ClientError } from './errors.ts';
 
 export interface DeckPartition {
@@ -109,6 +109,33 @@ export function shuffleSchedule(deck: DeckSpec | null, seats: number): readonly 
     for (let seat = 0; seat < seats; seat++) for (const group of groups) steps.push({ seat, round, group });
   }
   return steps;
+}
+
+/**
+ * The seats that may sign shuffle step `signers.length` (0-based), in ascending order, given the seats that signed
+ * steps `0..signers.length - 1` (D093). It is empty past the end of the schedule.
+ *
+ * `'seat'` order allows only the schedule's seat. `'any'` order lets a seat take a whole block of its round's `G`
+ * groups (`G` = the round's steps divided by `seats`): at a block's start every seat without a block in this round
+ * may sign, and inside a block only the seat that opened it may. Each round starts over, so round 2's first step
+ * is open to every seat again.
+ */
+export function shuffleSigners(
+  schedule: readonly ShuffleStep[],
+  seats: number,
+  order: ShuffleOrder,
+  signers: readonly number[],
+): readonly number[] {
+  const step = signers.length;
+  const current = schedule[step];
+  if (current === undefined) return [];
+  if (order === 'seat') return [current.seat];
+  const start = schedule.findIndex((s) => s.round === current.round);
+  const groups = schedule.filter((s) => s.round === current.round).length / seats;
+  const t = step - start;
+  if (t % groups !== 0) return signers.slice(-1);
+  const opened = new Set(signers.filter((_, i) => i >= start && (i - start) % groups === 0));
+  return range(seats).filter((seat) => !opened.has(seat));
 }
 
 /**

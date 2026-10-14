@@ -17,7 +17,7 @@ import { finalizeEvent, moveTemplate, type NostrEvent, parseMove } from '@bored-
 import { describe, expect, it } from 'vitest';
 import { createToy, type ToyState } from '../../game-kit/test/toy.ts';
 import { ClientError } from '../src/errors.ts';
-import { deckPartitions, shuffleSchedule } from '../src/partitioned-deck.ts';
+import { deckPartitions, shuffleSchedule, shuffleSigners } from '../src/partitioned-deck.ts';
 import { simulateGame } from '../src/sim.ts';
 import { makeModuleGame, NOW, newSession } from './helpers.ts';
 
@@ -507,4 +507,44 @@ it('allows up to 64 first-round groups for personal decks and separate supply pi
   expect(() => shuffleSchedule({ id: 'pile', size: 130, partitions: groups(65) }, 2)).toThrow(
     'invalid deck partitions',
   );
+});
+
+describe('shuffleSigners (D093)', () => {
+  // Two first-round groups and one second-round group over three seats: 9 steps.
+  const deck = { ...toy.decks()[0]!, secondRound: [{ id: 'mix', positions: [1, 2, 3] }] };
+  const sched = shuffleSchedule(deck, 3);
+
+  it('seat order gives the schedule seat', () => {
+    expect(sched).toHaveLength(9);
+    for (let s = 0; s < sched.length; s++)
+      expect(
+        shuffleSigners(
+          sched,
+          3,
+          'seat',
+          sched.slice(0, s).map((x) => x.seat),
+        ),
+      ).toEqual([sched[s]!.seat]);
+  });
+
+  it('any order: every seat at the root, the block signer mid-block', () => {
+    expect(shuffleSigners(sched, 3, 'any', [])).toEqual([0, 1, 2]);
+    expect(shuffleSigners(sched, 3, 'any', [2])).toEqual([2]);
+    expect(shuffleSigners(sched, 3, 'any', [2, 2])).toEqual([0, 1]);
+    expect(shuffleSigners(sched, 3, 'any', [2, 2, 0, 0])).toEqual([1]);
+  });
+
+  it('round 2 starts over once every seat has a round-1 block', () => {
+    const six = [1, 1, 2, 2, 0, 0];
+    expect(shuffleSigners(sched, 3, 'any', six)).toEqual([0, 1, 2]);
+    expect(shuffleSigners(sched, 3, 'any', [...six, 2])).toEqual([0, 1]);
+  });
+
+  it('is empty past the end of the schedule, in either order', () => {
+    const nine = [1, 1, 2, 2, 0, 0, 2, 0, 1];
+    expect(shuffleSigners(sched, 3, 'any', nine)).toEqual([]);
+    expect(shuffleSigners(sched, 3, 'seat', nine)).toEqual([]);
+    expect(shuffleSigners([], 3, 'any', [])).toEqual([]);
+    expect(shuffleSigners([], 3, 'seat', [])).toEqual([]);
+  });
 });
