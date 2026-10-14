@@ -1,6 +1,6 @@
 # Setup without a relay race: shuffle in any order, from any page (design)
 
-**Date:** 2026-10-14. **Status:** the owner chose this direction ("Do A+B"). This file awaits the owner's review before the implementation plan is written.
+**Date:** 2026-10-14. **Status:** approved by the owner on 2026-10-14 ("Approved, 45s is fine, cancel with no flags"). The implementation plan follows from it.
 
 **Scope:** (A) a protocol change that lets the seats take their setup shuffle steps in any order, opted into by new game roots, and (B) a web-app change that does a seat's setup work (its shuffle and its deal) from any open page of the app, not only that game's page. Play-phase reshuffles (epochs) keep seat order.
 
@@ -30,7 +30,7 @@ One limit can't be removed: with no trusted dealer, every seat must add its own 
 | Opt-in | a root tag `["shuffle-order","any"]` written by every new root | a `proto` bump (`proto` 2 is taken by the abandoned v2, D071); a rules option (it is not a game rule) |
 | Race avoidance | a client-side stagger: the lowest-numbered waiting seat goes at once, the others wait 45 s per rank | consensus rules based on time (`created_at` proves nothing, §11) |
 | Races that happen anyway | ordinary fork choice: longer branch, then lowest id; the loser shuffles again on the winner | claim events before shuffling (one more event kind for little gain) |
-| The deal | still once per seat (D056 F7). A client waits 15 s before dealing when it holds a rival branch | dealing again after a switch (unsafe, §4.3) |
+| The deal | still once per seat (D056 F7). A client waits 15 s before dealing when it holds a rival branch. A deal split by an honest race cancels the game with no forfeits (owner) | dealing again after a switch (unsafe, §4.3); flagging the seats that dealt on the losing deck |
 | Background work | a page-wide **setup runner** that keeps up to 3 setup-only `GameController`s alive | a Web Worker (no worker infrastructure yet; can come later for cost) |
 | Play-phase epochs | unchanged: seat order | any order there too (later, if games stall mid-play) |
 
@@ -66,10 +66,11 @@ Two eligible seats can sign on the same prev, which today only an equivocator ca
 - **At a block boundary:** every seat with no block yet in this round. A timeout then forfeits all of them and cancels the game (before its first action, §8.2). Any chain move restarts the deadline for all of them (§8.1).
 - **At the root nobody has shuffled, so every seat is stalled and nobody can claim.** A game that no one ever opens simply sits, as a table that never fills does. The creator's app shuffles when it starts the game, so in practice step 1 lands at once.
 - **The deal:** unchanged (§8.1). That includes D056's rule that a held fork stalls the shuffle equivocators. An honest race flags nobody, so it never triggers that rule.
+- **A split deal (owner's decision):** the case where, in an any-order game, no shuffle equivocator is held and some seat's held deal fails against the canonical final deck. That seat dealt on a rival deck and can never deal again. Stall attribution is unchanged: the seats missing deal shares on the canonical deck. But a timeout accepted while the deal is split **cancels the game with no seat forfeiting**: no flags, no result, no rating change. The cancellation is a function of the events the client holds when it accepts the claim, as every timeout is (§8.1). Fixed-order games keep today's rule.
 
 ### 3.6 The deal after a race
 
-A seat still deals once (D056 F7, §4.3 below). A seat that dealt on a final deck that later loses fork choice can't deal again, so the game stalls on it.
+A seat still deals once (D056 F7, §4.3 below). A seat that dealt on a final deck that later loses fork choice can't deal again, so the game stalls on it, and a timeout then cancels it with no forfeits (§3.5).
 
 Two complete rival decks need a race at a block boundary, plus a delivery delay that lets the remaining seats finish both branches. To make that rarer, a client that holds any rival shuffle step at a prev of its chain waits **15 s** after the chain completes before dealing, then deals only if that chain is still canonical. A client that holds no rival deals at once, as today, so a normal setup is no slower.
 
@@ -85,7 +86,8 @@ Two complete rival decks need a race at a block boundary, plus a delivery delay 
 5. **Denial of service:** unchanged bounds. Per prev, the verified candidates go from at most 3 to at most 3·S.
 
 **Residuals (document in PROTOCOL §11):**
-- In the rare case where honest seats deal on two complete decks, the game is cancelled by timeout. The seats that dealt on the losing deck are the stalled ones and are flagged in a game with no result, so ratings don't change.
+- In the rare case where honest seats deal on two complete decks, the game is cancelled by timeout with no forfeits (§3.5).
+- **An unblamed cancel.** A coalition made up of every seat that shuffles after some fork can build two complete decks on purpose and split the honest deals. That cancels the game with no one blamed. It could already cancel the game by stalling or resigning, at the cost of the blame; this way costs it nothing. It follows from the owner's choice to cancel a split deal with no flags, which spares honest seats.
 - A client that has not reloaded since this change ignores the root tag, so it folds an any-order game in seat order. It rejects out-of-order steps and shows the game stuck until its tab reloads. Its stray timeout claims name an old head, so other clients reject them (§8.1).
 
 ## 5. Client behaviour
@@ -146,7 +148,7 @@ A page-wide service, `setupRunnerFor(deps)` (the `WeakMap<ControllerDeps, …>` 
   - the stalled set at a boundary;
   - a timeout forfeits every remaining seat;
   - the 15 s deal settle;
-  - the honest double-complete deal stall (the documented residual);
+  - the honest double-complete deal: a timeout cancels it with no forfeits, while a held equivocation still blames the equivocator;
   - roots without the tag fold exactly as before. The existing fixed-order tests stay, pinned to `shuffle-order` absent.
 - **Sim:**
   - `pnpm sim --game <id>` for every deck game in any-order mode;
@@ -175,7 +177,7 @@ A page-wide service, `setupRunnerFor(deps)` (the `WeakMap<ControllerDeps, …>` 
 - **A Web Worker** for proof verification.
 - **Running other owed duties from the background** (play-phase reveals, dice): this runner runs setup duties only.
 
-## 9. Open points for the owner
+## 9. The owner's decisions (2026-10-14)
 
-1. **The stagger.** 45 s per rank skips an absent seat after 45 s and keeps races rare when everyone is online. Shorter skips faster but races more.
-2. **Flagging after an honest double-complete deal.** As designed, the seats that dealt on the losing deck are flagged in a cancelled game. The alternative is a special rule that cancels with no flags when no seat equivocated. That is fairer, but adds one more consensus case.
+1. **The stagger stays at 45 s per rank.**
+2. **A split deal cancels with no flags** (§3.5): no seat forfeits when the timeout comes while the deal is split.
