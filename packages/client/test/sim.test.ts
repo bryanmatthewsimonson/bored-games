@@ -13,6 +13,8 @@ import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
  * during the shuffle and the deal run by default; `pnpm test:sim` (SIM=1) runs them all, and `pnpm sim` plays more.
  * The seat count is a parameter: the 3-seat games are the full set, 4 and 6 seats add an honest whole game each
  * (about 100 s and 227 s of CPU) under SIM=1, and one cheap 6-seat game that ends in the shuffle runs by default.
+ * Any-order setups (D093) run by default too: a 4-seat game that ends in the shuffle, and one short whole game
+ * (about 200 s of CPU) with forced races, so the losers' branches stay held through play.
  */
 
 const SIM = process.env.SIM !== undefined && process.env.SIM !== '';
@@ -178,6 +180,63 @@ describe('simulated games that end before play', () => {
       const [cheat] = r.cheats;
       expect(Object.keys(cheat?.last ?? {}).sort()).toEqual(['seat 0', 'seat 2', 'spectator']);
       expect(Object.values(cheat?.last ?? {})).toEqual(['rejected', 'rejected', 'rejected']);
+    },
+    LONG,
+  );
+});
+
+describe('simulated any-order setups (D093)', () => {
+  it(
+    'any order: a seat that vanishes in setup is skipped, then times out',
+    () => {
+      // Seat 1 holds back its rank's stagger at the root and vanishes once the chain holds a step. With this seed
+      // another seat takes the root's step first, as most do: seat 1 is one of four seats that may.
+      const r = simulateGame({
+        seats: 4,
+        seed: 'sim-any-vanish',
+        modules: MODULES,
+        game: chainReaction.id,
+        policy: quickPolicy,
+        adversary: adversary('vanish', CHEAT, 4, 1),
+        shuffleOrder: 'any',
+      });
+      expect(r.failures).toEqual([]);
+      expect(unexpected(r, CHEAT)).toEqual([]);
+      expect(r).toMatchObject({ seats: 4, phase: 'cancelled', outcome: null, forfeits: [CHEAT], actions: 0 });
+      // Seats 0, 2 and 3 shuffled past it; the claim then names the one seat still owing its block.
+      expect(r.moves).toBe(3);
+      expect(r.claims).toBeGreaterThan(0);
+    },
+    LONG,
+  );
+
+  it(
+    'any order with races completes and flags no one',
+    () => {
+      // A whole game, so a short one: the end may be declared once a chain reaches 4 tiles.
+      const r = simulateGame({
+        seats: 4,
+        seed: 'sim-any-race',
+        modules: MODULES,
+        game: chainReaction.id,
+        rules: { ...chainReaction.defaultRules(), endSize: 4 },
+        policy: quickPolicy,
+        shuffleOrder: 'any',
+        shuffleRace: true,
+      });
+      expect(r.failures).toEqual([]);
+      expect(r).toMatchObject({
+        seats: 4,
+        phase: 'done',
+        audit: 'pass',
+        forfeits: [],
+        equivocators: [],
+        attested: [0, 1, 2, 3],
+        claims: 0,
+      });
+      expect(r.outcome?.reason).toBe('declared');
+      // The races left losing shuffle steps on the relay beside the chain's moves.
+      expect(r.kinds[KIND.move]).toBeGreaterThan(r.moves);
     },
     LONG,
   );
