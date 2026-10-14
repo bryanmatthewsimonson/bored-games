@@ -402,6 +402,36 @@ export function defaultPicks(lobby: LobbyLike): Hex[] {
     .map((c) => c.npub);
 }
 
+/**
+ * The lobby once the creator closes its empty seats to start with the players seated (D092, `closeEmptySeats` in
+ * the client): invited players who have not joined drop out, the open seats are those taken, and it is full. The
+ * seat picker and `seatListFor` read it for that start.
+ */
+export function closedLobby<L extends LobbyLike>(lobby: L): L {
+  const t = lobby.table;
+  const joined = new Set(lobby.joins.map((j) => j.npub));
+  const invited = t.invited.filter((p) => joined.has(p));
+  const open = lobby.joins.filter((j) => isUninvited(t, j.npub)).length;
+  return { ...lobby, table: { ...t, invited, open, seats: 1 + invited.length + open }, full: true };
+}
+
+/** What closing the empty seats does, for the creator's confirmation before starting with the players seated. */
+export function closingNote(lobby: LobbyLike): string {
+  const t = lobby.table;
+  const seated = lobby.joins.length;
+  const empty = t.seats - seated;
+  const joined = new Set(lobby.joins.map((j) => j.npub));
+  const absent = t.invited.filter((p) => !joined.has(p)).length;
+  const close = empty === 1 ? 'The empty seat closes' : `The ${empty} empty seats close`;
+  const invites =
+    absent === 0
+      ? ''
+      : absent === 1
+        ? ' One invited player has not joined and will not play.'
+        : ` ${absent} invited players have not joined and will not play.`;
+  return `${close} and the game starts with the ${seated} players seated. Nobody can join afterwards.${invites}`;
+}
+
 /* ------------------------------------------------------------------------------------------ links */
 
 /**

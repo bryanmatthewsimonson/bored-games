@@ -5,6 +5,8 @@ import {
   attentionBadge,
   cardGameStatus,
   checkNewTable,
+  closedLobby,
+  closingNote,
   defaultPicks,
   freeOpenSeats,
   joinButtonLabel,
@@ -336,6 +338,47 @@ describe('the creator seat picker', () => {
     expect(seatListFor(l, [E, C])).toEqual([id(ME), id(B), id(E), id(C)]);
     expect(seatListFor(l, [key(99)])).toBeNull();
     expect(seatListFor(lobby({}, [ME]), [])).toBeNull();
+  });
+});
+
+describe('closing the empty seats (D092)', () => {
+  it('drops the invited players who have not joined and keeps the open seats taken: the lobby is full', () => {
+    const closed = closedLobby(lobby({}, [ME, C]));
+    expect(closed.table).toEqual({ creator: ME, invited: [], seats: 2, open: 1, status: 'open' });
+    expect(closed.full).toBe(true);
+    expect(seatRows(closed, ME).map((r) => [r.kind, r.npub])).toEqual([
+      ['creator', ME],
+      ['open', C],
+    ]);
+    const kept = closedLobby(lobby({}, [ME, B]));
+    expect(kept.table).toEqual({ creator: ME, invited: [B], seats: 2, open: 0, status: 'open' });
+  });
+
+  it('says what closing does for the confirmation', () => {
+    expect(closingNote(lobby({}, [ME, C]))).toBe(
+      'The 2 empty seats close and the game starts with the 2 players seated. Nobody can join afterwards. ' +
+        'One invited player has not joined and will not play.',
+    );
+    expect(closingNote(lobby({}, [ME, B, C]))).toBe(
+      'The empty seat closes and the game starts with the 3 players seated. Nobody can join afterwards.',
+    );
+    const twoAbsent = lobby({ table: { creator: ME, invited: [B, C], seats: 5, open: 2, status: 'open' } }, [
+      ME,
+      D,
+      E,
+    ]);
+    expect(closingNote(twoAbsent)).toMatch(/2 invited players have not joined and will not play\.$/);
+  });
+
+  it('lets the creator pick among more open joiners than the seats taken', () => {
+    // B invited and absent; C and D hold the open seats, E waits.
+    const l = lobby({}, [ME, C, D], [E]);
+    expect(seatListFor(l, [E, C])).toBeNull();
+    const closed = closedLobby(l);
+    expect(needsPicker(closed)).toBe(true);
+    expect(defaultPicks(closed)).toEqual([C, D]);
+    const id = (p: Hex) => `j${p.slice(-2)}`;
+    expect(seatListFor(closed, [E, C])).toEqual([id(ME), id(E), id(C)]);
   });
 });
 
