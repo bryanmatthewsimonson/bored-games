@@ -6,15 +6,21 @@
  * platform's.
  */
 import { GameSession } from '@bored-games/client';
-import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
+import { finalizeEvent, KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers, type Timers } from '../src/clock.ts';
-import { GameController, type GameControllerOptions, type GameStatus } from '../src/game-controller.ts';
+import {
+  GameController,
+  type GameControllerOptions,
+  type GameStatus,
+  loadOutbox,
+  outboxKey,
+} from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import type { Signer } from '../src/identity.ts';
 import type { LobbyController } from '../src/lobby-controller.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
-import { loadGameStatus, loadSecrets, memoryStorage } from '../src/storage.ts';
+import { loadGameStatus, loadSecrets, memoryStorage, writeJson } from '../src/storage.ts';
 import { Harness, now, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
@@ -558,6 +564,88 @@ describe('The setup mode (D093)', () => {
       await pause(1000);
       expect(rec.published).toEqual([]);
       expect(loadGameStatus(s1.name, s1.deps.storage, g.rootId)?.phase).toBe('end');
+    },
+    SLOW,
+  );
+
+  it(
+    'setup mode performs no duty once the game is in play, and caches the status a full controller would',
+    async () => {
+      // Bank: deckless, so in play from the start; a roll asks every other seat for its share of the dice.
+      const { rootId, bySeat } = await h.start2('bank', h.profile('a'), h.profile('b'));
+      const rollOf = (g: GameController) =>
+        g.legal.value.find((a) => (a as { type?: string }).type === 'roll');
+      const full = bySeat.map((p) => h.game(rootId, p.deps));
+      const roller = await waitFor('the first roll', () =>
+        full.find((g) => g.status.value === 'your-turn' && rollOf(g) !== undefined),
+      );
+      const other = 1 - full.indexOf(roller);
+      const p = bySeat[other] as Profile;
+      full[other]?.dispose();
+      const rec = recording(p.deps);
+      const g = setupGame(rootId, rec.deps);
+      await waitFor('the game loaded', () => g.status.value === 'waiting', 60_000);
+      expect(g.view.value?.phase).toBe('play');
+      await roller.act(rollOf(roller));
+      // This seat owes its share of the roll (a beacon duty), which a full controller sends at once.
+      await waitFor('the roll', () => g.view.value?.head.seq === 1, 60_000);
+      await pause(2000);
+      expect(rec.published).toEqual([]);
+      const key = parseRoot((await h.query([{ ids: [rootId] }]))[0] as NostrEvent).seats[other]?.session;
+      expect(await movesBy(rootId, key as string)).toEqual([]);
+      // The status is the one a full controller computes, `working` while a duty is due, and it is cached as such.
+      expect(g.status.value).toBe('working');
+      expect(loadGameStatus(p.name, p.deps.storage, rootId)).toMatchObject({
+        status: 'working',
+        phase: 'play',
+      });
+    },
+    SLOW,
+  );
+
+  it(
+    'setup mode neither publishes nor discards a saved event that is not setup work',
+    async () => {
+      const g = await game3();
+      const s0 = g.bySeat[0];
+      const secrets = loadSecrets(s0.name, s0.deps.storage, g.address);
+      if (secrets === null) throw new Error('no secrets for seat 0');
+      // Saved by the game page and never sent: a Resign, which a full controller republishes; a card reveal that does
+      // not fit the game, which it discards; and a Secret the game refuses, which it marks as refused (an orphan).
+      const resign = (await seatSession(g, 0)).buildResign(rnd, now());
+      const junk = (kind: number) =>
+        finalizeEvent(
+          {
+            kind,
+            created_at: now(),
+            tags: [
+              ['e', g.rootId, '', 'root'],
+              ['proto', '1'],
+            ],
+            content: '{}',
+          },
+          secrets.sessionSk,
+          rnd,
+        );
+      const saved = {
+        resign: { event: resign, confirmed: false, orphan: false },
+        'share:0': { event: junk(KIND.shares), confirmed: false, orphan: false },
+        secret: { event: junk(KIND.reveal), confirmed: false, orphan: false },
+      };
+      writeJson(s0.deps.storage, outboxKey(s0.name, g.rootId), saved);
+      const rec = recording(s0.deps);
+      const c = setupGame(g.rootId, rec.deps);
+      await waitFor('the game loaded', () => c.status.value !== 'syncing', 60_000);
+      await pause(1500);
+      expect(rec.published.filter((ev) => ev.kind !== KIND.move)).toEqual([]);
+      expect(c.log.value).toEqual([]);
+      // Seat 0, first in line at the root, still shuffles; the saved events wait for the game page.
+      await onRelay("seat 0's step", async () => (await movesBy(g.rootId, g.keys[0] as string)).length === 1);
+      const after = loadOutbox(s0.deps.storage, s0.name, g.rootId);
+      expect(after.get('resign')).toEqual(saved.resign);
+      expect(after.get('share:0')).toEqual(saved['share:0']);
+      expect(after.get('secret')).toEqual(saved.secret);
+      expect(await h.query([{ kinds: [KIND.resign], '#e': [g.rootId] }])).toEqual([]);
     },
     SLOW,
   );

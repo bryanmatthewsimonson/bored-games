@@ -6,7 +6,8 @@
  * - It performs this seat's automatic duties one at a time (shuffle, deal, share, beacon, secret, attest). Only
  *   `decide` waits for the player, through `act`. A beacon duty publishes this seat's share of a public dice roll.
  * - In setup mode (`GameControllerOptions.mode`, D093: the setup runner's), it performs the shuffle and the deal only,
- *   and nothing that could prompt the player's signer: no key restore or backup, no attestation, no automatic move.
+ *   while the session is in setup, sends only those saved events, and nothing that could prompt the player's signer: no
+ *   key restore or backup, no attestation, no automatic move.
  * - Every event it builds is saved to an outbox in storage before it is published. A duty whose event is already
  *   in the outbox reuses it: nothing is signed twice. A move is kept under the head it was built on, and one the
  *   session no longer accepts (an orphan, after the chain moved on) is never republished.
@@ -132,8 +133,10 @@ export interface GameControllerOptions {
   autoMove?: (game: string) => AutoMove | undefined;
   /**
    * `full` (the default) plays the seat as the game screen does. `setup` (D093, the setup runner) performs only the
-   * shuffle and deal duties (`SETUP_AUTO`). It never restores the game keys, backs them up, attests, republishes a
-   * Resign or makes an automatic move, so it never prompts a NIP-07 extension. Either mode caches the status.
+   * shuffle and deal duties (`SETUP_AUTO`), and only while the session is in setup. Of the saved events it vets and
+   * republishes only setup work (`#setupSlot`: the deal and the setup shuffle steps), leaving every other one for the
+   * game page. It never restores the game keys, backs them up, attests, echoes a counted Resign or makes an automatic
+   * move, so it never prompts a NIP-07 extension. The status it computes and caches is a full controller's.
    */
   mode?: 'full' | 'setup';
 }
@@ -168,15 +171,33 @@ export const GAME_PAGE = 500;
 /** Automatic duties, in the order they are performed. */
 const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beacon', 'secret', 'attest'];
 
-/** The automatic duties of a controller in setup mode (D093): the setup's, signed by the session key alone. */
+/**
+ * The automatic duties a controller in setup mode performs (D093), signed by the session key alone, and only while the
+ * session is in setup (`shuffle` or `deal`): a play-phase reshuffle (an epoch) is not setup work.
+ */
 const SETUP_AUTO: readonly Duty['kind'][] = ['shuffle', 'deal'];
 
 /**
  * The phase Home caches (D093): `setup` for the shuffle and the deal, `play`, and `end` once the game is over, with
- * secrets still owed (`end`) or not (`done`, `cancelled`).
+ * secrets still owed (`end`) or not (`done`, `cancelled`). A new `Phase` does not compile until it is mapped here.
  */
-const cachedPhase = (phase: Phase): GamePhaseName =>
-  phase === 'shuffle' || phase === 'deal' ? 'setup' : phase === 'play' ? 'play' : 'end';
+function cachedPhase(phase: Phase): GamePhaseName {
+  switch (phase) {
+    case 'shuffle':
+    case 'deal':
+      return 'setup';
+    case 'play':
+      return 'play';
+    case 'end':
+    case 'done':
+    case 'cancelled':
+      return 'end';
+    default: {
+      const unmapped: never = phase;
+      return unmapped;
+    }
+  }
+}
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -499,8 +520,6 @@ export class GameController {
   readonly #autoMoveOf: ((game: string) => AutoMove | undefined) | null;
   /** Setup mode (`GameControllerOptions.mode`, D093): only the shuffle and the deal, and never a signer prompt. */
   readonly #setup: boolean;
-  /** The automatic duties this controller performs, in order: `AUTO`, or `SETUP_AUTO` in setup mode. */
-  readonly #auto: readonly Duty['kind'][];
 
   constructor(rootId: string, deps: ControllerDeps, opts: GameControllerOptions = {}) {
     this.rootId = rootId;
@@ -509,7 +528,6 @@ export class GameController {
     this.#page = opts.gamePage ?? GAME_PAGE;
     this.#autoMoveOf = opts.autoMove ?? null;
     this.#setup = opts.mode === 'setup';
-    this.#auto = this.#setup ? SETUP_AUTO : AUTO;
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -796,12 +814,15 @@ export class GameController {
    * but never republished. A refused event a relay confirmed is public anyway, so it is still fed: a deal on a
    * rival deck must count as this seat's deal (D056). An unconfirmed move, deal or Resign loaded from storage is
    * held back: once the relays have answered, `#vetSaved` folds it in and republishes it, or discards it (D056).
+   * Setup mode (D093) feeds setup work only (`#setupSlot`), so it never marks another saved event refused: the game
+   * page judges those.
    */
   #feedHeld(): void {
     const session = this.#session;
     if (session === null) return;
     const held: { ev: NostrEvent; slot: string | null }[] = [];
     for (const [slot, entry] of this.#outbox) {
+      if (this.#setup && !this.#setupSlot(slot)) continue;
       // A deal of this seat's is fed even when refused and never sent: the session must know the seat dealt, so it
       // owes no second deal (D056, review F7).
       if (this.#unvetted.has(slot) || (entry.orphan && !entry.confirmed && !this.#ownDeal(slot, entry)))
@@ -834,15 +855,30 @@ export class GameController {
   /**
    * The saved events `#vetSaved` decides: unconfirmed moves, deal and Resign, plus, while the deal is still being
    * dealt, this seat's own refused deal that no relay confirmed (it is published if the session accepts it again,
-   * after fork choice came back to its deck, and no other deal of this seat is out).
+   * after fork choice came back to its deck, and no other deal of this seat is out). In setup mode, setup work only
+   * (`#setupSlot`): the others are left, unpublished and undiscarded, for the game page to vet.
    */
   #toVet(): string[] {
     const dealing = this.#session?.view().phase === 'deal';
     return [...this.#outbox]
       .filter(
-        ([slot, e]) => vetted(slot) && !e.confirmed && (!e.orphan || (dealing && this.#ownDeal(slot, e))),
+        ([slot, e]) =>
+          vetted(slot) &&
+          !e.confirmed &&
+          (!e.orphan || (dealing && this.#ownDeal(slot, e))) &&
+          (!this.#setup || this.#setupSlot(slot)),
       )
       .map(([slot]) => slot);
+  }
+
+  /**
+   * Whether a saved event's slot holds setup work (D093): the deal, or a move slot of a setup shuffle step (seq up to
+   * the session's `shuffleSteps`). A setup-mode controller vets and republishes these only.
+   */
+  #setupSlot(slot: string): boolean {
+    if (slot === 'deal') return true;
+    const steps = this.#session?.view().shuffleSteps ?? 0;
+    return slot.startsWith('move:') && Number(slot.split(':')[1]) <= steps;
   }
 
   /**
@@ -1205,7 +1241,8 @@ export class GameController {
     const me = this.#mySession;
     if (this.#vetting || this.#disposed || !this.#synced || root === null || me === null) return;
     const saved = this.#toVet();
-    const secret = this.#secretHeld();
+    // Setup mode never sends the Secret reveal, so it does not query for it.
+    const secret = !this.#setup && this.#secretHeld();
     if (saved.length === 0 && !secret) return;
     this.#vetting = true;
     const prevs = new Set<string>();
@@ -1687,8 +1724,8 @@ export class GameController {
   /**
    * Republish the Resign that counted on this client to the root's relays and this player's (D052, review M-b),
    * once per load, as other final evidence: a resigner that sent its Resign to only some relays cannot leave the
-   * players who never saw it to be timed out while the game looks live to them. Not in setup mode (D093): the setup
-   * runner publishes this seat's setup steps and nothing else.
+   * players who never saw it to be timed out while the game looks live to them. Not in setup mode (D093): it publishes
+   * setup work only, this seat's shuffle steps and deal and the steps they rest on.
    */
   #echoResign(v: SessionView): void {
     if (this.#setup) return;
@@ -1776,7 +1813,7 @@ export class GameController {
 
   /** An automatic duty is due but failed at this head. */
   #stuck(duties: readonly Duty[], v: SessionView): boolean {
-    return duties.some((d) => this.#auto.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
+    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
   }
 
   /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
@@ -1785,9 +1822,12 @@ export class GameController {
     return e !== undefined && !e.orphan;
   }
 
-  /** Once the game is over and every saved event is delivered (or refused), the outbox is no longer needed. */
+  /**
+   * Once the game is over and every saved event is delivered (or refused), the outbox is no longer needed. The game
+   * page prunes it, not setup mode (D093), which leaves every saved event but setup work alone.
+   */
   #maybePrune(v: SessionView, duties: readonly Duty[]): void {
-    if (this.#disposed || this.#outbox.size === 0) return;
+    if (this.#setup || this.#disposed || this.#outbox.size === 0) return;
     if (v.phase !== 'done' && v.phase !== 'cancelled') return;
     if (this.#working || this.#nextAuto(duties, v) !== null) return;
     if (![...this.#outbox.values()].every((e) => e.confirmed || e.orphan)) return;
@@ -1797,9 +1837,12 @@ export class GameController {
 
   /* -------------------------------------------------------------------------------------------- duties */
 
-  /** The automatic duty to perform next (`#auto`, in order), or null. In setup mode, never one past the deal. */
+  /**
+   * The automatic duty a full controller performs next (`AUTO`, in order), or null. The status follows it in either
+   * mode (`#statusOf`); what setup mode performs is narrower (`#nextWork`).
+   */
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
-    for (const kind of this.#auto) {
+    for (const kind of AUTO) {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
@@ -1812,6 +1855,17 @@ export class GameController {
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
+  }
+
+  /**
+   * The automatic duty this controller performs next: `#nextAuto`'s, or in setup mode (D093) only a `SETUP_AUTO` duty
+   * while the session is in setup. Past it (a play-phase reshuffle, a beacon, a share, a Secret) it performs none.
+   */
+  #nextWork(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
+    const kind = this.#nextAuto(duties, v);
+    if (kind === null || !this.#setup) return kind;
+    const setup = v.phase === 'shuffle' || v.phase === 'deal';
+    return setup && SETUP_AUTO.includes(kind) ? kind : null;
   }
 
   /**
@@ -1921,7 +1975,7 @@ export class GameController {
     try {
       for (;;) {
         const v = session.view();
-        const kind = this.#nextAuto(session.duties(), v);
+        const kind = this.#nextWork(session.duties(), v);
         if (kind === null) break;
         this.#working = true;
         this.#refresh();
@@ -2381,7 +2435,8 @@ export class GameController {
   /**
    * Republish what no relay has confirmed. Each event is first fed to the session again: one it has since
    * refused (a pooled move whose parent lost, for example) becomes an orphan and is retried no more. A move, deal
-   * or Resign is republished only once the relays have been asked again what this seat published (D056).
+   * or Resign is republished only once the relays have been asked again what this seat published (D056). In setup
+   * mode (D093), setup work only (`#setupSlot`): every other saved event is left as it is for the game page.
    */
   #retryUndelivered(): void {
     const session = this.#session;
@@ -2389,6 +2444,8 @@ export class GameController {
     let vet = this.#toVet().some((slot) => this.#outbox.get(slot)?.orphan === true) || this.#secretHeld();
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
+      // Setup mode republishes setup work only (D093); the game page sends or vets the rest.
+      if (this.#setup && !this.#setupSlot(slot)) continue;
       if (vetted(slot)) {
         // Just vetted and being published (after a load): no need to ask the relays again yet.
         if (!this.#inFlight.has(slot)) vet = true;
