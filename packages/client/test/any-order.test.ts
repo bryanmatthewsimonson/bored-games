@@ -159,6 +159,23 @@ function sharesBy(game: TestGame, seat: number, of: NostrEvent, createdAt: numbe
   return finalizeEvent(t, game.ids[seat]!.sessionSk, game.rnd);
 }
 
+/**
+ * A toy branch from the root: each seat of `order` shuffles its block (both groups) on a session that holds the
+ * branch so far, every proof verified there. Returns the steps in seq order.
+ */
+function toyBranch(game: TestGame, order: readonly number[]): NostrEvent[] {
+  const steps: NostrEvent[] = [];
+  for (const seat of order) {
+    const s = holding(game, seat, steps, []);
+    for (let g = 0; g < 2; g++) {
+      const ev = s.buildShuffle(game.rnd, NOW);
+      expect(s.receive(ev, NOW)).toEqual({ status: 'accepted' });
+      steps.push(ev);
+    }
+  }
+  return steps;
+}
+
 interface SplitDecks {
   game: TestGame;
   /** Every shuffle step of both branches. */
@@ -613,6 +630,68 @@ describe('honest races, settled branches and the split deal (D093)', () => {
       expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
       expect(s.view().phase).toBe('cancelled');
       expect(s.view().forfeits).toEqual([2]);
+    }
+  });
+
+  it("flooding the losing branch's last prev makes the flooder the stalled seat", () => {
+    const { game } = toyGame('any-flood');
+    // An honest split, no proof trusted: seats 1 and 2 race on the root, each finishing its block; seat 0 then
+    // shuffles on both branches, and the other racer finishes each.
+    const [x, y] = [toyBranch(game, [1, 0, 2]), toyBranch(game, [2, 0, 1])];
+    const [win, lose] = x[0]!.id < y[0]!.id ? [x, y] : [y, x];
+    // E signed the losing branch's last step; C is the other racer.
+    const E = lose === x ? 2 : 1;
+    const C = 3 - E;
+    // Seat 0 deals on the losing deck, seen first; seats 1 and 2 deal on the winning one.
+    const d0 = holding(game, 0, lose, []).buildDeal(game.rnd, T0 + 200);
+    const deals = [1, 2].map((seat) => holding(game, seat, win, []).buildDeal(game.rnd, T0 + 200 + seat));
+    // E signs three more last steps on the losing branch's prev: past the candidate cap, its own last step is no
+    // longer a candidate, so the rival deck is gone.
+    const flood = range(3).map((i) => signed(game, E, 6, lose[4]!.id, toyContent(lose[5]!), T0 + 600 + i));
+    const events = [...win, ...lose, ...deals, d0, ...flood];
+    const sessions = [0, 1, 2, null].map((seat) => holding(game, seat, events, []));
+    for (const s of sessions) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().head).toEqual({ id: win[5]!.id, seq: 6 });
+      expect(s.view().equivocators).toEqual([E]);
+      expect(s.waitingFor()).toEqual([E]);
+    }
+    // Seat 0's client republishes the fork with its refused deal (D056): E's three lowest steps on that prev.
+    const fork = [lose[5]!, ...flood].map((ev) => ev.id).sort();
+    expect(sessions[0]!.forkSteps()).toEqual(fork.slice(0, 3));
+    const claim = sessions[C]!.buildTimeout(E, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([E]);
+    }
+  });
+
+  it('honest race losers who re-signed on another prev are never flagged', () => {
+    const { game, players, spectator } = toyGame('any-losers');
+    const all = [...players, spectator];
+    // Seats 1 and 2 race on the root, each finishing its block on a session that sees only its own.
+    const [x, y] = [1, 2].map((seat) =>
+      range(2).map(() => {
+        const ev = players[seat]!.buildShuffle(game.rnd, NOW);
+        expect(players[seat]!.receive(ev, NOW)).toEqual({ status: 'accepted' });
+        return ev;
+      }),
+    ) as [NostrEvent[], NostrEvent[]];
+    const [win, loser] = x[0]!.id < y[0]!.id ? [x, 2] : [y, 1];
+    // Both blocks reach everyone: equal length, so the lower id wins and the loser's block is left off the chain.
+    deliver(all, [...x, ...y]);
+    for (const s of all) {
+      expect(s.view().head).toEqual({ id: win[1]!.id, seq: 2 });
+      expect(s.view().equivocators).toEqual([]);
+    }
+    // Seat 0, then the loser again, shuffle on the winner; every seat deals and play starts.
+    for (const seat of [0, 0, loser, loser]) deliver(all, [players[seat]!.buildShuffle(game.rnd, NOW)]);
+    for (const [k, s] of players.entries()) deliver(all, [s.buildDeal(game.rnd, T0 + 300 + k)]);
+    for (const s of all) {
+      expect(s.view().phase).toBe('play');
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().forfeits).toEqual([]);
     }
   });
 

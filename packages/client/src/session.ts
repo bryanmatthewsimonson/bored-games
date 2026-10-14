@@ -106,8 +106,9 @@ import type {
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
  * steps, or two epoch steps, by that seat on the chain's prev, proofs or not (Ruling 12, D073). Play goes on,
  * and at the end the flagged seats move to the last places (R5). In an any-order setup (D093) a shuffle step's
- * signer must also be one that may sign it at its prev (`shufflersAt`); two such seats' steps on one prev are an
- * honest race, which fork choice settles and which flags nobody.
+ * signer must also be one that may sign it at its prev (`shufflersOn`); two such seats' steps on one prev are an
+ * honest race, which fork choice settles and which flags nobody. There, two setup steps by one seat on one prev
+ * flag it anywhere in the held setup tree, not only on the chain's prevs.
  *
  * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
  * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
@@ -431,6 +432,12 @@ export class GameSession {
    * verdict is final.
    */
   private readonly rivalDeals = new Map<string, boolean>();
+  /**
+   * The seats that may sign a setup step on a prev off the canonical chain (`shufflersOn`, D093), by
+   * `<prev id>:<step>`, or null when none may. Only answers that do not wait for a missing ancestor are kept: an id
+   * fixes its ancestry, so they are final.
+   */
+  private readonly setupSigners = new Map<string, readonly number[] | null>();
   /**
    * `snapshots[i]` is the fold as it stood at head seq `i`, taken just before move `i + 1` was linked, so the chain
    * can be cut back to any accepted move.
@@ -1557,25 +1564,16 @@ export class GameSession {
 
   /** The final deck of the rival branch that pooled step `last` ends, or null (`rivalFinalDecks`). */
   private rivalDeck(last: ParsedMove): Ciphertext[] | null {
-    // Walk up the pool to the canonical chain: the branch's steps, the first one's prev on the chain.
-    const path: ParsedMove[] = [last];
-    for (;;) {
-      const prev = (path[0] as ParsedMove).prevId;
-      if (prev === this.root.id || this.linked.has(prev)) break;
-      const up = this.pooledById.get(prev);
-      if (up === undefined || path.length >= this.shuffleSteps) return null;
-      path.unshift(up);
-    }
-    // The branch must hold steps `fork + 1..N` in order on chain move `fork`, a shuffle prev of the chain.
-    const fork = (path[0] as ParsedMove).seq - 1;
-    if (fork + path.length !== this.shuffleSteps || fork > this.chain.length) return null;
-    if (this.idAt(fork) !== (path[0] as ParsedMove).prevId) return null;
+    // The branch's steps `fork + 1..N`, in order, from chain move `fork`, a shuffle prev of the chain.
+    const path = this.setupPath(last.id, this.shuffleSteps);
+    if (path === null || path === 'missing') return null;
+    const fork = this.shuffleSteps - path.length;
     const signers = this.chain.slice(0, fork).map((m) => this.seatOf.get(m.pubkey) as number);
     let deck = this.decks[fork] as Ciphertext[];
     for (const [i, m] of path.entries()) {
       const c = m.content;
       const step = fork + i;
-      if (c.type !== 'shuffle' || m.seq !== step + 1 || !this.shuffleEligible(m)) return null;
+      if (c.type !== 'shuffle' || !this.shuffleEligible(m)) return null;
       const seat = this.seatOf.get(m.pubkey) as number;
       if (!shuffleSigners(this.schedule, this.seats, this.root.shuffleOrder, signers).includes(seat))
         return null;
@@ -1589,6 +1587,65 @@ export class GameSession {
       signers.push(seat);
     }
     return deck;
+  }
+
+  /**
+   * The pooled setup steps from the canonical chain down to `id`, taken as the move at `seq` (D093), in seq order:
+   * walk up the pool from `id` until a prev is the root or on the chain. Empty when `id` is the chain's move at
+   * `seq`. `missing` while an ancestor is not held. Null when the walk does not fit: an ancestor was refused, more
+   * than `seq` moves, a move that is not a setup step or out of seq order, or a chain prev at another seq. Ids fix
+   * ancestries, so a null holds for good.
+   */
+  private setupPath(id: Hex, seq: number): ParsedMove[] | 'missing' | null {
+    const path: ParsedMove[] = [];
+    let at = id;
+    while (at !== this.root.id && !this.linked.has(at)) {
+      if (path.length >= seq) return null;
+      const m = this.pooledById.get(at);
+      if (m === undefined) return this.rejected.has(at) ? null : 'missing';
+      path.unshift(m);
+      at = m.prevId;
+    }
+    const fork = seq - path.length;
+    if (fork > this.chain.length || this.idAt(fork) !== at) return null;
+    for (const [i, m] of path.entries())
+      if (m.content.type !== 'shuffle' || m.seq !== fork + i + 1) return null;
+    return path;
+  }
+
+  /**
+   * The seats that may sign setup step `at` (0-based) on `prevId`, ascending, or null when none may:
+   * - on the chain's move at `at`, `shufflersAt`;
+   * - elsewhere in the held setup tree of an any-order setup (D093), from the signers of the prev's ancestry
+   *   (`setupPath`), each of which must be one that may sign its own step there. Null while an ancestor is
+   *   missing; definite answers are kept (`setupSigners`);
+   * - off the chain in a seat-order setup, null.
+   */
+  private shufflersOn(prevId: Hex, at: number): readonly number[] | null {
+    if (at <= this.chain.length && this.idAt(at) === prevId) return this.shufflersAt(at);
+    if (this.root.shuffleOrder !== 'any' || at >= this.shuffleSteps) return null;
+    const key = `${prevId}:${at}`;
+    const known = this.setupSigners.get(key);
+    if (known !== undefined) return known;
+    const path = this.setupPath(prevId, at);
+    if (path === 'missing') return null;
+    const out = path === null ? null : this.signersAfter(at - path.length, path);
+    this.setupSigners.set(key, out);
+    return out;
+  }
+
+  /**
+   * The seats that may sign the step after the chain's first `fork` moves and then `path` (any order, D093), or null
+   * when a step of `path` was signed by a seat that may not sign it there.
+   */
+  private signersAfter(fork: number, path: readonly ParsedMove[]): readonly number[] | null {
+    const signers = this.chain.slice(0, fork).map((m) => this.seatOf.get(m.pubkey) as number);
+    for (const m of path) {
+      const seat = this.seatOf.get(m.pubkey) as number;
+      if (!shuffleSigners(this.schedule, this.seats, 'any', signers).includes(seat)) return null;
+      signers.push(seat);
+    }
+    return shuffleSigners(this.schedule, this.seats, 'any', signers);
   }
 
   /**
@@ -2786,10 +2843,12 @@ export class GameSession {
   /* ------------------------------------------------------------------------------------- equivocation */
 
   /**
-   * The seats with two distinct well-formed moves on one (prev, seq), the prev being the chain's move at seq − 1,
-   * ascending:
-   * - shuffle steps (D030 Ruling 12): any two, proofs unchecked, by a seat that may sign that step there (in an
-   *   any-order setup, eligible at that prev, D093). An honest client never signs twice on one prev;
+   * The seats with two distinct well-formed moves on one (prev, seq), ascending. The prev is the chain's move at
+   * seq − 1, except for setup steps in an any-order setup:
+   * - setup shuffle steps (D030 Ruling 12): any two, proofs unchecked, by a seat that may sign that step there
+   *   (`shufflersOn`). In an any-order setup the prev may be anywhere in the held setup tree, off the chain too
+   *   (D093): a seat that floods a losing branch's prev is caught. An honest client never signs twice on one prev,
+   *   and a race loser signs again on another prev;
    * - epoch steps (D073): the same, and not part of the opening-deal stall;
    * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
    *   never counts.
@@ -2803,11 +2862,12 @@ export class GameSession {
       const seat = this.seatOf.get(first.pubkey) as number;
       if (out.has(seat)) continue;
       const at = first.seq - 1;
-      if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
       if (first.content.type === 'shuffle') {
-        if (this.shufflersAt(at).includes(seat)) out.add(seat);
-      } else if (shuffleOnly) continue;
-      else if (first.content.type === 'epoch') out.add(seat);
+        if (this.shufflersOn(first.prevId, at)?.includes(seat)) out.add(seat);
+        continue;
+      }
+      if (shuffleOnly || at > this.chain.length || this.idAt(at) !== first.prevId) continue;
+      if (first.content.type === 'epoch') out.add(seat);
       else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
     return ascending(out);
@@ -3174,8 +3234,8 @@ export class GameSession {
    * The seats stalled at the head (D030 R4), ascending:
    * - shuffle: the seats that may sign the next step (D093): its seat in a seat-order setup; in an any-order one,
    *   the block's signer inside a block, and at a block's start every seat with no block yet in the round;
-   * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held on the chain:
-   *   then the shuffle equivocators alone (D056, review F7);
+   * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held (on the chain,
+   *   or in an any-order setup anywhere in the setup tree, D093): then the shuffle equivocators alone (D056, F7);
    * - play: the pending seat, unless the decision needs a card dealt to it that some other seat has not shared,
    *   in which case those seats; for a pending public reveal, the seats missing a share of it;
    * - end: every seat whose secret is not in;
@@ -4037,11 +4097,12 @@ export class GameSession {
   }
 
   /**
-   * Shuffle steps that rival a step of the chain's deck (two well-formed steps by one seat on a chain prev, D030
-   * Ruling 12), other than the chain's own: at most 3 per prev, the lowest ids. As in `equivocators`, the seat must
-   * be one that may sign that step there (in an any-order setup, eligible at that prev, D093), so an ineligible
-   * seat's steps are never republished. A seat that keeps its deal off a refused deck republishes them (D056), so
-   * clients that never saw the rival hold the fork and stall the equivocator, not the seat.
+   * Setup shuffle steps that prove an equivocation (two well-formed steps by one seat on one prev, D030 Ruling 12),
+   * other than the chain's own: at most 3 per prev, the lowest ids. The prev and the seat are judged as in
+   * `equivocators` (`shufflersOn`): a chain prev, or in an any-order setup any prev of the held setup tree (D093),
+   * and a seat that may sign that step there, so an ineligible seat's steps are never republished. A seat that
+   * keeps its deal off a refused deck republishes them (D056), so clients that never saw the rival hold the fork
+   * and stall the equivocator, not the seat.
    */
   forkSteps(): Hex[] {
     const out: Hex[] = [];
@@ -4050,9 +4111,8 @@ export class GameSession {
       const group = byId([...(this.candidates.get(key) as Map<Hex, Candidate>).values()].map((c) => c.m));
       const first = group[0] as ParsedMove;
       if (first.content.type !== 'shuffle') continue;
-      const at = first.seq - 1;
-      if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
-      if (!this.shufflersAt(at).includes(this.seatOf.get(first.pubkey) as number)) continue;
+      if (!this.shufflersOn(first.prevId, first.seq - 1)?.includes(this.seatOf.get(first.pubkey) as number))
+        continue;
       out.push(
         ...group
           .filter((m) => !onChain.has(m.id))
