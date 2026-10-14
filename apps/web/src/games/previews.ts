@@ -220,6 +220,29 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
         'Late in the game: every discovery is taken, and your people roll at the hunt, the Rockfall and Amber Creek.',
     },
   ],
+  'current-affairs': [
+    {
+      file: 'current-affairs-1.jpg',
+      width: 1280,
+      height: 860,
+      caption:
+        'Round 1: choose a station on offer to put up for auction; every company buys one in the first round.',
+    },
+    {
+      file: 'current-affairs-2.jpg',
+      width: 1280,
+      height: 860,
+      caption:
+        'The fuel phase: the cheapest units go first, every unit raises the price, and rivals’ money stays hidden.',
+    },
+    {
+      file: 'current-affairs-3.jpg',
+      width: 1280,
+      height: 860,
+      caption:
+        'Wiring: each lit city shows what its substation and the cheapest lines from your network cost.',
+    },
+  ],
 };
 
 /** The URL of a preview picture, relative to the page, so it works from any sub-path (base './'). */

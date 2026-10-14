@@ -7,6 +7,7 @@
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
+import { currentAffairs } from '@bored-games/current-affairs';
 import { driftwrights } from '@bored-games/driftwrights';
 import type { GameModule } from '@bored-games/game-kit';
 import { giltAndGuile } from '@bored-games/gilt-and-guile';
@@ -51,6 +52,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [sticksAndStones.id, sticksAndStones],
   [quillAndQuarry.id, quillAndQuarry],
   [giltAndGuile.id, giltAndGuile],
+  [currentAffairs.id, currentAffairs],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

@@ -1,6 +1,7 @@
 import { bank } from '@bored-games/bank';
 import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
+import { currentAffairs } from '@bored-games/current-affairs';
 import { driftwrights } from '@bored-games/driftwrights';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { packetOrder } from '@bored-games/game-kit';
@@ -19,6 +20,7 @@ import {
   chainReactionDeckOrder,
 } from './chain-reaction.ts';
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
+import { CURRENT_EXPECTED_COVERAGE, CURRENT_POLICIES } from './current-affairs.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
 import { GILT_AND_GUILE_POLICIES } from './gilt-and-guile.ts';
 import { HAZARD_EXPECTED_COVERAGE, HAZARD_POLICIES, HAZARD_SIM_DEADLINE } from './hazard.ts';
@@ -137,6 +139,13 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     deckOrder: packetOrder,
     expectedCoverage: STICKS_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4],
+  },
+  'current-affairs': {
+    module: currentAffairs,
+    policies: CURRENT_POLICIES,
+    deckOrder: packetOrder,
+    expectedCoverage: CURRENT_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4, 5, 6],
   },
 };
 

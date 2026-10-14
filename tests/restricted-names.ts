@@ -144,8 +144,23 @@ const STICKS_REFERENCE: readonly string[] = [
   'Z-Man Games',
 ];
 
+/**
+ * Current Affairs' reference game (D091): its title (two everyday words, but restricted in every case and form: the
+ * repo never needs the phrase), its first, German title, its designer, its publisher and its currency.
+ */
+const CURRENT_REFERENCE: readonly string[] = [
+  'Power Grid',
+  'Funkenschlag',
+  'Friedemann Friese',
+  'Friese',
+  '2F-Spiele',
+  '2F Spiele',
+  'Elektro',
+];
+
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...CURRENT_REFERENCE.flatMap(nameForms),
   ...STICKS_REFERENCE.flatMap(nameForms),
   ...HAZARD_REFERENCE.flatMap(nameForms),
   ...['Rio Grande Games', 'Donald X. Vaccarino'].flatMap(nameForms),
@@ -169,7 +184,7 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081),
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081, D091),
  * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
  * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's
  * compare phrase is not here: its reference title is not on the restricted list (D072). A whole-word scan covers
@@ -184,6 +199,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/gilt-and-guile/src/compare.ts': 'Compare to Dominion',
   'packages/games/hazard/src/compare.ts': 'Compare to Risk',
   'packages/games/sticks-and-stones/src/compare.ts': 'Compare to Stone Age',
+  'packages/games/current-affairs/src/compare.ts': 'Compare to Power Grid',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

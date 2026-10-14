@@ -18,6 +18,9 @@ import { ChainReactionScreen } from './chain-reaction/screen.tsx';
 import { ChessGame } from './chess/game.tsx';
 import { CHESS_META } from './chess/meta.ts';
 import { ChessRulesPage } from './chess/rules-page.tsx';
+import { CURRENT_SETUP_COPY, CurrentAffairsGame } from './current-affairs/game.tsx';
+import { CURRENT_META } from './current-affairs/meta.ts';
+import { CurrentAffairsRulesPage } from './current-affairs/rules-page.tsx';
 import { DriftwrightsGame } from './driftwrights/game.tsx';
 import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
 import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
@@ -153,6 +156,13 @@ export const GAMES: readonly WebGame[] = [
     Component: SticksGame,
     RulesPage: SticksRulesPage,
     setupCopy: () => STICKS_SETUP_COPY,
+  },
+  {
+    ...CURRENT_META,
+    Component: CurrentAffairsGame,
+    RulesPage: CurrentAffairsRulesPage,
+    // The station deck is shuffled and dealt like any other; no decision has one forced answer.
+    setupCopy: () => CURRENT_SETUP_COPY,
   },
 ];
 

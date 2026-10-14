@@ -17,6 +17,7 @@ export const GAME_IDS: readonly string[] = [
   'gilt-and-guile',
   'hazard',
   'sticks-and-stones',
+  'current-affairs',
 ];
 
 /** The game of the old `#/rules[/<section>]` links, and the picker's first choice. */

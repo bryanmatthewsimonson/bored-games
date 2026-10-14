@@ -9,6 +9,8 @@ import { CHAIN_REACTION_CATALOG } from '@bored-games/chain-reaction/catalog';
 import { SAFE_BRAND as CHAIN_REACTION_SAFE } from '@bored-games/chain-reaction/theme';
 import { CHESS_BRAND } from '@bored-games/chess/brand';
 import { CHESS_CATALOG } from '@bored-games/chess/catalog';
+import { CURRENT_CATALOG } from '@bored-games/current-affairs/catalog';
+import { CURRENT_BRAND } from '@bored-games/current-affairs/theme';
 import { DRIFTWRIGHTS_CATALOG } from '@bored-games/driftwrights/catalog';
 import { DRIFTWRIGHTS_BRAND } from '@bored-games/driftwrights/theme';
 import type { BrandNames, CatalogEntry } from '@bored-games/game-kit';
@@ -49,6 +51,7 @@ const GAMES: readonly CatalogGame[] = [
   { entry: QUILL_CATALOG, safe: QUILL_BRAND },
   { entry: HAZARD_CATALOG, safe: HAZARD_BRAND },
   { entry: STICKS_CATALOG, safe: STICKS_BRAND },
+  { entry: CURRENT_CATALOG, safe: CURRENT_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));

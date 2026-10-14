@@ -9,6 +9,8 @@ import {
   COMPARE_PREFIX,
   COMPARE_TITLE,
 } from '../packages/games/chain-reaction/src/compare.ts';
+import { CURRENT_CATALOG } from '../packages/games/current-affairs/src/catalog.ts';
+import * as CURRENT_COMPARE from '../packages/games/current-affairs/src/compare.ts';
 import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog.ts';
 import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
 import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
@@ -440,6 +442,23 @@ describe('branding', () => {
         ],
         exactCase: false,
       },
+      {
+        game: 'Current Affairs',
+        home: 'packages/games/current-affairs/src/compare.ts',
+        phrase: 'Compare to Power Grid',
+        compare: CURRENT_COMPARE,
+        entry: CURRENT_CATALOG,
+        bggId: 2651,
+        companies: [
+          'Funkenschlag',
+          'Friedemann Friese',
+          'Friese',
+          '2F-Spiele',
+          'Elektro',
+          'Rio Grande Games',
+        ],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -453,6 +472,7 @@ describe('branding', () => {
         'Compare to Dominion',
         'Compare to Risk',
         'Compare to Stone Age',
+        'Compare to Power Grid',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });
