@@ -141,6 +141,23 @@ import type {
 
 type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 
+/**
+ * Whether `module` reshuffles its deck in play under the validated `rules` (D073, D079, D080): the single-pile epoch
+ * wire, a `pile` deck of at most 512 cards whose module installs a reshuffled order and names its plaintexts (Holler,
+ * Hazard, Quill & Quarry, Gilt & Guile). Such a game's setup shuffle runs in seat order (D093): `GameSession.create`
+ * refuses an any-order root for it, and the web lobby starts it without the tag.
+ */
+export function reshufflesInPlay(module: AnyModule, rules: unknown): boolean {
+  const deck = module.decks(rules)[0] ?? null;
+  return (
+    deck !== null &&
+    deck.id === 'pile' &&
+    deck.size <= 512 &&
+    typeof module.installDeckOrder === 'function' &&
+    typeof module.shufflePlaintexts === 'function'
+  );
+}
+
 /** The outcome of trying to fold one event: folded, not yet (keep it pooled), or a rejection reason. */
 type Fold = 'accepted' | 'wait' | { reject: string };
 
@@ -366,6 +383,8 @@ export class GameSession {
   /** 2 when the deck has a second round, else 1. */
   private readonly shuffleRounds: 1 | 2;
   private readonly promptShares: boolean;
+  /** Whether the game reshuffles in play (`reshufflesInPlay`, `usesEpochs`), fixed by the module and rules. */
+  private readonly reshuffles: boolean;
   private readonly seats: number;
   /**
    * The shuffle steps at the start of the chain (PROTOCOL §6.1): the length of `schedule`, none when the game is
@@ -598,6 +617,7 @@ export class GameSession {
     this.schedule = shuffleSchedule(deck, this.seats);
     this.shuffleRounds = this.schedule.some((step) => step.round === 2) ? 2 : 1;
     this.promptShares = deck?.promptShares === true;
+    this.reshuffles = reshufflesInPlay(module, rules);
     this.shuffleSteps = this.schedule.length;
     // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
@@ -650,6 +670,9 @@ export class GameSession {
     const module = input.modules.get(root.game) as AnyModule;
     const rules = module.validateRules(root.rules);
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
+    // A game that reshuffles in play takes its setup shuffle in seat order (D093, ruling 12).
+    if (root.shuffleOrder === 'any' && reshufflesInPlay(module, rules.value))
+      throw new ClientError('an any-order setup is not supported in a game that reshuffles in play');
 
     const me = input.me;
     if (me !== null) {
@@ -3787,15 +3810,12 @@ export class GameSession {
     return ev;
   }
 
-  /** The existing single-pile epoch wire requires both module hooks and a bounded opening deck (D079, D080). */
+  /**
+   * The existing single-pile epoch wire requires both module hooks and a bounded opening deck (D079, D080):
+   * `reshufflesInPlay`, computed once.
+   */
   private usesEpochs(): boolean {
-    return (
-      this.hasDeck() &&
-      this.deckId === 'pile' &&
-      this.deckSize <= 512 &&
-      typeof this.module.installDeckOrder === 'function' &&
-      typeof this.module.shufflePlaintexts === 'function'
-    );
+    return this.reshuffles;
   }
 
   /** The next epoch shuffler waits on any fork by an earlier shuffler (D073). */

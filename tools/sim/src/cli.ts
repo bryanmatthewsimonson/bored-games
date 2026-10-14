@@ -16,14 +16,16 @@
  * sealed share the seat owes, or a pending private show; D090). --deadline is the move
  * deadline in seconds: the game's own (`simDeadline` in its fuzz target, for a game long enough that the random
  * scheduler leaves some seat unscheduled for a day), else one day. --shuffle-order is the root's setup order (D093):
- * `any` by default, as the web app starts games, or `seat`. In an any-order setup a waiting seat holds back its
- * rank's stagger, and --race instead makes every honest seat due a setup step on one head sign it at once.
+ * by default `any`, or `seat` for a game that reshuffles in play, as the web app starts games; such a game refuses
+ * `any`. In an any-order setup a waiting seat holds back its rank's stagger, and --race instead makes every honest
+ * seat due a setup step on one head sign it at once.
  */
 import { availableParallelism } from 'node:os';
 import { parseArgs } from 'node:util';
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
 import {
   type Adversary,
+  reshufflesInPlay,
   type SimOptions,
   type SimPolicy,
   type SimReport,
@@ -177,7 +179,7 @@ async function main(): Promise<void> {
       deadline: { type: 'string' },
       'max-rounds': { type: 'string', default: '20000' },
       'full-sync': { type: 'boolean', default: false },
-      'shuffle-order': { type: 'string', default: 'any' },
+      'shuffle-order': { type: 'string' },
       race: { type: 'boolean', default: false },
       workers: { type: 'string' },
       json: { type: 'boolean', default: false },
@@ -193,19 +195,25 @@ async function main(): Promise<void> {
     console.error(`unknown --resign-when "${when}"; known: ${RESIGN_WHEN.join(', ')}`);
     process.exit(2);
   }
-  const order = values['shuffle-order'] as string;
-  if (order !== 'any' && order !== 'seat') {
-    console.error(`unknown --shuffle-order "${order}"; known: any, seat`);
-    process.exit(2);
-  }
-  if (values.race && order !== 'any') {
-    console.error('--race needs --shuffle-order any: in seat order only one seat may sign each step');
-    process.exit(2);
-  }
   const game = values.game as string;
   const target = TARGETS[game];
   if (target === undefined) {
     console.error(`unknown game "${game}"; known: ${Object.keys(TARGETS).join(', ')}`);
+    process.exit(2);
+  }
+  // A game that reshuffles in play takes its setup in seat order, as the web app starts it (D093, ruling 12).
+  const reshuffles = reshufflesInPlay(target.module, target.module.defaultRules());
+  const order = values['shuffle-order'] ?? (reshuffles ? 'seat' : 'any');
+  if (order !== 'any' && order !== 'seat') {
+    console.error(`unknown --shuffle-order "${order}"; known: any, seat`);
+    process.exit(2);
+  }
+  if (order === 'any' && reshuffles) {
+    console.error(`--shuffle-order any: ${game} reshuffles in play, so its setup runs in seat order`);
+    process.exit(2);
+  }
+  if (values.race && order !== 'any') {
+    console.error('--race needs --shuffle-order any: in seat order only one seat may sign each step');
     process.exit(2);
   }
   const games = Number(values.games);

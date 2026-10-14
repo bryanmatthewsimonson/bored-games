@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats and steps.
 
 import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
+import { chess } from '@bored-games/chess';
 import {
   type Ciphertext,
   cardOf,
@@ -13,6 +14,7 @@ import {
   verifyShuffle,
 } from '@bored-games/deck';
 import { createRng, range } from '@bored-games/game-kit';
+import { holler } from '@bored-games/holler';
 import {
   finalizeEvent,
   type MoveContent,
@@ -26,7 +28,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { createToy } from '../../game-kit/test/toy.ts';
 import { ClientError } from '../src/errors.ts';
-import type { GameSession } from '../src/session.ts';
+import { type GameSession, reshufflesInPlay } from '../src/session.ts';
 import {
   deliver,
   LATE,
@@ -825,5 +827,23 @@ describe('honest races, settled branches and the split deal (D093)', () => {
     expect(views.map((v) => [v.phase, v.head])).toEqual(Array(3).fill(['done', head]));
     expect(views.map((v) => v.equivocators)).toEqual([[w], [w], [w]]);
     expect(views.map((v) => v.forfeits)).toEqual([[w], [w], [w]]);
+  });
+});
+
+describe('any order only for games without play reshuffles (D093, ruling 12)', () => {
+  it('reshufflesInPlay is true for a game with reshuffle epochs, false for a plain deck or none', () => {
+    expect(reshufflesInPlay(holler, holler.defaultRules())).toBe(true);
+    expect(reshufflesInPlay(chainReaction, chainReaction.defaultRules())).toBe(false);
+    expect(reshufflesInPlay(chess, chess.defaultRules())).toBe(false);
+  });
+
+  it('a Holler any-order root is refused, and a Holler seat-order root still loads', () => {
+    const any = makeModuleGame(holler, 2, 'holler-any', undefined, ANY);
+    expect(() => newSession(any, 0)).toThrow(ClientError);
+    expect(() => newSession(any, null)).toThrow(/any-order setup/);
+    const seat = makeModuleGame(holler, 2, 'holler-seat');
+    const session = newSession(seat, 0);
+    expect(session.view().shuffleOrder).toBe('seat');
+    expect(session.duties()).toEqual([{ kind: 'shuffle', rank: 0 }]);
   });
 });
