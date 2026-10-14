@@ -515,7 +515,12 @@ export class GameSession {
   private readonly sideUnknown = new Map<Hex, number>();
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
   private readonly stuck = new Map<Hex, number>();
-  /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
+  /**
+   * Whether a setup fork whose side branches hold setup steps alone keeps its verdict whatever the shares (`sideKey`,
+   * D093). Always true; the tests turn it off to compare with the fold that re-tries such a fork on every share change.
+   */
+  private readonly shareFreeSetupVerdicts: boolean = true;
+  /** The best side branch per fork prev, found by trial, valid while the key (`sideKey`) holds. */
   private readonly forkMemo = new Map<Hex, { key: string; ids: Hex[]; over: boolean; settled: boolean }>();
   /** The best branch through the chain's own successor at a fork, by trial (`throughBest`), kept while its key holds. */
   private readonly throughMemo = new Map<Hex, { key: string; rank: Rank }>();
@@ -1596,8 +1601,12 @@ export class GameSession {
    * race changes it, and the signers it gives (`shufflersOn`) and so the equivocators are the same on every client
    * that holds the same events. Proofs stay unchecked (D030 Ruling 12); `rivalDeck` checks its own. Empty when `id`
    * is the chain's move at `seq`. `missing` while an ancestor is not held. Null when the walk does not fit: an
-   * ancestor was refused on arrival (`moveShape`), more than `seq` moves, a move that is not a setup step or out of
-   * seq order, or a chain prev at another seq. Ids fix ancestries, so a null holds for good.
+   * ancestor was refused (`rejected`), more than `seq` moves, a move that is not a setup step or out of seq order,
+   * or a chain prev at another seq. Ids fix ancestries, so a null holds for good. The refused ids the walk can meet
+   * are those of events that are no well-formed move: moves refused on arrival (`moveShape`), and Shares events,
+   * whose refusal a trial fold makes and takes back again (`quiesce`, `truncate`). The walk can never pass such an
+   * id, so whether it answers null or `missing` there, it gives no signers (`shufflersOn`) and no rival deck
+   * (`rivalDeck`): a trial's Shares refusals never change its output.
    */
   private setupPath(id: Hex, seq: number): ParsedMove[] | 'missing' | null {
     const path: ParsedMove[] = [];
@@ -1605,7 +1614,8 @@ export class GameSession {
     while (at !== this.root.id && !this.linked.has(at)) {
       if (path.length >= seq) return null;
       const m = this.candidateById.get(at)?.m;
-      // Every move that passed `moveShape` is a candidate, so a refused one here was refused on arrival.
+      // Every move that passed `moveShape` is a candidate, so a refused id here is a move refused on arrival or a
+      // Shares event (refused against the current final deck, maybe only during a trial): no path either way.
       if (m === undefined) return this.rejected.has(at) ? null : 'missing';
       path.unshift(m);
       at = m.prevId;
@@ -2640,20 +2650,74 @@ export class GameSession {
   }
 
   /**
+   * The kept-verdict key of the side branches at the fork after chain move `j` (`sideBest`): `forkKey`, except at a
+   * setup fork of an any-order game that does not reshuffle in play (D093) whose side branches hold setup steps
+   * alone, short of the last (`setupBelow`). There the key is the pool below the prev, which of those steps are not
+   * candidates, and the freeze: the shares and the other candidates are no input of the verdict.
+   * - The trial links only setup steps there: each on its signer (a function of the steps above it, all fixed by
+   *   their ids), its proof (verified once per id) and whether it is a candidate. It never completes a deck, so it
+   *   folds no Shares event, links no game action and never reaches `over`. `setupBelow`'s depth bound lets every
+   *   move pooled below the prev later bump its pool version.
+   * - Re-running the trial anyway would only cut the chain below the final deck and relink it, which re-verifies and
+   *   refolds every Shares event and bumps the share version, voiding every other fork's verdict: after an honest
+   *   race with two losing steps, each later event re-tried both forks, each trial refolding the whole game. The
+   *   relink rebuilds the fold as it was, so skipping it changes nothing, with one exception: in a game that
+   *   reshuffles in play, the relink refuses for good a waiting Shares event of a reshuffle more than two ahead of
+   *   the cut (D087). Such games keep `forkKey`, so they fold exactly as before.
+   * - Seat-order games keep `forkKey` too (a setup fork there needs an equivocation), and so does a test switch.
+   * `throughBest` keeps `forkKey`: its trial relinks the chain's own branch, whose game actions depend on shares.
+   */
+  private sideKey(j: number, frozen: boolean): string {
+    const below =
+      this.shareFreeSetupVerdicts &&
+      this.root.shuffleOrder === 'any' &&
+      !this.usesEpochs() &&
+      j < this.shuffleSteps
+        ? this.setupBelow(this.idAt(j))
+        : null;
+    if (below === null) return this.forkKey(j, frozen);
+    return `${this.poolVersion.get(this.idAt(j)) ?? 0}:setup:${below}:${frozen ? 'f' : 'l'}`;
+  }
+
+  /**
+   * When every pooled move below `prev`, through pooled moves, is a setup step short of the last one (seq below
+   * `shuffleSteps`), at most `MAX_DEPTH - 1` moves down: the ids of those that are not candidates
+   * (`shuffleEligible`), sorted and joined. Else null. A move pooled below any of them later bumps `prev`'s pool
+   * version (`poolChanged` walks up `MAX_DEPTH` moves, and no setup step is ever stuck). The depth bound also ends
+   * the walk.
+   */
+  private setupBelow(prev: Hex): string | null {
+    const off: Hex[] = [];
+    const stack: [Hex, number][] = [[prev, 0]];
+    while (stack.length > 0) {
+      const [at, depth] = stack.pop() as [Hex, number];
+      const kids = this.movesByPrev.get(at);
+      if (kids === undefined) continue;
+      if (depth + 1 >= MAX_DEPTH) return null;
+      for (const k of kids.values()) {
+        if (k.seq >= this.shuffleSteps) return null;
+        if (!this.shuffleEligible(k)) off.push(k.id);
+        stack.push([k.id, depth + 1]);
+      }
+    }
+    return off.sort().join(',');
+  }
+
+  /**
    * The best branch at the fork after chain move `j`, other than the chain's own, by trial: cut back to `j`, find
    * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it, the shares or
-   * the shuffle candidates change, so an event elsewhere does not repeat the trial. Ranked as the fork is (frozen
-   * or not), unless `frozen` is given.
+   * the shuffle candidates change, so an event elsewhere does not repeat the trial (the shares only where they can
+   * matter, `sideKey`). Ranked as the fork is (frozen or not), unless `frozen` is given.
    */
   private sideBest(j: number, frozen = this.frozenAt(j)): { ids: Hex[]; over: boolean; settled: boolean } {
     const prev = `${this.idAt(j)}:${frozen ? 'f' : 'l'}`;
     const known = this.forkMemo.get(prev);
-    if (known !== undefined && known.key === this.forkKey(j, frozen)) return known;
+    if (known !== undefined && known.key === this.sideKey(j, frozen)) return known;
     this.trials++;
     const top = (this.chain[j] as ParsedMove).id;
     const best = this.trialAt(j, () => this.bestExtension(top, null, frozen));
     const out = {
-      key: this.forkKey(j, frozen),
+      key: this.sideKey(j, frozen),
       ids: best.moves.map((m) => m.id),
       over: best.over,
       settled: best.settled,

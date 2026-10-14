@@ -14,7 +14,9 @@ import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
  * The seat count is a parameter: the 3-seat games are the full set, 4 and 6 seats add an honest whole game each
  * (about 100 s and 227 s of CPU) under SIM=1, and one cheap 6-seat game that ends in the shuffle runs by default.
  * Any-order setups (D093): a 4-seat game that ends in the shuffle runs by default, and a short whole game with forced
- * races, whose losing branches stay held through play, under SIM=1 (about 200 s of CPU).
+ * races, whose losing branches stay held through play, under SIM=1 (about 120 s of CPU). Fork choice tries each
+ * losing setup branch once and keeps its verdict whatever the shares (Task 5b); re-trying them for every later event
+ * took it past its 900 s timeout.
  */
 
 const SIM = process.env.SIM !== undefined && process.env.SIM !== '';
