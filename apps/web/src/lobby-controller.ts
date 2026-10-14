@@ -11,6 +11,7 @@ import {
   type GameKeys,
   type LobbyView,
   newGameKeys,
+  reshufflesInPlay,
   rootSeatOrder,
   seatForGameKeys,
 } from '@bored-games/client';
@@ -23,6 +24,7 @@ import {
   type NostrEvent,
   type ParsedTable,
   parseTable,
+  type ShuffleOrder,
   type TableStatus,
   tableTemplate,
   verifyEvent,
@@ -324,7 +326,8 @@ export class LobbyController {
    * lets the creator choose among open joiners (D021); it applies only when this call signs the root. With
    * `closeEmpty`, a table that is not full starts with the players seated (D092): the Table is first republished
    * with its empty seats closed (`closeEmptySeats`), so invited players who have not joined drop out, and the
-   * root then seats `seats`, or else the players seated before the close.
+   * root then seats `seats`, or else the players seated before the close. The root lets the seats shuffle in any
+   * order (D093), unless the game reshuffles in play (`#setupOrder`).
    */
   start(address: string, seats?: readonly Hex[], opts: { closeEmpty?: boolean } = {}): Promise<string> {
     return this.#once(this.#starting, address, () => this.#start(address, seats, opts.closeEmpty === true));
@@ -354,7 +357,11 @@ export class LobbyController {
         view = this.#fold(address);
       } else if (!view?.full) throw new Error('The table is not full yet.');
       if (view === null) throw new Error('Could not close the empty seats.');
-      rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), picked));
+      rootEv = await this.#sign(
+        buildRootTemplate(view, table.relays, this.#d.now(), picked, {
+          shuffleOrder: this.#setupOrder(view),
+        }),
+      );
       if (!writeJson(this.#d.storage, rootKey, rootEv))
         throw new Error('Could not save the game start in this browser.');
     }
@@ -374,6 +381,19 @@ export class LobbyController {
       await this.#publishAll([started], table.relays, false);
     }
     return rootEv.id;
+  }
+
+  /**
+   * The setup shuffle order of a new root (D093): any order, so the seats shuffle as each opens the app, except in a
+   * game that reshuffles in play, which keeps seat order (`reshufflesInPlay`; the session refuses an any-order root
+   * there).
+   */
+  #setupOrder(view: LobbyView): ShuffleOrder {
+    const module = this.#d.modules.get(view.table.game);
+    const rules = module?.validateRules(view.table.rules);
+    return module !== undefined && rules?.ok === true && !reshufflesInPlay(module, rules.value)
+      ? 'any'
+      : 'seat';
   }
 
   /**

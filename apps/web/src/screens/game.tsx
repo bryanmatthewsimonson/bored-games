@@ -419,6 +419,7 @@ export function GameScreen(props: { rootId: string }) {
           mySeat: view.mySeat,
           waiting: ctl.waiting.value,
           names,
+          shuffleOrder: view.shuffleOrder,
           ...(view.phase === 'play' && owed !== null ? { secondsLeft: owed.until - now } : {}),
           ...(shareWords === undefined ? {} : { share: shareWords }),
         });

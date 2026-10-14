@@ -5,6 +5,7 @@
  */
 import type { Phase } from '@bored-games/client';
 import type { Pending } from '@bored-games/game-kit';
+import type { ShuffleOrder } from '@bored-games/protocol';
 
 /** "2d 4h left", "3h 10m left", "1m left", or "deadline passed", from seconds remaining. */
 export function formatDeadline(secondsLeft: number): string {
@@ -56,6 +57,8 @@ export interface WaitingInput {
   secondsLeft?: number;
   /** How this game names the share (`ShareWords`); `NEUTRAL_SHARE` when left out. */
   share?: ShareWords;
+  /** The setup shuffle's order (`SessionView.shuffleOrder`, D093); seat order when left out. */
+  shuffleOrder?: ShuffleOrder;
 }
 
 /**
@@ -115,7 +118,9 @@ export function ownRevealLine(
 /**
  * The line naming the seats the game waits on, other than this client's own (its client is working on those),
  * or null when it waits on nobody else:
- * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game.";
+ * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game."; in an any-order setup
+ *   (D093) every seat still to shuffle is named, and each only has to open the app once: "Waiting for Ann and Bo to
+ *   shuffle. Each needs to open the app once; the order doesn't matter.";
  * - deal: every seat still missing its deal shares, "… to send their deal shares. Their apps must be open …";
  * - play: a pending reshuffle names the next shuffler ("to shuffle"). Otherwise only when the game waits on
  *   seats other than the one whose decision it is (the game's own status line names that one): the seats whose
@@ -134,6 +139,10 @@ export function waitingLine(input: WaitingInput): string | null {
     others.length === 1 ? 'Their app must be open on this game.' : 'Their apps must be open on this game.';
   switch (input.phase) {
     case 'shuffle':
+      if (input.shuffleOrder === 'any')
+        return others.length === 1
+          ? `Waiting for ${who} to shuffle. They need to open the app once.`
+          : `Waiting for ${who} to shuffle. Each needs to open the app once; the order doesn't matter.`;
       return `Waiting for ${who} to shuffle. ${open}`;
     case 'deal':
       return `Waiting for ${who} to send their deal shares. ${open}`;

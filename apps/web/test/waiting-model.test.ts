@@ -42,6 +42,26 @@ describe('waiting for (D057)', () => {
     expect(waitingLine(input({ pending: shuffle(2), waiting: [2], mySeat: 2 }))).toBeNull();
   });
 
+  it('an any-order shuffle (D093): each seat still to shuffle needs to open the app once, in any order', () => {
+    const any = input({ shuffleOrder: 'any', waiting: [0, 1, 2], mySeat: 1 });
+    expect(waitingLine(any)).toBe(
+      `Waiting for ${NAMES[0]} and ${NAMES[2]} to shuffle. Each needs to open the app once; the order doesn't matter.`,
+    );
+    expect(waitingLine({ ...any, waiting: [1, 2] })).toBe(
+      `Waiting for ${NAMES[2]} to shuffle. They need to open the app once.`,
+    );
+    expect(waitingLine({ ...any, waiting: [1] })).toBeNull();
+    // A seat-order shuffle keeps its line.
+    expect(waitingLine({ ...any, shuffleOrder: 'seat', waiting: [2] })).toBe(
+      `Waiting for ${NAMES[2]} to shuffle. Their app must be open on this game.`,
+    );
+    // A reshuffle in play is never any-order: it keeps the seat-order line too.
+    const epoch: Pending = { type: 'shuffle', deck: 'pile', epoch: 1, from: [{ deck: 'pile', pos: 3 }] };
+    expect(waitingLine({ ...any, phase: 'play', pending: epoch, waiting: [2] })).toBe(
+      `Waiting for ${NAMES[2]} to shuffle. Their app must be open on this game.`,
+    );
+  });
+
   it('the deal: every seat still missing its deal shares, but mine', () => {
     const deal = input({ phase: 'deal', pending: { type: 'over' }, waiting: [0, 2] });
     expect(waitingLine(deal)).toBe(

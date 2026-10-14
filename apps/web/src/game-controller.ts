@@ -22,10 +22,12 @@
  */
 import {
   ClientError,
+  DEAL_SETTLE_S,
   type Duty,
   GameSession,
   type Identity,
   type SessionView,
+  SHUFFLE_STAGGER_S,
   seatForGameKeys,
 } from '@bored-games/client';
 import { canonicalJson } from '@bored-games/game-kit';
@@ -402,7 +404,10 @@ export class GameController {
    * per head, and a send that failed waits for the next tick, which clears this.
    */
   readonly #autoTried = new Set<string>();
-  /** Automatic duties (`kind@headId`) waiting for their deterministic date (`#buildDate`), with their wake time. */
+  /**
+   * Automatic duties (`kind@headId`) held back, with their wake time (`#holdUntil`): for their deterministic date
+   * (`#buildDate`), or by an any-order setup (`#setupWait`, D093).
+   */
   readonly #waits = new Map<string, number>();
   /**
    * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
@@ -1751,12 +1756,59 @@ export class GameController {
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
       if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
-      // Waiting for its date (`#buildDate`) until the wake timer fires (or its time has come, should it be late).
+      this.#setupWait(kind, duties, v);
+      // Waiting for its date (`#buildDate`) or its turn in an any-order setup (`#setupWait`) until the wake timer
+      // fires (or its time has come, should it be late: a tick then runs it).
       const wake = this.#waits.get(`${kind}@${v.head.id}`);
       if (wake !== undefined && this.#d.now() < wake) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
+  }
+
+  /**
+   * Hold back a due duty of an any-order setup (D093), measured from when this profile first saw the head (`#seen`,
+   * saved, so a reload keeps the wait, and a new head starts it again): a shuffle duty of rank r > 0 waits
+   * r × `SHUFFLE_STAGGER_S`, so the seats ahead of it go first and an honest race stays rare; the deal waits
+   * `DEAL_SETTLE_S` while a rival setup step is held (`shuffleRivals`), so fork choice can settle before this seat
+   * deals on a deck. A seat-order setup ranks every shuffle duty 0 and holds no rival but an equivocator's.
+   */
+  #setupWait(kind: Duty['kind'], duties: readonly Duty[], v: SessionView): void {
+    const duty = duties.find((d) => d.kind === kind);
+    const wait =
+      duty?.kind === 'shuffle'
+        ? duty.rank * SHUFFLE_STAGGER_S
+        : duty?.kind === 'deal' && v.shuffleRivals
+          ? DEAL_SETTLE_S
+          : 0;
+    if (wait <= 0) return;
+    let seen = this.#seen.get(v.head.id);
+    if (seen === undefined) {
+      seen = this.#d.now();
+      this.#noteSeen(v.head.id, seen);
+    }
+    this.#holdUntil(`${kind}@${v.head.id}`, seen + wait);
+  }
+
+  /**
+   * Hold the automatic duty `key` (`kind@headId`) until `until` (Unix s) with one wake timer, `slackMs` late: a later
+   * time replaces an earlier one (a setup wait, then a date ahead of the clock), and an earlier or equal one changes
+   * nothing, so ticks never arm another. `#nextAuto` skips the duty until then. The wake runs it, or arms the wait again
+   * should it come a moment early (the clock reads whole seconds); a tick runs it once its time has come, should the
+   * wake be late or never come.
+   */
+  #holdUntil(key: string, until: number, slackMs = 0): void {
+    const held = this.#waits.get(key);
+    if (held !== undefined && held >= until) return;
+    this.#waits.set(key, until);
+    const ms = (until - this.#d.now()) * 1000;
+    if (ms <= 0) return;
+    this.#stops.push(
+      this.#d.timers.later(ms + slackMs, () => {
+        if (this.#waits.get(key) === until) this.#waits.delete(key);
+        this.#queueDuties();
+      }),
+    );
   }
 
   /**
@@ -1914,16 +1966,7 @@ export class GameController {
       const plan = this.#buildDate(session, head.id);
       if (plan !== null && plan.wait > 0) {
         // One wake time per duty, armed once: ticks do not re-run a waiting duty (`#nextAuto`).
-        const key = `${kind}@${head.id}`;
-        if (!this.#waits.has(key)) {
-          this.#waits.set(key, now() + plan.wait);
-          this.#stops.push(
-            this.#d.timers.later(plan.wait * 1000 + 1000, () => {
-              this.#waits.delete(key);
-              this.#queueDuties();
-            }),
-          );
-        }
+        this.#holdUntil(`${kind}@${head.id}`, now() + plan.wait, 1000);
         return 'wait';
       }
       if (!(await this.#clearToSign(session, kind, head.id))) return 'held';
@@ -2092,13 +2135,16 @@ export class GameController {
   }
 
   /**
-   * Commit the saved event for a single-slot duty, or a new one. If the session refuses the event it committed
-   * (saved by this or another tab, now an orphan), build anew once, in this same step, rather than leaving the
-   * duty failed until the head moves.
+   * Commit the saved event for a single-slot duty, or a new one. The stored outbox is read again before building and
+   * once more after (`#stored`), with no await between that read and the save: an event another controller of this
+   * profile saved meanwhile is committed instead, so two controllers of one seat deal once. If the session refuses
+   * the event it committed (saved by this or another tab, now an orphan), build anew once, in this same step, rather
+   * than leaving the duty failed until the head moves.
    */
   async #single(slot: string, build: () => NostrEvent | Promise<NostrEvent>): Promise<void> {
     try {
-      return this.#commit(slot, this.#live(slot) ?? (await build()));
+      const ev = this.#live(slot) ?? this.#stored(slot) ?? (await build());
+      return this.#commit(slot, this.#stored(slot) ?? ev);
     } catch (e) {
       const refused = this.#outbox.get(slot);
       if (!(e instanceof ClientError) || refused?.orphan !== true) throw e;
@@ -2112,6 +2158,19 @@ export class GameController {
   #live(slot: string): NostrEvent | null {
     const entry = this.#outbox.get(slot);
     return entry !== undefined && !entry.orphan ? entry.event : null;
+  }
+
+  /**
+   * The event another controller of this profile (another tab, or the same game open twice) saved for a single-slot
+   * duty since this one loaded its outbox, taken into this outbox as `#reusable` does for moves (D093): it is
+   * committed rather than built anew. Two controllers of one seat then deal once, and the second does not fail on the
+   * deal the first saved (a seat never deals twice, D056) and show Stuck. Null when there is none, or the session
+   * refused it.
+   */
+  #stored(slot: string): NostrEvent | null {
+    const fresh = loadOutbox(this.#d.storage, this.#d.profile, this.rootId).get(slot);
+    if (fresh !== undefined && !this.#outbox.has(slot)) this.#outbox.set(slot, fresh);
+    return this.#live(slot);
   }
 
   /**
