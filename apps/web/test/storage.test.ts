@@ -56,6 +56,23 @@ describe('game secrets', () => {
     expect(loadSecrets('alice', store, `${ADDR}-2`)).toBeNull();
   });
 
+  it('keeps the mark on restored keys, read strictly (D093, ruling 20)', () => {
+    const store = memoryStorage();
+    saveSecrets('alice', store, ADDR, { ...SECRETS, restored: true });
+    expect(loadSecrets('alice', store, ADDR)).toEqual({ ...SECRETS, restored: true });
+    // The root id saved later keeps it.
+    saveRootId('alice', store, ADDR, 'b'.repeat(64));
+    expect(loadSecrets('alice', store, ADDR)?.restored).toBe(true);
+    const key = storageKey('alice', `secrets:${ADDR}`);
+    for (const bad of [false, 'true', 1, null, {}]) {
+      store.setItem(
+        key,
+        JSON.stringify({ sessionSk: '07'.repeat(32), deckSecret: '09'.repeat(32), restored: bad }),
+      );
+      expect(loadSecrets('alice', store, ADDR), JSON.stringify(bad)).toEqual(SECRETS);
+    }
+  });
+
   it('treats malformed stored data as absent', () => {
     const store = memoryStorage();
     const key = storageKey('alice', `secrets:${ADDR}`);

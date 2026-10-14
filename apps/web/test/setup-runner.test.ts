@@ -3,17 +3,22 @@
  * a game no longer strands when its players never have its page open at once. It takes the oldest games first, at
  * most `SETUP_RUNNER_MAX` at once, only those whose keys are in this browser and whose setup is not over, hands a game
  * to its page while that page is open, and stops once this seat's setup work is done. Chain Reaction (3 seats) where
- * the runner shuffles and deals, Luster (2 seats) where it only waits, against the real dev relay.
+ * the runner shuffles and deals, Luster (2 seats, any order) and Holler (2 seats, seat order) where it only waits,
+ * against the real dev relay.
  */
-import { GameSession } from '@bored-games/client';
+import { DEAL_SETTLE_S, GameSession } from '@bored-games/client';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import type { Filter } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadOutbox } from '../src/game-controller.ts';
+import { loadOutbox, SETUP_MODE_GRACE_S } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
+import { saveRestored } from '../src/key-backup.ts';
 import { lobbyFor } from '../src/lobby-hooks.ts';
 import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
 import {
+  inLine,
+  SETUP_LOAD_LIMIT_S,
+  SETUP_PARK_S,
   SETUP_RUNNER_MAX,
   type SetupLine,
   type SetupRunner,
@@ -22,6 +27,7 @@ import {
 } from '../src/setup-runner.ts';
 import {
   addToTableList,
+  type GameSecrets,
   type GameStatusCache,
   gameStatusKey,
   loadGameStatus,
@@ -162,13 +168,51 @@ async function onRelay(what: string, check: () => Promise<boolean>, ms = 120_000
 
 /** A 3-seat Chain Reaction game started from the lobby (any order): its root id, session keys and profiles. */
 async function game3() {
-  const { rootId, bySeat } = await h.start3('chain-reaction', [
+  const { rootId, address, bySeat } = await h.start3('chain-reaction', [
     h.profile('a'),
     h.profile('b'),
     h.profile('c'),
   ]);
   const { root } = await rootOf(rootId);
-  return { rootId, keys: root.seats.map((s) => s.session), bySeat: bySeat as [Profile, Profile, Profile] };
+  return {
+    rootId,
+    address,
+    keys: root.seats.map((s) => s.session),
+    bySeat: bySeat as [Profile, Profile, Profile],
+  };
+}
+
+/**
+ * Four 2-seat games of `game` between `a` (the creator, seat 0) and `b` (seat 1), started a second apart so their
+ * roots' dates order them, oldest first.
+ */
+async function games4(game: string, a: Profile, b: Profile): Promise<string[]> {
+  const roots: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    if (i > 0) await pause(1100);
+    roots.push((await h.start2(game, a, b)).rootId);
+  }
+  return roots;
+}
+
+/** A pool whose subscriptions for `rootId` by id alone (a game controller's first) get nothing: it never loads. */
+function withoutRoots(real: PoolLike, rootIds: readonly string[]): PoolLike {
+  return {
+    subscribe: (filters, onEvent, onEose, opts) => {
+      const [f] = filters;
+      const hidden =
+        filters.length === 1 && Object.keys(f ?? {}).join() === 'ids' && rootIds.includes(f?.ids?.[0] ?? '');
+      return real.subscribe(filters, (ev, url) => (hidden ? undefined : onEvent(ev, url)), onEose, opts);
+    },
+    publish: (ev, urls) => real.publish(ev, urls),
+    addRelays: (urls) => real.addRelays?.(urls),
+  };
+}
+
+/** Seat 0 (`a`) resigns the game before the first game action: it is cancelled. */
+async function cancel(rootId: string, a: Profile): Promise<void> {
+  const session = await seatSession(rootId, a, 0);
+  await h.pool().publish(session.buildResign(rnd, now()));
 }
 
 describe('The setup runner (D093)', () => {
@@ -400,6 +444,200 @@ describe('The setup runner (D093)', () => {
     },
     SLOW,
   );
+});
+
+describe('The setup runner and other devices (D093, ruling 20)', () => {
+  it(
+    'skips a game whose keys were restored from the backup',
+    async () => {
+      const { rootId, address, bySeat } = await h.start2('luster', h.profile('a'), h.profile('b'));
+      const p = bySeat[1];
+      const secrets = loadSecrets(p.name, p.deps.storage, address) as GameSecrets;
+      // This browser got the seat's keys from the player's backup: the device that joined plays the seat too.
+      const key = `bg:${p.name}:secrets:${address}`;
+      p.deps.storage.removeItem(key);
+      expect(saveRestored(p.name, p.deps.storage, address, secrets, now())).toBe(true);
+      const c = fakeTime();
+      const t = tracking({ ...p.deps, now: c.now, timers: c.timers });
+      await runnerOn(t.deps, [rootId]);
+      await pause(1000);
+      expect(t.built(rootId)).toBe(0);
+      // The same keys, made here at the join: taken.
+      p.deps.storage.removeItem(key);
+      saveSecrets(p.name, p.deps.storage, address, {
+        sessionSk: secrets.sessionSk,
+        deckSecret: secrets.deckSecret,
+      });
+      c.tick();
+      await waitFor('a controller in setup', () => t.live(rootId) === 1);
+    },
+    SLOW,
+  );
+
+  it(
+    'stops when its deal arrives from another device',
+    async () => {
+      const { rootId, address, keys, bySeat } = await game3();
+      const [s0, s1, s2] = bySeat;
+      // Seat 1's runner here, on a clock that never moves: its own duties wait out the grace for ever.
+      const c = fakeTime();
+      const t = tracking({ ...s1.deps, now: c.now, timers: c.timers });
+      await runnerOn(t.deps, [rootId]);
+      // Seat 1's game page is open on its other device, which plays the seat with the same game keys.
+      h.game(rootId, s0.deps);
+      h.game(rootId, h.secondDevice(s1, address).deps);
+      for (const k of [0, 1])
+        await onRelay(
+          `seat ${k}'s step`,
+          async () => (await movesBy(rootId, keys[k] as string)).length === 1,
+        );
+      // Seat 2 shuffles by hand and never deals: the setup stays in the deal.
+      const session = await seatSession(rootId, s2, 2);
+      await h.pool().publish(session.buildShuffle(rnd, now()));
+      await onRelay(
+        "seat 1's deal",
+        async () => (await sharesBy(rootId, keys[1] as string)).length === 1,
+        SLOW,
+      );
+      await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
+      expect(loadOutbox(s1.deps.storage, s1.name, rootId).get('deal')).toBeUndefined();
+      expect(loadGameStatus(s1.name, s1.deps.storage, rootId)?.phase).toBe('setup');
+      expect(await movesBy(rootId, keys[1] as string)).toHaveLength(1);
+      expect(await sharesBy(rootId, keys[1] as string)).toHaveLength(1);
+    },
+    SLOW,
+  );
+
+  it(
+    'does not stop while a rival step is held in the deal, and deals after the settle and the grace',
+    async () => {
+      const { rootId, keys, bySeat } = await game3();
+      const [s0, s1, s2] = bySeat;
+      const g0 = h.game(rootId, s0.deps);
+      const g1 = h.game(rootId, s1.deps);
+      await waitFor('the first two shuffle steps', () => g1.view.value?.head.seq === 2, SLOW);
+      g0.dispose();
+      g1.dispose();
+      // Seat 2, the last shuffler, signs two rival final steps.
+      const session = await seatSession(rootId, s2, 2);
+      for (const ev of [session.buildShuffle(rnd, now()), session.buildShuffle(rnd, now())])
+        await h.pool().publish(ev);
+      // Seat 0's runner holds both: the deal waits for fork choice to settle, then for the grace. The game waits on
+      // seat 2 alone meanwhile, and no deal of seat 0's is saved here: neither means its deal is out.
+      const c = fakeTime();
+      const t = tracking({ ...s0.deps, now: c.now, timers: c.timers });
+      const runner = await runnerOn(t.deps, [rootId]);
+      await waitFor(
+        'the runner in the deal, or done with the game',
+        () =>
+          runner.lines.value.get(rootId)?.what === 'deal' || (t.built(rootId) > 0 && t.live(rootId) === 0),
+        SLOW,
+      );
+      expect(t.live(rootId)).toBe(1);
+      c.at(DEAL_SETTLE_S + SETUP_MODE_GRACE_S - 1);
+      c.tick();
+      await pause(1000);
+      expect(t.live(rootId)).toBe(1);
+      expect(await sharesBy(rootId, keys[0] as string)).toEqual([]);
+      c.at(DEAL_SETTLE_S + SETUP_MODE_GRACE_S);
+      await onRelay(
+        "seat 0's deal",
+        async () => (await sharesBy(rootId, keys[0] as string)).length === 1,
+        SLOW,
+      );
+      await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
+    },
+    SLOW,
+  );
+});
+
+describe("The setup runner's slots (D093, rulings 21 and 22)", () => {
+  it(
+    'a game that waits on other seats does not count toward the cap',
+    async () => {
+      // Holler reshuffles in play, so its setup is in seat order: seat 1 owes nothing until seat 0 has shuffled.
+      const a = h.profile('a');
+      const b = h.profile('b');
+      const roots = await games4('holler', a, b);
+      const c = fakeTime();
+      const t = tracking({ ...b.deps, now: c.now, timers: c.timers });
+      const runner = await runnerOn(t.deps, roots);
+      await waitFor('every game taken', () => t.running(roots).length === 4, 60_000);
+      await waitFor('each waits for seat 0', () =>
+        roots.every((id) => runner.lines.value.get(id)?.kind === 'waiting'),
+      );
+      expect(t.most()).toBe(4);
+    },
+    SLOW,
+  );
+
+  it(
+    'an older game waits for a free slot: nothing running is disposed for it',
+    async () => {
+      const a = h.profile('a');
+      const b = h.profile('b');
+      const roots = await games4('luster', a, b);
+      const c = fakeTime();
+      const t = tracking({ ...b.deps, now: c.now, timers: c.timers });
+      // The oldest game's page is open: the runner takes the three others, each owing its shuffle (rank 1).
+      const release = setupRunnerFor(t.deps).claim(roots[0] as string);
+      await runnerOn(t.deps, roots);
+      await waitFor('the three younger games', () => t.running(roots).join() === roots.slice(1).join());
+      // The page closes: the oldest game is first in line, but every slot is taken.
+      release();
+      c.tick();
+      await pause(1000);
+      expect(t.running(roots)).toEqual(roots.slice(1));
+      expect(roots.map((id) => t.built(id))).toEqual([0, 1, 1, 1]);
+      // A slot frees: the oldest game in line takes it.
+      await cancel(roots[1] as string, a);
+      await waitFor(
+        'the oldest game taken',
+        () => t.running(roots).join() === [roots[0], roots[2], roots[3]].join(),
+        60_000,
+      );
+    },
+    SLOW,
+  );
+
+  it(
+    `a game that never loads frees its slot after ${SETUP_LOAD_LIMIT_S} s, and is parked for ${SETUP_PARK_S} s`,
+    async () => {
+      const a = h.profile('a');
+      const b = h.profile('b');
+      const roots = await games4('holler', a, b);
+      // The three oldest games' roots never reach the runner's controllers (the lobby still has them).
+      const c = fakeTime();
+      const pool = withoutRoots(b.deps.pool, roots.slice(0, 3));
+      const t = tracking({ ...b.deps, pool, now: c.now, timers: c.timers });
+      await runnerOn(t.deps, roots);
+      await waitFor('the three oldest', () => t.running(roots).join() === roots.slice(0, 3).join());
+      c.at(SETUP_LOAD_LIMIT_S - 1);
+      c.tick();
+      await pause(1000);
+      expect(t.running(roots)).toEqual(roots.slice(0, 3));
+      c.at(SETUP_LOAD_LIMIT_S);
+      await waitFor('the fourth taken', () => t.running(roots).join() === roots[3], 60_000);
+      // Parked: free slots do not bring them back before their time.
+      c.at(SETUP_LOAD_LIMIT_S + SETUP_PARK_S - 1);
+      c.tick();
+      await pause(1000);
+      expect(roots.map((id) => t.built(id))).toEqual([1, 1, 1, 1]);
+      c.at(SETUP_LOAD_LIMIT_S + SETUP_PARK_S);
+      c.tick();
+      await waitFor('the parked games taken again', () => roots.slice(0, 3).every((id) => t.built(id) === 2));
+    },
+    SLOW,
+  );
+
+  it('takes games in line by root date, then by root id', () => {
+    const games = [
+      { rootId: 'b'.repeat(64), rootAt: 5 },
+      { rootId: 'c'.repeat(64), rootAt: 4 },
+      { rootId: 'a'.repeat(64), rootAt: 5 },
+    ];
+    expect([...games].sort(inLine).map((g) => g.rootId[0])).toEqual(['c', 'a', 'b']);
+  });
 });
 
 describe('setupLineText', () => {

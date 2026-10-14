@@ -100,6 +100,12 @@ export interface GameSecrets {
    * could be imported; `claimUnowned` stamps those with the key in use before the key first changes.
    */
   owner?: string;
+  /**
+   * Set on game keys this browser did not make at the join: restored from the player's backup (D065). Another device
+   * holds the same seat, so the setup runner leaves the game to its page (D093, ruling 20). Absent on keys restored
+   * before it was kept.
+   */
+  restored?: true;
 }
 
 const secretsKey = (profile: string, tableAddress: string): string =>
@@ -116,6 +122,7 @@ export function saveSecrets(
     deckSecret: bytesToHex(secrets.deckSecret),
     ...(secrets.rootId === undefined ? {} : { rootId: secrets.rootId }),
     ...(secrets.owner === undefined ? {} : { owner: secrets.owner }),
+    ...(secrets.restored === true ? { restored: true } : {}),
   });
   return writeItem(store, secretsKey(profile, tableAddress), json);
 }
@@ -127,11 +134,12 @@ export function loadSecrets(profile: string, store: KeyValueStore, tableAddress:
   try {
     const v: unknown = JSON.parse(raw);
     if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-    const { sessionSk, deckSecret, rootId, owner } = v as Record<string, unknown>;
+    const { sessionSk, deckSecret, rootId, owner, restored } = v as Record<string, unknown>;
     if (!isHex(sessionSk) || !isHex(deckSecret)) return null;
     const out: GameSecrets = { sessionSk: hexToBytes(sessionSk), deckSecret: hexToBytes(deckSecret) };
     if (isHex(rootId) && rootId.length === 64) out.rootId = rootId;
     if (isHex(owner) && owner.length === 64) out.owner = owner;
+    if (restored === true) out.restored = true;
     return out;
   } catch {
     return null;

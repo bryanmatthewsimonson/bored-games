@@ -396,9 +396,9 @@ export function noteBackup(
 }
 
 /**
- * Keep restored game keys in this profile: the secrets (owned by the player key) and the table in the list, so Home
- * shows the game. A restored backup counts as published. False when storage refused the write; existing game keys
- * for the table are never overwritten.
+ * Keep restored game keys in this profile: the secrets (owned by the player key, marked `restored`: the device that
+ * joined holds them too, D093) and the table in the list, so Home shows the game. A restored backup counts as
+ * published. False when storage refused the write; existing game keys for the table are never overwritten.
  */
 export function saveRestored(
   profile: string,
@@ -408,7 +408,7 @@ export function saveRestored(
   at: number,
 ): boolean {
   if (loadSecrets(profile, store, tableAddress) !== null) return false;
-  if (!saveSecrets(profile, store, tableAddress, secrets)) return false;
+  if (!saveSecrets(profile, store, tableAddress, { ...secrets, restored: true })) return false;
   if (loadSecrets(profile, store, tableAddress) === null) return false;
   addToTableList(profile, store, tableAddress, secrets.owner);
   saveBackupRecord(profile, store, tableAddress, { at, rootId: secrets.rootId ?? null });

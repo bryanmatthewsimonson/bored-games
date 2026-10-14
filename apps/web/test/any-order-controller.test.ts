@@ -14,6 +14,7 @@ import {
   type GameStatus,
   loadOutbox,
   outboxKey,
+  SETUP_MODE_GRACE_S,
 } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import type { LobbyController } from '../src/lobby-controller.ts';
@@ -373,6 +374,42 @@ describe('The deal of an any-order setup (D093)', () => {
 });
 
 describe('The setup mode (D093)', () => {
+  it(
+    `setup mode waits ${SETUP_MODE_GRACE_S} s before a shuffle, even first in line (ruling 20)`,
+    async () => {
+      const { rootId, keys, bySeat } = await game3();
+      const c = fakeTime();
+      const g = setupGame(rootId, { ...bySeat[0].deps, now: c.now, timers: c.timers });
+      const statuses: GameStatus[] = [];
+      h.later(g.status.subscribe((s) => statuses.push(s)));
+      await waitFor('seat 0 waiting at the root', () => g.status.value === 'waiting', 60_000);
+      // Seat 0 is first in line (rank 0): a game page would shuffle at once; setup mode leaves it the grace.
+      c.at(SETUP_MODE_GRACE_S - 1);
+      c.tick();
+      await pause(500);
+      expect(g.status.value).toBe('waiting');
+      expect(await movesBy(rootId, keys[0] as string)).toEqual([]);
+      const from = statuses.length;
+      c.at(SETUP_MODE_GRACE_S);
+      await waitFor('seat 0 working', () => statuses.slice(from).includes('working'), 5_000);
+      await onRelay("seat 0's step", async () => (await movesBy(rootId, keys[0] as string)).length === 1);
+    },
+    SLOW,
+  );
+
+  it(
+    'a full controller first in line shuffles at once (ruling 20)',
+    async () => {
+      const { rootId, keys, bySeat } = await game3();
+      const c = fakeTime();
+      h.game(rootId, { ...bySeat[0].deps, now: c.now, timers: c.timers });
+      // The clock never moves.
+      await onRelay("seat 0's step", async () => (await movesBy(rootId, keys[0] as string)).length === 1);
+      expect(c.now()).toBe(c.start);
+    },
+    SLOW,
+  );
+
   it(
     'setup mode shuffles and deals only',
     async () => {

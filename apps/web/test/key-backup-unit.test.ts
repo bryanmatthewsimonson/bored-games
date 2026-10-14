@@ -10,8 +10,9 @@ import {
   completeAnswer,
   publishKeyBackup,
   restoreKeyBackup,
+  saveRestored,
 } from '../src/key-backup.ts';
-import { memoryStorage, saveSecrets } from '../src/storage.ts';
+import { loadSecrets, memoryStorage, saveSecrets } from '../src/storage.ts';
 
 describe('completeAnswer (review L1)', () => {
   const roots = ['wss://r1', 'wss://r2'];
@@ -174,5 +175,15 @@ describe('the encryptor is not trusted (review L2)', () => {
     const payload = await honest.encrypt(pubkey, text);
     expect(await ciphertextProblem(honest, pubkey, payload, text, ['ab'.repeat(32)], t)).toBeNull();
     expect(await ciphertextProblem(honest, pubkey, text, text, ['ab'.repeat(32)], t)).not.toBeNull();
+  });
+});
+
+describe('saveRestored (D093, ruling 20)', () => {
+  it('marks restored game keys, so the setup runner leaves their game to its page', () => {
+    const store = memoryStorage();
+    const address = `37450:${'a'.repeat(64)}:t1`;
+    const secrets = { sessionSk: new Uint8Array(32).fill(7), deckSecret: new Uint8Array(32).fill(9) };
+    expect(saveRestored('p', store, address, secrets, 100)).toBe(true);
+    expect(loadSecrets('p', store, address)).toEqual({ ...secrets, restored: true });
   });
 });

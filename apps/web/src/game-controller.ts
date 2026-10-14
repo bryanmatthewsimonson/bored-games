@@ -136,7 +136,8 @@ export interface GameControllerOptions {
    * shuffle and deal duties (`SETUP_AUTO`), and only while the session is in setup. Of the saved events it vets and
    * republishes only setup work (`#setupSlot`: the deal and the setup shuffle steps), leaving every other one for the
    * game page. It never restores the game keys, backs them up, attests, echoes a counted Resign or makes an automatic
-   * move, so it never prompts a NIP-07 extension. The status it computes and caches is a full controller's.
+   * move, so it never prompts a NIP-07 extension. Each setup duty waits `SETUP_MODE_GRACE_S` more than a full
+   * controller's (ruling 20). The status it computes and caches is a full controller's, but for that grace.
    */
   mode?: 'full' | 'setup';
 }
@@ -176,6 +177,14 @@ const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beac
  * session is in setup (`shuffle` or `deal`): a play-phase reshuffle (an epoch) is not setup work.
  */
 const SETUP_AUTO: readonly Duty['kind'][] = ['shuffle', 'deal'];
+
+/**
+ * How much longer a setup-mode controller holds each setup duty than a game page (D093, ruling 20), in seconds: a page
+ * of the same seat open on another device (its keys restored from the backup) acts first, and its step or deal comes
+ * in before the runner builds a rival one, which would count as equivocation. Shorter than `SHUFFLE_STAGGER_S`, so the
+ * order by rank holds.
+ */
+export const SETUP_MODE_GRACE_S = 20;
 
 /**
  * The phase Home caches (D093): `setup` for the shuffle and the deal, `play`, and `end` once the game is over, with
@@ -391,6 +400,11 @@ export class GameController {
   readonly restore: Signal<RestoreState | null> = signal(null);
   /** The backup of this seat's game keys from this browser (D065); null when there is nothing to back up. */
   readonly backup: Signal<BackupState | null> = signal(null);
+  /**
+   * Whether this seat owes a setup duty now (D093): its shuffle step or its deal while the session is in setup, waiting
+   * its turn or its grace (`#setupWait`) or not. The setup runner counts such games toward its cap (ruling 21).
+   */
+  readonly setupDue: Signal<boolean> = signal(false);
   /** The earliest date a new backup may carry: after every backup the relays sent or this page published. */
   #backupFloor = 0;
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
@@ -1697,6 +1711,9 @@ export class GameController {
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
     this.#trackHold(now);
+    const setupDue =
+      (v.phase === 'shuffle' || v.phase === 'deal') && duties.some((d) => SETUP_AUTO.includes(d.kind));
+    if (setupDue !== this.setupDue.value) this.setupDue.value = setupDue;
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
     this.#cacheStatus(v.head.seq, cachedPhase(v.phase), this.status.value, now, owed);
@@ -1869,20 +1886,25 @@ export class GameController {
   }
 
   /**
-   * Hold back a due duty of an any-order setup (D093), measured from when this profile first saw the head (`#seen`,
-   * saved, so a reload keeps the wait, and a new head starts it again): a shuffle duty of rank r > 0 waits
-   * r × `SHUFFLE_STAGGER_S`, so the seats ahead of it go first and an honest race stays rare; the deal waits
-   * `DEAL_SETTLE_S` while a rival setup step is held (`shuffleRivals`), so fork choice can settle before this seat
-   * deals on a deck. A seat-order setup ranks every shuffle duty 0 and holds no rival but an equivocator's.
+   * Hold back a due setup duty (D093), measured from when this profile first saw the head (`#seen`, saved, so a
+   * reload keeps the wait, and a new head starts it again): a shuffle duty of rank r > 0 waits r × `SHUFFLE_STAGGER_S`,
+   * so the seats ahead of it go first and an honest race stays rare; the deal waits `DEAL_SETTLE_S` while a rival
+   * setup step is held (`shuffleRivals`), so fork choice can settle before this seat deals on a deck. A seat-order
+   * setup ranks every shuffle duty 0 and holds no rival but an equivocator's. In setup mode every setup duty waits
+   * `SETUP_MODE_GRACE_S` more (ruling 20); a play-phase reshuffle is not setup work.
    */
   #setupWait(kind: Duty['kind'], duties: readonly Duty[], v: SessionView): void {
     const duty = duties.find((d) => d.kind === kind);
+    const inSetup =
+      (v.phase === 'shuffle' || v.phase === 'deal') && duty !== undefined && SETUP_AUTO.includes(kind);
+    const grace = this.#setup && inSetup ? SETUP_MODE_GRACE_S : 0;
     const wait =
-      duty?.kind === 'shuffle'
+      grace +
+      (duty?.kind === 'shuffle'
         ? duty.rank * SHUFFLE_STAGGER_S
         : duty?.kind === 'deal' && v.shuffleRivals
           ? DEAL_SETTLE_S
-          : 0;
+          : 0);
     if (wait <= 0) return;
     let seen = this.#seen.get(v.head.id);
     if (seen === undefined) {
