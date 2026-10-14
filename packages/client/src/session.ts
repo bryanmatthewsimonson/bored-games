@@ -1519,17 +1519,23 @@ export class GameSession {
 
   /**
    * Whether an honest shuffle race split the deal (D093, owner's decision): in an any-order setup, during the deal,
-   * no shuffle equivocator is held and some seat dealt on a held rival deck (`dealtOnRival`), so it can never deal
-   * on this one. A timeout then cancels the game with no seat forfeiting. A held equivocation keeps D056's blame,
-   * and so does a Shares event that fails against the chain's deck but fits no held rival deck (a garbage share):
-   * its seat is stalled and forfeits as usual. When no rival deck can be built from the events held, there is no
-   * split either.
+   * no shuffle equivocator is held and some stalled seat dealt on a held rival deck (`dealtOnRival`), so it can
+   * never deal on this one. A timeout then cancels the game with no seat forfeiting. A held equivocation keeps
+   * D056's blame, and so does a Shares event that fails against the chain's deck but fits no held rival deck (a
+   * garbage share): its seat is stalled and forfeits as usual. A seat that dealt on a rival deck and on this one
+   * too is not stalled, so it shields no staller. When no rival deck can be built from the events held, there is
+   * no split either.
    */
   private splitDeal(): boolean {
     if (this.root.shuffleOrder !== 'any' || this.phase !== 'deal') return false;
-    if (this.equivocators(true).length > 0 || this.badShares.size === 0) return false;
+    if (this.equivocators(true).length > 0) return false;
+    const stalled = this.stalled();
+    const fromStalled = [...this.badShares.values()].filter((s) =>
+      stalled.includes(this.seatOf.get(s.pubkey) as number),
+    );
+    if (fromStalled.length === 0) return false;
     const rivals = this.rivalFinalDecks();
-    return rivals.length > 0 && [...this.badShares.values()].some((s) => this.dealtOnRival(s, rivals));
+    return rivals.length > 0 && fromStalled.some((s) => this.dealtOnRival(s, rivals));
   }
 
   /**

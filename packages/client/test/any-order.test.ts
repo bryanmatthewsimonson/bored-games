@@ -595,6 +595,27 @@ describe('honest races, settled branches and the split deal (D093)', () => {
     }
   });
 
+  it('a seat that dealt on both decks does not shield a staller', () => {
+    const { game, steps, win, lose, d0, deals } = splitDecks();
+    // Seat 0 dealt on the losing deck and then on the winning one too; seat 1 dealt on the winner; seat 2 stalls.
+    const d0Win = holding(game, 0, win, steps).buildDeal(game.rnd, T0 + 300);
+    const sessions = [0, 1, 2, null].map((seat) =>
+      holding(game, seat, [...win, ...lose, d0, d0Win, deals[0]!], steps),
+    );
+    for (const s of sessions) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().shuffleRivals).toBe(true);
+      expect(s.waitingFor()).toEqual([2]);
+    }
+    const claim = sessions[1]!.buildTimeout(2, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([2]);
+    }
+  });
+
   it('a held shuffle equivocation still blames the equivocator in the deal', () => {
     const { game } = crGame('any-f7');
     const E = 2;
