@@ -7,6 +7,8 @@ export { ClientError } from './errors.ts';
 export {
   buildJoinTemplate,
   buildRootTemplate,
+  closeEmptySeats,
+  closeSeatsProblem,
   foldLobby,
   type GameKeys,
   type LobbyView,

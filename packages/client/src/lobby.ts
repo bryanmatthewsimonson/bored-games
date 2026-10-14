@@ -17,6 +17,7 @@ import {
   rootTemplate,
   rulesHash,
   signSession,
+  type TableSpec,
   validateRoot,
   verifyJoin,
 } from '@bored-games/protocol';
@@ -320,4 +321,60 @@ export function buildRootTemplate(
     joins = picked.joins;
   }
   return rootTemplate({ table: view.table, joins, rules: view.table.rules, relays: [...relays] }, createdAt);
+}
+
+/**
+ * Why the creator cannot close `view`'s empty seats to start with the players already seated (D092), or null when
+ * it can: the table is open with no root and not full, the creator holds a seat, and at least the game's minimum
+ * (`seatRange` of the table's rules, and never fewer than 2) are seated. Never throws.
+ */
+export function closeSeatsProblem(
+  view: LobbyView,
+  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
+  modules: ReadonlyMap<string, GameModule<any, any, any>>,
+): string | null {
+  const { table } = view;
+  if (view.root !== null) return 'the game has already started';
+  if (table.status !== 'open') return 'the table is not open';
+  if (view.full) return 'every seat is taken';
+  if (!view.joins.some((j) => j.npub === table.creator)) return 'the creator holds no seat';
+  const module = modules.get(table.game);
+  if (module === undefined) return `there is no module for game ${table.game}`;
+  const rules = module.validateRules(table.rules);
+  if (!rules.ok) return `rules rejected by the module: ${rules.error.message}`;
+  const need = Math.max(2, module.seatRange(rules.value).min);
+  if (view.seatsFilled < need)
+    return `${view.seatsFilled} players are seated; this game needs at least ${need}`;
+  return null;
+}
+
+/**
+ * The Table spec that closes `view`'s empty seats (D092): `seats` becomes the number seated, `invited` keeps the
+ * invited npubs that joined (in table order) and `open` counts the open seats taken. A Join commits to the table's
+ * rules and version, not to its seat count, so every seated Join stays valid. The creator republishes the Table
+ * with this spec (still `open`); the lobby is then full and `buildRootTemplate` starts it as usual. Throws
+ * `ClientError` with `closeSeatsProblem`'s reason when the seats cannot be closed.
+ */
+export function closeEmptySeats(
+  view: LobbyView,
+  // biome-ignore lint/suspicious/noExplicitAny: a registry holds modules of every game type.
+  modules: ReadonlyMap<string, GameModule<any, any, any>>,
+): TableSpec {
+  const problem = closeSeatsProblem(view, modules);
+  if (problem !== null) throw new ClientError(`cannot close the empty seats: ${problem}`);
+  const { table } = view;
+  const seated = new Set(view.joins.map((j) => j.npub));
+  const invited = table.invited.filter((p) => seated.has(p));
+  return {
+    tableId: table.tableId,
+    game: table.game,
+    version: table.version,
+    seats: view.seatsFilled,
+    deadline: table.deadline,
+    invited,
+    open: view.seatsFilled - 1 - invited.length,
+    relays: [...table.relays],
+    status: 'open',
+    rules: table.rules,
+  };
 }

@@ -369,6 +369,58 @@ describe('LobbyController', () => {
     expect(root.id).toBe(rootId);
     expect(root.seats.map((s) => s.npub)).toEqual([a, ...picked].map((p) => p.deps.signer.pubkey));
   }, 30_000);
+
+  it('starts with the players seated by closing the empty seats, and a fresh profile loads the game (D092)', async () => {
+    const [a, b, c, d] = [profile('a'), profile('b'), profile('c'), profile('d')];
+    const la = lobby(a);
+    const lb = lobby(b);
+    const lc = lobby(c);
+    const pubkeys = (ps: Profile[]) => ps.map((p) => p.deps.signer.pubkey).sort();
+    // Five seats: the creator, d invited (d never joins) and three open seats.
+    const address = await la.createTable({
+      seats: 5,
+      deadline: 259200,
+      invited: [d.deps.signer.pubkey],
+      relays: [relay.url],
+    });
+    await waitFor('the open table', () => lb.openTables.value.some((t) => t.address === address));
+    await lb.join(address);
+    await waitFor('two seated', () => la.table(address).value?.seatsFilled === 2);
+    // Chain Reaction needs 3 players: nothing is closed or signed.
+    await expect(la.start(address, undefined, { closeEmpty: true })).rejects.toThrow(/at least 3/);
+    expect(la.tableEvent(address)?.tags).toContainEqual(['seats', '5']);
+
+    await waitFor('the open table', () => lc.openTables.value.some((t) => t.address === address));
+    await lc.join(address);
+    await waitFor('three seated', () => la.table(address).value?.seatsFilled === 3);
+    await expect(la.start(address)).rejects.toThrow(/not full/);
+    await expect(lb.start(address, undefined, { closeEmpty: true })).rejects.toThrow(/creator/);
+
+    const rootId = await la.start(address, undefined, { closeEmpty: true });
+    expect(await la.start(address, undefined, { closeEmpty: true })).toBe(rootId);
+    for (const l of [la, lb, lc])
+      await waitFor('the root', () => l.table(address).value?.root?.id === rootId);
+    expect(
+      la
+        .table(address)
+        .value?.root?.seats.map((s) => s.npub)
+        .sort(),
+    ).toEqual(pubkeys([a, b, c]));
+
+    // The relay holds the closed Table, started: three seats, and d's invitation is gone.
+    const tables = await query({ kinds: [KIND.table], authors: [a.deps.signer.pubkey] });
+    expect(tables).toHaveLength(1);
+    expect(tables[0]?.tags).toContainEqual(['seats', '3']);
+    expect(tables[0]?.tags).toContainEqual(['open', '2']);
+    expect(tables[0]?.tags).toContainEqual(['status', 'started']);
+    expect(tables[0]?.tags.filter((t) => t[0] === 'p')).toEqual([]);
+
+    // A profile that never saw the lobby loads the game from the relays alone.
+    const fresh = game(rootId, profile('fresh').deps);
+    await waitFor('the session', () => fresh.view.value !== null);
+    expect(fresh.error.value).toBeNull();
+    expect(fresh.view.value?.seats).toBe(3);
+  }, 60_000);
 });
 
 describe('LobbyController and a changed player key (D041)', () => {
