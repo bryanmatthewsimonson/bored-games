@@ -1,5 +1,5 @@
 import { BRAND } from '@bored-games/brand';
-import { signal } from '@preact/signals';
+import { effect, signal } from '@preact/signals';
 import { render } from 'preact';
 import { App, IdentityError } from './app.tsx';
 import { followBranding } from './brands.ts';
@@ -18,10 +18,11 @@ import {
 } from './identity.ts';
 import { inAppBrowser } from './inapp-model.ts';
 import { loadLicensedBrands } from './licensed-brands.ts';
-import { appPool, MODULES } from './net.ts';
+import { appPool, type ControllerDeps, MODULES } from './net.ts';
 import { randomBytes } from './random.ts';
 import { startRouter } from './router.ts';
 import { createSettings, relaysFromLocation } from './settings.ts';
+import { setupRunnerFor } from './setup-runner.ts';
 import { browserStorage } from './storage.ts';
 import './styles.css';
 
@@ -87,6 +88,18 @@ async function main(): Promise<void> {
   const urlRelays = relaysFromLocation(window.location, linkRelays);
   if (urlRelays.kind === 'local') settings.setRelays(urlRelays.relays);
   const pool = appPool(settings);
+  // One object for the whole page: the lobby and the setup runner are page singletons keyed by it.
+  const deps: ControllerDeps = {
+    pool,
+    signer,
+    storage: store,
+    profile,
+    relays: () => settings.relays.value,
+    rnd: randomBytes,
+    now: nowSeconds,
+    modules: MODULES,
+    timers: platformTimers,
+  };
   startRouter(window);
   render(
     <App
@@ -104,21 +117,18 @@ async function main(): Promise<void> {
         settings,
         settingsOpen: signal(false),
         keyChanged,
-        deps: {
-          pool,
-          signer,
-          storage: store,
-          profile,
-          relays: () => settings.relays.value,
-          rnd: randomBytes,
-          now: nowSeconds,
-          modules: MODULES,
-          timers: platformTimers,
-        },
+        deps,
       }}
     />,
     root,
   );
+  // This seat's setup shuffle and deal from any page (D093), never while the page is blocked for a changed key: the
+  // runner stops for good, as the page then only asks for a reload.
+  const runner = setupRunnerFor(deps);
+  effect(() => {
+    if (keyChanged.value) runner.dispose();
+  });
+  runner.start();
 }
 
 main();

@@ -70,6 +70,8 @@ export interface MyTable extends TableEntry {
   savedKeys: boolean;
   /** The game's id once a valid root exists. */
   rootId: string | null;
+  /** That root's `created_at` (Unix seconds), so the setup runner takes the oldest game first (D093). */
+  rootAt: number | null;
 }
 
 export interface NewTable {
@@ -603,6 +605,7 @@ export class LobbyController {
       if (entry === undefined) continue;
       const { event, table } = entry;
       const lobby = this.#fold(address);
+      const root = lobby?.root ?? null;
       const otherKey = !tableIsMine(this.#d.profile, this.#d.storage, address, this.#me);
       out.push({
         address,
@@ -611,8 +614,9 @@ export class LobbyController {
         role: table.creator === this.#me ? 'creator' : 'player',
         lobby,
         otherKey,
-        savedKeys: otherKey && this.#savedSeat(address, lobby?.root ?? null),
-        rootId: lobby?.root?.id ?? null,
+        savedKeys: otherKey && this.#savedSeat(address, root),
+        rootId: root?.id ?? null,
+        rootAt: root === null ? null : (this.#lobby.get(address)?.get(root.id)?.created_at ?? null),
       });
     }
     out.sort((a, b) => b.event.created_at - a.event.created_at || (a.address < b.address ? -1 : 1));
