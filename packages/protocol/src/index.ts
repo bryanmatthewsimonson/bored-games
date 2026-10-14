@@ -65,6 +65,7 @@ export {
   type RootSpec,
   rootTemplate,
   rulesHash,
+  type ShuffleOrder,
   sessionMessage,
   signSession,
   type TableSpec,
