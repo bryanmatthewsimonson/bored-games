@@ -127,6 +127,8 @@ The number of `p` tags plus `open` MUST equal `seats` minus 1 (the creator holds
 - `relay` URLs are distinct.
 - Invited pubkeys are distinct and never the creator.
 
+**Closing the empty seats (D092).** Before the start, the creator MAY republish the Table with fewer seats so the game starts with the players already seated: `seats` becomes the number seated, the `p` tags keep only the invited npubs that joined, and `open` is the number of open seats taken. A Join commits to the table's rules and version (§4.2), not to its seat count, so every seated Join stays valid under the closed Table, and the root (§4.3) then lists exactly its `seats`. Invited npubs left off the list lose their seat, and nobody else can join. The module's `seatRange` still bounds the count (§4.3), so a game never starts with fewer players than it allows. This needs no change to any check: it is an ordinary republish of the Table before the start.
+
 ### 4.2 Join (7451)
 Claims a seat: an invited seat, or one of the open seats.
 

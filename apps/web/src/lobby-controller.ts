@@ -6,10 +6,12 @@
 import {
   buildJoinTemplate,
   buildRootTemplate,
+  closeEmptySeats,
   foldLobby,
   type GameKeys,
   type LobbyView,
   newGameKeys,
+  rootSeatOrder,
   seatForGameKeys,
 } from '@bored-games/client';
 import { G } from '@bored-games/deck';
@@ -319,20 +321,23 @@ export class LobbyController {
    * Start the game (the creator, once the table is full): sign the root, publish it, then republish the table
    * with status `started`. A root already signed for this table is republished, never signed again, and
    * concurrent calls share one signing. Returns the root id, the game's id. `seats` (Join ids in seat order)
-   * lets the creator choose among open joiners (D021); it applies only when this call signs the root.
+   * lets the creator choose among open joiners (D021); it applies only when this call signs the root. With
+   * `closeEmpty`, a table that is not full starts with the players seated (D092): the Table is first republished
+   * with its empty seats closed (`closeEmptySeats`), so invited players who have not joined drop out, and the
+   * root then seats `seats`, or else the players seated before the close.
    */
-  start(address: string, seats?: readonly Hex[]): Promise<string> {
-    return this.#once(this.#starting, address, () => this.#start(address, seats));
+  start(address: string, seats?: readonly Hex[], opts: { closeEmpty?: boolean } = {}): Promise<string> {
+    return this.#once(this.#starting, address, () => this.#start(address, seats, opts.closeEmpty === true));
   }
 
-  async #start(address: string, seats?: readonly Hex[]): Promise<string> {
+  async #start(address: string, seats: readonly Hex[] | undefined, closeEmpty: boolean): Promise<string> {
     const tableEv = this.#tables.get(address)?.event ?? (await this.#fetchTable(address));
-    const table = tableEv === null ? null : tryParseTable(tableEv);
+    let table = tableEv === null ? null : tryParseTable(tableEv);
     if (tableEv === null || table === null) throw new Error('That table was not found on your relays.');
     if (table.creator !== this.#me) throw new Error('Only the table creator can start the game.');
 
     const rootKey = storageKey(this.#d.profile, `root:${address}`);
-    const view = this.#fold(address);
+    let view = this.#fold(address);
     let rootEv: NostrEvent | null = null;
     if (view?.root) {
       rootEv = this.#lobby.get(address)?.get(view.root.id) ?? null;
@@ -342,8 +347,14 @@ export class LobbyController {
       if (verifyEvent(stored) && stored.kind === KIND.root && stored.pubkey === this.#me) rootEv = stored;
     }
     if (rootEv === null) {
-      if (view === null || !view.full) throw new Error('The table is not full yet.');
-      rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), seats));
+      let picked = seats;
+      if (closeEmpty && view?.full === false) {
+        picked ??= rootSeatOrder(view).map((j) => j.id);
+        table = await this.#closeEmptySeats(view);
+        view = this.#fold(address);
+      } else if (!view?.full) throw new Error('The table is not full yet.');
+      if (view === null) throw new Error('Could not close the empty seats.');
+      rootEv = await this.#sign(buildRootTemplate(view, table.relays, this.#d.now(), picked));
       if (!writeJson(this.#d.storage, rootKey, rootEv))
         throw new Error('Could not save the game start in this browser.');
     }
@@ -363,6 +374,23 @@ export class LobbyController {
       await this.#publishAll([started], table.relays, false);
     }
     return rootEv.id;
+  }
+
+  /**
+   * Republish `view`'s Table with its empty seats closed (D092) and take it in, so the lobby is full; returns the
+   * closed table. Throws, signing nothing, when the seats cannot be closed (`closeSeatsProblem`).
+   */
+  async #closeEmptySeats(view: LobbyView): Promise<ParsedTable> {
+    const spec = closeEmptySeats(view, this.#d.modules);
+    const latest = this.#tables.get(view.table.address)?.event;
+    const closedEv = await this.#sign(
+      tableTemplate(spec, Math.max(this.#d.now(), (latest?.created_at ?? 0) + 1)),
+    );
+    const closed = tryParseTable(closedEv);
+    if (closed === null) throw new Error('Could not close the empty seats.');
+    this.#ingest(closedEv);
+    await this.#publishAll([closedEv], closed.relays);
+    return closed;
   }
 
   /* ----------------------------------------------------------------------------------------- internals */

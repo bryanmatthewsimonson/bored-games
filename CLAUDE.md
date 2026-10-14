@@ -12,7 +12,7 @@ Bored Games (working name) is a decentralized platform for online, human-only, m
 - `pnpm fuzz --one "<seed#i>" --players N`: reproduce one failing game
 - `pnpm dev`: the dev relay (`ws://localhost:7777`) and the Vite dev server (`http://localhost:5173`, `strictPort`); open `?profile=a&relays=ws://localhost:7777` per player (`docs/TESTING.md`). `VITE_LICENSED_BRANDS=1 pnpm dev` adds the licensed names (Settings → Game names)
 - `pnpm relay`: the in-memory dev relay alone, on port 7777
-- `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, the key backup, Chess, Bank, Luster, Right of Way, Driftwrights, Holler, Room for Doubt, Quill & Quarry, Gilt & Guile, Hazard, Sticks & Stones, Current Affairs) on free ports (not part of `check`)
+- `pnpm e2e`: the Playwright end-to-end specs (Chain Reaction with three players, profiles, the key backup, Chess, Bank, Luster, Right of Way, Driftwrights, Holler, Room for Doubt, Quill & Quarry, Gilt & Guile, Hazard, Sticks & Stones, Current Affairs, starting with the players seated) on free ports (not part of `check`)
 - `pnpm sim --game <id>`: whole games between independent clients over an in-memory relay
 - `pnpm previews [game …]`: the game-page screenshots in `apps/web/public/previews/`, from real engine games drawn by the real screens (D086). Rerun it after a game's screen changes
 - `pnpm build:web`: static build of `apps/web` into `apps/web/dist` (GitHub Pages deploys it once CI passes on `main`)

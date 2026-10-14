@@ -23,6 +23,8 @@ import {
   buildJoinTemplate,
   buildRootTemplate,
   ClientError,
+  closeEmptySeats,
+  closeSeatsProblem,
   foldLobby,
   type GameKeys,
   GameSession,
@@ -543,6 +545,90 @@ describe('buildRootTemplate: an explicit seat list', () => {
     for (const [ids, why] of bad) {
       expect(() => buildRootTemplate(v, RELAYS, T0 + 10, ids), ids.join()).toThrow(ClientError);
       expect(() => buildRootTemplate(v, RELAYS, T0 + 10, ids), ids.join()).toThrow(why);
+    }
+  });
+});
+
+describe('closeEmptySeats: start with the players seated (D092)', () => {
+  const invited2 = player();
+  // Six seats: the creator, two invited players and three open seats.
+  const big = tableEv([invited.npub, invited2.npub], 3, 'six-seats');
+  const bigParsed = parseTable(big);
+  const bigJoin = (p: Player, createdAt: number): NostrEvent =>
+    finalizeEvent(buildJoinTemplate(bigParsed, p.npub, p.keys, RELAYS, rnd, createdAt), p.sk, rnd);
+  const cJoin = bigJoin(creator, T0 + 1);
+  const iJoin = bigJoin(invited, T0 + 2);
+  const o1Join = bigJoin(open1, T0 + 3);
+  const o2Join = bigJoin(open2, T0 + 4);
+  const events = [cJoin, iJoin, o1Join, o2Join];
+  const view = fold(events, big);
+  const closedEvent = (createdAt = T0 + 5) =>
+    finalizeEvent(tableTemplate(closeEmptySeats(view, MODULES), createdAt), creator.sk, rnd);
+
+  it('shrinks the table to the seated players: invited players who joined, and the open seats taken', () => {
+    expect(view.full).toBe(false);
+    expect(view.seatsFilled).toBe(4);
+    expect(closeSeatsProblem(view, MODULES)).toBeNull();
+    expect(closeEmptySeats(view, MODULES)).toEqual({
+      tableId: 'six-seats',
+      game: chainReaction.id,
+      version: chainReaction.version,
+      seats: 4,
+      deadline: 259200,
+      invited: [invited.npub],
+      open: 2,
+      relays: RELAYS,
+      status: 'open',
+      rules,
+    });
+  });
+
+  it('leaves a full table under the closed spec, whose root validates and starts a 4-seat session', () => {
+    const closed = closedEvent();
+    const v = fold(events, closed);
+    expect(v.full).toBe(true);
+    expect(npubsOf(v)).toEqual(npubsOf(view));
+    const root = finalizeEvent(buildRootTemplate(v, RELAYS, T0 + 10), creator.sk, rnd);
+    const joinsById = new Map(v.joins.map((j) => [j.id, j]));
+    expect(validateRoot(parseRoot(root), v.table, joinsById, MODULES)).toEqual([]);
+    expect(fold([...events, root], closed).root?.id).toBe(root.id);
+
+    const session = GameSession.create({
+      modules: MODULES,
+      table: closed,
+      joins: events,
+      root,
+      me: { seat: 3, sessionSk: open2.keys.sessionSk, deckSecret: open2.keys.deckSecret },
+      rootSeenAt: T0 + 10,
+    });
+    expect(session.view().seats).toBe(4);
+  });
+
+  it('is needed: the open table refuses a root with fewer seats', () => {
+    const closed = fold(events, closedEvent());
+    const root = parseRoot(finalizeEvent(buildRootTemplate(closed, RELAYS, T0 + 10), creator.sk, rnd));
+    const joinsById = new Map(closed.joins.map((j) => [j.id, j]));
+    expect(validateRoot(root, bigParsed, joinsById, MODULES)).toContain(
+      'the root has 4 seats but the table has 6',
+    );
+  });
+
+  it("refuses below the game's minimum, a full or started table, and a table without its creator", () => {
+    const started = parseRoot(
+      finalizeEvent(buildRootTemplate(fold(events, closedEvent()), RELAYS, T0 + 10), creator.sk, rnd),
+    );
+    const refusals: [ReturnType<typeof fold>, RegExp][] = [
+      [fold([cJoin, iJoin], big), /2 players are seated; this game needs at least 3/],
+      [fold([...events, bigJoin(invited2, T0 + 5), bigJoin(player(), T0 + 6)], big), /every seat is taken/],
+      [fold([iJoin, o1Join, o2Join, bigJoin(invited2, T0 + 5)], big), /creator/],
+      [{ ...view, table: { ...view.table, status: 'cancelled' } }, /not open/],
+      [{ ...view, root: started }, /started/],
+      [{ ...view, table: { ...view.table, game: 'no-such-game' } }, /no-such-game/],
+    ];
+    for (const [v, why] of refusals) {
+      expect(closeSeatsProblem(v, MODULES)).toMatch(why);
+      expect(() => closeEmptySeats(v, MODULES)).toThrow(ClientError);
+      expect(() => closeEmptySeats(v, MODULES)).toThrow(why);
     }
   });
 });

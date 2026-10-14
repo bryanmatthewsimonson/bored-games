@@ -1,5 +1,11 @@
 # Plan
 
+## Start with the players seated — 2026-10-14 (D092)
+
+The owner asked that a table created for more players can be started by its creator with fewer, for example a 6-seat table with only 5 players. The creator's Table page now offers **Start with N players** while the table is not full and at least the game's minimum are seated. It republishes the Table with its empty seats closed (PROTOCOL §4.1: `seats` the players seated, invited players who have not joined dropped, `open` the open seats taken), then starts the full table as before. No protocol check changed, so clients that have not reloaded accept the game.
+
+- **Tests:** `closeEmptySeats` and `closeSeatsProblem` in `packages/client/test/lobby.test.ts` (the closed table, its valid root and a 4-seat session, the open table refusing that root, the refusals); `closedLobby` and `closingNote` in `apps/web/test/lobby-model.test.ts`; a lobby-controller run in `apps/web/test/controllers.test.ts` (below the minimum nothing is signed; a 5-seat table with an absent invitee starts with 3; a profile that never saw the lobby loads the game from the relays).
+
 ## Resign in every game — 2026-10-12 (D090)
 
 The owner: "Don't disable Resign. It shouldn't be disabled anywhere in Bored Games." Resign is now on in every game at every seat count: the `GameModule.resignAllowed` hook and every module's opt-out are gone, and the session no longer refuses a Resign in a 2-seat game with a deck (PROTOCOL §4.9, §8.3: the mid-game pendings and the 2-seat deck residual). The resign simulations found two liveness bugs in honest 3-seat Holler games, fixed in `packages/client` with regression tests: a move (an epoch step, the first move after a grant) that arrived before the shares ahead of it was rejected instead of waiting, and a seat whose share a decision needed had no duty to publish it. The Resign contract (`packages/client/test/resign-contract.ts`) runs over every registered module: no opt-out, every seat count, and a whole simulated game with a resign mid-game.
@@ -56,7 +62,7 @@ Implemented the English word-tile game with original artwork, rewritten rules, a
    - What counts as timeout progress was ruled overnight (D030, Ruling 11): only events that change who is stalled.
    - The claim race (§11) is accepted as a residual risk.
    - Clients ignore the table's `status` when validating a root (§4.3).
-   - **Join binding of `deadline` and `seats` (D036).** The Table is addressable, so its creator can republish it after the start. Clients now save the Table they validated, but a fresh client that only sees a republished version cannot load the game. Binding `deadline` and `seats` into the Join, so the root validates without the mutable Table, needs a protocol change.
+   - **Join binding of `deadline` and `seats` (D036).** The Table is addressable, so its creator can republish it after the start. Clients now save the Table they validated, but a fresh client that only sees a republished version cannot load the game. Binding `deadline` and `seats` into the Join, so the root validates without the mutable Table, needs a protocol change. Binding `seats` would also have to allow the creator to close the empty seats before the start (D092), for example by binding the most seats rather than the exact count.
    - **Rival shuffle steps (D030, Ruling 12).** The arrival-order split in the old rival-shuffle cap is fixed: two well-formed steps by one seat on a chain prev flag it without proofs, and past 3 steps per prev only steps another seat acknowledged are fork-choice candidates. Owner to confirm the residuals: colluders can acknowledge junk, and the last shuffler can withdraw its step (stalling and flagging itself) until another seat moves.
    - **Shared GitHub Pages origin (D036).** A project site at `<owner>.github.io/<repo>` shares `localStorage`, and with it the keys, with the owner's other Pages sites. Choose a dedicated origin (a custom domain, or a Pages user or organization site for this app only) before sharing widely.
 

@@ -1,8 +1,9 @@
 /*
  * The Table route (#/t/<creatorHex>/<tableId>): the lobby of one table. It shows the seats, lets an eligible
- * visitor join, lets the creator start a full table, and moves everyone to the game once a root exists.
+ * visitor join, lets the creator start a full table (or one with enough players seated, by closing its empty
+ * seats: D092), and moves everyone to the game once a root exists.
  */
-import type { LobbyView } from '@bored-games/client';
+import { closeSeatsProblem, type LobbyView } from '@bored-games/client';
 import type { Hex } from '@bored-games/protocol';
 import { useEffect, useState } from 'preact/hooks';
 import { PlayerTag } from '../components/avatar.tsx';
@@ -16,6 +17,8 @@ import { OTHER_KEY_TABLE } from '../lobby-controller.ts';
 import { useLobby } from '../lobby-hooks.ts';
 import {
   attentionBadge,
+  closedLobby,
+  closingNote,
   deadlineLabel,
   defaultPicks,
   freeOpenSeats,
@@ -160,10 +163,13 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   // Listed here under another player key (D041): joining with this key would need that key's game keys.
   const otherKey = !tableIsMine(profile, store, address, me);
   const missing = t.seats - view.seatsFilled;
-  const picker = needsPicker(view);
-  const chosen = picks ?? defaultPicks(view);
   const canStart = isCreator && view.full && view.root === null && t.status === 'open';
-  const startReady = !picker || chosen.length === t.open;
+  // A table that is not full can start with the players seated once its empty seats close (D092).
+  const canStartSeated = isCreator && closeSeatsProblem(view, deps.modules) === null;
+  const startView = view.full ? view : closedLobby(view);
+  const picker = needsPicker(startView);
+  const chosen = picks ?? defaultPicks(startView);
+  const startReady = !picker || chosen.length === startView.table.open;
   const url = shareUrl(window.location.href, t.creator, t.tableId);
 
   const run = async (job: () => Promise<unknown>, fallback: string) => {
@@ -200,9 +206,9 @@ export function TableScreen(props: { creator: string; tableId: string }) {
   };
   const start = () =>
     run(async () => {
-      const seats = picker ? seatListFor(view, chosen) : null;
+      const seats = picker ? seatListFor(startView, chosen) : null;
       if (picker && seats === null) throw new Error('Those players cannot be seated. Choose again.');
-      const id = await lobby.start(address, seats ?? undefined);
+      const id = await lobby.start(address, seats ?? undefined, { closeEmpty: !view.full });
       window.location.replace(gameHref(id));
     }, 'Could not start the game.').then(() => setConfirming(false));
 
@@ -267,11 +273,19 @@ export function TableScreen(props: { creator: string; tableId: string }) {
                 You are seated.{' '}
                 {view.full
                   ? 'Waiting for the creator to start the game.'
-                  : 'The game starts once every seat is taken.'}{' '}
+                  : 'The game starts once every seat is taken, or sooner if the creator starts it with the players seated.'}{' '}
                 You will be taken to the game when it starts.
               </p>
             )}
             {isCreator && !view.full && <p>Share the link below so players can take the remaining seats.</p>}
+            {canStartSeated && !confirming && (
+              <div class="row">
+                <button type="button" class="btn" disabled={busy} onClick={() => setConfirming(true)}>
+                  Start with {view.seatsFilled} players
+                </button>
+                <span class="muted">Or start now, without the empty {missing === 1 ? 'seat' : 'seats'}.</span>
+              </div>
+            )}
 
             {canStart && !confirming && (
               <div class="row">
@@ -286,11 +300,17 @@ export function TableScreen(props: { creator: string; tableId: string }) {
                 <span class="muted">Everyone is here.</span>
               </div>
             )}
-            {canStart && confirming && (
+            {(canStart || canStartSeated) && confirming && (
               <section class="confirm" aria-labelledby="confirm-h">
-                <h3 id="confirm-h">Start the game now?</h3>
-                <p>The {t.seats} seats are fixed once the game starts, and nobody can join afterwards.</p>
-                {picker && <Picker view={view} picks={chosen} onChange={setPicks} disabled={busy} />}
+                <h3 id="confirm-h">
+                  {view.full ? 'Start the game now?' : `Start with the ${view.seatsFilled} players seated?`}
+                </h3>
+                <p>
+                  {view.full
+                    ? `The ${t.seats} seats are fixed once the game starts, and nobody can join afterwards.`
+                    : closingNote(view)}
+                </p>
+                {picker && <Picker view={startView} picks={chosen} onChange={setPicks} disabled={busy} />}
                 <div class="row">
                   <button
                     type="button"
