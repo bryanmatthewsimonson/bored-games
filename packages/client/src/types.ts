@@ -96,9 +96,9 @@ export interface SessionView {
   shuffleOrder: ShuffleOrder;
   /**
    * Whether a rival setup step is held at a shuffle prev of the canonical chain (D093): a well-formed shuffle step on
-   * the prev of a chain shuffle step, other than that step and not rejected, by another seat (an honest race in an
-   * any-order setup) or by the chain step's own signer (an equivocation). The chain's final deck may then still lose
-   * fork choice, so the web client lets the deal settle first.
+   * the prev of a chain shuffle step, other than that step and not rejected, by a seat that may sign that step
+   * there: another seat (an honest race in an any-order setup) or the chain step's own signer (an equivocation).
+   * The chain's final deck may then still lose fork choice, so the web client lets the deal settle first.
    */
   shuffleRivals: boolean;
   mySeat: number | null;
@@ -122,8 +122,9 @@ export interface SessionView {
   outcome: Outcome | null;
   /**
    * Seats that forfeit (PROTOCOL §8.2): the equivocators, every seat stalled at the head when a timeout claim was
-   * accepted (whichever seat it named; at the end, the seats that withheld their secret), the seats whose resign
-   * ended the game, and, once the game is done, the seats the audit failed.
+   * accepted (whichever seat it named; at the end, the seats that withheld their secret; none when an honest shuffle
+   * race had split the deal, D093), the seats whose resign ended the game, and, once the game is done, the seats
+   * the audit failed.
    */
   forfeits: number[];
   /**

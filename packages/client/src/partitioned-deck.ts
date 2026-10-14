@@ -17,8 +17,12 @@ export interface ShuffleGroup {
   readonly positions: readonly number[];
 }
 
-/** One step of the shuffle: the seat that signs it, which round it belongs to and the group it shuffles. */
+/**
+ * One step of the shuffle: its seat-order signer, which round it belongs to and the group it shuffles. An
+ * any-order setup (D093) does not use `seat`: `shuffleSigners` gives the seats that may sign the step there.
+ */
 export interface ShuffleStep {
+  /** The seat that signs this step in a seat-order setup. */
   readonly seat: number;
   readonly round: 1 | 2;
   readonly group: ShuffleGroup;

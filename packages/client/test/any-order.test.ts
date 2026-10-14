@@ -135,6 +135,22 @@ function shuffleInOrder(
   });
 }
 
+/** A fresh session of `game` for `seat` (null: a spectator) that trusts `trusted` and has received `events`. */
+function holding(
+  game: TestGame,
+  seat: number | null,
+  events: readonly NostrEvent[],
+  trusted: readonly NostrEvent[] = events,
+): GameSession {
+  const s = newSession(game, seat);
+  trust([s], trusted);
+  deliver([s], events);
+  return s;
+}
+
+/** The toy's move content: its groups hold 6 cards. */
+const toyContent = (ev: NostrEvent): MoveContent => parseMove(ev, 6).content;
+
 /** Each session's shuffle duty rank, or null when it owes no shuffle. */
 const ranks = (players: readonly GameSession[]) =>
   players.map((s) => {
@@ -273,7 +289,6 @@ describe('any-order setup shuffle (D093)', () => {
       players[1]!.buildShuffle(game.rnd, T0 + 100),
       players[2]!.buildShuffle(game.rnd, T0 + 101),
     ];
-    const toyContent = (ev: NostrEvent) => parseMove(ev, 6).content;
     const heads = [
       [a, b],
       [b, a],
@@ -372,5 +387,209 @@ describe('any-order setup shuffle (D093)', () => {
       const hand = (s.view().state as ChainReactionState).players[seat]!.hand.map((h) => h.tile);
       expect(hand).toEqual(range(HAND).map((i) => truth[SEATS + seat * HAND + i]));
     }
+  });
+});
+
+describe('honest races, settled branches and the split deal (D093)', () => {
+  it('an honest race resolves by fork choice and flags no one', () => {
+    const { game, players, spectator } = crGame('any-race');
+    const all = [...players, spectator];
+    // Seats 1 and 2 both open the round on the root, each seeing only its own step at first.
+    const a = players[1]!.buildShuffle(game.rnd, T0 + 100);
+    const b = players[2]!.buildShuffle(game.rnd, T0 + 101);
+    trust(all, [a, b]);
+    expect(players[1]!.receive(a, NOW)).toEqual({ status: 'accepted' });
+    expect(players[2]!.receive(b, NOW)).toEqual({ status: 'accepted' });
+    deliver([players[1]!], [b]);
+    deliver([players[2]!], [a]);
+    deliver([players[0]!], [a, b]);
+    deliver([spectator], [b, a]);
+    // Equal length and neither settled: the lower id heads the chain on every client.
+    const [win, loserSeat]: [NostrEvent, number] = a.id < b.id ? [a, 2] : [b, 1];
+    for (const s of all) {
+      expect(s.view().head).toEqual({ id: win.id, seq: 1 });
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().forfeits).toEqual([]);
+      expect(s.view().shuffleRivals).toBe(true);
+      expect(s.waitingFor()).toEqual([0, loserSeat]);
+    }
+    // The loser still owes its block, now on the winner's step, behind seat 0.
+    const loser = players[loserSeat]!;
+    expect(loser.duties()).toEqual([{ kind: 'shuffle', rank: 1 }]);
+    const again = loser.buildShuffle(game.rnd, T0 + 102);
+    const m = parseMove(again, DECK);
+    expect([m.seq, m.prevId]).toEqual([2, win.id]);
+    trust(all, [again]);
+    expect(statuses(deliver(all, [again]))).toEqual(Array(4).fill('accepted'));
+    for (const s of all) {
+      expect(s.view().head).toEqual({ id: again.id, seq: 2 });
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.waitingFor()).toEqual([0]);
+    }
+  });
+
+  it('a longer branch beats a lower id', () => {
+    const { game, players, spectator } = crGame('any-longer');
+    const all = [...players, spectator];
+    const a = players[1]!.buildShuffle(game.rnd, T0 + 100);
+    const b = players[2]!.buildShuffle(game.rnd, T0 + 101);
+    const [lo, hi] = a.id < b.id ? [a, b] : [b, a];
+    const loSeat = lo === a ? 1 : 2;
+    // Seat 0 holds only the higher-id step, and shuffles on it.
+    trust(all, [a, b]);
+    deliver([players[0]!], [hi]);
+    const c = players[0]!.buildShuffle(game.rnd, T0 + 102);
+    trust(all, [c]);
+    deliver([players[0]!], [c, lo]);
+    deliver([players[1]!], [a, b, c]);
+    deliver([players[2]!], [b, c, a]);
+    deliver([spectator], [c, lo, hi]);
+    for (const s of all) {
+      expect(s.view().head).toEqual({ id: c.id, seq: 2 });
+      expect(s.deckSteps()).toEqual([hi.id, c.id]);
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.waitingFor()).toEqual([loSeat]);
+    }
+    expect(ranks(players)).toEqual(range(SEATS).map((seat) => (seat === loSeat ? 0 : null)));
+  });
+
+  it('two steps by one eligible seat on one prev still flag it', () => {
+    const { game, players, spectator } = crGame('any-twice');
+    const all = [...players, spectator];
+    const x = players[1]!.buildShuffle(game.rnd, T0 + 100);
+    // The same shuffle again under another date: a second, distinct step on the root.
+    const y = signed(game, 1, 1, game.rootId, shuffleOf(x), T0 + 101);
+    // Seat 2 races on the root honestly.
+    const z = players[2]!.buildShuffle(game.rnd, T0 + 102);
+    trust(all, [x, y, z]);
+    deliver(all, [x, z, y]);
+    for (const s of all) {
+      expect(s.view().equivocators).toEqual([1]);
+      expect(s.view().forfeits).toEqual([1]);
+    }
+  });
+
+  it('a split deal times out with no forfeits', () => {
+    const { game } = crGame('any-split');
+    // Seats 1 and 2 race on the root; the other two seats then finish each branch, seat 0 shuffling on both.
+    const a = newSession(game, 1).buildShuffle(game.rnd, T0 + 100);
+    const b = newSession(game, 2).buildShuffle(game.rnd, T0 + 101);
+    const a0 = holding(game, 0, [a]).buildShuffle(game.rnd, T0 + 102);
+    const a2 = holding(game, 2, [a, a0]).buildShuffle(game.rnd, T0 + 103);
+    const b0 = holding(game, 0, [b]).buildShuffle(game.rnd, T0 + 104);
+    const b1 = holding(game, 1, [b, b0]).buildShuffle(game.rnd, T0 + 105);
+    const [onA, onB] = [
+      [a, a0, a2],
+      [b, b0, b1],
+    ];
+    const steps = [...onA, ...onB];
+    // Both branches are complete, settled and equally long: the lower id on the root wins.
+    const [win, lose]: [NostrEvent[], NostrEvent[]] = a.id < b.id ? [onA, onB] : [onB, onA];
+    // Seat 0 sees the losing deck before the winner and deals on it; seats 1 and 2 deal on the winning deck.
+    const dealer = holding(game, 0, lose, steps);
+    expect(dealer.duties()).toEqual([{ kind: 'deal' }]);
+    const d0 = dealer.buildDeal(game.rnd, T0 + 200);
+    expect(dealer.receive(d0, NOW)).toEqual({ status: 'accepted' });
+    const deals = [1, 2].map((seat, k) => holding(game, seat, win, steps).buildDeal(game.rnd, T0 + 201 + k));
+    const sessions = [dealer, ...[1, 2, null].map((seat) => holding(game, seat, [], steps))];
+    deliver(sessions, [...win, ...deals, ...lose, d0]);
+    for (const s of sessions) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().head).toEqual({ id: win[2]!.id, seq: SEATS });
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().shuffleRivals).toBe(true);
+      expect(s.waitingFor()).toEqual([0]);
+    }
+    // Seat 0 dealt on the losing deck, so it never deals again: the deal can't complete.
+    expect(dealer.duties()).toEqual([]);
+    const [, one] = sessions;
+    expect(one!.timeoutTarget(LATE)).toBe(0);
+    const claim = one!.buildTimeout(0, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([]);
+      expect(s.view().outcome).toBeNull();
+    }
+  });
+
+  it('a held shuffle equivocation still blames the equivocator in the deal', () => {
+    const { game } = crGame('any-f7');
+    const E = 2;
+    const s0 = newSession(game, 0).buildShuffle(game.rnd, T0 + 100);
+    const s1 = holding(game, 1, [s0]).buildShuffle(game.rnd, T0 + 101);
+    // Seat 2 signs two rival final steps.
+    const e = holding(game, E, [s0, s1]);
+    const x = e.buildShuffle(game.rnd, T0 + 102);
+    const y = e.buildShuffle(game.rnd, T0 + 103);
+    const [lo, hi] = x.id < y.id ? [x, y] : [y, x];
+    const steps = [s0, s1, lo, hi];
+    // Seat 0 deals on the lower id, seat 1 on the higher.
+    const d0 = holding(game, 0, [s0, s1, lo], steps).buildDeal(game.rnd, T0 + 200);
+    const d1 = holding(game, 1, [s0, s1, hi], steps).buildDeal(game.rnd, T0 + 201);
+    const sessions = [0, 1, E, null].map((seat) => holding(game, seat, [...steps, d0, d1], steps));
+    for (const s of sessions) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().head).toEqual({ id: lo.id, seq: SEATS });
+      expect(s.view().equivocators).toEqual([E]);
+      expect(s.waitingFor()).toEqual([E]);
+    }
+    const claim = sessions[0]!.buildTimeout(E, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([E]);
+    }
+  });
+
+  it('junk steps from an ineligible seat do not raise shuffleRivals', () => {
+    const { game, players, spectator } = toyGame('any-junk');
+    const all = [...players, spectator];
+    // Blocks by seats 1, 0 and 2, two steps each: the deck is complete.
+    const chain = [1, 1, 0, 0, 2, 2].map((seat) => {
+      const ev = players[seat]!.buildShuffle(game.rnd, NOW);
+      deliver(all, [ev]);
+      return ev;
+    });
+    expect(spectator.view().phase).toBe('deal');
+    expect(spectator.view().shuffleRivals).toBe(false);
+    // Seat 1 finished its block at step 2, so it may not sign step 3. It floods that prev with four copies of
+    // step 3: the first three are refused, and the fourth, past the candidate cap, is held unjudged.
+    const reason = 'shuffle step 3 may not be signed by seat 1';
+    const junk = range(4).map((i) => signed(game, 1, 3, chain[1]!.id, toyContent(chain[2]!), T0 + 600 + i));
+    expect(junk.map((ev) => spectator.receive(ev, NOW))).toEqual([
+      { status: 'rejected', reason },
+      { status: 'rejected', reason },
+      { status: 'rejected', reason },
+      { status: 'stored' },
+    ]);
+    expect(spectator.view().shuffleRivals).toBe(false);
+    expect(spectator.view().equivocators).toEqual([]);
+    // Seat 2, which may sign step 3 there, is a rival.
+    const rival = signed(game, 2, 3, chain[1]!.id, toyContent(chain[2]!), T0 + 700);
+    trust([spectator], [rival]);
+    expect(spectator.receive(rival, NOW)).toEqual({ status: 'stored' });
+    expect(spectator.view().shuffleRivals).toBe(true);
+    expect(spectator.view().head).toEqual({ id: chain[5]!.id, seq: 6 });
+  });
+
+  it("forkSteps leaves out an ineligible seat's steps", () => {
+    const { game, players, spectator } = toyGame('any-fork-steps');
+    const all = [...players, spectator];
+    // Blocks by seats 1 and 0: step 5 is seat 2's.
+    const chain = [1, 1, 0, 0].map((seat) => {
+      const ev = players[seat]!.buildShuffle(game.rnd, NOW);
+      deliver(all, [ev]);
+      return ev;
+    });
+    // Seat 1 signs two steps where it may not (step 3 after its own block); seat 2 two where it may (step 5).
+    const junk = range(2).map((i) => signed(game, 1, 3, chain[1]!.id, toyContent(chain[2]!), T0 + 600 + i));
+    const twice = range(2).map((i) => signed(game, 2, 5, chain[3]!.id, toyContent(chain[2]!), T0 + 700 + i));
+    trust([spectator], twice);
+    deliver([spectator], [...junk, ...twice]);
+    expect(spectator.view().equivocators).toEqual([2]);
+    const [on, off] = twice[0]!.id < twice[1]!.id ? twice : [twice[1]!, twice[0]!];
+    expect(spectator.view().head).toEqual({ id: on!.id, seq: 5 });
+    expect(spectator.forkSteps()).toEqual([off!.id]);
   });
 });
