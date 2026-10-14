@@ -5,6 +5,8 @@
  *   secrets) or as a spectator, and folds in every game event from the relays.
  * - It performs this seat's automatic duties one at a time (shuffle, deal, share, beacon, secret, attest). Only
  *   `decide` waits for the player, through `act`. A beacon duty publishes this seat's share of a public dice roll.
+ * - In setup mode (`GameControllerOptions.mode`, D093: the setup runner's), it performs the shuffle and the deal only,
+ *   and nothing that could prompt the player's signer: no key restore or backup, no attestation, no automatic move.
  * - Every event it builds is saved to an outbox in storage before it is published. A duty whose event is already
  *   in the outbox reuses it: nothing is signed twice. A move is kept under the head it was built on, and one the
  *   session no longer accepts (an orphan, after the chain moved on) is never republished.
@@ -26,6 +28,7 @@ import {
   type Duty,
   GameSession,
   type Identity,
+  type Phase,
   type SessionView,
   SHUFFLE_STAGGER_S,
   seatForGameKeys,
@@ -60,6 +63,7 @@ import { type ControllerDeps, unionRelays } from './net.ts';
 import type { RandomBytes } from './random.ts';
 import { ownCardReason, sealedItems, sealVerdict, sharePositions, shareVerdict } from './share-vet.ts';
 import {
+  type GamePhaseName,
   type GameStatusName,
   loadSecrets,
   type RevealCache,
@@ -126,6 +130,12 @@ export interface GameControllerOptions {
    * nothing for, as every game but Room for Doubt, sends nothing by itself.
    */
   autoMove?: (game: string) => AutoMove | undefined;
+  /**
+   * `full` (the default) plays the seat as the game screen does. `setup` (D093, the setup runner) performs only the
+   * shuffle and deal duties (`SETUP_AUTO`). It never restores the game keys, backs them up, attests, republishes a
+   * Resign or makes an automatic move, so it never prompts a NIP-07 extension. Either mode caches the status.
+   */
+  mode?: 'full' | 'setup';
 }
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
@@ -157,6 +167,16 @@ export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
 const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beacon', 'secret', 'attest'];
+
+/** The automatic duties of a controller in setup mode (D093): the setup's, signed by the session key alone. */
+const SETUP_AUTO: readonly Duty['kind'][] = ['shuffle', 'deal'];
+
+/**
+ * The phase Home caches (D093): `setup` for the shuffle and the deal, `play`, and `end` once the game is over, with
+ * secrets still owed (`end`) or not (`done`, `cancelled`).
+ */
+const cachedPhase = (phase: Phase): GamePhaseName =>
+  phase === 'shuffle' || phase === 'deal' ? 'setup' : phase === 'play' ? 'play' : 'end';
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -460,7 +480,13 @@ export class GameController {
   #dutyQueued = false;
   #refreshQueued = false;
   /** The last status entry saved for Home, so it is written only on a change (or when it is getting old). */
-  #savedStatus: { status: GameStatusName; seq: number; at: number; reveal: string } | null = null;
+  #savedStatus: {
+    status: GameStatusName;
+    seq: number;
+    phase: GamePhaseName;
+    at: number;
+    reveal: string;
+  } | null = null;
   /** Automatic duties that failed at a head (`kind@headId`), not retried until the head moves. */
   readonly #failed = new Set<string>();
   readonly #stops: (() => void)[] = [];
@@ -471,6 +497,10 @@ export class GameController {
   readonly #page: number;
   /** The automatic move of a game, by module id (`GameControllerOptions.autoMove`), or null for none. */
   readonly #autoMoveOf: ((game: string) => AutoMove | undefined) | null;
+  /** Setup mode (`GameControllerOptions.mode`, D093): only the shuffle and the deal, and never a signer prompt. */
+  readonly #setup: boolean;
+  /** The automatic duties this controller performs, in order: `AUTO`, or `SETUP_AUTO` in setup mode. */
+  readonly #auto: readonly Duty['kind'][];
 
   constructor(rootId: string, deps: ControllerDeps, opts: GameControllerOptions = {}) {
     this.rootId = rootId;
@@ -478,6 +508,8 @@ export class GameController {
     this.clock = signal(deps.now());
     this.#page = opts.gamePage ?? GAME_PAGE;
     this.#autoMoveOf = opts.autoMove ?? null;
+    this.#setup = opts.mode === 'setup';
+    this.#auto = this.#setup ? SETUP_AUTO : AUTO;
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -1448,7 +1480,7 @@ export class GameController {
     }
     if (secrets === null) {
       // Seated with the key in use, but the game keys were made on another device: restore them from the
-      // player's backup (D065), watching meanwhile.
+      // player's backup (D065), watching meanwhile. Setup mode only watches (`#startRestore`).
       this.#startRestore(root);
       return null;
     }
@@ -1457,8 +1489,12 @@ export class GameController {
 
   /* ------------------------------------------------------------------------------ key backup (D065) */
 
-  /** Fetch, decrypt and check the player's backup of this seat's game keys; on success, play the seat. */
+  /**
+   * Fetch, decrypt and check the player's backup of this seat's game keys; on success, play the seat. Never in setup
+   * mode (D093): decrypting may prompt the extension, and the runner takes only games whose keys are here.
+   */
   #startRestore(root: ParsedRoot): void {
+    if (this.#setup) return;
     const state = this.restore.value;
     if (state !== null && state !== 'retry') return;
     if (backupUnavailable(this.#d.signer) !== null) {
@@ -1513,10 +1549,11 @@ export class GameController {
    * game's relays hold a usable backup of its keys (review M1: a local "backed up" mark alone is not trusted; the
    * relay that took it may not be one the other device asks, or may have dropped it), and back them up if not.
    * Automatic with a local key, which needs no prompt; with an extension the screen offers the button, since each
-   * backup asks the extension to encrypt and sign, and checking one would ask it to decrypt.
+   * backup asks the extension to encrypt and sign, and checking one would ask it to decrypt. Never in setup mode
+   * (D093): checking decrypts, and the game screen does it once the game is opened.
    */
   #offerBackup(root: ParsedRoot, seat: number): void {
-    if (this.backup.value !== null) return;
+    if (this.#setup || this.backup.value !== null) return;
     if (backupUnavailable(this.#d.signer) !== null) {
       this.backup.value = 'unavailable';
       return;
@@ -1625,7 +1662,7 @@ export class GameController {
     this.#trackHold(now);
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
-    this.#cacheStatus(v.head.seq, this.status.value, now, owed);
+    this.#cacheStatus(v.head.seq, cachedPhase(v.phase), this.status.value, now, owed);
     this.#maybePrune(v, duties);
   }
 
@@ -1650,9 +1687,11 @@ export class GameController {
   /**
    * Republish the Resign that counted on this client to the root's relays and this player's (D052, review M-b),
    * once per load, as other final evidence: a resigner that sent its Resign to only some relays cannot leave the
-   * players who never saw it to be timed out while the game looks live to them.
+   * players who never saw it to be timed out while the game looks live to them. Not in setup mode (D093): the setup
+   * runner publishes this seat's setup steps and nothing else.
    */
   #echoResign(v: SessionView): void {
+    if (this.#setup) return;
     const id = v.resignId;
     const root = this.#root;
     if (!this.#synced || id === null || root === null || this.#echoed.has(id) || this.#disposed) return;
@@ -1665,10 +1704,17 @@ export class GameController {
   }
 
   /**
-   * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it or the head changed, or the
-   * saved entry is older than `STATUS_REFRESH_S`. Not while loading: `syncing` says nothing.
+   * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it, the head or the phase changed
+   * (the last deal moves the game to play on the same head), or the saved entry is older than `STATUS_REFRESH_S`. Not
+   * while loading: `syncing` says nothing. The phase (D093) lets the setup runner skip a game past its setup.
    */
-  #cacheStatus(seq: number, status: GameStatus, now: number, owed: OwedReveal | null): void {
+  #cacheStatus(
+    seq: number,
+    phase: GamePhaseName,
+    status: GameStatus,
+    now: number,
+    owed: OwedReveal | null,
+  ): void {
     if (status === 'syncing' || this.#disposed) return;
     const seats = this.seats.value;
     const mySeat = this.view.value?.mySeat ?? null;
@@ -1685,13 +1731,14 @@ export class GameController {
     if (
       last?.status === status &&
       last.seq === seq &&
+      last.phase === phase &&
       last.reveal === key &&
       now - last.at < STATUS_REFRESH_S
     )
       return;
-    const entry = { status, seq, updatedAt: now, ...(reveal === undefined ? {} : { reveal }) };
+    const entry = { status, seq, updatedAt: now, phase, ...(reveal === undefined ? {} : { reveal }) };
     if (saveGameStatus(this.#d.profile, this.#d.storage, this.rootId, entry))
-      this.#savedStatus = { status, seq, at: now, reveal: key };
+      this.#savedStatus = { status, seq, phase, at: now, reveal: key };
   }
 
   /**
@@ -1729,7 +1776,7 @@ export class GameController {
 
   /** An automatic duty is due but failed at this head. */
   #stuck(duties: readonly Duty[], v: SessionView): boolean {
-    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
+    return duties.some((d) => this.#auto.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
   }
 
   /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
@@ -1750,8 +1797,9 @@ export class GameController {
 
   /* -------------------------------------------------------------------------------------------- duties */
 
+  /** The automatic duty to perform next (`#auto`, in order), or null. In setup mode, never one past the deal. */
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
-    for (const kind of AUTO) {
+    for (const kind of this.#auto) {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
@@ -1795,9 +1843,11 @@ export class GameController {
    * time replaces an earlier one (a setup wait, then a date ahead of the clock), and an earlier or equal one changes
    * nothing, so ticks never arm another. `#nextAuto` skips the duty until then. The wake runs it, or arms the wait again
    * should it come a moment early (the clock reads whole seconds); a tick runs it once its time has come, should the
-   * wake be late or never come.
+   * wake be late or never come. Nothing once disposed: a refresh queued before `dispose` (an event just taken in)
+   * must not arm a timer that `dispose` has already passed by.
    */
   #holdUntil(key: string, until: number, slackMs = 0): void {
+    if (this.#disposed) return;
     const held = this.#waits.get(key);
     if (held !== undefined && held >= until) return;
     this.#waits.set(key, until);
@@ -1911,9 +1961,10 @@ export class GameController {
    * only while the decision is this seat's (`your-turn`, so no automatic duty comes first and no move of its own is
    * waiting), and at most once per head until the next tick (`#autoTried`). A send that fails, for instance while the
    * check before signing holds, shows in `error` as `act` sets it, and is tried again on the next tick, never in a
-   * loop. A player may still send the same move by hand meanwhile.
+   * loop. A player may still send the same move by hand meanwhile. Never in setup mode (D093).
    */
   #autoMove(): void {
+    if (this.#setup) return;
     const session = this.#session;
     const game = this.game.value;
     const pick = game === null ? undefined : this.#autoMoveOf?.(game);

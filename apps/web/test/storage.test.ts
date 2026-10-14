@@ -140,6 +140,29 @@ describe('game status cache', () => {
     );
     expect(loadGameStatus('alice', store, ROOT)).toEqual({ status: 'waiting', seq: 3, updatedAt: 5 });
   });
+  it('keeps the phase (D093), and reads an entry with a bad one without it', () => {
+    const store = memoryStorage();
+    for (const phase of ['setup', 'play', 'end'] as const) {
+      expect(saveGameStatus('alice', store, ROOT, { status: 'waiting', seq: 2, updatedAt: 5, phase })).toBe(
+        true,
+      );
+      expect(loadGameStatus('alice', store, ROOT)).toEqual({
+        status: 'waiting',
+        seq: 2,
+        updatedAt: 5,
+        phase,
+      });
+    }
+    const key = gameStatusKey('alice', ROOT);
+    for (const bad of ['shuffle', 'deal', 'done', 'cancelled', '', 1, null, ['setup']]) {
+      store.setItem(key, JSON.stringify({ status: 'waiting', seq: 2, updatedAt: 5, phase: bad }));
+      expect(loadGameStatus('alice', store, ROOT), JSON.stringify(bad)).toEqual({
+        status: 'waiting',
+        seq: 2,
+        updatedAt: 5,
+      });
+    }
+  });
   it('reads malformed entries as absent', () => {
     const store = memoryStorage();
     const key = gameStatusKey('alice', ROOT);

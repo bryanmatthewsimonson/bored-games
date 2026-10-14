@@ -1,17 +1,20 @@
 /*
  * The web controller in an any-order setup (D093): the stagger of a shuffle duty's rank, the deal's settle while a
- * rival setup step is held, and the deal race between two controllers of one seat. Chain Reaction, 3 seats, against
- * the real dev relay. A controller under test runs on an injected clock and timers (`fakeTime`); the others run on
- * the platform's.
+ * rival setup step is held, the deal race between two controllers of one seat, and setup mode (the setup runner's
+ * controller) with the phase in the status cache. Chain Reaction, 3 seats (4 for one stagger test), against the real
+ * dev relay. A controller under test runs on an injected clock and timers (`fakeTime`); the others run on the
+ * platform's.
  */
 import { GameSession } from '@bored-games/client';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { platformTimers, type Timers } from '../src/clock.ts';
-import type { GameController, GameStatus } from '../src/game-controller.ts';
+import { GameController, type GameControllerOptions, type GameStatus } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
-import { MODULES, type PoolLike } from '../src/net.ts';
-import { loadSecrets } from '../src/storage.ts';
+import type { Signer } from '../src/identity.ts';
+import type { LobbyController } from '../src/lobby-controller.ts';
+import { type ControllerDeps, MODULES, type PoolLike } from '../src/net.ts';
+import { loadGameStatus, loadSecrets, memoryStorage } from '../src/storage.ts';
 import { Harness, now, type Profile, pause, rnd, waitFor } from './net-harness.ts';
 
 const h = new Harness();
@@ -64,6 +67,10 @@ function fakeTime(start = now()) {
     tick(): void {
       for (const e of ticks) if (e.live) e.fn();
     },
+    /** The held wake timers neither fired nor stopped. */
+    pending(): number {
+      return wakes.filter((w) => w.live).length;
+    },
   };
   return c;
 }
@@ -79,6 +86,98 @@ async function game3() {
   const root = parseRoot(rootEv);
   const keys = root.seats.map((s) => s.session);
   return { rootId, address, rootEv, root, keys, bySeat: bySeat as [Profile, Profile, Profile] };
+}
+
+/** A 4-seat Chain Reaction game started from the lobby: its root id, the seats' session keys, and their profiles. */
+async function game4() {
+  const ps = ['a', 'b', 'c', 'd'].map((name) => h.profile(name));
+  const [la, ...others] = ps.map((p) => h.lobby(p)) as [LobbyController, ...LobbyController[]];
+  const address = await la.createTable({
+    game: 'chain-reaction',
+    seats: 4,
+    deadline: 259200,
+    invited: [],
+    relays: [h.relay.url],
+  });
+  for (const l of others) {
+    await waitFor('the open table', () => l.openTables.value.find((t) => t.address === address));
+    await l.join(address);
+  }
+  await waitFor('a full table', () => la.table(address).value?.full);
+  const rootId = await la.start(address);
+  for (const l of others) await waitFor('the root', () => l.table(address).value?.root?.id === rootId);
+  const root = parseRoot((await h.query([{ ids: [rootId] }]))[0] as NostrEvent);
+  const bySeat = root.seats.map((s) => ps.find((p) => p.deps.signer.pubkey === s.npub) as Profile);
+  return { rootId, keys: root.seats.map((s) => s.session), bySeat };
+}
+
+/** A game controller in setup mode (D093), disposed after the test. */
+function setupGame(rootId: string, deps: ControllerDeps, opts: GameControllerOptions = {}): GameController {
+  const c = new GameController(rootId, deps, { ...opts, mode: 'setup' });
+  h.later(() => c.dispose());
+  c.start();
+  return c;
+}
+
+/**
+ * A profile's dependencies that record what a controller built on them does: the events it publishes, and each call
+ * that could prompt a NIP-07 extension (`sign`, `nip44.encrypt`, `nip44.decrypt`).
+ */
+function recording(deps: ControllerDeps) {
+  const published: NostrEvent[] = [];
+  const prompts: string[] = [];
+  const { signer, pool } = deps;
+  const nip44 = signer.nip44;
+  const watched: Signer = {
+    ...signer,
+    sign: (t) => {
+      prompts.push('sign');
+      return signer.sign(t);
+    },
+    ...(nip44 === undefined
+      ? {}
+      : {
+          nip44: {
+            encrypt: (pk, text) => {
+              prompts.push('nip44.encrypt');
+              return nip44.encrypt(pk, text);
+            },
+            decrypt: (pk, payload) => {
+              prompts.push('nip44.decrypt');
+              return nip44.decrypt(pk, payload);
+            },
+          },
+        }),
+  };
+  const recorded: PoolLike = {
+    subscribe: (filters, onEvent, onEose, opts) => pool.subscribe(filters, onEvent, onEose, opts),
+    publish: (ev, urls) => {
+      published.push(ev);
+      return pool.publish(ev, urls);
+    },
+    addRelays: (urls) => pool.addRelays?.(urls),
+  };
+  return { published, prompts, deps: { ...deps, signer: watched, pool: recorded } };
+}
+
+/** A session of `seat`'s own, outside any controller, at the root: for events signed by hand. */
+async function seatSession(g: Awaited<ReturnType<typeof game3>>, seat: number): Promise<GameSession> {
+  const p = g.bySeat[seat] as Profile;
+  const [, creator, tableId] = g.root.tableAddress.split(':') as [string, string, string];
+  const table = (
+    await h.query([{ kinds: [KIND.table], authors: [creator], '#d': [tableId] }])
+  )[0] as NostrEvent;
+  const joins = await h.query([{ ids: [...g.root.joinIds] }]);
+  const secrets = loadSecrets(p.name, p.deps.storage, g.address);
+  if (secrets === null) throw new Error(`no secrets for seat ${seat}`);
+  return GameSession.create({
+    modules: MODULES,
+    table,
+    joins,
+    root: g.rootEv,
+    me: { seat, sessionSk: secrets.sessionSk, deckSecret: BigInt(`0x${bytesToHex(secrets.deckSecret)}`) },
+    rootSeenAt: now(),
+  });
 }
 
 /** The moves at the relay signed by `key`. */
@@ -105,6 +204,27 @@ function withoutShares(real: PoolLike, key: string): PoolLike {
       real.subscribe(
         filters,
         (ev, url) => (ev.kind === KIND.shares && ev.pubkey === key ? undefined : onEvent(ev, url)),
+        onEose,
+        opts,
+      ),
+    publish: (ev, urls) => real.publish(ev, urls),
+    addRelays: (urls) => real.addRelays?.(urls),
+  };
+}
+
+/** A pool that runs `then` right after it hands the first move it receives to the subscriber, on any subscription. */
+function afterFirstMove(real: PoolLike, then: () => void): PoolLike {
+  let done = false;
+  return {
+    subscribe: (filters, onEvent, onEose, opts) =>
+      real.subscribe(
+        filters,
+        (ev, url) => {
+          onEvent(ev, url);
+          if (done || ev.kind !== KIND.move) return;
+          done = true;
+          then();
+        },
         onEose,
         opts,
       ),
@@ -140,6 +260,7 @@ describe('The stagger of an any-order setup (D093)', () => {
       await pause(500);
       expect(await movesBy(rootId, keys[2] as string)).toEqual([]);
       expect(g2.view.value?.head.seq).toBe(1);
+      expect(g2.status.value).toBe('waiting');
       c.at(45);
       await onRelay("seat 2's step", async () => (await movesBy(rootId, keys[2] as string)).length === 1);
       await waitFor('seat 2 folded its step', () => g2.view.value?.head.seq === 2, SLOW);
@@ -163,6 +284,7 @@ describe('The stagger of an any-order setup (D093)', () => {
       c.tick();
       await pause(500);
       expect(await movesBy(rootId, keys[2] as string)).toEqual([]);
+      expect(again.status.value).toBe('waiting');
       c.at(45);
       await onRelay("seat 2's step", async () => (await movesBy(rootId, keys[2] as string)).length === 1);
     },
@@ -198,6 +320,57 @@ describe('The stagger of an any-order setup (D093)', () => {
       // Seat 2 is then the only seat left, rank 0: it shuffles with the clock still at +20 s.
       await onRelay("seat 2's step", async () => (await movesBy(rootId, keys[2] as string)).length === 1);
       expect(c.now()).toBe(c.start + 20);
+    },
+    SLOW,
+  );
+
+  it(
+    'a new head resets the wait: at 4 seats, rank 2 on one head and rank 1 on the next',
+    async () => {
+      const { rootId, keys, bySeat } = await game4();
+      const c = fakeTime();
+      const g3 = h.game(rootId, { ...(bySeat[3] as Profile).deps, now: c.now, timers: c.timers });
+      await waitFor('seat 3 waiting at the root', () => g3.status.value === 'waiting', 60_000);
+      h.game(rootId, (bySeat[0] as Profile).deps);
+      await waitFor("seat 0's step", () => g3.view.value?.head.seq === 1, SLOW);
+      // Seat 3 is third in line on seat 0's step (rank 2): it would shuffle at +90 s.
+      c.at(60);
+      c.tick();
+      await pause(500);
+      expect(g3.status.value).toBe('waiting');
+      // Seat 1 opens its app at +60 s and shuffles at once; seat 2 stays away.
+      h.game(rootId, (bySeat[1] as Profile).deps);
+      await waitFor("seat 1's step", () => g3.view.value?.head.seq === 2, SLOW);
+      // Seat 3 is now second in line (rank 1), from when it saw seat 1's step: +105 s, not +90 s.
+      for (const s of [90, 104]) {
+        c.at(s);
+        c.tick();
+        await pause(500);
+        expect(await movesBy(rootId, keys[3] as string), `at +${s} s`).toEqual([]);
+        expect(g3.status.value, `at +${s} s`).toBe('waiting');
+      }
+      c.at(105);
+      await onRelay("seat 3's step", async () => (await movesBy(rootId, keys[3] as string)).length === 1);
+    },
+    SLOW,
+  );
+
+  it(
+    'a controller disposed as it takes in a new head arms no wake timer',
+    async () => {
+      const { rootId, bySeat } = await game3();
+      const c = fakeTime();
+      let g2: GameController | null = null;
+      // Seat 2's controller is disposed the moment it has taken in seat 0's step, before its queued refresh runs.
+      const pool = afterFirstMove(bySeat[2].deps.pool, () => g2?.dispose());
+      g2 = h.game(rootId, { ...bySeat[2].deps, pool, now: c.now, timers: c.timers });
+      await waitFor('seat 2 waiting at the root', () => g2?.status.value === 'waiting', 60_000);
+      // Its wait at the root (rank 2).
+      expect(c.pending()).toBe(1);
+      h.game(rootId, bySeat[0].deps);
+      await waitFor('the refresh after dispose', () => g2?.view.value?.head.seq === 1, SLOW);
+      await pause(200);
+      expect(c.pending()).toBe(0);
     },
     SLOW,
   );
@@ -279,8 +452,112 @@ describe('The deal of an any-order setup (D093)', () => {
       c.tick();
       await pause(500);
       expect(await sharesBy(rootId, keys[0] as string)).toEqual([]);
+      expect(g.status.value).toBe('waiting');
       c.at(15);
       await onRelay("seat 0's deal", async () => (await sharesBy(rootId, keys[0] as string)).length === 1);
+    },
+    SLOW,
+  );
+});
+
+describe('The setup mode (D093)', () => {
+  it(
+    'setup mode shuffles and deals only',
+    async () => {
+      // NIP-44 on: a full controller would check each seat's key backup (decrypting it), and might publish one.
+      const { rootId, bySeat } = await h.start3('chain-reaction', [
+        h.profile('a', { nip44: true }),
+        h.profile('b', { nip44: true }),
+        h.profile('c', { nip44: true }),
+      ]);
+      const seats = bySeat.map((p) => recording(p.deps));
+      // An automatic move that plays the first legal action: a full controller would send it in play.
+      const first = (): ((legal: readonly unknown[]) => unknown) => (legal) => legal[0] ?? null;
+      const gs = seats.map((s) => setupGame(rootId, s.deps, { autoMove: first }));
+      await waitFor('every seat in play', () => gs.every((g) => g.view.value?.phase === 'play'), SLOW);
+      await waitFor('every seat settled', () =>
+        gs.every((g) => g.status.value === 'waiting' || g.status.value === 'your-turn'),
+      );
+      expect(gs.some((g) => g.status.value === 'your-turn')).toBe(true);
+      await pause(2000);
+      for (const [i, s] of seats.entries()) {
+        const g = gs[i] as GameController;
+        expect(s.prompts, `seat ${i}`).toEqual([]);
+        expect(
+          s.published.filter((ev) => ev.kind !== KIND.move && ev.kind !== KIND.shares),
+          `seat ${i}`,
+        ).toEqual([]);
+        expect(g.backup.value, `seat ${i}`).toBeNull();
+        expect(g.error.value, `seat ${i}`).toBeNull();
+      }
+      // The three shuffle steps and the three deals: no move in play, no Secret, attestation or Resign.
+      const all = await h.query([{ '#e': [rootId] }]);
+      expect(all.filter((ev) => ev.kind === KIND.move)).toHaveLength(3);
+      expect(all.filter((ev) => ev.kind === KIND.shares)).toHaveLength(3);
+      expect(all.filter((ev) => ev.kind !== KIND.move && ev.kind !== KIND.shares)).toEqual([]);
+    },
+    SLOW,
+  );
+
+  it(
+    'setup mode never restores keys',
+    async () => {
+      // NIP-44 on: each Join published a backup of the seat's game keys, which a full controller would restore.
+      const { rootId, bySeat } = await h.start3('chain-reaction', [
+        h.profile('a', { nip44: true }),
+        h.profile('b', { nip44: true }),
+        h.profile('c', { nip44: true }),
+      ]);
+      // Seat 0's player on a device without the game keys.
+      const s0 = bySeat[0] as Profile;
+      const fresh = recording(h.profile(s0.name, { store: memoryStorage(), signer: s0.deps.signer }).deps);
+      const g = setupGame(rootId, fresh.deps);
+      await waitFor('the game loaded', () => g.status.value === 'waiting', 60_000);
+      await pause(2000);
+      expect(fresh.prompts).toEqual([]);
+      expect(fresh.published).toEqual([]);
+      expect(g.restore.value).toBeNull();
+      expect(g.recovered.value).toBeNull();
+      expect(g.view.value?.mySeat).toBeNull();
+      expect(await h.query([{ kinds: [KIND.move], '#e': [rootId] }])).toEqual([]);
+    },
+    SLOW,
+  );
+
+  it(
+    'the status cache records the phase',
+    async () => {
+      const { rootId, bySeat } = await game3();
+      const [s0, s1, s2] = bySeat;
+      const phase = (p: Profile) => loadGameStatus(p.name, p.deps.storage, rootId)?.phase;
+      // Seat 0 in setup mode, the others in full mode: every controller writes the phase.
+      const gs = [setupGame(rootId, s0.deps), h.game(rootId, s1.deps)];
+      await waitFor('the setup phase cached', () => phase(s0) === 'setup' && phase(s1) === 'setup');
+      // Seat 2 is away, so the setup cannot end: still `setup`.
+      await waitFor('seat 1 shuffled', () => (gs[0]?.view.value?.head.seq ?? 0) >= 2, SLOW);
+      expect([phase(s0), phase(s1)]).toEqual(['setup', 'setup']);
+      gs.push(h.game(rootId, s2.deps));
+      await waitFor('every seat in play', () => gs.every((g) => g.view.value?.phase === 'play'), SLOW);
+      await waitFor('the play phase cached', () => bySeat.every((p) => phase(p) === 'play'), 5_000);
+    },
+    SLOW,
+  );
+
+  it(
+    'setup mode never echoes a Resign',
+    async () => {
+      const g = await game3();
+      // Seat 0 resigns at the root, before any game action: the game is cancelled.
+      const session = await seatSession(g, 0);
+      await h.pool().publish(session.buildResign(rnd, now()));
+      // A full controller of seat 1 would republish the Resign that counted, and send its Secret.
+      const s1 = g.bySeat[1];
+      const rec = recording(s1.deps);
+      const g1 = setupGame(g.rootId, rec.deps);
+      await waitFor('the game cancelled', () => g1.status.value === 'cancelled', 60_000);
+      await pause(1000);
+      expect(rec.published).toEqual([]);
+      expect(loadGameStatus(s1.name, s1.deps.storage, g.rootId)?.phase).toBe('end');
     },
     SLOW,
   );

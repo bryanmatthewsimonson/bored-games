@@ -267,6 +267,10 @@ export function claimUnowned(
 export const CACHED_STATUSES = ['working', 'stuck', 'waiting', 'your-turn', 'done', 'cancelled'] as const;
 export type GameStatusName = (typeof CACHED_STATUSES)[number];
 
+/** A game's phase as stored (D093): `setup` (the shuffle and the deal), `play`, or `end` (the game is over). */
+export const CACHED_PHASES = ['setup', 'play', 'end'] as const;
+export type GamePhaseName = (typeof CACHED_PHASES)[number];
+
 /**
  * A card reveal the game was waiting on when the status was saved (D060): the npubs of the seats that owe it,
  * whether this player's seat is one of them, and when their deadline passes (Unix seconds).
@@ -284,6 +288,11 @@ export interface GameStatusCache {
   seq: number;
   /** Unix seconds. */
   updatedAt: number;
+  /**
+   * The game's phase (D093), so the setup runner can skip a game past its setup. Absent from entries saved before it
+   * was kept; one that is not a phase reads as absent.
+   */
+  phase?: GamePhaseName;
   /** The card reveal the game waited on, if any (D060). */
   reveal?: RevealCache;
 }
@@ -311,11 +320,12 @@ export function saveGameStatus(
     status: entry.status,
     seq: entry.seq,
     updatedAt: entry.updatedAt,
+    ...(entry.phase === undefined ? {} : { phase: entry.phase }),
     ...(entry.reveal === undefined ? {} : { reveal: entry.reveal }),
   });
 }
 
-/** Null when nothing is stored or what is stored is malformed. */
+/** Null when nothing is stored or what is stored is malformed. A malformed `phase` or `reveal` alone is left out. */
 export function loadGameStatus(
   profile: string,
   store: KeyValueStore,
@@ -323,12 +333,19 @@ export function loadGameStatus(
 ): GameStatusCache | null {
   const v = readJson(store, gameStatusKey(profile, rootId));
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-  const { status, seq, updatedAt, reveal } = v as Record<string, unknown>;
+  const { status, seq, updatedAt, phase, reveal } = v as Record<string, unknown>;
   if (!(CACHED_STATUSES as readonly unknown[]).includes(status)) return null;
   if (typeof seq !== 'number' || !Number.isInteger(seq) || seq < 0) return null;
   if (typeof updatedAt !== 'number' || !Number.isFinite(updatedAt)) return null;
+  const p = (CACHED_PHASES as readonly unknown[]).includes(phase) ? (phase as GamePhaseName) : undefined;
   const r = revealOf(reveal);
-  return { status: status as GameStatusName, seq, updatedAt, ...(r === undefined ? {} : { reveal: r }) };
+  return {
+    status: status as GameStatusName,
+    seq,
+    updatedAt,
+    ...(p === undefined ? {} : { phase: p }),
+    ...(r === undefined ? {} : { reveal: r }),
+  };
 }
 
 /* Persistent storage (D041): ask the browser not to evict this site's data under storage pressure. */
