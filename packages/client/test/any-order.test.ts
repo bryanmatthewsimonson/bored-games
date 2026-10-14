@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats and steps.
 
-import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
+import type { ChainReactionState } from '@bored-games/chain-reaction';
 import {
   type Ciphertext,
   cardOf,
@@ -12,7 +12,7 @@ import {
   shuffleDeck,
   verifyShuffle,
 } from '@bored-games/deck';
-import { createRng, range } from '@bored-games/game-kit';
+import { range } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   type MoveContent,
@@ -773,63 +773,5 @@ describe('honest races, settled branches and the split deal (D093)', () => {
     const [on, off] = twice[0]!.id < twice[1]!.id ? twice : [twice[1]!, twice[0]!];
     expect(spectator.view().head).toEqual({ id: on!.id, seq: 5 });
     expect(spectator.forkSteps()).toEqual([off!.id]);
-  });
-
-  it('lost races cost no fork trials once every seat has played past them, to the end of the game', () => {
-    // A short game: the end may be declared once a chain reaches 4 tiles.
-    const game = makeGame(SEATS, 'any-settled', { ...chainReaction.defaultRules(), endSize: 4 }, ANY);
-    const players = range(SEATS).map((seat) => newSession(game, seat));
-    const spectator = newSession(game, null);
-    const all = [...players, spectator];
-    const log: NostrEvent[] = [];
-    const trials = (s: GameSession): number => (s as unknown as { trials: number }).trials;
-    const publish = (ev: NostrEvent): void => {
-      expect(statuses(deliver(all, [ev]))).toEqual(Array(4).fill('accepted'));
-      log.push(ev);
-    };
-    /** `seats` race on the common head, each seeing its own step first; then everyone holds them all. */
-    const race = (seats: readonly number[]): number => {
-      const steps = seats.map((seat) => players[seat]!.buildShuffle(game.rnd, T0 + 100 + log.length));
-      trust(all, steps);
-      for (const [i, seat] of seats.entries())
-        expect(players[seat]!.receive(steps[i]!, NOW)).toEqual({ status: 'accepted' });
-      deliver(all, steps);
-      log.push(...steps);
-      // The loser: the higher id, at equal length.
-      return steps[0]!.id < steps[1]!.id ? seats[1]! : seats[0]!;
-    };
-    // Seats 1 and 2 race on the root, then seat 0 and the loser race on the winner: two forks in the setup.
-    const l1 = race([1, 2]);
-    const l2 = race([0, l1]);
-    log.push(...shuffleInOrder(game, players, [l2], [spectator]));
-    for (const [k, p] of players.entries()) publish(p.buildDeal(game.rnd, T0 + 200 + k));
-    const rng = createRng('any-settled-policy');
-    let t = T0 + 1000;
-    const act = (): void => {
-      const p = players[(spectator.view().pending as { seat: number }).seat]!;
-      const legal = p.legalActions() as readonly { declareEnd?: boolean }[];
-      publish(p.buildAction(legal.find((a) => a.declareEnd === true) ?? rng.pick(legal), game.rnd, t++));
-    };
-    // Once every seat has played, each fork's chain branch is settled, and the losers are too short to beat it.
-    for (let i = 0; i < SEATS; i++) act();
-    expect(spectator.view().phase).toBe('play');
-    const before = all.map(trials);
-    while (spectator.view().phase === 'play') act();
-    for (const p of players) publish(p.buildSecret(game.rnd, t++));
-    // Neither fork choice nor the frozen-fork check (D056) tried a lost branch again, the end included.
-    expect(all.map(trials)).toEqual(before);
-    for (const s of all) {
-      expect(s.view().phase).toBe('done');
-      expect(s.view().audit).toBe('pass');
-      expect(s.view().outcome?.reason).toBe('declared');
-      expect(s.view().outcome?.endedBy).toBeUndefined();
-      expect(s.view().shuffleRivals).toBe(true);
-      expect(s.view().equivocators).toEqual([]);
-    }
-    // A session that receives everything at once, in another order, agrees.
-    const late = holding(game, null, [...log].reverse(), log);
-    expect(late.view().head).toEqual(spectator.view().head);
-    expect(late.view().logHash).toBe(spectator.view().logHash);
-    expect(late.view().outcome).toEqual(spectator.view().outcome);
   });
 });

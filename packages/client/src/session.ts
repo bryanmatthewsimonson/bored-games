@@ -2513,9 +2513,8 @@ export class GameSession {
    * played on that branch, which a seat holding the end never does.
    * - A fork is examined at most once per `receive`.
    * - Only candidates count (D030 Ruling 12): a shuffle step that is not one is no side branch.
-   * - When the chain is over, or the fork is in the setup (D093) and the chain is settled from it and not frozen,
-   *   a side branch whose pooled depth (an upper bound on its valid length) cannot reach the chain's length past the
-   *   prev is skipped without a trial (`mayOutrank`).
+   * - When the chain is over, a side branch whose pooled depth (an upper bound on its valid length) cannot reach
+   *   the chain's length past the prev is skipped without a trial.
    * - Otherwise the fork's best side branch comes from `sideBest`, which keeps its verdict until the pool below
    *   the prev, the shares or the shuffle candidates change.
    * - The chain's own branch is ranked by its tail. Only when the side branch beats the tail and a later fork sits
@@ -2534,9 +2533,14 @@ export class GameSession {
       const cur: Rank = { over: this.isOver(), settled: this.settledFrom(j), length: this.chain.length - j };
       const top = (this.chain[j] as ParsedMove).id;
       const frozen = this.frozenAt(j);
-      // A lost setup race (D093) stays pooled at a setup prev for the whole game.
-      const sure = cur.over || (cur.settled && !frozen && j < this.shuffleSteps);
-      if (sure && !this.mayOutrank(side, cur, top)) continue;
+      if (cur.over) {
+        const depths = new Map<Hex, number>();
+        const contender = side.some((m) => {
+          const bound = 1 + this.poolDepth(m.id, depths);
+          return bound > cur.length || (bound === cur.length && m.id < top);
+        });
+        if (!contender) continue;
+      }
       const best = this.sideBest(j);
       const first = best.ids[0];
       if (first === undefined) continue;
@@ -2554,23 +2558,6 @@ export class GameSession {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Whether a move of `side` (pooled at a chain prev whose chain successor is `top`) may head a branch that beats the
-   * chain's tail there, ranked `cur`, when that tail ranks top at the fork (`beats`: it is over, or settled at an
-   * unfrozen fork). Only a branch that ranks top too and is at least as long can: longer, or as long and either over
-   * (when the tail is not) or headed by a lower id. A branch's valid length is at most 1 + its pooled depth, so a
-   * short side branch is not tried. A lost setup race (D093) leaves such a branch on every client, and trying it
-   * refolds the game from the setup at each new share. A settled tail is sure only below the depth cap.
-   */
-  private mayOutrank(side: readonly ParsedMove[], cur: Rank, top: Hex): boolean {
-    const depths = new Map<Hex, number>();
-    return side.some((m) => {
-      const depth = this.poolDepth(m.id, depths);
-      if (cur.over) return 1 + depth > cur.length || (1 + depth === cur.length && m.id < top);
-      return depth >= MAX_DEPTH || 1 + depth >= cur.length;
-    });
   }
 
   /** Whether the chain has reached the module's `over`. */
@@ -2620,15 +2607,14 @@ export class GameSession {
     if (!this.isOver()) return null;
     for (let j = 0; j < this.chain.length; j++) {
       const pooled = this.movesByPrev.get(this.idAt(j));
-      const moves = pooled === undefined ? [] : [...pooled.values()].filter((m) => this.shuffleEligible(m));
-      if (moves.length === 0 || !this.frozenAt(j)) continue;
-      const cur: Rank = { over: true, settled: this.settledFrom(j), length: this.chain.length - j };
-      const top = (this.chain[j] as ParsedMove).id;
-      if (!this.mayOutrank(moves, cur, top)) continue;
+      if (pooled === undefined || ![...pooled.values()].some((m) => this.shuffleEligible(m))) continue;
+      if (!this.frozenAt(j)) continue;
       const side = this.sideBest(j, false);
       const first = side.ids[0];
       if (first === undefined) continue;
+      const cur: Rank = { over: true, settled: this.settledFrom(j), length: this.chain.length - j };
       const side1: Rank = { over: side.over, settled: side.settled, length: side.ids.length };
+      const top = (this.chain[j] as ParsedMove).id;
       if (beats(side1, cur, false) || (!beats(cur, side1, false) && first < top))
         return this.seatOf.get((this.chain[j] as ParsedMove).pubkey) as number;
     }
