@@ -13,8 +13,8 @@ import { MODULES, makeGame, seededRandom, T0 } from './helpers.ts';
  * during the shuffle and the deal run by default; `pnpm test:sim` (SIM=1) runs them all, and `pnpm sim` plays more.
  * The seat count is a parameter: the 3-seat games are the full set, 4 and 6 seats add an honest whole game each
  * (about 100 s and 227 s of CPU) under SIM=1, and one cheap 6-seat game that ends in the shuffle runs by default.
- * Any-order setups (D093) run by default too: a 4-seat game that ends in the shuffle, and one short whole game
- * (about 200 s of CPU) with forced races, so the losers' branches stay held through play.
+ * Any-order setups (D093): a 4-seat game that ends in the shuffle runs by default, and a short whole game with forced
+ * races, whose losing branches stay held through play, under SIM=1 (about 200 s of CPU).
  */
 
 const SIM = process.env.SIM !== undefined && process.env.SIM !== '';
@@ -209,7 +209,9 @@ describe('simulated any-order setups (D093)', () => {
     },
     LONG,
   );
+});
 
+describe.skipIf(!SIM)('simulated any-order whole games (SIM=1)', () => {
   it(
     'any order with races completes and flags no one',
     () => {

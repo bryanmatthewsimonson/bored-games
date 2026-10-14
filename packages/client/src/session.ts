@@ -1590,18 +1590,22 @@ export class GameSession {
   }
 
   /**
-   * The pooled setup steps from the canonical chain down to `id`, taken as the move at `seq` (D093), in seq order:
-   * walk up the pool from `id` until a prev is the root or on the chain. Empty when `id` is the chain's move at
-   * `seq`. `missing` while an ancestor is not held. Null when the walk does not fit: an ancestor was refused, more
-   * than `seq` moves, a move that is not a setup step or out of seq order, or a chain prev at another seq. Ids fix
-   * ancestries, so a null holds for good.
+   * The held setup steps from the canonical chain down to `id`, taken as the move at `seq` (D093), in seq order:
+   * walk up the well-formed moves held (`candidateById`, whatever their judgement) from `id` until a prev is the
+   * root or on the chain. So the walk is a function of the events held: no trial's refusal of a step under a lost
+   * race changes it, and the signers it gives (`shufflersOn`) and so the equivocators are the same on every client
+   * that holds the same events. Proofs stay unchecked (D030 Ruling 12); `rivalDeck` checks its own. Empty when `id`
+   * is the chain's move at `seq`. `missing` while an ancestor is not held. Null when the walk does not fit: an
+   * ancestor was refused on arrival (`moveShape`), more than `seq` moves, a move that is not a setup step or out of
+   * seq order, or a chain prev at another seq. Ids fix ancestries, so a null holds for good.
    */
   private setupPath(id: Hex, seq: number): ParsedMove[] | 'missing' | null {
     const path: ParsedMove[] = [];
     let at = id;
     while (at !== this.root.id && !this.linked.has(at)) {
       if (path.length >= seq) return null;
-      const m = this.pooledById.get(at);
+      const m = this.candidateById.get(at)?.m;
+      // Every move that passed `moveShape` is a candidate, so a refused one here was refused on arrival.
       if (m === undefined) return this.rejected.has(at) ? null : 'missing';
       path.unshift(m);
       at = m.prevId;

@@ -1,6 +1,6 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures use known seats and steps.
 
-import type { ChainReactionState } from '@bored-games/chain-reaction';
+import { type ChainReactionState, chainReaction } from '@bored-games/chain-reaction';
 import {
   type Ciphertext,
   cardOf,
@@ -12,7 +12,7 @@ import {
   shuffleDeck,
   verifyShuffle,
 } from '@bored-games/deck';
-import { range } from '@bored-games/game-kit';
+import { createRng, range } from '@bored-games/game-kit';
 import {
   finalizeEvent,
   type MoveContent,
@@ -773,5 +773,57 @@ describe('honest races, settled branches and the split deal (D093)', () => {
     const [on, off] = twice[0]!.id < twice[1]!.id ? twice : [twice[1]!, twice[0]!];
     expect(spectator.view().head).toEqual({ id: on!.id, seq: 5 });
     expect(spectator.forkSteps()).toEqual([off!.id]);
+  });
+
+  it('equivocation in the setup tree does not depend on which trials ran', () => {
+    // A short game: the end may be declared once a chain reaches 4 tiles.
+    const game = makeGame(SEATS, 'any-tree-flags', { ...chainReaction.defaultRules(), endSize: 4 }, ANY);
+    const players = range(SEATS).map((seat) => newSession(game, seat));
+    const spectator = newSession(game, null);
+    const all = [...players, spectator];
+    const log: NostrEvent[] = [];
+    const publish = (ev: NostrEvent): void => {
+      expect(statuses(deliver(all, [ev]))).toEqual(Array(4).fill('accepted'));
+      log.push(ev);
+    };
+    // Seats 1 and 2 race on the root, each seeing its own step first.
+    const [a, b] = [1, 2].map((seat) => players[seat]!.buildShuffle(game.rnd, T0 + 100 + seat)) as [
+      NostrEvent,
+      NostrEvent,
+    ];
+    trust(all, [a, b]);
+    expect(players[1]!.receive(a, NOW)).toEqual({ status: 'accepted' });
+    expect(players[2]!.receive(b, NOW)).toEqual({ status: 'accepted' });
+    deliver(all, [a, b]);
+    log.push(a, b);
+    // The lower id wins at equal length: `w` is the winner's seat, and `lost` the loser's step.
+    const [lost, w] = a.id < b.id ? [b, 1] : [a, 2];
+    log.push(...shuffleInOrder(game, players, [0, 3 - w], [spectator]));
+    for (const [k, p] of players.entries()) publish(p.buildDeal(game.rnd, T0 + 200 + k));
+    const rng = createRng('any-tree-flags-policy');
+    let t = T0 + 1000;
+    while (spectator.view().phase === 'play') {
+      const p = players[(spectator.view().pending as { seat: number }).seat]!;
+      const legal = p.legalActions() as readonly { declareEnd?: boolean }[];
+      publish(p.buildAction(legal.find((x) => x.declareEnd === true) ?? rng.pick(legal), game.rnd, t++));
+    }
+    for (const p of players) publish(p.buildSecret(game.rnd, t++));
+    expect(spectator.view().phase).toBe('done');
+    const trusted = [...log];
+    // Seat 0 shuffles on the lost step, proving against another input: a well-formed step whose proof fails.
+    const input = shuffleOf(lost).deck;
+    const bad = stepBy(game, 0, 2, lost.id, [input[1]!, input[0]!, ...input.slice(2)]);
+    // Then the winner's seat, the one seat that may sign step 3 there, signs two steps on it.
+    const twice = range(2).map((i) => signed(game, w, 3, bad.id, shuffleOf(bad), T0 + 700 + i));
+    // The live spectator gets them after the end; the late sessions get them before everything, or after it.
+    deliver([spectator], [bad, ...twice]);
+    const early = holding(game, null, [bad, ...log, ...twice], trusted);
+    const late = holding(game, null, [...log, ...twice, bad], trusted);
+    // Seat `w` signed two well-formed steps on one prev of the held setup tree: all three flag it.
+    const views = [spectator, early, late].map((s) => s.view());
+    const head = spectator.view().head;
+    expect(views.map((v) => [v.phase, v.head])).toEqual(Array(3).fill(['done', head]));
+    expect(views.map((v) => v.equivocators)).toEqual([[w], [w], [w]]);
+    expect(views.map((v) => v.forfeits)).toEqual([[w], [w], [w]]);
   });
 });
