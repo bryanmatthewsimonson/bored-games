@@ -426,6 +426,12 @@ export class GameSession {
   /** Shares events that failed against the current final deck; they are tried again if that deck changes. */
   private readonly badShares = new Map<Hex, ParsedShares>();
   /**
+   * Whether a Shares event verifies against a held rival final deck (`dealtOnRival`, D093), by
+   * `<shares id>:<rival's last step id>`. Both ids fix their content (a step's ancestry fixes its deck), so each
+   * verdict is final.
+   */
+  private readonly rivalDeals = new Map<string, boolean>();
+  /**
    * `snapshots[i]` is the fold as it stood at head seq `i`, taken just before move `i + 1` was linked, so the chain
    * can be cut back to any accepted move.
    */
@@ -1513,14 +1519,91 @@ export class GameSession {
 
   /**
    * Whether an honest shuffle race split the deal (D093, owner's decision): in an any-order setup, during the deal,
-   * no shuffle equivocator is held and some seat dealt on a rival deck (`dealtElsewhere`), so it can never deal on
-   * this one. A timeout then cancels the game with no seat forfeiting. A held equivocation keeps D056's blame.
+   * no shuffle equivocator is held and some seat dealt on a held rival deck (`dealtOnRival`), so it can never deal
+   * on this one. A timeout then cancels the game with no seat forfeiting. A held equivocation keeps D056's blame,
+   * and so does a Shares event that fails against the chain's deck but fits no held rival deck (a garbage share):
+   * its seat is stalled and forfeits as usual. When no rival deck can be built from the events held, there is no
+   * split either.
    */
   private splitDeal(): boolean {
     if (this.root.shuffleOrder !== 'any' || this.phase !== 'deal') return false;
-    if (this.equivocators(true).length > 0) return false;
-    for (let k = 0; k < this.seats; k++) if (this.dealtElsewhere(k)) return true;
-    return false;
+    if (this.equivocators(true).length > 0 || this.badShares.size === 0) return false;
+    const rivals = this.rivalFinalDecks();
+    return rivals.length > 0 && [...this.badShares.values()].some((s) => this.dealtOnRival(s, rivals));
+  }
+
+  /**
+   * The final decks of the held, complete rival setup branches (D093), each with its last step's id, in id order: a
+   * branch of pooled shuffle steps that leaves the canonical chain at one of its shuffle prevs and reaches step N
+   * (`shuffleSteps`), every step a candidate (D030 Ruling 12, which bounds the proofs checked), signed by a seat
+   * that may sign it at its prev (`shuffleSigners`), with its proof verified. A branch with a step missing, refused
+   * or not a candidate gives none.
+   */
+  private rivalFinalDecks(): { last: Hex; deck: Ciphertext[] }[] {
+    const out: { last: Hex; deck: Ciphertext[] }[] = [];
+    for (const m of byId(this.pooledById.values())) {
+      if (m.seq !== this.shuffleSteps || m.content.type !== 'shuffle') continue;
+      const deck = this.rivalDeck(m);
+      if (deck !== null) out.push({ last: m.id, deck });
+    }
+    return out;
+  }
+
+  /** The final deck of the rival branch that pooled step `last` ends, or null (`rivalFinalDecks`). */
+  private rivalDeck(last: ParsedMove): Ciphertext[] | null {
+    // Walk up the pool to the canonical chain: the branch's steps, the first one's prev on the chain.
+    const path: ParsedMove[] = [last];
+    for (;;) {
+      const prev = (path[0] as ParsedMove).prevId;
+      if (prev === this.root.id || this.linked.has(prev)) break;
+      const up = this.pooledById.get(prev);
+      if (up === undefined || path.length >= this.shuffleSteps) return null;
+      path.unshift(up);
+    }
+    // The branch must hold steps `fork + 1..N` in order on chain move `fork`, a shuffle prev of the chain.
+    const fork = (path[0] as ParsedMove).seq - 1;
+    if (fork + path.length !== this.shuffleSteps || fork > this.chain.length) return null;
+    if (this.idAt(fork) !== (path[0] as ParsedMove).prevId) return null;
+    const signers = this.chain.slice(0, fork).map((m) => this.seatOf.get(m.pubkey) as number);
+    let deck = this.decks[fork] as Ciphertext[];
+    for (const [i, m] of path.entries()) {
+      const c = m.content;
+      const step = fork + i;
+      if (c.type !== 'shuffle' || m.seq !== step + 1 || !this.shuffleEligible(m)) return null;
+      const seat = this.seatOf.get(m.pubkey) as number;
+      if (!shuffleSigners(this.schedule, this.seats, this.root.shuffleOrder, signers).includes(seat))
+        return null;
+      const positions = this.stepAt(step).group.positions;
+      const input = positions.map((p) => deck[p] as Ciphertext);
+      if (!this.shuffleVerifies(m.id, step, seat, c.deck, c.proof, input)) return null;
+      deck = deck.slice();
+      positions.forEach((p, k) => {
+        deck[p] = c.deck[k] as Ciphertext;
+      });
+      signers.push(seat);
+    }
+    return deck;
+  }
+
+  /**
+   * Whether every share of Shares event `s` verifies, under its signer's deck key, against one of the held rival
+   * final decks `rivals`: its signer dealt on that deck (D093). Each verdict is kept (`rivalDeals`).
+   */
+  private dealtOnRival(s: ParsedShares, rivals: readonly { last: Hex; deck: Ciphertext[] }[]): boolean {
+    const key = this.keys[this.seatOf.get(s.pubkey) as number] as Point;
+    return rivals.some(({ last, deck }) => {
+      const id = `${s.id}:${last}`;
+      const known = this.rivalDeals.get(id);
+      if (known !== undefined) return known;
+      const ok =
+        s.shares.length > 0 &&
+        s.shares.every(({ pos, share }) => {
+          const ct = pos < this.deckSize ? deck[pos] : undefined;
+          return ct !== undefined && verifyShare(key, ct, share, this.shareCtx(pos));
+        });
+      this.rivalDeals.set(id, ok);
+      return ok;
+    });
   }
 
   /* --------------------------------------------------------------------------------------------- fold */
@@ -2055,18 +2138,23 @@ export class GameSession {
     return result;
   }
 
-  /** Whether `signer`'s proof for shuffle step `step` (0-based) verifies; kept by event id. */
+  /**
+   * Whether `signer`'s proof for shuffle step `step` (0-based) verifies, on the input `given` (a rival branch's, for
+   * `rivalDeck`) or else the chain's deck before that step (`shuffleInput`). Kept by event id: a step's ancestry,
+   * fixed by its id, fixes its input.
+   */
   private shuffleVerifies(
     id: Hex,
     step: number,
     signer: number,
     output: readonly Ciphertext[],
     proof: Parameters<typeof verifyShuffle>[3],
+    given?: readonly Ciphertext[],
   ): boolean {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
-    const input = this.shuffleInput(step);
+    const input = given ?? this.shuffleInput(step);
     const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step, signer));
     this.shuffleChecked.set(id, ok);
     return ok;

@@ -20,6 +20,8 @@ import {
   type NostrEvent,
   parseMove,
   parseRoot,
+  parseShares,
+  sharesTemplate,
 } from '@bored-games/protocol';
 import { describe, expect, it } from 'vitest';
 import { createToy } from '../../game-kit/test/toy.ts';
@@ -150,6 +152,56 @@ function holding(
 
 /** The toy's move content: its groups hold 6 cards. */
 const toyContent = (ev: NostrEvent): MoveContent => parseMove(ev, 6).content;
+
+/** The shares of Shares event `of`, signed by `seat`'s session key: they fail under that seat's deck key. */
+function sharesBy(game: TestGame, seat: number, of: NostrEvent, createdAt: number): NostrEvent {
+  const t = sharesTemplate({ rootId: game.rootId, shares: parseShares(of).shares }, createdAt);
+  return finalizeEvent(t, game.ids[seat]!.sessionSk, game.rnd);
+}
+
+interface SplitDecks {
+  game: TestGame;
+  /** Every shuffle step of both branches. */
+  steps: NostrEvent[];
+  /** The winning and the losing branch, in seq order. */
+  win: NostrEvent[];
+  lose: NostrEvent[];
+  /** Seat 0's deal on the losing deck. */
+  d0: NostrEvent;
+  /** Seats 1 and 2's deals on the winning deck. */
+  deals: NostrEvent[];
+}
+
+let splitMemo: SplitDecks | null = null;
+
+/**
+ * Two complete, honest rival decks of one 3-seat game, built once: seats 1 and 2 race on the root, and the other
+ * two seats then finish each branch, seat 0 shuffling on both. Both branches are settled and equally long, so the
+ * lower id on the root wins. Seat 0 sees the losing deck before the winner and deals on it; seats 1 and 2 deal on
+ * the winning deck.
+ */
+function splitDecks(): SplitDecks {
+  if (splitMemo !== null) return splitMemo;
+  const { game } = crGame('any-split');
+  const a = newSession(game, 1).buildShuffle(game.rnd, T0 + 100);
+  const b = newSession(game, 2).buildShuffle(game.rnd, T0 + 101);
+  const a0 = holding(game, 0, [a]).buildShuffle(game.rnd, T0 + 102);
+  const a2 = holding(game, 2, [a, a0]).buildShuffle(game.rnd, T0 + 103);
+  const b0 = holding(game, 0, [b]).buildShuffle(game.rnd, T0 + 104);
+  const b1 = holding(game, 1, [b, b0]).buildShuffle(game.rnd, T0 + 105);
+  const [onA, onB] = [
+    [a, a0, a2],
+    [b, b0, b1],
+  ];
+  const steps = [...onA, ...onB];
+  const [win, lose]: [NostrEvent[], NostrEvent[]] = a.id < b.id ? [onA, onB] : [onB, onA];
+  const dealer = holding(game, 0, lose, steps);
+  expect(dealer.duties()).toEqual([{ kind: 'deal' }]);
+  const d0 = dealer.buildDeal(game.rnd, T0 + 200);
+  const deals = [1, 2].map((seat, k) => holding(game, seat, win, steps).buildDeal(game.rnd, T0 + 201 + k));
+  splitMemo = { game, steps, win, lose, d0, deals };
+  return splitMemo;
+}
 
 /** Each session's shuffle duty rank, or null when it owes no shuffle. */
 const ranks = (players: readonly GameSession[]) =>
@@ -470,28 +522,13 @@ describe('honest races, settled branches and the split deal (D093)', () => {
   });
 
   it('a split deal times out with no forfeits', () => {
-    const { game } = crGame('any-split');
-    // Seats 1 and 2 race on the root; the other two seats then finish each branch, seat 0 shuffling on both.
-    const a = newSession(game, 1).buildShuffle(game.rnd, T0 + 100);
-    const b = newSession(game, 2).buildShuffle(game.rnd, T0 + 101);
-    const a0 = holding(game, 0, [a]).buildShuffle(game.rnd, T0 + 102);
-    const a2 = holding(game, 2, [a, a0]).buildShuffle(game.rnd, T0 + 103);
-    const b0 = holding(game, 0, [b]).buildShuffle(game.rnd, T0 + 104);
-    const b1 = holding(game, 1, [b, b0]).buildShuffle(game.rnd, T0 + 105);
-    const [onA, onB] = [
-      [a, a0, a2],
-      [b, b0, b1],
-    ];
-    const steps = [...onA, ...onB];
-    // Both branches are complete, settled and equally long: the lower id on the root wins.
-    const [win, lose]: [NostrEvent[], NostrEvent[]] = a.id < b.id ? [onA, onB] : [onB, onA];
-    // Seat 0 sees the losing deck before the winner and deals on it; seats 1 and 2 deal on the winning deck.
-    const dealer = holding(game, 0, lose, steps);
-    expect(dealer.duties()).toEqual([{ kind: 'deal' }]);
-    const d0 = dealer.buildDeal(game.rnd, T0 + 200);
-    expect(dealer.receive(d0, NOW)).toEqual({ status: 'accepted' });
-    const deals = [1, 2].map((seat, k) => holding(game, seat, win, steps).buildDeal(game.rnd, T0 + 201 + k));
-    const sessions = [dealer, ...[1, 2, null].map((seat) => holding(game, seat, [], steps))];
+    const { game, steps, win, lose, d0, deals } = splitDecks();
+    // Seat 0's session dealt on the losing deck, the only one it held; the others start empty.
+    const sessions = [0, 1, 2, null].map((seat) =>
+      holding(game, seat, seat === 0 ? [...lose, d0] : [], steps),
+    );
+    const [dealer, one] = sessions;
+    expect(dealer!.duties()).toEqual([]);
     deliver(sessions, [...win, ...deals, ...lose, d0]);
     for (const s of sessions) {
       expect(s.view().phase).toBe('deal');
@@ -501,8 +538,7 @@ describe('honest races, settled branches and the split deal (D093)', () => {
       expect(s.waitingFor()).toEqual([0]);
     }
     // Seat 0 dealt on the losing deck, so it never deals again: the deal can't complete.
-    expect(dealer.duties()).toEqual([]);
-    const [, one] = sessions;
+    expect(dealer!.duties()).toEqual([]);
     expect(one!.timeoutTarget(LATE)).toBe(0);
     const claim = one!.buildTimeout(0, game.rnd, LATE);
     for (const s of sessions) {
@@ -510,6 +546,52 @@ describe('honest races, settled branches and the split deal (D093)', () => {
       expect(s.view().phase).toBe('cancelled');
       expect(s.view().forfeits).toEqual([]);
       expect(s.view().outcome).toBeNull();
+    }
+  });
+
+  it("one seat's garbage share in the deal does not make a split: it forfeits", () => {
+    const { game, players, spectator } = crGame('any-garbage');
+    const all = [...players, spectator];
+    shuffleInOrder(game, players, [0, 1, 2], [spectator]);
+    const d0 = players[0]!.buildDeal(game.rnd, T0 + 200);
+    const d2 = players[2]!.buildDeal(game.rnd, T0 + 202);
+    // Seat 1 publishes seat 0's shares as its own, which fail, and never deals.
+    const junk = sharesBy(game, 1, d0, T0 + 201);
+    const results = deliver(all, [d0, d2, junk]);
+    expect(results[2]!.map((r) => r.status)).toEqual(Array(4).fill('rejected'));
+    for (const s of all) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().shuffleRivals).toBe(false);
+      expect(s.waitingFor()).toEqual([1]);
+    }
+    expect(players[1]!.duties()).toEqual([]);
+    const claim = players[0]!.buildTimeout(1, game.rnd, LATE);
+    for (const s of all) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([1]);
+    }
+  });
+
+  it('a garbage share beside a held rival deck is no split: its seat forfeits', () => {
+    const { game, steps, win, lose, deals } = splitDecks();
+    // Both complete decks are held, but seat 0 publishes seat 1's shares as its own: they fit neither deck.
+    const junk = sharesBy(game, 0, deals[0]!, T0 + 300);
+    const sessions = [0, 1, 2, null].map((seat) =>
+      holding(game, seat, [...win, ...lose, ...deals, junk], steps),
+    );
+    for (const s of sessions) {
+      expect(s.view().phase).toBe('deal');
+      expect(s.view().equivocators).toEqual([]);
+      expect(s.view().shuffleRivals).toBe(true);
+      expect(s.waitingFor()).toEqual([0]);
+    }
+    const claim = sessions[1]!.buildTimeout(0, game.rnd, LATE);
+    for (const s of sessions) {
+      expect(s.receive(claim, LATE)).toEqual({ status: 'accepted' });
+      expect(s.view().phase).toBe('cancelled');
+      expect(s.view().forfeits).toEqual([0]);
     }
   });
 
