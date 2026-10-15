@@ -13,11 +13,14 @@ concurrency:
   group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# `pnpm check` (typecheck, lint, then every Vitest project) took about 27 minutes on one runner, so CI splits it:
+# typecheck and lint in one job, the tests in three shards side by side. `check` passes only when all of them do,
+# and the Pages deploy (pages.yml) waits for the whole workflow.
 jobs:
-  check:
+  static:
+    name: typecheck and lint
     runs-on: ubuntu-latest
-    # `pnpm check` takes about 27 minutes since D093's setup tests, which wait on real stagger timers.
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       # The pnpm version comes from "packageManager" in package.json.
@@ -27,5 +30,32 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Includes the public build scan (tests/public-build.test.ts, D046): no licensed name in apps/web/dist.
-      - run: pnpm check
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+  test:
+    name: test (${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # One shard runs the public build scan (tests/public-build.test.ts, D046): no licensed name in apps/web/dist.
+      - run: pnpm test --shard=${{ matrix.shard }}/3
+
+  check:
+    needs: [static, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: test "${{ needs.static.result }}" = success && test "${{ needs.test.result }}" = success

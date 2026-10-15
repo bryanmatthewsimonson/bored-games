@@ -422,7 +422,21 @@ describe('The setup mode (D093)', () => {
       const seats = bySeat.map((p) => recording(p.deps));
       // An automatic move that plays the first legal action: a full controller would send it in play.
       const first = (): ((legal: readonly unknown[]) => unknown) => (legal) => legal[0] ?? null;
-      const gs = seats.map((s) => setupGame(rootId, s.deps, { autoMove: first }));
+      // Every seat on one clock that moves only when the test moves it.
+      const c = fakeTime();
+      const gs = seats.map((s) =>
+        setupGame(rootId, { ...s.deps, now: c.now, timers: c.timers }, { autoMove: first }),
+      );
+      // Each seat in turn is first in line once every seat holds the step before, and shuffles after its grace (seat
+      // k at step k); after the three steps every seat deals after its grace.
+      for (let seq = 0; seq <= 3; seq++) {
+        await waitFor(
+          `every seat waiting at step ${seq}`,
+          () => gs.every((g) => g.view.value?.head.seq === seq && g.status.value === 'waiting'),
+          SLOW,
+        );
+        c.at((seq + 1) * SETUP_MODE_GRACE_S);
+      }
       await waitFor('every seat in play', () => gs.every((g) => g.view.value?.phase === 'play'), SLOW);
       await waitFor('every seat settled', () =>
         gs.every((g) => g.status.value === 'waiting' || g.status.value === 'your-turn'),
@@ -479,13 +493,25 @@ describe('The setup mode (D093)', () => {
       const { rootId, bySeat } = await game3();
       const [s0, s1, s2] = bySeat;
       const phase = (p: Profile) => loadGameStatus(p.name, p.deps.storage, rootId)?.phase;
+      // Every seat on one clock that moves only when the test moves it.
+      const c = fakeTime();
+      const on = (p: Profile): ControllerDeps => ({ ...p.deps, now: c.now, timers: c.timers });
       // Seat 0 in setup mode, the others in full mode: every controller writes the phase.
-      const gs = [setupGame(rootId, s0.deps), h.game(rootId, s1.deps)];
+      const gs = [setupGame(rootId, on(s0)), h.game(rootId, on(s1))];
       await waitFor('the setup phase cached', () => phase(s0) === 'setup' && phase(s1) === 'setup');
+      // Seat 0, first in line, shuffles after its grace; seat 1 is then first in line and shuffles at once.
+      c.at(SETUP_MODE_GRACE_S);
       // Seat 2 is away, so the setup cannot end: still `setup`.
       await waitFor('seat 1 shuffled', () => (gs[0]?.view.value?.head.seq ?? 0) >= 2, SLOW);
       expect([phase(s0), phase(s1)]).toEqual(['setup', 'setup']);
-      gs.push(h.game(rootId, s2.deps));
+      gs.push(h.game(rootId, on(s2)));
+      // Seat 2 shuffles at once, seats 1 and 2 deal at once, and seat 0 holds its deal for the grace.
+      await waitFor(
+        'seats 1 and 2 dealt, and seat 0 holding its deal',
+        () => gs.every((g) => g.view.value?.phase === 'deal' && g.status.value === 'waiting'),
+        SLOW,
+      );
+      c.at(2 * SETUP_MODE_GRACE_S);
       await waitFor('every seat in play', () => gs.every((g) => g.view.value?.phase === 'play'), SLOW);
       await waitFor('the play phase cached', () => bySeat.every((p) => phase(p) === 'play'), 5_000);
     },
@@ -576,13 +602,16 @@ describe('The setup mode (D093)', () => {
         secret: { event: junk(KIND.reveal), confirmed: false, orphan: false },
       };
       writeJson(s0.deps.storage, outboxKey(s0.name, g.rootId), saved);
-      const rec = recording(s0.deps);
+      // On a clock that moves only when the test moves it.
+      const clock = fakeTime();
+      const rec = recording({ ...s0.deps, now: clock.now, timers: clock.timers });
       const c = setupGame(g.rootId, rec.deps);
       await waitFor('the game loaded', () => c.status.value !== 'syncing', 60_000);
       await pause(1500);
       expect(rec.published.filter((ev) => ev.kind !== KIND.move)).toEqual([]);
       expect(c.log.value).toEqual([]);
-      // Seat 0, first in line at the root, still shuffles; the saved events wait for the game page.
+      // Seat 0, first in line at the root, still shuffles after its grace; the saved events wait for the game page.
+      clock.at(SETUP_MODE_GRACE_S);
       await onRelay("seat 0's step", async () => (await movesBy(g.rootId, g.keys[0] as string)).length === 1);
       const after = loadOutbox(s0.deps.storage, s0.name, g.rootId);
       expect(after.get('resign')).toEqual(saved.resign);
