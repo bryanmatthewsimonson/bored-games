@@ -154,7 +154,7 @@ A page-wide service, `setupRunnerFor(deps)` (the `WeakMap<ControllerDeps, …>` 
   - `pnpm sim --game <id>` for every deck game in any-order mode;
   - a new `race` adversary that makes every eligible seat shuffle at once on the same head;
   - `--vanish-at` for a seat that is away during setup and returns.
-- **Protocol model** (`tools/protocol-model`): its setup steps allow any eligible seat.
+- **Protocol model** (`tools/protocol-model`): unaffected. Its setup steps are an option of the abandoned v2 `stop3` design (D071), not a model of v1's shuffle, so nothing there changes.
 - **Web:**
   - the stagger and settle timings, with injected timers;
   - setup mode does no restore, attest or backup;

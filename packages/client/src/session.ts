@@ -144,8 +144,8 @@ type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 /**
  * Whether `module` reshuffles its deck in play under the validated `rules` (D073, D079, D080): the single-pile epoch
  * wire, a `pile` deck of at most 512 cards whose module installs a reshuffled order and names its plaintexts (Holler,
- * Hazard, Quill & Quarry, Gilt & Guile). Such a game's setup shuffle runs in seat order (D093): `GameSession.create`
- * refuses an any-order root for it, and the web lobby starts it without the tag.
+ * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Such a game's setup shuffle runs in seat order (D093):
+ * `GameSession.create` refuses an any-order root for it, and the web lobby starts it without the tag.
  */
 export function reshufflesInPlay(module: AnyModule, rules: unknown): boolean {
   const deck = module.decks(rules)[0] ?? null;

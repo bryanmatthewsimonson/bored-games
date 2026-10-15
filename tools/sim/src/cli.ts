@@ -213,7 +213,11 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   if (values.race && order !== 'any') {
-    console.error('--race needs --shuffle-order any: in seat order only one seat may sign each step');
+    console.error(
+      reshuffles
+        ? `--race does not apply to ${game}: it reshuffles in play, so its setup runs in seat order`
+        : '--race needs --shuffle-order any: in seat order only one seat may sign each step',
+    );
     process.exit(2);
   }
   const games = Number(values.games);
