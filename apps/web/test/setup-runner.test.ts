@@ -3,8 +3,7 @@
  * a game no longer strands when its players never have its page open at once. It takes the oldest games first, at
  * most `SETUP_RUNNER_MAX` at once, only those whose keys are in this browser and whose setup is not over, hands a game
  * to its page while that page is open, and stops once this seat's setup work is done. Chain Reaction (3 seats) where
- * the runner shuffles and deals, Luster (2 seats, any order) and Holler (2 seats, seat order) where it only waits,
- * against the real dev relay.
+ * the runner shuffles and deals, Luster and Holler (2 seats) for the slots, against the real dev relay.
  */
 import { DEAL_SETTLE_S, GameSession } from '@bored-games/client';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
@@ -703,10 +702,14 @@ describe("The setup runner's slots (D093, rulings 21 and 22)", () => {
   it(
     'a game that waits on other seats does not count toward the cap',
     async () => {
-      // Holler reshuffles in play, so its setup is in seat order: seat 1 owes nothing until seat 0 has shuffled.
+      // Seat 1 has taken the first step of each game by hand, so it owes nothing until seat 0 has shuffled.
       const a = h.profile('a');
       const b = h.profile('b');
       const roots = await games4('holler', a, b);
+      for (const rootId of roots) {
+        const session = await seatSession(rootId, b, 1);
+        await h.pool().publish(session.buildShuffle(rnd, now()));
+      }
       const c = fakeTime();
       const t = tracking({ ...b.deps, now: c.now, timers: c.timers });
       const runner = await runnerOn(t.deps, roots);

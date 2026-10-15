@@ -144,8 +144,8 @@ type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 /**
  * Whether `module` reshuffles its deck in play under the validated `rules` (D073, D079, D080): the single-pile epoch
  * wire, a `pile` deck of at most 512 cards whose module installs a reshuffled order and names its plaintexts (Holler,
- * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Such a game's setup shuffle runs in seat order (D093):
- * `GameSession.create` refuses an any-order root for it, and the web lobby starts it without the tag.
+ * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Its setup shuffle may run in any order, as any game's
+ * (D093, D094); the epochs in play stay in seat order.
  */
 export function reshufflesInPlay(module: AnyModule, rules: unknown): boolean {
   const deck = module.decks(rules)[0] ?? null;
@@ -670,9 +670,6 @@ export class GameSession {
     const module = input.modules.get(root.game) as AnyModule;
     const rules = module.validateRules(root.rules);
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
-    // A game that reshuffles in play takes its setup shuffle in seat order (D093, ruling 12).
-    if (root.shuffleOrder === 'any' && reshufflesInPlay(module, rules.value))
-      throw new ClientError('an any-order setup is not supported in a game that reshuffles in play');
 
     const me = input.me;
     if (me !== null) {
@@ -1095,8 +1092,9 @@ export class GameSession {
     let early = false;
     for (const { pos } of s.shares) {
       if (this.positionLive(pos)) continue;
-      // A slot of a reshuffle this client has not accepted yet: its Shares wait for it (D087).
-      if (this.earlyEpochPosition(pos)) early = true;
+      // An epoch card slot not live on the chain yet: its Shares wait, however far ahead (D087, D094). Only a
+      // position no chain can make live is refused, so the verdict does not depend on what arrived first.
+      if (this.cardPosition(pos)) early = true;
       else return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
     if (early || this.timedOut !== null || this.resignedBy?.cancels === true) {
@@ -1884,16 +1882,6 @@ export class GameSession {
     return this.usesEpochs() ? epochSlot(pos, this.deckSize, epochStride(this.deckSize)) : null;
   }
 
-  /**
-   * Whether a share of `pos` may wait for its reshuffle (D087): a card slot of one of the next two epochs, which a
-   * Shares event can reach this client before the steps that complete it. Anything else not live is refused.
-   */
-  private earlyEpochPosition(pos: number): boolean {
-    const k = this.epochOf(pos);
-    const latest = this.latestEpoch();
-    return k !== null && k > latest && k <= latest + 2;
-  }
-
   /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
   private rollStride(): number | null {
     return this.usesEpochs() && this.usesBeacon() ? epochStride(this.deckSize) : null;
@@ -2518,14 +2506,10 @@ export class GameSession {
     let progressed = false;
     if (this.finalDeck() !== null) {
       for (const s of byId(this.waitingShares.values())) {
-        // Still before a reshuffle it needs: it waits on, unless that reshuffle came and the slot is not in it (D087).
-        const dead = s.shares.filter(({ pos }) => !this.positionLive(pos));
-        if (dead.some(({ pos }) => !this.earlyEpochPosition(pos))) {
-          this.waitingShares.delete(s.id);
-          this.rejected.set(s.id, `position ${(dead[0] as { pos: number }).pos} is outside the deck`);
-          continue;
-        }
-        if (dead.length > 0) continue;
+        // Still before a reshuffle it needs, it waits on (D087). Intake refused every position that is no card
+        // slot, so the rest wait whatever the chain: a trial at a setup prev relinks the final deck before the
+        // reshuffles, and a slot the accepted output lacks may be in the output another branch makes (D094).
+        if (s.shares.some(({ pos }) => !this.positionLive(pos))) continue;
         this.waitingShares.delete(s.id);
         const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
         if (r === 'accepted') progressed = true;
@@ -2674,9 +2658,9 @@ export class GameSession {
 
   /**
    * The kept-verdict key of the side branches at the fork after chain move `j` (`sideBest`): `forkKey`, except at a
-   * setup fork of an any-order game that does not reshuffle in play (D093) whose side branches hold setup steps
-   * alone, short of the last (`setupBelow`). There the key is the pool below the prev, which of those steps are not
-   * candidates, and the freeze: the shares and the other candidates are no input of the verdict.
+   * setup fork of an any-order game (D093) whose side branches hold setup steps alone, short of the last
+   * (`setupBelow`). There the key is the pool below the prev, which of those steps are not candidates, and the
+   * freeze: the shares and the other candidates are no input of the verdict.
    * - The trial links only setup steps there: each on its signer (a function of the steps above it, all fixed by
    *   their ids), its proof (verified once per id) and whether it is a candidate. It never completes a deck, so it
    *   folds no Shares event, links no game action and never reaches `over`. `setupBelow`'s depth bound lets every
@@ -2684,18 +2668,15 @@ export class GameSession {
    * - Re-running the trial anyway would only cut the chain below the final deck and relink it, which re-verifies and
    *   refolds every Shares event and bumps the share version, voiding every other fork's verdict: after an honest
    *   race with two losing steps, each later event re-tried both forks, each trial refolding the whole game. The
-   *   relink rebuilds the fold as it was, so skipping it changes nothing, with one exception: in a game that
-   *   reshuffles in play, the relink refuses for good a waiting Shares event of a reshuffle more than two ahead of
-   *   the cut (D087). Such games keep `forkKey`, so they fold exactly as before.
-   * - Seat-order games keep `forkKey` too (a setup fork there needs an equivocation), and so does a test switch.
+   *   relink rebuilds the fold as it was, so skipping it changes nothing. In a game that reshuffles in play that
+   *   holds since D094: a Shares event of a reshuffle not yet relinked waits for it instead of being refused for
+   *   good.
+   * - Seat-order games keep `forkKey` (a setup fork there needs an equivocation), and so does a test switch.
    * `throughBest` keeps `forkKey`: its trial relinks the chain's own branch, whose game actions depend on shares.
    */
   private sideKey(j: number, frozen: boolean): string {
     const below =
-      this.shareFreeSetupVerdicts &&
-      this.root.shuffleOrder === 'any' &&
-      !this.usesEpochs() &&
-      j < this.shuffleSteps
+      this.shareFreeSetupVerdicts && this.root.shuffleOrder === 'any' && j < this.shuffleSteps
         ? this.setupBelow(this.idAt(j))
         : null;
     if (below === null) return this.forkKey(j, frozen);
