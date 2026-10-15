@@ -21,6 +21,7 @@ import { keptKeys, switchToKeptKey } from '../identity.ts';
 import type { ProfileInfo } from '../profile-model.ts';
 import { usePlayerProfiles } from '../profiles.ts';
 import { activeGame, homeHref } from '../router.ts';
+import { setupRunnerFor } from '../setup-runner.ts';
 import { formatDeadline, ownRevealLine, waitingLine } from '../waiting-model.ts';
 import { localTableRecord, myTableCount, type WatchNotice, watchNotice } from '../watch-model.ts';
 
@@ -324,9 +325,14 @@ export function GameScreen(props: { rootId: string }) {
     [props.rootId, deps],
   );
   useEffect(() => {
+    // The page plays the game while it is open: the setup runner hands it over first (D093), and takes it back after.
+    const release = setupRunnerFor(deps).claim(ctl.rootId);
     ctl.start();
-    return () => ctl.dispose();
-  }, [ctl]);
+    return () => {
+      ctl.dispose();
+      release();
+    };
+  }, [ctl, deps]);
 
   const view = ctl.view.value;
   const status = ctl.status.value;
@@ -419,6 +425,7 @@ export function GameScreen(props: { rootId: string }) {
           mySeat: view.mySeat,
           waiting: ctl.waiting.value,
           names,
+          shuffleOrder: view.shuffleOrder,
           ...(view.phase === 'play' && owed !== null ? { secondsLeft: owed.until - now } : {}),
           ...(shareWords === undefined ? {} : { share: shareWords }),
         });

@@ -9,11 +9,13 @@ import {
   type NostrEvent,
   type ParsedTable,
   parseTable,
+  type ShuffleOrder,
   tableTemplate,
 } from '@bored-games/protocol';
 import { buildJoinTemplate, buildRootTemplate, foldLobby, type GameKeys, newGameKeys } from './lobby.ts';
 import { MemoryRelay } from './memory-relay.ts';
 import { GameSession } from './session.ts';
+import { DEAL_SETTLE_S, SHUFFLE_STAGGER_S } from './setup-timing.ts';
 import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.ts';
 
 /*
@@ -30,6 +32,13 @@ import type { Duty, Identity, Phase, SessionAudit, SessionView } from './types.t
  * Timeouts run on local receipt time (D030 Ruling 10): each client passes the simulated clock as `now` when it
  * first receives an event, and remembers that first-seen time, passing it again for every later copy, as the web
  * controller does across reloads.
+ *
+ * An any-order setup (`shuffleOrder: 'any'`, D093) times its steps as the web client does. Each client remembers
+ * when it first saw its current head. A seat whose shuffle duty has rank r > 0 holds back until r ·
+ * SHUFFLE_STAGGER_S seconds have passed since then. A deal waits DEAL_SETTLE_S seconds while the client holds a
+ * rival setup step. With `shuffleRace`, ranks are ignored and races are forced: when a seat is due a setup step,
+ * every honest seat due one on the same head signs its block at once, before any of them sees another's, and their
+ * turn ends there. Fork choice then picks one branch, and each loser signs again on the new head.
  *
  * An adversary may take one seat's turns over to cheat; its hooks live with the tests and tools, never here.
  *
@@ -100,6 +109,13 @@ export interface SimOptions {
   fullSync?: boolean;
   /** Events this client has seen already that a sync delivers again, at random (default 3). */
   replays?: number;
+  /** The order of the setup shuffle's blocks, the root's `shuffle-order` (D093; default `seat`, no tag). */
+  shuffleOrder?: ShuffleOrder;
+  /**
+   * Force honest setup races (D093): every honest seat due a setup step on the same head signs its block at once,
+   * whatever its rank (default false).
+   */
+  shuffleRace?: boolean;
 }
 
 /** An event an adversary labelled as a cheat, and the statuses each other client gave it, in order. */
@@ -191,6 +207,8 @@ interface Client {
   delivered: Set<Hex>;
   /** When this client first received each event it did not reject (the simulated clock then). */
   seen: Map<Hex, number>;
+  /** This client's head, and when it first saw it (the simulated clock then): the setup stagger and settle (D093). */
+  head: { id: Hex; at: number };
 }
 
 interface Player {
@@ -230,6 +248,8 @@ export function simulateGame(opts: SimOptions): SimReport {
   const fullSync = opts.fullSync ?? false;
   const replays = opts.replays ?? 3;
   const adversary = opts.adversary ?? null;
+  const shuffleOrder = opts.shuffleOrder ?? 'seat';
+  const race = opts.shuffleRace ?? false;
   const failures: string[] = [];
   /** Record a problem once, however often it recurs. */
   const fail = (what: string): void => {
@@ -281,7 +301,9 @@ export function simulateGame(opts: SimOptions): SimReport {
   const lobbyFilter = [{ kinds: [KIND.join, KIND.root], '#a': [table.address] }];
   const creatorView = foldLobby(tableEv, relay.query(lobbyFilter, creator.rng), opts.modules);
   if (!creatorView.full) throw new Error('the lobby did not fill');
-  relay.publish(sign(buildRootTemplate(creatorView, RELAYS, clock), creator.npubSk));
+  relay.publish(
+    sign(buildRootTemplate(creatorView, RELAYS, clock, undefined, { shuffleOrder }), creator.npubSk),
+  );
   const rootAt = clock;
   advance();
 
@@ -320,22 +342,24 @@ export function simulateGame(opts: SimOptions): SimReport {
       outbox: new Map(),
       delivered: new Set(),
       seen: new Map(),
+      head: { id: session.view().head.id, at: clock },
     };
   });
   clients.sort((a, b) => (a.seat as number) - (b.seat as number));
   const specRng = rng.fork('spectator');
   const spec = lobbyOf(specRng);
+  const specSession = GameSession.create({
+    modules: opts.modules,
+    table: tableEv,
+    joins: spec.events.filter((ev) => ev.kind === KIND.join),
+    root: spec.root,
+    me: null,
+    rootSeenAt: clock,
+  });
   const spectator: Client = {
     label: 'spectator',
     seat: null,
-    session: GameSession.create({
-      modules: opts.modules,
-      table: tableEv,
-      joins: spec.events.filter((ev) => ev.kind === KIND.join),
-      root: spec.root,
-      me: null,
-      rootSeenAt: clock,
-    }),
+    session: specSession,
     identity: null,
     npubSk: null,
     rng: specRng,
@@ -343,6 +367,7 @@ export function simulateGame(opts: SimOptions): SimReport {
     outbox: new Map(),
     delivered: new Set(),
     seen: new Map(),
+    head: { id: specSession.view().head.id, at: clock },
   };
   const everyone = [...clients, spectator];
   const rootId = spec.root.id;
@@ -364,6 +389,15 @@ export function simulateGame(opts: SimOptions): SimReport {
   };
   const cheats: Omit<CheatRecord, 'statuses' | 'last'>[] = [];
   let claims = 0;
+
+  /**
+   * Remember when `c` first saw its current head (D093). Called after each sync and publish, which is enough: the clock
+   * moves only between rounds.
+   */
+  const noteHead = (c: Client): void => {
+    const id = c.session.view().head.id;
+    if (id !== c.head.id) c.head = { id, at: clock };
+  };
 
   const deliver = (c: Client, ev: NostrEvent): string => {
     c.delivered.add(ev.id);
@@ -392,11 +426,14 @@ export function simulateGame(opts: SimOptions): SimReport {
     }
     for (const ev of stream) deliver(c, ev);
     c.session.tick(clock);
+    noteHead(c);
   };
 
   const publish = (c: Client, ev: NostrEvent): string => {
     relay.publish(ev);
-    return deliver(c, ev);
+    const status = deliver(c, ev);
+    noteHead(c);
+    return status;
   };
 
   /** The outbox slot of a duty, as of the head. */
@@ -451,11 +488,33 @@ export function simulateGame(opts: SimOptions): SimReport {
     }
   };
 
-  /** Do the seat's duties, one event at a time, until none is due or one makes no progress. */
-  const performDuties = (c: Client): void => {
+  /** Whether `duty` is a setup shuffle step: one of the opening chain's, not a play-phase epoch's. */
+  const setupStep = (c: Client, duty: Duty | undefined): boolean =>
+    duty?.kind === 'shuffle' && c.session.view().phase === 'shuffle';
+
+  /**
+   * Whether `c` does `duty` now, as the web client times it (D093). A seat due a setup step at rank r > 0 holds back
+   * r · SHUFFLE_STAGGER_S seconds from when it first saw the head, so the seats ahead of it go first (with
+   * `shuffleRace`, ranks are ignored). A deal waits DEAL_SETTLE_S seconds after the chain completes while a rival
+   * setup step is held, so the chain can still lose to the rival's branch first.
+   */
+  const timely = (c: Client, duty: Duty): boolean => {
+    const waited = clock - c.head.at;
+    if (duty.kind === 'shuffle') return race || waited >= duty.rank * SHUFFLE_STAGGER_S;
+    if (duty.kind === 'deal') return !c.session.view().shuffleRivals || waited >= DEAL_SETTLE_S;
+    return true;
+  };
+
+  /**
+   * Do the seat's duties, one event at a time, until none is due or one makes no progress. With `setupOnly`, only
+   * setup shuffle steps.
+   */
+  const performDuties = (c: Client, setupOnly = false): void => {
     for (let i = 0; i < MAX_PER_TURN; i++) {
       const duty = c.session.duties()[0];
       if (duty === undefined) return;
+      if (setupOnly && !setupStep(c, duty)) return;
+      if (!timely(c, duty)) return;
       const slot = slotOf(c, duty);
       const held = c.outbox.get(slot);
       if (held !== undefined) {
@@ -470,8 +529,12 @@ export function simulateGame(opts: SimOptions): SimReport {
         fail(`${c.label}: building ${duty.kind} failed: ${errorText(e)}`);
         return;
       }
+      const setup = setupStep(c, duty);
       c.outbox.set(slot, ev);
       const status = publish(c, ev);
+      // A setup step that lost a race in an any-order setup (D093) waits beside the chain: no failure. The seat is
+      // due a step again on the winner's head, under a new slot.
+      if (status === 'stored' && setup && shuffleOrder === 'any') return;
       if (status !== 'accepted') {
         fail(`${c.label}: its own ${duty.kind} event was ${status}`);
         return;
@@ -515,6 +578,22 @@ export function simulateGame(opts: SimOptions): SimReport {
   });
 
   const isAdversary = (c: Client): boolean => adversary !== null && c.seat === adversary.seat;
+
+  /**
+   * A forced race (`shuffleRace`, D093). `c` is due a setup step, so every other honest seat syncs first, and each one
+   * due a setup step on `c`'s head signs its block with `c`, before any of them sees another's. Their turn ends
+   * there, so none deals on a deck it alone holds; each next sees the rivals and lets its deal settle.
+   */
+  const raceSetup = (c: Client): void => {
+    const head = c.session.view().head.id;
+    const others = clients.filter((d) => d !== c && !isAdversary(d));
+    for (const d of others) sync(d);
+    const racers = others.filter(
+      (d) => d.session.view().head.id === head && setupStep(d, d.session.duties()[0]),
+    );
+    for (const d of [c, ...racers]) performDuties(d, true);
+  };
+
   /** Every session is over and no honest seat owes anything, an attestation included. */
   const finished = (): boolean =>
     everyone.every((c) => TERMINAL.includes(c.session.view().phase)) &&
@@ -527,7 +606,8 @@ export function simulateGame(opts: SimOptions): SimReport {
     if (c.seat !== null) {
       const mode = isAdversary(c) && adversary !== null ? adversary.turn(turnOf(c)) : 'honest';
       if (mode === 'honest') {
-        performDuties(c);
+        if (race && setupStep(c, c.session.duties()[0])) raceSetup(c);
+        else performDuties(c);
         claimTimeout(c);
       }
     }

@@ -401,9 +401,11 @@ export function RulesContent(props: { theme: ChainReactionTheme; rules?: ChainRe
           </li>
           <li>
             <strong>The shuffle and deal take a moment.</strong> When the game starts, every player's browser
-            shuffles the tiles, proves its shuffle, and then deals. The players shuffle one after another, so
-            it takes longer with more players: about 15–30 seconds with three players and about a minute with
-            six. Every player needs the game open for it to finish.
+            shuffles the tiles, proves its shuffle, and then deals. Each player's app does its part as soon as
+            it is open, on any page of the site, and the order doesn't matter: a player who is away is skipped
+            after a short wait. It takes longer with more players: with everyone on the game, about 15–30
+            seconds with three players and about a minute with six. Each player needs to open the app once for
+            it to finish.
           </li>
           <li>
             <strong>A new tile shows "?" for a while.</strong> The tile is yours as soon as you draw it, but

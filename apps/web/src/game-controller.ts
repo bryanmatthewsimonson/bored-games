@@ -5,6 +5,9 @@
  *   secrets) or as a spectator, and folds in every game event from the relays.
  * - It performs this seat's automatic duties one at a time (shuffle, deal, share, beacon, secret, attest). Only
  *   `decide` waits for the player, through `act`. A beacon duty publishes this seat's share of a public dice roll.
+ * - In setup mode (`GameControllerOptions.mode`, D093: the setup runner's), it performs the shuffle and the deal only,
+ *   while the session is in setup, sends only those saved events, and nothing that could prompt the player's signer: no
+ *   key restore or backup, no attestation, no automatic move.
  * - Every event it builds is saved to an outbox in storage before it is published. A duty whose event is already
  *   in the outbox reuses it: nothing is signed twice. A move is kept under the head it was built on, and one the
  *   session no longer accepts (an orphan, after the chain moved on) is never republished.
@@ -22,10 +25,13 @@
  */
 import {
   ClientError,
+  DEAL_SETTLE_S,
   type Duty,
   GameSession,
   type Identity,
+  type Phase,
   type SessionView,
+  SHUFFLE_STAGGER_S,
   seatForGameKeys,
 } from '@bored-games/client';
 import { canonicalJson } from '@bored-games/game-kit';
@@ -58,6 +64,7 @@ import { type ControllerDeps, unionRelays } from './net.ts';
 import type { RandomBytes } from './random.ts';
 import { ownCardReason, sealedItems, sealVerdict, sharePositions, shareVerdict } from './share-vet.ts';
 import {
+  type GamePhaseName,
   type GameStatusName,
   loadSecrets,
   type RevealCache,
@@ -124,6 +131,15 @@ export interface GameControllerOptions {
    * nothing for, as every game but Room for Doubt, sends nothing by itself.
    */
   autoMove?: (game: string) => AutoMove | undefined;
+  /**
+   * `full` (the default) plays the seat as the game screen does. `setup` (D093, the setup runner) performs only the
+   * shuffle and deal duties (`SETUP_AUTO`), and only while the session is in setup. Of the saved events it vets and
+   * republishes only setup work (`#setupSlot`: the deal and the setup shuffle steps), leaving every other one for the
+   * game page. It never restores the game keys, backs them up, attests, echoes a counted Resign or makes an automatic
+   * move, so it never prompts a NIP-07 extension. Each setup duty waits `SETUP_MODE_GRACE_S` more than a full
+   * controller's (ruling 20). The status it computes and caches is a full controller's, but for that grace.
+   */
+  mode?: 'full' | 'setup';
 }
 
 /** The game event kinds a game subscription asks for (PROTOCOL §9). */
@@ -155,6 +171,42 @@ export const GAME_PAGE = 500;
 
 /** Automatic duties, in the order they are performed. */
 const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beacon', 'secret', 'attest'];
+
+/**
+ * The automatic duties a controller in setup mode performs (D093), signed by the session key alone, and only while the
+ * session is in setup (`shuffle` or `deal`): a play-phase reshuffle (an epoch) is not setup work.
+ */
+const SETUP_AUTO: readonly Duty['kind'][] = ['shuffle', 'deal'];
+
+/**
+ * How much longer a setup-mode controller holds each setup duty than a game page (D093, ruling 20), in seconds: a page
+ * of the same seat open on another device (its keys restored from the backup) acts first, and its step or deal comes
+ * in before the runner builds a rival one, which would count as equivocation. Shorter than `SHUFFLE_STAGGER_S`, so the
+ * order by rank holds.
+ */
+export const SETUP_MODE_GRACE_S = 20;
+
+/**
+ * The phase Home caches (D093): `setup` for the shuffle and the deal, `play`, and `end` once the game is over, with
+ * secrets still owed (`end`) or not (`done`, `cancelled`). A new `Phase` does not compile until it is mapped here.
+ */
+function cachedPhase(phase: Phase): GamePhaseName {
+  switch (phase) {
+    case 'shuffle':
+    case 'deal':
+      return 'setup';
+    case 'play':
+      return 'play';
+    case 'end':
+    case 'done':
+    case 'cancelled':
+      return 'end';
+    default: {
+      const unmapped: never = phase;
+      return unmapped;
+    }
+  }
+}
 
 /** One built event, whether a relay has confirmed it, and whether the session has refused it (an orphan). */
 export interface OutboxEntry {
@@ -270,6 +322,24 @@ export function loadOutbox(
   return out;
 }
 
+/**
+ * One slot of a game's saved outbox (`loadOutbox`), checking only that slot's event: a cheap read for a game whose
+ * outbox holds every event of a long game.
+ */
+export function loadOutboxSlot(
+  store: ControllerDeps['storage'],
+  profile: string,
+  rootId: string,
+  slot: string,
+): OutboxEntry | undefined {
+  const v = readJson(store, outboxKey(profile, rootId));
+  if (typeof v !== 'object' || v === null || Array.isArray(v) || !Object.hasOwn(v, slot)) return undefined;
+  const entry = (v as Record<string, unknown>)[slot];
+  if (typeof entry !== 'object' || entry === null) return undefined;
+  const { event, confirmed, orphan } = entry as Record<string, unknown>;
+  return verifyEvent(event) ? { event, confirmed: confirmed === true, orphan: orphan === true } : undefined;
+}
+
 /** The move's `prev` event id. */
 const prevOf = (ev: NostrEvent): string | null =>
   ev.tags.find((t) => t[0] === 'e' && t[3] === 'prev')?.[1] ?? null;
@@ -348,6 +418,11 @@ export class GameController {
   readonly restore: Signal<RestoreState | null> = signal(null);
   /** The backup of this seat's game keys from this browser (D065); null when there is nothing to back up. */
   readonly backup: Signal<BackupState | null> = signal(null);
+  /**
+   * Whether this seat owes a setup duty now (D093): its shuffle step or its deal while the session is in setup, waiting
+   * its turn or its grace (`#setupWait`) or not. The setup runner counts such games toward its cap (ruling 21).
+   */
+  readonly setupDue: Signal<boolean> = signal(false);
   /** The earliest date a new backup may carry: after every backup the relays sent or this page published. */
   #backupFloor = 0;
   /** The time of the latest refresh (Unix seconds), so deadline displays follow `tick`. */
@@ -402,7 +477,10 @@ export class GameController {
    * per head, and a send that failed waits for the next tick, which clears this.
    */
   readonly #autoTried = new Set<string>();
-  /** Automatic duties (`kind@headId`) waiting for their deterministic date (`#buildDate`), with their wake time. */
+  /**
+   * Automatic duties (`kind@headId`) held back, with their wake time (`#holdUntil`): for their deterministic date
+   * (`#buildDate`), or by an any-order setup (`#setupWait`, D093).
+   */
   readonly #waits = new Map<string, number>();
   /**
    * This seat's own events the relays sent (D056), by what they could conflict with: `move:<prev>` for its moves
@@ -455,7 +533,13 @@ export class GameController {
   #dutyQueued = false;
   #refreshQueued = false;
   /** The last status entry saved for Home, so it is written only on a change (or when it is getting old). */
-  #savedStatus: { status: GameStatusName; seq: number; at: number; reveal: string } | null = null;
+  #savedStatus: {
+    status: GameStatusName;
+    seq: number;
+    phase: GamePhaseName;
+    at: number;
+    reveal: string;
+  } | null = null;
   /** Automatic duties that failed at a head (`kind@headId`), not retried until the head moves. */
   readonly #failed = new Set<string>();
   readonly #stops: (() => void)[] = [];
@@ -466,6 +550,8 @@ export class GameController {
   readonly #page: number;
   /** The automatic move of a game, by module id (`GameControllerOptions.autoMove`), or null for none. */
   readonly #autoMoveOf: ((game: string) => AutoMove | undefined) | null;
+  /** Setup mode (`GameControllerOptions.mode`, D093): only the shuffle and the deal, and never a signer prompt. */
+  readonly #setup: boolean;
 
   constructor(rootId: string, deps: ControllerDeps, opts: GameControllerOptions = {}) {
     this.rootId = rootId;
@@ -473,6 +559,7 @@ export class GameController {
     this.clock = signal(deps.now());
     this.#page = opts.gamePage ?? GAME_PAGE;
     this.#autoMoveOf = opts.autoMove ?? null;
+    this.#setup = opts.mode === 'setup';
   }
 
   /** Load the game, follow its events, and tick every 30 s. */
@@ -759,12 +846,15 @@ export class GameController {
    * but never republished. A refused event a relay confirmed is public anyway, so it is still fed: a deal on a
    * rival deck must count as this seat's deal (D056). An unconfirmed move, deal or Resign loaded from storage is
    * held back: once the relays have answered, `#vetSaved` folds it in and republishes it, or discards it (D056).
+   * Setup mode (D093) feeds setup work only (`#setupSlot`), so it never marks another saved event refused: the game
+   * page judges those.
    */
   #feedHeld(): void {
     const session = this.#session;
     if (session === null) return;
     const held: { ev: NostrEvent; slot: string | null }[] = [];
     for (const [slot, entry] of this.#outbox) {
+      if (this.#setup && !this.#setupSlot(slot)) continue;
       // A deal of this seat's is fed even when refused and never sent: the session must know the seat dealt, so it
       // owes no second deal (D056, review F7).
       if (this.#unvetted.has(slot) || (entry.orphan && !entry.confirmed && !this.#ownDeal(slot, entry)))
@@ -797,15 +887,30 @@ export class GameController {
   /**
    * The saved events `#vetSaved` decides: unconfirmed moves, deal and Resign, plus, while the deal is still being
    * dealt, this seat's own refused deal that no relay confirmed (it is published if the session accepts it again,
-   * after fork choice came back to its deck, and no other deal of this seat is out).
+   * after fork choice came back to its deck, and no other deal of this seat is out). In setup mode, setup work only
+   * (`#setupSlot`): the others are left, unpublished and undiscarded, for the game page to vet.
    */
   #toVet(): string[] {
     const dealing = this.#session?.view().phase === 'deal';
     return [...this.#outbox]
       .filter(
-        ([slot, e]) => vetted(slot) && !e.confirmed && (!e.orphan || (dealing && this.#ownDeal(slot, e))),
+        ([slot, e]) =>
+          vetted(slot) &&
+          !e.confirmed &&
+          (!e.orphan || (dealing && this.#ownDeal(slot, e))) &&
+          (!this.#setup || this.#setupSlot(slot)),
       )
       .map(([slot]) => slot);
+  }
+
+  /**
+   * Whether a saved event's slot holds setup work (D093): the deal, or a move slot of a setup shuffle step (seq up to
+   * the session's `shuffleSteps`). A setup-mode controller vets and republishes these only.
+   */
+  #setupSlot(slot: string): boolean {
+    if (slot === 'deal') return true;
+    const steps = this.#session?.view().shuffleSteps ?? 0;
+    return slot.startsWith('move:') && Number(slot.split(':')[1]) <= steps;
   }
 
   /**
@@ -1168,7 +1273,8 @@ export class GameController {
     const me = this.#mySession;
     if (this.#vetting || this.#disposed || !this.#synced || root === null || me === null) return;
     const saved = this.#toVet();
-    const secret = this.#secretHeld();
+    // Setup mode never sends the Secret reveal, so it does not query for it.
+    const secret = !this.#setup && this.#secretHeld();
     if (saved.length === 0 && !secret) return;
     this.#vetting = true;
     const prevs = new Set<string>();
@@ -1443,7 +1549,7 @@ export class GameController {
     }
     if (secrets === null) {
       // Seated with the key in use, but the game keys were made on another device: restore them from the
-      // player's backup (D065), watching meanwhile.
+      // player's backup (D065), watching meanwhile. Setup mode only watches (`#startRestore`).
       this.#startRestore(root);
       return null;
     }
@@ -1452,8 +1558,12 @@ export class GameController {
 
   /* ------------------------------------------------------------------------------ key backup (D065) */
 
-  /** Fetch, decrypt and check the player's backup of this seat's game keys; on success, play the seat. */
+  /**
+   * Fetch, decrypt and check the player's backup of this seat's game keys; on success, play the seat. Never in setup
+   * mode (D093): decrypting may prompt the extension, and the runner takes only games whose keys are here.
+   */
   #startRestore(root: ParsedRoot): void {
+    if (this.#setup) return;
     const state = this.restore.value;
     if (state !== null && state !== 'retry') return;
     if (backupUnavailable(this.#d.signer) !== null) {
@@ -1508,10 +1618,11 @@ export class GameController {
    * game's relays hold a usable backup of its keys (review M1: a local "backed up" mark alone is not trusted; the
    * relay that took it may not be one the other device asks, or may have dropped it), and back them up if not.
    * Automatic with a local key, which needs no prompt; with an extension the screen offers the button, since each
-   * backup asks the extension to encrypt and sign, and checking one would ask it to decrypt.
+   * backup asks the extension to encrypt and sign, and checking one would ask it to decrypt. Never in setup mode
+   * (D093): checking decrypts, and the game screen does it once the game is opened.
    */
   #offerBackup(root: ParsedRoot, seat: number): void {
-    if (this.backup.value !== null) return;
+    if (this.#setup || this.backup.value !== null) return;
     if (backupUnavailable(this.#d.signer) !== null) {
       this.backup.value = 'unavailable';
       return;
@@ -1618,9 +1729,12 @@ export class GameController {
     this.timeoutTarget.value = this.#synced ? session.timeoutTarget(now) : null;
     this.canResign.value = this.#synced && session.canResign();
     this.#trackHold(now);
+    const setupDue =
+      (v.phase === 'shuffle' || v.phase === 'deal') && duties.some((d) => SETUP_AUTO.includes(d.kind));
+    if (setupDue !== this.setupDue.value) this.setupDue.value = setupDue;
     this.status.value = this.#statusOf(v, duties);
     this.#echoResign(v);
-    this.#cacheStatus(v.head.seq, this.status.value, now, owed);
+    this.#cacheStatus(v.head.seq, cachedPhase(v.phase), this.status.value, now, owed);
     this.#maybePrune(v, duties);
   }
 
@@ -1645,9 +1759,11 @@ export class GameController {
   /**
    * Republish the Resign that counted on this client to the root's relays and this player's (D052, review M-b),
    * once per load, as other final evidence: a resigner that sent its Resign to only some relays cannot leave the
-   * players who never saw it to be timed out while the game looks live to them.
+   * players who never saw it to be timed out while the game looks live to them. Not in setup mode (D093): it publishes
+   * setup work only, this seat's shuffle steps and deal and the steps they rest on.
    */
   #echoResign(v: SessionView): void {
+    if (this.#setup) return;
     const id = v.resignId;
     const root = this.#root;
     if (!this.#synced || id === null || root === null || this.#echoed.has(id) || this.#disposed) return;
@@ -1660,10 +1776,17 @@ export class GameController {
   }
 
   /**
-   * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it or the head changed, or the
-   * saved entry is older than `STATUS_REFRESH_S`. Not while loading: `syncing` says nothing.
+   * Save the status for the Home screen (`bg:<profile>:gamestatus:<rootId>`) when it, the head or the phase changed
+   * (the last deal moves the game to play on the same head), or the saved entry is older than `STATUS_REFRESH_S`. Not
+   * while loading: `syncing` says nothing. The phase (D093) lets the setup runner skip a game past its setup.
    */
-  #cacheStatus(seq: number, status: GameStatus, now: number, owed: OwedReveal | null): void {
+  #cacheStatus(
+    seq: number,
+    phase: GamePhaseName,
+    status: GameStatus,
+    now: number,
+    owed: OwedReveal | null,
+  ): void {
     if (status === 'syncing' || this.#disposed) return;
     const seats = this.seats.value;
     const mySeat = this.view.value?.mySeat ?? null;
@@ -1680,13 +1803,14 @@ export class GameController {
     if (
       last?.status === status &&
       last.seq === seq &&
+      last.phase === phase &&
       last.reveal === key &&
       now - last.at < STATUS_REFRESH_S
     )
       return;
-    const entry = { status, seq, updatedAt: now, ...(reveal === undefined ? {} : { reveal }) };
+    const entry = { status, seq, updatedAt: now, phase, ...(reveal === undefined ? {} : { reveal }) };
     if (saveGameStatus(this.#d.profile, this.#d.storage, this.rootId, entry))
-      this.#savedStatus = { status, seq, at: now, reveal: key };
+      this.#savedStatus = { status, seq, phase, at: now, reveal: key };
   }
 
   /**
@@ -1733,9 +1857,12 @@ export class GameController {
     return e !== undefined && !e.orphan;
   }
 
-  /** Once the game is over and every saved event is delivered (or refused), the outbox is no longer needed. */
+  /**
+   * Once the game is over and every saved event is delivered (or refused), the outbox is no longer needed. The game
+   * page prunes it, not setup mode (D093), which leaves every saved event but setup work alone.
+   */
   #maybePrune(v: SessionView, duties: readonly Duty[]): void {
-    if (this.#disposed || this.#outbox.size === 0) return;
+    if (this.#setup || this.#disposed || this.#outbox.size === 0) return;
     if (v.phase !== 'done' && v.phase !== 'cancelled') return;
     if (this.#working || this.#nextAuto(duties, v) !== null) return;
     if (![...this.#outbox.values()].every((e) => e.confirmed || e.orphan)) return;
@@ -1745,18 +1872,87 @@ export class GameController {
 
   /* -------------------------------------------------------------------------------------------- duties */
 
+  /**
+   * The automatic duty a full controller performs next (`AUTO`, in order), or null. The status follows it in either
+   * mode (`#statusOf`); what setup mode performs is narrower (`#nextWork`).
+   */
   #nextAuto(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
     for (const kind of AUTO) {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
       if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
-      // Waiting for its date (`#buildDate`) until the wake timer fires (or its time has come, should it be late).
+      this.#setupWait(kind, duties, v);
+      // Waiting for its date (`#buildDate`) or its turn in an any-order setup (`#setupWait`) until the wake timer
+      // fires (or its time has come, should it be late: a tick then runs it).
       const wake = this.#waits.get(`${kind}@${v.head.id}`);
       if (wake !== undefined && this.#d.now() < wake) continue;
       if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
     }
     return null;
+  }
+
+  /**
+   * The automatic duty this controller performs next: `#nextAuto`'s, or in setup mode (D093) only a `SETUP_AUTO` duty
+   * while the session is in setup. Past it (a play-phase reshuffle, a beacon, a share, a Secret) it performs none.
+   */
+  #nextWork(duties: readonly Duty[], v: SessionView): Duty['kind'] | null {
+    const kind = this.#nextAuto(duties, v);
+    if (kind === null || !this.#setup) return kind;
+    const setup = v.phase === 'shuffle' || v.phase === 'deal';
+    return setup && SETUP_AUTO.includes(kind) ? kind : null;
+  }
+
+  /**
+   * Hold back a due setup duty (D093), measured from when this profile first saw the head (`#seen`, saved, so a
+   * reload keeps the wait, and a new head starts it again): a shuffle duty of rank r > 0 waits r × `SHUFFLE_STAGGER_S`,
+   * so the seats ahead of it go first and an honest race stays rare; the deal waits `DEAL_SETTLE_S` while a rival
+   * setup step is held (`shuffleRivals`), so fork choice can settle before this seat deals on a deck. A seat-order
+   * setup ranks every shuffle duty 0 and holds no rival but an equivocator's. In setup mode every setup duty waits
+   * `SETUP_MODE_GRACE_S` more (ruling 20); a play-phase reshuffle is not setup work.
+   */
+  #setupWait(kind: Duty['kind'], duties: readonly Duty[], v: SessionView): void {
+    const duty = duties.find((d) => d.kind === kind);
+    const inSetup =
+      (v.phase === 'shuffle' || v.phase === 'deal') && duty !== undefined && SETUP_AUTO.includes(kind);
+    const grace = this.#setup && inSetup ? SETUP_MODE_GRACE_S : 0;
+    const wait =
+      grace +
+      (duty?.kind === 'shuffle'
+        ? duty.rank * SHUFFLE_STAGGER_S
+        : duty?.kind === 'deal' && v.shuffleRivals
+          ? DEAL_SETTLE_S
+          : 0);
+    if (wait <= 0) return;
+    let seen = this.#seen.get(v.head.id);
+    if (seen === undefined) {
+      seen = this.#d.now();
+      this.#noteSeen(v.head.id, seen);
+    }
+    this.#holdUntil(`${kind}@${v.head.id}`, seen + wait);
+  }
+
+  /**
+   * Hold the automatic duty `key` (`kind@headId`) until `until` (Unix s) with one wake timer, `slackMs` late: a later
+   * time replaces an earlier one (a setup wait, then a date ahead of the clock), and an earlier or equal one changes
+   * nothing, so ticks never arm another. `#nextAuto` skips the duty until then. The wake runs it, or arms the wait again
+   * should it come a moment early (the clock reads whole seconds); a tick runs it once its time has come, should the
+   * wake be late or never come. Nothing once disposed: a refresh queued before `dispose` (an event just taken in)
+   * must not arm a timer that `dispose` has already passed by.
+   */
+  #holdUntil(key: string, until: number, slackMs = 0): void {
+    if (this.#disposed) return;
+    const held = this.#waits.get(key);
+    if (held !== undefined && held >= until) return;
+    this.#waits.set(key, until);
+    const ms = (until - this.#d.now()) * 1000;
+    if (ms <= 0) return;
+    this.#stops.push(
+      this.#d.timers.later(ms + slackMs, () => {
+        if (this.#waits.get(key) === until) this.#waits.delete(key);
+        this.#queueDuties();
+      }),
+    );
   }
 
   /**
@@ -1819,7 +2015,7 @@ export class GameController {
     try {
       for (;;) {
         const v = session.view();
-        const kind = this.#nextAuto(session.duties(), v);
+        const kind = this.#nextWork(session.duties(), v);
         if (kind === null) break;
         this.#working = true;
         this.#refresh();
@@ -1859,9 +2055,10 @@ export class GameController {
    * only while the decision is this seat's (`your-turn`, so no automatic duty comes first and no move of its own is
    * waiting), and at most once per head until the next tick (`#autoTried`). A send that fails, for instance while the
    * check before signing holds, shows in `error` as `act` sets it, and is tried again on the next tick, never in a
-   * loop. A player may still send the same move by hand meanwhile.
+   * loop. A player may still send the same move by hand meanwhile. Never in setup mode (D093).
    */
   #autoMove(): void {
+    if (this.#setup) return;
     const session = this.#session;
     const game = this.game.value;
     const pick = game === null ? undefined : this.#autoMoveOf?.(game);
@@ -1914,16 +2111,7 @@ export class GameController {
       const plan = this.#buildDate(session, head.id);
       if (plan !== null && plan.wait > 0) {
         // One wake time per duty, armed once: ticks do not re-run a waiting duty (`#nextAuto`).
-        const key = `${kind}@${head.id}`;
-        if (!this.#waits.has(key)) {
-          this.#waits.set(key, now() + plan.wait);
-          this.#stops.push(
-            this.#d.timers.later(plan.wait * 1000 + 1000, () => {
-              this.#waits.delete(key);
-              this.#queueDuties();
-            }),
-          );
-        }
+        this.#holdUntil(`${kind}@${head.id}`, now() + plan.wait, 1000);
         return 'wait';
       }
       if (!(await this.#clearToSign(session, kind, head.id))) return 'held';
@@ -2092,13 +2280,16 @@ export class GameController {
   }
 
   /**
-   * Commit the saved event for a single-slot duty, or a new one. If the session refuses the event it committed
-   * (saved by this or another tab, now an orphan), build anew once, in this same step, rather than leaving the
-   * duty failed until the head moves.
+   * Commit the saved event for a single-slot duty, or a new one. The stored outbox is read again before building and
+   * once more after (`#stored`), with no await between that read and the save: an event another controller of this
+   * profile saved meanwhile is committed instead, so two controllers of one seat deal once. If the session refuses
+   * the event it committed (saved by this or another tab, now an orphan), build anew once, in this same step, rather
+   * than leaving the duty failed until the head moves.
    */
   async #single(slot: string, build: () => NostrEvent | Promise<NostrEvent>): Promise<void> {
     try {
-      return this.#commit(slot, this.#live(slot) ?? (await build()));
+      const ev = this.#live(slot) ?? this.#stored(slot) ?? (await build());
+      return this.#commit(slot, this.#stored(slot) ?? ev);
     } catch (e) {
       const refused = this.#outbox.get(slot);
       if (!(e instanceof ClientError) || refused?.orphan !== true) throw e;
@@ -2112,6 +2303,19 @@ export class GameController {
   #live(slot: string): NostrEvent | null {
     const entry = this.#outbox.get(slot);
     return entry !== undefined && !entry.orphan ? entry.event : null;
+  }
+
+  /**
+   * The event another controller of this profile (another tab, or the same game open twice) saved for a single-slot
+   * duty since this one loaded its outbox, taken into this outbox as `#reusable` does for moves (D093): it is
+   * committed rather than built anew. Two controllers of one seat then deal once, and the second does not fail on the
+   * deal the first saved (a seat never deals twice, D056) and show Stuck. Null when there is none, or the session
+   * refused it.
+   */
+  #stored(slot: string): NostrEvent | null {
+    const fresh = loadOutbox(this.#d.storage, this.#d.profile, this.rootId).get(slot);
+    if (fresh !== undefined && !this.#outbox.has(slot)) this.#outbox.set(slot, fresh);
+    return this.#live(slot);
   }
 
   /**
@@ -2271,7 +2475,8 @@ export class GameController {
   /**
    * Republish what no relay has confirmed. Each event is first fed to the session again: one it has since
    * refused (a pooled move whose parent lost, for example) becomes an orphan and is retried no more. A move, deal
-   * or Resign is republished only once the relays have been asked again what this seat published (D056).
+   * or Resign is republished only once the relays have been asked again what this seat published (D056). In setup
+   * mode (D093), setup work only (`#setupSlot`): every other saved event is left as it is for the game page.
    */
   #retryUndelivered(): void {
     const session = this.#session;
@@ -2279,6 +2484,8 @@ export class GameController {
     let vet = this.#toVet().some((slot) => this.#outbox.get(slot)?.orphan === true) || this.#secretHeld();
     for (const [slot, entry] of this.#outbox) {
       if (entry.confirmed || entry.orphan) continue;
+      // Setup mode republishes setup work only (D093); the game page sends or vets the rest.
+      if (this.#setup && !this.#setupSlot(slot)) continue;
       if (vetted(slot)) {
         // Just vetted and being published (after a load): no need to ask the relays again yet.
         if (!this.#inFlight.has(slot)) vet = true;

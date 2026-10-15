@@ -134,7 +134,7 @@ describe('timeouts during the shuffle and the deal', () => {
 
     // The stalled seat sees it too; nothing is due from anyone any more.
     const s0 = newSession(game, 0);
-    expect(s0.duties()).toEqual([{ kind: 'shuffle' }]);
+    expect(s0.duties()).toEqual([{ kind: 'shuffle', rank: 0 }]);
     expect(s0.receive(ev, LATE)).toEqual({ status: 'accepted' });
     expect(s0.view().phase).toBe('cancelled');
     expect(s0.duties()).toEqual([]);

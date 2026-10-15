@@ -15,6 +15,7 @@ import {
   parseTable,
   rootTemplate,
   rulesHash,
+  type ShuffleOrder,
   signSession,
   tableTemplate,
 } from '@bored-games/protocol';
@@ -73,17 +74,24 @@ export interface TestGame {
   rnd: RandomBytes;
 }
 
+/** Root options for the test games: `shuffleOrder` `'any'` writes the root's `shuffle-order` tag (D093). */
+export interface GameOptions {
+  shuffleOrder?: ShuffleOrder;
+}
+
 /**
  * A Chain Reaction game of `seats` seats, ready to start: the Table by seat 0, one Join per seat committing to the
  * table's rules hash and version, and the root. Every key comes from `seededRandom(seed)`; events are dated from
- * `T0` on. The rules are the defaults unless given.
+ * `T0` on. The rules are the defaults unless given; the root takes the shuffle in seat order unless `opts` says
+ * otherwise.
  */
 export function makeGame(
   seats: number,
   seed: string,
   rules: ChainReactionRules = chainReaction.defaultRules(),
+  opts: GameOptions = {},
 ): TestGame {
-  return makeModuleGame(chainReaction, seats, seed, rules);
+  return makeModuleGame(chainReaction, seats, seed, rules, opts);
 }
 
 /** A game of `module` (Chess, for a deckless game) built like `makeGame`; the module's default rules. */
@@ -92,6 +100,7 @@ export function makeModuleGame(
   seats: number,
   seed: string,
   rules: unknown = module.defaultRules(),
+  opts: GameOptions = {},
 ): TestGame {
   const rnd = seededRandom(seed);
   const npubSks = Array.from({ length: seats }, () => secretKey(rnd));
@@ -141,7 +150,16 @@ export function makeModuleGame(
     return finalizeEvent(t, npubSks[seat] as Uint8Array, rnd);
   });
   const root = finalizeEvent(
-    rootTemplate({ table: parsedTable, joins: joins.map(parseJoin), rules, relays: RELAYS }, T0 + 10),
+    rootTemplate(
+      {
+        table: parsedTable,
+        joins: joins.map(parseJoin),
+        rules,
+        relays: RELAYS,
+        ...(opts.shuffleOrder === undefined ? {} : { shuffleOrder: opts.shuffleOrder }),
+      },
+      T0 + 10,
+    ),
     npubSks[0] as Uint8Array,
     rnd,
   );

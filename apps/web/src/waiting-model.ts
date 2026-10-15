@@ -5,6 +5,7 @@
  */
 import type { Phase } from '@bored-games/client';
 import type { Pending } from '@bored-games/game-kit';
+import type { ShuffleOrder } from '@bored-games/protocol';
 
 /** "2d 4h left", "3h 10m left", "1m left", or "deadline passed", from seconds remaining. */
 export function formatDeadline(secondsLeft: number): string {
@@ -56,6 +57,11 @@ export interface WaitingInput {
   secondsLeft?: number;
   /** How this game names the share (`ShareWords`); `NEUTRAL_SHARE` when left out. */
   share?: ShareWords;
+  /**
+   * The setup shuffle's order (`SessionView.shuffleOrder`, D093), which words the setup's shuffle and deal lines; seat
+   * order when left out.
+   */
+  shuffleOrder?: ShuffleOrder;
 }
 
 /**
@@ -115,8 +121,12 @@ export function ownRevealLine(
 /**
  * The line naming the seats the game waits on, other than this client's own (its client is working on those),
  * or null when it waits on nobody else:
- * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game.";
- * - deal: every seat still missing its deal shares, "… to send their deal shares. Their apps must be open …";
+ * - shuffle: "Waiting for Ann (npub1…) to shuffle. Their app must be open on this game."; in an any-order setup
+ *   (D093) every seat still to shuffle is named, and each only has to open the app once: "Waiting for Ann and Bo to
+ *   shuffle. Each needs to open the app once; the order doesn't matter.";
+ * - deal: every seat still missing its deal shares, "… to send their deal shares. Their apps must be open …"; in an
+ *   any-order setup (D093), whose deal any page of the app sends, "Waiting for Ann and Bo to deal. Each needs to open
+ *   the app once." ("They need to open the app once." for one seat);
  * - play: a pending reshuffle names the next shuffler ("to shuffle"). Otherwise only when the game waits on
  *   seats other than the one whose decision it is (the game's own status line names that one): the seats whose
  *   share of a card the decision or a reveal needs, "Waiting for Ann to reveal a card", with when they can be
@@ -134,8 +144,17 @@ export function waitingLine(input: WaitingInput): string | null {
     others.length === 1 ? 'Their app must be open on this game.' : 'Their apps must be open on this game.';
   switch (input.phase) {
     case 'shuffle':
+      if (input.shuffleOrder === 'any')
+        return others.length === 1
+          ? `Waiting for ${who} to shuffle. They need to open the app once.`
+          : `Waiting for ${who} to shuffle. Each needs to open the app once; the order doesn't matter.`;
       return `Waiting for ${who} to shuffle. ${open}`;
     case 'deal':
+      // An any-order setup's deal goes out from any page of the app too (the setup runner, D093).
+      if (input.shuffleOrder === 'any')
+        return others.length === 1
+          ? `Waiting for ${who} to deal. They need to open the app once.`
+          : `Waiting for ${who} to deal. Each needs to open the app once.`;
       return `Waiting for ${who} to send their deal shares. ${open}`;
     case 'play':
       if (p.type === 'shuffle') return `Waiting for ${who} to shuffle. ${open}`;

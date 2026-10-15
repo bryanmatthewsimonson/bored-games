@@ -45,12 +45,12 @@ describe('shuffle phase', () => {
   it('each seat shuffles in turn; every session and a spectator accept every step', () => {
     const all = [...players, spectator];
     for (const s of all) expect(s.view().phase).toBe('shuffle');
-    expect(players.map((s) => s.duties())).toEqual([[{ kind: 'shuffle' }], [], []]);
+    expect(players.map((s) => s.duties())).toEqual([[{ kind: 'shuffle', rank: 0 }], [], []]);
     expect(spectator.duties()).toEqual([]);
 
     steps = [];
     for (const [k, s] of players.entries()) {
-      expect(s.duties()).toEqual([{ kind: 'shuffle' }]);
+      expect(s.duties()).toEqual([{ kind: 'shuffle', rank: 0 }]);
       // Every session, the spectator's too, names the seat whose step is next (D057).
       for (const x of all) expect(x.waitingFor()).toEqual([k]);
       const ev = s.buildShuffle(game.rnd, T0 + 100 + k);
@@ -137,7 +137,7 @@ describe('shuffle phase', () => {
       expect(v.equivocators).toEqual([1]);
       expect(v.head).toEqual({ id: lo.id, seq: 2 });
       // Seat 2 shuffles on the canonical head, the lower id; built once and fed to both sessions.
-      expect(s.duties()).toEqual([{ kind: 'shuffle' }]);
+      expect(s.duties()).toEqual([{ kind: 'shuffle', rank: 0 }]);
       next ??= s.buildShuffle(game.rnd, T0 + 302);
       expect(s.receive(next, NOW)).toEqual({ status: 'accepted' });
       expect(s.view().phase).toBe('deal');

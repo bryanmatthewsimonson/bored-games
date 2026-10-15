@@ -209,6 +209,28 @@ describe('root assembly', () => {
     expect(fold([...events, root]).root?.id).toBe(root.id);
   });
 
+  it('writes the shuffle-order tag only when asked for an any-order setup (D093)', () => {
+    const tagOf = (t: { tags: string[][] }) => t.tags.filter((tag) => tag[0] === 'shuffle-order');
+    expect(tagOf(buildRootTemplate(view, RELAYS, T0 + 10))).toEqual([]);
+    expect(tagOf(buildRootTemplate(view, RELAYS, T0 + 10, undefined, { shuffleOrder: 'seat' }))).toEqual([]);
+    const any = finalizeEvent(
+      buildRootTemplate(view, RELAYS, T0 + 10, undefined, { shuffleOrder: 'any' }),
+      creator.sk,
+      rnd,
+    );
+    expect(tagOf(any)).toEqual([['shuffle-order', 'any']]);
+    const session = GameSession.create({
+      modules: MODULES,
+      table,
+      joins: events,
+      root: any,
+      me: null,
+      rootSeenAt: T0 + 10,
+    });
+    expect(session.view().shuffleOrder).toBe('any');
+    expect(session.waitingFor()).toEqual([0, 1, 2]);
+  });
+
   it('ignores a root that does not validate, and picks the first valid one', () => {
     const t = buildRootTemplate(view, RELAYS, T0 + 10);
     const tampered = finalizeEvent(

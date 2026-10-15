@@ -835,6 +835,45 @@ describe('parseRoot: field rules', () => {
   });
 });
 
+describe('root shuffle order (D093)', () => {
+  const anyEv = sign(
+    rootTemplate({ table, joins: [jA, jB, jC], rules: RULES, relays: RELAYS, shuffleOrder: 'any' }, T0 + 100),
+    A.sk,
+  );
+  const withTags = (f: (tags: string[][]) => string[][]) =>
+    codeOf(() => parseRoot(resign(rootEv, (t) => ({ tags: f(t.tags) }), A.sk)));
+  const names = (tags: string[][]) => tags.map((x) => x[0]);
+
+  it('writes the tag only for any-order roots', () => {
+    const t = rootTemplate(
+      { table, joins: [jA, jB, jC], rules: RULES, relays: RELAYS, shuffleOrder: 'any' },
+      T0 + 100,
+    );
+    expect(t.tags).toContainEqual(['shuffle-order', 'any']);
+    expect(names(rootEv.tags)).not.toContain('shuffle-order');
+    const seat = rootTemplate(
+      { table, joins: [jA, jB, jC], rules: RULES, relays: RELAYS, shuffleOrder: 'seat' },
+      T0 + 100,
+    );
+    expect(names(seat.tags)).not.toContain('shuffle-order');
+  });
+
+  it('parses the order', () => {
+    expect(parseRoot(anyEv).shuffleOrder).toBe('any');
+    expect(parseRoot(rootEv).shuffleOrder).toBe('seat');
+    expect(root.shuffleOrder).toBe('seat');
+  });
+
+  it('refuses a bad order tag', () => {
+    expect(withTags((t) => [...t, ['shuffle-order', 'any']])).toBe('accepted');
+    expect(withTags((t) => [...t, ['shuffle-order', 'seat']])).toBe('bad-tag');
+    expect(withTags((t) => [...t, ['shuffle-order', 'x']])).toBe('bad-tag');
+    expect(withTags((t) => [...t, ['shuffle-order', 'any'], ['shuffle-order', 'any']])).toBe('bad-tag');
+    expect(withTags((t) => [...t, ['shuffle-order']])).toBe('bad-tag');
+    expect(withTags((t) => [...t, ['shuffle-order', 'any', 'x']])).toBe('bad-tag');
+  });
+});
+
 /* ------------------------------------------------------------------------ validateRoot (Focus 3) */
 
 describe('validateRoot', () => {

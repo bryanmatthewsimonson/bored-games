@@ -56,6 +56,23 @@ describe('game secrets', () => {
     expect(loadSecrets('alice', store, `${ADDR}-2`)).toBeNull();
   });
 
+  it('keeps the mark on restored keys, read strictly (D093, ruling 20)', () => {
+    const store = memoryStorage();
+    saveSecrets('alice', store, ADDR, { ...SECRETS, restored: true });
+    expect(loadSecrets('alice', store, ADDR)).toEqual({ ...SECRETS, restored: true });
+    // The root id saved later keeps it.
+    saveRootId('alice', store, ADDR, 'b'.repeat(64));
+    expect(loadSecrets('alice', store, ADDR)?.restored).toBe(true);
+    const key = storageKey('alice', `secrets:${ADDR}`);
+    for (const bad of [false, 'true', 1, null, {}]) {
+      store.setItem(
+        key,
+        JSON.stringify({ sessionSk: '07'.repeat(32), deckSecret: '09'.repeat(32), restored: bad }),
+      );
+      expect(loadSecrets('alice', store, ADDR), JSON.stringify(bad)).toEqual(SECRETS);
+    }
+  });
+
   it('treats malformed stored data as absent', () => {
     const store = memoryStorage();
     const key = storageKey('alice', `secrets:${ADDR}`);
@@ -139,6 +156,29 @@ describe('game status cache', () => {
       JSON.stringify({ status: 'waiting', seq: 3, updatedAt: 5, reveal: { npubs: ['x'], mine: 1 } }),
     );
     expect(loadGameStatus('alice', store, ROOT)).toEqual({ status: 'waiting', seq: 3, updatedAt: 5 });
+  });
+  it('keeps the phase (D093), and reads an entry with a bad one without it', () => {
+    const store = memoryStorage();
+    for (const phase of ['setup', 'play', 'end'] as const) {
+      expect(saveGameStatus('alice', store, ROOT, { status: 'waiting', seq: 2, updatedAt: 5, phase })).toBe(
+        true,
+      );
+      expect(loadGameStatus('alice', store, ROOT)).toEqual({
+        status: 'waiting',
+        seq: 2,
+        updatedAt: 5,
+        phase,
+      });
+    }
+    const key = gameStatusKey('alice', ROOT);
+    for (const bad of ['shuffle', 'deal', 'done', 'cancelled', '', 1, null, ['setup']]) {
+      store.setItem(key, JSON.stringify({ status: 'waiting', seq: 2, updatedAt: 5, phase: bad }));
+      expect(loadGameStatus('alice', store, ROOT), JSON.stringify(bad)).toEqual({
+        status: 'waiting',
+        seq: 2,
+        updatedAt: 5,
+      });
+    }
   });
   it('reads malformed entries as absent', () => {
     const store = memoryStorage();

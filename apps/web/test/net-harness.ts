@@ -6,7 +6,7 @@
 import { type DevRelay, startDevRelay } from '@bored-games/dev-relay';
 import { finalizeEvent, getPublicKey, type NostrEvent } from '@bored-games/protocol';
 import { type EoseInfo, type Filter, RelayPool } from '@bored-games/relay';
-import { platformTimers } from '../src/clock.ts';
+import { platformTimers, type Timers } from '../src/clock.ts';
 import { GameController, loadOutbox } from '../src/game-controller.ts';
 import { localNip44, type Signer } from '../src/identity.ts';
 import { LobbyController } from '../src/lobby-controller.ts';
@@ -271,3 +271,95 @@ export function hiding(real: PoolLike, hidden: ReadonlySet<string>, offline = fa
 export const outboxSlots = (p: Profile, rootId: string): string[] => [
   ...loadOutbox(p.deps.storage, p.name, rootId).keys(),
 ];
+
+/**
+ * An injected clock (Unix s) from `start`, and timers: `later` runs a wait under a second (a yield) on the platform's
+ * timers and holds a longer one (a wake, or the check before signing's cap) until `at` brings the clock to its time,
+ * or drops it while `dropWakes` is set. `every` (the 30 s tick) never fires by itself: the test calls `tick`.
+ */
+export function fakeTime(start = now()) {
+  const wakes: { at: number; fn: () => void; live: boolean }[] = [];
+  const ticks: { fn: () => void; live: boolean }[] = [];
+  const c = {
+    start,
+    t: start,
+    dropWakes: false,
+    now: (): number => c.t,
+    timers: {
+      later(ms: number, fn: () => void): () => void {
+        if (ms < 1000) return platformTimers.later(ms, fn);
+        const w = { at: c.t + ms / 1000, fn, live: true };
+        if (!c.dropWakes) wakes.push(w);
+        return () => {
+          w.live = false;
+        };
+      },
+      every(_ms: number, fn: () => void): () => void {
+        const e = { fn, live: true };
+        ticks.push(e);
+        return () => {
+          e.live = false;
+        };
+      },
+    } satisfies Timers,
+    /** Set the clock to `start + s` and fire the held timers due by then. */
+    at(s: number): void {
+      c.t = start + s;
+      for (const w of wakes.splice(0)) {
+        if (!w.live) continue;
+        if (w.at <= c.t) w.fn();
+        else wakes.push(w);
+      }
+    },
+    /** The 30 s tick of every live controller on this clock. */
+    tick(): void {
+      for (const e of ticks) if (e.live) e.fn();
+    },
+    /** The held wake timers neither fired nor stopped. */
+    pending(): number {
+      return wakes.filter((w) => w.live).length;
+    },
+  };
+  return c;
+}
+
+/**
+ * A profile's dependencies that record what a controller built on them does: the events it publishes, and each call
+ * that could prompt a NIP-07 extension (`sign`, `nip44.encrypt`, `nip44.decrypt`).
+ */
+export function recording(deps: ControllerDeps) {
+  const published: NostrEvent[] = [];
+  const prompts: string[] = [];
+  const { signer, pool } = deps;
+  const nip44 = signer.nip44;
+  const watched: Signer = {
+    ...signer,
+    sign: (t) => {
+      prompts.push('sign');
+      return signer.sign(t);
+    },
+    ...(nip44 === undefined
+      ? {}
+      : {
+          nip44: {
+            encrypt: (pk, text) => {
+              prompts.push('nip44.encrypt');
+              return nip44.encrypt(pk, text);
+            },
+            decrypt: (pk, payload) => {
+              prompts.push('nip44.decrypt');
+              return nip44.decrypt(pk, payload);
+            },
+          },
+        }),
+  };
+  const recorded: PoolLike = {
+    subscribe: (filters, onEvent, onEose, opts) => pool.subscribe(filters, onEvent, onEose, opts),
+    publish: (ev, urls) => {
+      published.push(ev);
+      return pool.publish(ev, urls);
+    },
+    addRelays: (urls) => pool.addRelays?.(urls),
+  };
+  return { published, prompts, deps: { ...deps, signer: watched, pool: recorded } };
+}

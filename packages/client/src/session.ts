@@ -78,7 +78,7 @@ import {
 import { auditGame, auditPrefix, clipReason, type LoggedAction, rankWithForfeits } from './audit.ts';
 import { ClientError } from './errors.ts';
 import { beaconDomain, beaconPosition, epochSlot, isRollPosition, rollOrigin } from './mixed-beacon.ts';
-import { parsePartitionMove, type ShuffleStep, shuffleSchedule } from './partitioned-deck.ts';
+import { parsePartitionMove, type ShuffleStep, shuffleSchedule, shuffleSigners } from './partitioned-deck.ts';
 import { makeShow, readShow, showEnvelope } from './private-show.ts';
 import { makeTransfer, readTransfer, transferEnvelope } from './private-transfer.ts';
 import { ciphertextKey, ShareStore, sealedOwed, sealedPositions } from './shares.ts';
@@ -105,7 +105,10 @@ import type {
  * played on is shorter than the main chain and never displaces it. Two distinct game actions by one seat on the same
  * (prev, seq), both valid as of that prev, flag the seat as an equivocator; so do two distinct well-formed shuffle
  * steps, or two epoch steps, by that seat on the chain's prev, proofs or not (Ruling 12, D073). Play goes on,
- * and at the end the flagged seats move to the last places (R5).
+ * and at the end the flagged seats move to the last places (R5). In an any-order setup (D093) a shuffle step's
+ * signer must also be one that may sign it at its prev (`shufflersOn`); two such seats' steps on one prev are an
+ * honest race, which fork choice settles and which flags nobody. There, two setup steps by one seat on one prev
+ * flag it anywhere in the held setup tree, not only on the chain's prevs.
  *
  * Shuffle candidates (D030 Ruling 12): when one seat holds more than `MAX_SHUFFLE_CANDIDATES` well-formed steps on
  * one prev, only those acknowledged by another seat (a move it signed lies 1 to `MAX_ACK_DEPTH` moves below) take
@@ -118,9 +121,9 @@ import type {
  * stall set at the head. No event's `created_at` plays any part. A Timeout claim is accepted when it names the
  * current head and a seat stalled there (the seat it names is a shape check only), its signer is not stalled
  * there itself, and the local clock has reached P + deadline. Its effect does not depend on which claim it is:
- * every seat stalled at the head forfeits, and the outcome is final for this client, so the fold stops there for
- * good (the game is cancelled before the first game action, ends at once by forfeit during play, or ends with the
- * withheld secrets failed).
+ * every seat stalled at the head forfeits (none while an honest shuffle race has split the deal, D093), and the
+ * outcome is final for this client, so the fold stops there for good (the game is cancelled before the first game
+ * action, ends at once by forfeit during play, or ends with the withheld secrets failed).
  *
  * Resigns (PROTOCOL §4.9, §8.3, D045, D052, D090) are allowed in every game at every seat count. A Resign counts
  * once the head it names is held: the root, a move on this client's chain, or a valid move on a side branch that lost fork choice (an equivocation moved the chain off it); until then it is kept,
@@ -137,6 +140,23 @@ import type {
  */
 
 type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
+
+/**
+ * Whether `module` reshuffles its deck in play under the validated `rules` (D073, D079, D080): the single-pile epoch
+ * wire, a `pile` deck of at most 512 cards whose module installs a reshuffled order and names its plaintexts (Holler,
+ * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Such a game's setup shuffle runs in seat order (D093):
+ * `GameSession.create` refuses an any-order root for it, and the web lobby starts it without the tag.
+ */
+export function reshufflesInPlay(module: AnyModule, rules: unknown): boolean {
+  const deck = module.decks(rules)[0] ?? null;
+  return (
+    deck !== null &&
+    deck.id === 'pile' &&
+    deck.size <= 512 &&
+    typeof module.installDeckOrder === 'function' &&
+    typeof module.shufflePlaintexts === 'function'
+  );
+}
 
 /** The outcome of trying to fold one event: folded, not yet (keep it pooled), or a rejection reason. */
 type Fold = 'accepted' | 'wait' | { reject: string };
@@ -354,14 +374,17 @@ export class GameSession {
   /** The deck's size; 0 for a deckless game. */
   private readonly deckSize: number;
   /**
-   * The shuffle schedule (PROTOCOL §5.5, D076): the seat that signs each step and the positions it shuffles, in chain
-   * order. Empty for a deckless game. A legacy deck is one group; a partitioned deck is one step per group per seat;
-   * a second round adds one per second-round group per seat after every first-round step.
+   * The shuffle schedule (PROTOCOL §5.5, D076): each step's round and the positions it shuffles, in chain order, and
+   * the seat that signs it in a seat-order setup (an any-order one takes its signers from `shufflersAt`, D093).
+   * Empty for a deckless game. A legacy deck is one group; a partitioned deck is one step per group per seat; a
+   * second round adds one per second-round group per seat after every first-round step.
    */
   private readonly schedule: readonly ShuffleStep[];
   /** 2 when the deck has a second round, else 1. */
   private readonly shuffleRounds: 1 | 2;
   private readonly promptShares: boolean;
+  /** Whether the game reshuffles in play (`reshufflesInPlay`, `usesEpochs`), fixed by the module and rules. */
+  private readonly reshuffles: boolean;
   private readonly seats: number;
   /**
    * The shuffle steps at the start of the chain (PROTOCOL §6.1): the length of `schedule`, none when the game is
@@ -422,6 +445,18 @@ export class GameSession {
   private readonly sealedChecked = new Map<string, boolean>();
   /** Shares events that failed against the current final deck; they are tried again if that deck changes. */
   private readonly badShares = new Map<Hex, ParsedShares>();
+  /**
+   * Whether a Shares event verifies against a held rival final deck (`dealtOnRival`, D093), by
+   * `<shares id>:<rival's last step id>`. Both ids fix their content (a step's ancestry fixes its deck), so each
+   * verdict is final.
+   */
+  private readonly rivalDeals = new Map<string, boolean>();
+  /**
+   * The seats that may sign a setup step on a prev off the canonical chain (`shufflersOn`, D093), by
+   * `<prev id>:<step>`, or null when none may. Only answers that do not wait for a missing ancestor are kept: an id
+   * fixes its ancestry, so they are final.
+   */
+  private readonly setupSigners = new Map<string, readonly number[] | null>();
   /**
    * `snapshots[i]` is the fold as it stood at head seq `i`, taken just before move `i + 1` was linked, so the chain
    * can be cut back to any accepted move.
@@ -499,7 +534,12 @@ export class GameSession {
   private readonly sideUnknown = new Map<Hex, number>();
   /** Pooled moves found unable to link at their prev yet (R1, or a missing reveal share), by `sharesVersion`. */
   private readonly stuck = new Map<Hex, number>();
-  /** The best side branch per fork prev, found by trial, valid while the key (pool and shares versions) holds. */
+  /**
+   * Whether a setup fork whose side branches hold setup steps alone keeps its verdict whatever the shares (`sideKey`,
+   * D093). Always true; the tests turn it off to compare with the fold that re-tries such a fork on every share change.
+   */
+  private readonly shareFreeSetupVerdicts: boolean = true;
+  /** The best side branch per fork prev, found by trial, valid while the key (`sideKey`) holds. */
   private readonly forkMemo = new Map<Hex, { key: string; ids: Hex[]; over: boolean; settled: boolean }>();
   /** The best branch through the chain's own successor at a fork, by trial (`throughBest`), kept while its key holds. */
   private readonly throughMemo = new Map<Hex, { key: string; rank: Rank }>();
@@ -577,6 +617,7 @@ export class GameSession {
     this.schedule = shuffleSchedule(deck, this.seats);
     this.shuffleRounds = this.schedule.some((step) => step.round === 2) ? 2 : 1;
     this.promptShares = deck?.promptShares === true;
+    this.reshuffles = reshufflesInPlay(module, rules);
     this.shuffleSteps = this.schedule.length;
     // Joins carry deck keys whether or not the game has a deck (PROTOCOL §4.2); a deckless game never uses them.
     this.keys = root.seats.map((s) => s.deckKey);
@@ -629,6 +670,9 @@ export class GameSession {
     const module = input.modules.get(root.game) as AnyModule;
     const rules = module.validateRules(root.rules);
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
+    // A game that reshuffles in play takes its setup shuffle in seat order (D093, ruling 12).
+    if (root.shuffleOrder === 'any' && reshufflesInPlay(module, rules.value))
+      throw new ClientError('an any-order setup is not supported in a game that reshuffles in play');
 
     const me = input.me;
     if (me !== null) {
@@ -876,8 +920,9 @@ export class GameSession {
   }
 
   /**
-   * Checks that hold whatever the state: the content type for its `seq`, a shuffle step's signer, and, in a
-   * deckless game, no shares or reveals.
+   * Checks that hold whatever the state: the content type for its `seq`, a shuffle step's group size and, in a
+   * seat-order setup, its signer, and, in a deckless game, no shares or reveals. In an any-order setup the signer
+   * depends on the steps before it, so `foldMove` and `judgeAtPrev` check it (D093).
    */
   private moveShape(m: ParsedMove, seat: number): string | null {
     const c = m.content;
@@ -885,7 +930,8 @@ export class GameSession {
       if (c.type !== 'shuffle') return `move ${m.seq} must be a shuffle step`;
       const step = this.schedule[m.seq - 1];
       if (step === undefined) return `move ${m.seq} cannot be a shuffle step: the game has no deck`;
-      if (seat !== step.seat) return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
+      if (this.root.shuffleOrder === 'seat' && seat !== step.seat)
+        return `shuffle step ${m.seq} must be signed by seat ${step.seat}`;
       if (c.deck.length !== step.group.positions.length) return 'shuffle output has the wrong group size';
     } else if (c.type === 'epoch') {
       // Chess has no deck, so an epoch step is still "a game action" and the deckless rejection stays put.
@@ -1490,8 +1536,8 @@ export class GameSession {
 
   /**
    * Accept a timeout when some kept claim on the current head is valid (the lowest id is recorded, for the
-   * receive status only): every seat stalled at the head forfeits, whichever seat the claim names. Final: once set,
-   * the fold stops.
+   * receive status only): every seat stalled at the head forfeits, whichever seat the claim names, except while
+   * the deal is split (`splitDeal`, D093), when none does. Final: once set, the fold stops.
    */
   private decideTimeouts(): void {
     if (this.timedOut !== null || (this.ended() !== null && !this.awaitingSecrets())) return;
@@ -1500,10 +1546,164 @@ export class GameSession {
     if (ids === undefined) return;
     for (const id of [...ids].sort()) {
       if (this.judgeClaim(this.claims.get(id) as Claim) === 'valid') {
-        this.timedOut = { claim: id, head, seats: this.stalled() };
+        this.timedOut = { claim: id, head, seats: this.splitDeal() ? [] : this.stalled() };
         return;
       }
     }
+  }
+
+  /**
+   * Whether an honest shuffle race split the deal (D093, owner's decision): in an any-order setup, during the deal,
+   * no shuffle equivocator is held and some stalled seat dealt on a held rival deck (`dealtOnRival`), so it can
+   * never deal on this one. A timeout then cancels the game with no seat forfeiting. A held equivocation keeps
+   * D056's blame, and so does a Shares event that fails against the chain's deck but fits no held rival deck (a
+   * garbage share): its seat is stalled and forfeits as usual. A seat that dealt on a rival deck and on this one
+   * too is not stalled, so it shields no staller. When no rival deck can be built from the events held, there is
+   * no split either.
+   */
+  private splitDeal(): boolean {
+    if (this.root.shuffleOrder !== 'any' || this.phase !== 'deal') return false;
+    if (this.equivocators(true).length > 0) return false;
+    const stalled = this.stalled();
+    const fromStalled = [...this.badShares.values()].filter((s) =>
+      stalled.includes(this.seatOf.get(s.pubkey) as number),
+    );
+    if (fromStalled.length === 0) return false;
+    const rivals = this.rivalFinalDecks();
+    return rivals.length > 0 && fromStalled.some((s) => this.dealtOnRival(s, rivals));
+  }
+
+  /**
+   * The final decks of the held, complete rival setup branches (D093), each with its last step's id, in id order: a
+   * branch of pooled shuffle steps that leaves the canonical chain at one of its shuffle prevs and reaches step N
+   * (`shuffleSteps`), every step a candidate (D030 Ruling 12, which bounds the proofs checked), signed by a seat
+   * that may sign it at its prev (`shuffleSigners`), with its proof verified. A branch with a step missing, refused
+   * or not a candidate gives none.
+   */
+  private rivalFinalDecks(): { last: Hex; deck: Ciphertext[] }[] {
+    const out: { last: Hex; deck: Ciphertext[] }[] = [];
+    for (const m of byId(this.pooledById.values())) {
+      if (m.seq !== this.shuffleSteps || m.content.type !== 'shuffle') continue;
+      const deck = this.rivalDeck(m);
+      if (deck !== null) out.push({ last: m.id, deck });
+    }
+    return out;
+  }
+
+  /** The final deck of the rival branch that pooled step `last` ends, or null (`rivalFinalDecks`). */
+  private rivalDeck(last: ParsedMove): Ciphertext[] | null {
+    // The branch's steps `fork + 1..N`, in order, from chain move `fork`, a shuffle prev of the chain.
+    const path = this.setupPath(last.id, this.shuffleSteps);
+    if (path === null || path === 'missing') return null;
+    const fork = this.shuffleSteps - path.length;
+    const signers = this.chain.slice(0, fork).map((m) => this.seatOf.get(m.pubkey) as number);
+    let deck = this.decks[fork] as Ciphertext[];
+    for (const [i, m] of path.entries()) {
+      const c = m.content;
+      const step = fork + i;
+      if (c.type !== 'shuffle' || !this.shuffleEligible(m)) return null;
+      const seat = this.seatOf.get(m.pubkey) as number;
+      if (!shuffleSigners(this.schedule, this.seats, this.root.shuffleOrder, signers).includes(seat))
+        return null;
+      const positions = this.stepAt(step).group.positions;
+      const input = positions.map((p) => deck[p] as Ciphertext);
+      if (!this.shuffleVerifies(m.id, step, seat, c.deck, c.proof, input)) return null;
+      deck = deck.slice();
+      positions.forEach((p, k) => {
+        deck[p] = c.deck[k] as Ciphertext;
+      });
+      signers.push(seat);
+    }
+    return deck;
+  }
+
+  /**
+   * The held setup steps from the canonical chain down to `id`, taken as the move at `seq` (D093), in seq order:
+   * walk up the well-formed moves held (`candidateById`, whatever their judgement) from `id` until a prev is the
+   * root or on the chain. So the walk is a function of the events held: no trial's refusal of a step under a lost
+   * race changes it, and the signers it gives (`shufflersOn`) and so the equivocators are the same on every client
+   * that holds the same events. Proofs stay unchecked (D030 Ruling 12); `rivalDeck` checks its own. Empty when `id`
+   * is the chain's move at `seq`. `missing` while an ancestor is not held. Null when the walk does not fit: an
+   * ancestor was refused (`rejected`), more than `seq` moves, a move that is not a setup step or out of seq order,
+   * or a chain prev at another seq. Ids fix ancestries, so a null holds for good. The refused ids the walk can meet
+   * are those of events that are no well-formed move: moves refused on arrival (`moveShape`), and Shares events,
+   * whose refusal a trial fold makes and takes back again (`quiesce`, `truncate`). The walk can never pass such an
+   * id, so whether it answers null or `missing` there, it gives no signers (`shufflersOn`) and no rival deck
+   * (`rivalDeck`): a trial's Shares refusals never change its output.
+   */
+  private setupPath(id: Hex, seq: number): ParsedMove[] | 'missing' | null {
+    const path: ParsedMove[] = [];
+    let at = id;
+    while (at !== this.root.id && !this.linked.has(at)) {
+      if (path.length >= seq) return null;
+      const m = this.candidateById.get(at)?.m;
+      // Every move that passed `moveShape` is a candidate, so a refused id here is a move refused on arrival or a
+      // Shares event (refused against the current final deck, maybe only during a trial): no path either way.
+      if (m === undefined) return this.rejected.has(at) ? null : 'missing';
+      path.unshift(m);
+      at = m.prevId;
+    }
+    const fork = seq - path.length;
+    if (fork > this.chain.length || this.idAt(fork) !== at) return null;
+    for (const [i, m] of path.entries())
+      if (m.content.type !== 'shuffle' || m.seq !== fork + i + 1) return null;
+    return path;
+  }
+
+  /**
+   * The seats that may sign setup step `at` (0-based) on `prevId`, ascending, or null when none may:
+   * - on the chain's move at `at`, `shufflersAt`;
+   * - elsewhere in the held setup tree of an any-order setup (D093), from the signers of the prev's ancestry
+   *   (`setupPath`), each of which must be one that may sign its own step there. Null while an ancestor is
+   *   missing; definite answers are kept (`setupSigners`);
+   * - off the chain in a seat-order setup, null.
+   */
+  private shufflersOn(prevId: Hex, at: number): readonly number[] | null {
+    if (at <= this.chain.length && this.idAt(at) === prevId) return this.shufflersAt(at);
+    if (this.root.shuffleOrder !== 'any' || at >= this.shuffleSteps) return null;
+    const key = `${prevId}:${at}`;
+    const known = this.setupSigners.get(key);
+    if (known !== undefined) return known;
+    const path = this.setupPath(prevId, at);
+    if (path === 'missing') return null;
+    const out = path === null ? null : this.signersAfter(at - path.length, path);
+    this.setupSigners.set(key, out);
+    return out;
+  }
+
+  /**
+   * The seats that may sign the step after the chain's first `fork` moves and then `path` (any order, D093), or null
+   * when a step of `path` was signed by a seat that may not sign it there.
+   */
+  private signersAfter(fork: number, path: readonly ParsedMove[]): readonly number[] | null {
+    const signers = this.chain.slice(0, fork).map((m) => this.seatOf.get(m.pubkey) as number);
+    for (const m of path) {
+      const seat = this.seatOf.get(m.pubkey) as number;
+      if (!shuffleSigners(this.schedule, this.seats, 'any', signers).includes(seat)) return null;
+      signers.push(seat);
+    }
+    return shuffleSigners(this.schedule, this.seats, 'any', signers);
+  }
+
+  /**
+   * Whether every share of Shares event `s` verifies, under its signer's deck key, against one of the held rival
+   * final decks `rivals`: its signer dealt on that deck (D093). Each verdict is kept (`rivalDeals`).
+   */
+  private dealtOnRival(s: ParsedShares, rivals: readonly { last: Hex; deck: Ciphertext[] }[]): boolean {
+    const key = this.keys[this.seatOf.get(s.pubkey) as number] as Point;
+    return rivals.some(({ last, deck }) => {
+      const id = `${s.id}:${last}`;
+      const known = this.rivalDeals.get(id);
+      if (known !== undefined) return known;
+      const ok =
+        s.shares.length > 0 &&
+        s.shares.every(({ pos, share }) => {
+          const ct = pos < this.deckSize ? deck[pos] : undefined;
+          return ct !== undefined && verifyShare(key, ct, share, this.shareCtx(pos));
+        });
+      this.rivalDeals.set(id, ok);
+      return ok;
+    });
   }
 
   /* --------------------------------------------------------------------------------------------- fold */
@@ -1525,8 +1725,9 @@ export class GameSession {
       const at = m.seq - 1;
       const step = this.schedule[at];
       if (step === undefined) return reject('the game has no deck to shuffle');
-      if (seat !== step.seat) return reject(`shuffle step ${m.seq} must be signed by seat ${step.seat}`);
-      if (!this.shuffleVerifies(m.id, at, c.deck, c.proof))
+      const problem = this.signerProblem(at, seat);
+      if (problem !== null) return reject(problem);
+      if (!this.shuffleVerifies(m.id, at, seat, c.deck, c.proof))
         return reject('the shuffle proof does not verify');
       // The output goes back to the group's positions, in ascending order; every other position is unchanged.
       const next = (this.decks[at] as Ciphertext[]).slice();
@@ -2037,17 +2238,24 @@ export class GameSession {
     return result;
   }
 
+  /**
+   * Whether `signer`'s proof for shuffle step `step` (0-based) verifies, on the input `given` (a rival branch's, for
+   * `rivalDeck`) or else the chain's deck before that step (`shuffleInput`). Kept by event id: a step's ancestry,
+   * fixed by its id, fixes its input.
+   */
   private shuffleVerifies(
     id: Hex,
     step: number,
+    signer: number,
     output: readonly Ciphertext[],
     proof: Parameters<typeof verifyShuffle>[3],
+    given?: readonly Ciphertext[],
   ): boolean {
     const cached = this.shuffleChecked.get(id);
     if (cached !== undefined) return cached;
     this.shuffleVerifications++;
-    const input = this.shuffleInput(step);
-    const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step));
+    const input = given ?? this.shuffleInput(step);
+    const ok = verifyShuffle(input, output, this.X, proof, this.shuffleCtx(step, signer));
     this.shuffleChecked.set(id, ok);
     return ok;
   }
@@ -2065,14 +2273,37 @@ export class GameSession {
     return this.stepAt(step).group.positions.map((p) => deck[p] as Ciphertext);
   }
 
-  /** The seat that signs the next shuffle step, or null once the shuffle is over and in a deckless game. */
-  private nextShuffler(): number | null {
-    return this.schedule[this.chain.length]?.seat ?? null;
+  /**
+   * The seats that may sign shuffle step `at` (0-based) after the chain's first `at` moves, ascending (D093): the
+   * schedule's seat in a seat-order setup; in an any-order one, the step's block signer inside a block, and at a
+   * block's start every seat with no block yet in the round. Empty once the shuffle is over and in a deckless game.
+   * `at` is at most the chain's length.
+   */
+  private shufflersAt(at: number): readonly number[] {
+    if (at >= this.shuffleSteps) return [];
+    const signers = this.chain.slice(0, at).map((m) => this.seatOf.get(m.pubkey) as number);
+    return shuffleSigners(this.schedule, this.seats, this.root.shuffleOrder, signers);
   }
 
-  private shuffleCtx(step: number): ShuffleCtx {
-    const { seat, group } = this.stepAt(step);
-    return { rootId: this.root.id, seat, deckId: group.id };
+  /** The seats that may sign the next shuffle step, ascending; empty once the shuffle is over. */
+  private dueShufflers(): readonly number[] {
+    return this.shufflersAt(this.chain.length);
+  }
+
+  /**
+   * Why `seat` may not sign shuffle step `at` (0-based) after the chain's first `at` moves, or null when it may.
+   * A seat-order setup keeps its fixed signer's message.
+   */
+  private signerProblem(at: number, seat: number): string | null {
+    if (this.shufflersAt(at).includes(seat)) return null;
+    return this.root.shuffleOrder === 'seat'
+      ? `shuffle step ${at + 1} must be signed by seat ${this.stepAt(at).seat}`
+      : `shuffle step ${at + 1} may not be signed by seat ${seat}`;
+  }
+
+  /** The proof context of shuffle step `step` (0-based) signed by `signer`: `k` is the signer's seat (D093). */
+  private shuffleCtx(step: number, signer: number): ShuffleCtx {
+    return { rootId: this.root.id, seat: signer, deckId: this.stepAt(step).group.id };
   }
 
   private link(m: ParsedMove): void {
@@ -2442,20 +2673,74 @@ export class GameSession {
   }
 
   /**
+   * The kept-verdict key of the side branches at the fork after chain move `j` (`sideBest`): `forkKey`, except at a
+   * setup fork of an any-order game that does not reshuffle in play (D093) whose side branches hold setup steps
+   * alone, short of the last (`setupBelow`). There the key is the pool below the prev, which of those steps are not
+   * candidates, and the freeze: the shares and the other candidates are no input of the verdict.
+   * - The trial links only setup steps there: each on its signer (a function of the steps above it, all fixed by
+   *   their ids), its proof (verified once per id) and whether it is a candidate. It never completes a deck, so it
+   *   folds no Shares event, links no game action and never reaches `over`. `setupBelow`'s depth bound lets every
+   *   move pooled below the prev later bump its pool version.
+   * - Re-running the trial anyway would only cut the chain below the final deck and relink it, which re-verifies and
+   *   refolds every Shares event and bumps the share version, voiding every other fork's verdict: after an honest
+   *   race with two losing steps, each later event re-tried both forks, each trial refolding the whole game. The
+   *   relink rebuilds the fold as it was, so skipping it changes nothing, with one exception: in a game that
+   *   reshuffles in play, the relink refuses for good a waiting Shares event of a reshuffle more than two ahead of
+   *   the cut (D087). Such games keep `forkKey`, so they fold exactly as before.
+   * - Seat-order games keep `forkKey` too (a setup fork there needs an equivocation), and so does a test switch.
+   * `throughBest` keeps `forkKey`: its trial relinks the chain's own branch, whose game actions depend on shares.
+   */
+  private sideKey(j: number, frozen: boolean): string {
+    const below =
+      this.shareFreeSetupVerdicts &&
+      this.root.shuffleOrder === 'any' &&
+      !this.usesEpochs() &&
+      j < this.shuffleSteps
+        ? this.setupBelow(this.idAt(j))
+        : null;
+    if (below === null) return this.forkKey(j, frozen);
+    return `${this.poolVersion.get(this.idAt(j)) ?? 0}:setup:${below}:${frozen ? 'f' : 'l'}`;
+  }
+
+  /**
+   * When every pooled move below `prev`, through pooled moves, is a setup step short of the last one (seq below
+   * `shuffleSteps`), at most `MAX_DEPTH - 1` moves down: the ids of those that are not candidates
+   * (`shuffleEligible`), sorted and joined. Else null. A move pooled below any of them later bumps `prev`'s pool
+   * version (`poolChanged` walks up `MAX_DEPTH` moves, and no setup step is ever stuck). The depth bound also ends
+   * the walk.
+   */
+  private setupBelow(prev: Hex): string | null {
+    const off: Hex[] = [];
+    const stack: [Hex, number][] = [[prev, 0]];
+    while (stack.length > 0) {
+      const [at, depth] = stack.pop() as [Hex, number];
+      const kids = this.movesByPrev.get(at);
+      if (kids === undefined) continue;
+      if (depth + 1 >= MAX_DEPTH) return null;
+      for (const k of kids.values()) {
+        if (k.seq >= this.shuffleSteps) return null;
+        if (!this.shuffleEligible(k)) off.push(k.id);
+        stack.push([k.id, depth + 1]);
+      }
+    }
+    return off.sort().join(',');
+  }
+
+  /**
    * The best branch at the fork after chain move `j`, other than the chain's own, by trial: cut back to `j`, find
    * the best extension in trial mode, and relink the chain. Kept per prev until the pool below it, the shares or
-   * the shuffle candidates change, so an event elsewhere does not repeat the trial. Ranked as the fork is (frozen
-   * or not), unless `frozen` is given.
+   * the shuffle candidates change, so an event elsewhere does not repeat the trial (the shares only where they can
+   * matter, `sideKey`). Ranked as the fork is (frozen or not), unless `frozen` is given.
    */
   private sideBest(j: number, frozen = this.frozenAt(j)): { ids: Hex[]; over: boolean; settled: boolean } {
     const prev = `${this.idAt(j)}:${frozen ? 'f' : 'l'}`;
     const known = this.forkMemo.get(prev);
-    if (known !== undefined && known.key === this.forkKey(j, frozen)) return known;
+    if (known !== undefined && known.key === this.sideKey(j, frozen)) return known;
     this.trials++;
     const top = (this.chain[j] as ParsedMove).id;
     const best = this.trialAt(j, () => this.bestExtension(top, null, frozen));
     const out = {
-      key: this.forkKey(j, frozen),
+      key: this.sideKey(j, frozen),
       ids: best.moves.map((m) => m.id),
       over: best.over,
       settled: best.settled,
@@ -2649,10 +2934,12 @@ export class GameSession {
   /* ------------------------------------------------------------------------------------- equivocation */
 
   /**
-   * The seats with two distinct well-formed moves on one (prev, seq), the prev being the chain's move at seq − 1,
-   * ascending:
-   * - shuffle steps (D030 Ruling 12): any two, proofs unchecked. Only the step's seat could sign both, and an honest
-   *   client never signs twice;
+   * The seats with two distinct well-formed moves on one (prev, seq), ascending. The prev is the chain's move at
+   * seq − 1, except for setup steps in an any-order setup:
+   * - setup shuffle steps (D030 Ruling 12): any two, proofs unchecked, by a seat that may sign that step there
+   *   (`shufflersOn`). In an any-order setup the prev may be anywhere in the held setup tree, off the chain too
+   *   (D093): a seat that floods a losing branch's prev is caught. An honest client never signs twice on one prev,
+   *   and a race loser signs again on another prev;
    * - epoch steps (D073): the same, and not part of the opening-deal stall;
    * - game actions (R2 as refined by Ruling 3): both valid as of that prev on everything but R1. An invalid action
    *   never counts.
@@ -2666,10 +2953,12 @@ export class GameSession {
       const seat = this.seatOf.get(first.pubkey) as number;
       if (out.has(seat)) continue;
       const at = first.seq - 1;
-      if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
-      if (first.content.type === 'shuffle') out.add(seat);
-      else if (shuffleOnly) continue;
-      else if (first.content.type === 'epoch') out.add(seat);
+      if (first.content.type === 'shuffle') {
+        if (this.shufflersOn(first.prevId, at)?.includes(seat)) out.add(seat);
+        continue;
+      }
+      if (shuffleOnly || at > this.chain.length || this.idAt(at) !== first.prevId) continue;
+      if (first.content.type === 'epoch') out.add(seat);
       else if (group.filter((m) => this.validAtPrev(m, seat) === 'valid').length >= 2) out.add(seat);
     }
     return ascending(out);
@@ -2714,7 +3003,9 @@ export class GameSession {
    * Whether `seat` dealt on a rival deck (D056, review F7): a Shares event it signed is held that fails against the
    * current final deck. An honest client's shares always verify against the deck it built them on, so for this
    * client's own seat that means it dealt on another branch of a shuffle fork, and it must never deal again: the
-   * equivocating shuffler, knowing both decks' re-encryption factors, could translate its shares between them.
+   * equivocating shuffler, knowing both decks' re-encryption factors, could translate its shares between them. In an
+   * any-order setup an honest race can fork the deck too, and the seats that shuffled after the fork on both
+   * branches could together do the same, so the rule holds whatever caused the fork (D093).
    */
   private dealtElsewhere(seat: number): boolean {
     for (const s of this.badShares.values()) if (this.seatOf.get(s.pubkey) === seat) return true;
@@ -2743,7 +3034,9 @@ export class GameSession {
     }
     const c = m.content;
     if (c.type === 'shuffle') {
-      return this.shuffleVerifies(m.id, at, c.deck, c.proof)
+      const problem = this.signerProblem(at, seat);
+      if (problem !== null) return reject(problem);
+      return this.shuffleVerifies(m.id, at, seat, c.deck, c.proof)
         ? 'valid'
         : reject('the shuffle proof does not verify');
     }
@@ -3030,9 +3323,10 @@ export class GameSession {
 
   /**
    * The seats stalled at the head (D030 R4), ascending:
-   * - shuffle: the seat whose step is next;
-   * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held on the chain:
-   *   then the shuffle equivocators alone (D056, review F7);
+   * - shuffle: the seats that may sign the next step (D093): its seat in a seat-order setup; in an any-order one,
+   *   the block's signer inside a block, and at a block's start every seat with no block yet in the round;
+   * - deal: every seat whose owed deal positions are not all shared, unless a shuffle fork is held (on the chain,
+   *   or in an any-order setup anywhere in the setup tree, D093): then the shuffle equivocators alone (D056, F7);
    * - play: the pending seat, unless the decision needs a card dealt to it that some other seat has not shared,
    *   in which case those seats; for a pending public reveal, the seats missing a share of it;
    * - end: every seat whose secret is not in;
@@ -3044,10 +3338,8 @@ export class GameSession {
     // A resign has ended the game: nobody owes anything but, in a game with a deck, the missing secrets (D052).
     if (this.ended() !== null) return this.resignEnd() ? all.filter((k) => !this.secrets.has(k)) : [];
     switch (this.phase) {
-      case 'shuffle': {
-        const next = this.nextShuffler();
-        return next === null ? [] : [next];
-      }
+      case 'shuffle':
+        return [...this.dueShufflers()];
       case 'deal': {
         // A shuffle fork held during the deal (D056, review F7): the shuffle equivocator is the stalled seat, never
         // a seat that dealt on a rival deck and, under "never deal twice", will not deal again on this one.
@@ -3099,11 +3391,11 @@ export class GameSession {
   /* -------------------------------------------------------------------------------------------- views */
 
   /**
-   * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seat whose shuffle
-   * step is next, every seat still missing deal shares, the pending seat in play (or the seats whose shares it
-   * waits for), and at the end every seat whose secret is not in. Empty once nothing is owed, and once a timeout
-   * was accepted (its result is final). For the screens' "Waiting for …" lines; a timeout can be claimed only
-   * against one of these seats.
+   * The seats the game is waiting on at the head (D030 R4, D057), ascending, a fresh copy: the seats that may sign
+   * the next shuffle step (one, except at a block's start in an any-order setup, D093), every seat still missing
+   * deal shares, the pending seat in play (or the seats whose shares it waits for), and at the end every seat whose
+   * secret is not in. Empty once nothing is owed, and once a timeout was accepted (its result is final). For the
+   * screens' "Waiting for …" lines; a timeout can be claimed only against one of these seats.
    */
   waitingFor(): number[] {
     return this.timedOut === null ? [...this.stalled()] : [];
@@ -3117,6 +3409,8 @@ export class GameSession {
       seats: this.seats,
       shuffleSteps: this.shuffleSteps,
       shuffleProgress: status.phase === 'shuffle' ? this.progressOfShuffle() : null,
+      shuffleOrder: this.root.shuffleOrder,
+      shuffleRivals: this.shuffleRivals(),
       mySeat: this.me?.seat ?? null,
       head: { id: this.headId(), seq: this.chain.length },
       state: this.state,
@@ -3141,14 +3435,40 @@ export class GameSession {
   }
 
   /**
-   * Where the shuffle stands (PROTOCOL §5.5): the round the next step belongs to, and the seats that have finished
-   * that round. A round runs seat after seat, each shuffling all of the round's groups, so the seats done are those
-   * before the next step's seat. Null when no step is left.
+   * Where the shuffle stands (PROTOCOL §5.5, D093): the round the next step belongs to, and the seats that have
+   * finished that round. A round runs block after block, each seat shuffling all of the round's groups in one, so
+   * the seats done are the round's finished blocks: in a seat-order setup, the seats before the next step's seat.
+   * Null when no step is left.
    */
   private progressOfShuffle(): SessionView['shuffleProgress'] {
-    const next = this.schedule[this.chain.length];
+    const at = this.chain.length;
+    const next = this.schedule[at];
     if (next === undefined) return null;
-    return { round: next.round, rounds: this.shuffleRounds, seatsDone: next.seat };
+    const start = this.schedule.findIndex((s) => s.round === next.round);
+    const groups = this.schedule.filter((s) => s.round === next.round).length / this.seats;
+    return { round: next.round, rounds: this.shuffleRounds, seatsDone: Math.floor((at - start) / groups) };
+  }
+
+  /**
+   * Whether a rival setup step is held at a shuffle prev of the canonical chain (`SessionView.shuffleRivals`): a
+   * well-formed shuffle step on the prev of chain step `j`, by a seat that may sign step `j` there (`shufflersAt`,
+   * D093), that is not chain step `j` and was not rejected. A step by any other seat can never link, so held junk
+   * from an ineligible seat (past the candidate cap, never judged) does not count.
+   */
+  private shuffleRivals(): boolean {
+    const steps = Math.min(this.chain.length, this.shuffleSteps);
+    for (let j = 0; j < steps; j++) {
+      const own = (this.chain[j] as ParsedMove).id;
+      let eligible: readonly number[] | null = null;
+      for (let seat = 0; seat < this.seats; seat++) {
+        const group = this.candidates.get(`${this.idAt(j)}:${j + 1}:${seat}`);
+        if (group === undefined) continue;
+        if (![...group.keys()].some((id) => id !== own && !this.rejected.has(id))) continue;
+        eligible ??= this.shufflersAt(j);
+        if (eligible.includes(seat)) return true;
+      }
+    }
+    return false;
   }
 
   private logHash(): Hex {
@@ -3270,7 +3590,8 @@ export class GameSession {
 
   /**
    * The result once a timeout is accepted (PROTOCOL §8.2, D030 R5, Ruling 10), from the fold as it stood then;
-   * `stalled` holds every seat stalled at the head then, whichever seat the claim named:
+   * `stalled` holds every seat stalled at the head then, whichever seat the claim named (none after a split deal,
+   * `splitDeal`, D093):
    * - before the first game action: `cancelled`, no outcome; the stalled seats forfeit;
    * - during play: `done` at once, the stalled seats (and any equivocator) last, the others ranked by the module's
    *   `standings`. The deck cannot be decrypted without every secret, so the audit cannot run: it records the
@@ -3315,9 +3636,12 @@ export class GameSession {
     return ascending([...this.attests].filter(([, a]) => a.content === mine).map(([seat]) => seat));
   }
 
-  /** During the shuffle, the next shuffler; afterwards, the module's pending decision. A fresh copy. */
+  /**
+   * During the shuffle, the first seat that may sign the next step (`stalled` lists them all); afterwards, the
+   * module's pending decision. A fresh copy.
+   */
   private pending(): Pending {
-    const shuffler = this.phase === 'shuffle' ? this.nextShuffler() : null;
+    const shuffler = this.phase === 'shuffle' ? (this.dueShufflers()[0] ?? null) : null;
     if (shuffler !== null) return { type: 'player', seat: shuffler, decision: 'shuffle' };
     const p = this.module.pending(this.state);
     return p.type === 'reveal' ? { type: 'reveal', deck: p.deck, positions: [...p.positions] } : { ...p };
@@ -3329,7 +3653,9 @@ export class GameSession {
     if (me === null) return [];
     // After a timeout or a resign only the attestation can be due, and the secret a resign left owed (D052).
     const live = this.timedOut === null && this.ended() === null;
-    if (live && this.phase === 'shuffle' && this.nextShuffler() === me.seat) return [{ kind: 'shuffle' }];
+    // Every seat that may sign the next setup step owes it; `rank` orders them (D093).
+    const rank = live && this.phase === 'shuffle' ? this.dueShufflers().indexOf(me.seat) : -1;
+    if (rank >= 0) return [{ kind: 'shuffle', rank }];
     // Never deal twice (D056, review F7): a seat that dealt on a rival deck of a shuffle fork owes no deal here.
     if (
       live &&
@@ -3339,7 +3665,7 @@ export class GameSession {
     ) {
       return [{ kind: 'deal' }];
     }
-    if (live && this.phase === 'play' && this.epochShuffleDue(me.seat)) return [{ kind: 'shuffle' }];
+    if (live && this.phase === 'play' && this.epochShuffleDue(me.seat)) return [{ kind: 'shuffle', rank: 0 }];
     if (live && this.promptShares && this.phase === 'play' && !this.dealtElsewhere(me.seat)) {
       const positions = this.sharesDue(me.seat);
       if (positions.length > 0) return [{ kind: 'share', positions }];
@@ -3428,7 +3754,8 @@ export class GameSession {
     const me = this.requireDuty('shuffle');
     const input = this.shuffleInput(this.chain.length);
     const { out, psi, rPrime } = shuffleDeck(input, this.X, rnd);
-    const proof = proveShuffle(input, out, this.X, psi, rPrime, this.shuffleCtx(this.chain.length), rnd);
+    const ctx = this.shuffleCtx(this.chain.length, me.seat);
+    const proof = proveShuffle(input, out, this.X, psi, rPrime, ctx, rnd);
     const t = moveTemplate(
       {
         rootId: this.root.id,
@@ -3483,15 +3810,12 @@ export class GameSession {
     return ev;
   }
 
-  /** The existing single-pile epoch wire requires both module hooks and a bounded opening deck (D079, D080). */
+  /**
+   * The existing single-pile epoch wire requires both module hooks and a bounded opening deck (D079, D080):
+   * `reshufflesInPlay`, computed once.
+   */
   private usesEpochs(): boolean {
-    return (
-      this.hasDeck() &&
-      this.deckId === 'pile' &&
-      this.deckSize <= 512 &&
-      typeof this.module.installDeckOrder === 'function' &&
-      typeof this.module.shufflePlaintexts === 'function'
-    );
+    return this.reshuffles;
   }
 
   /** The next epoch shuffler waits on any fork by an earlier shuffler (D073). */
@@ -3861,10 +4185,12 @@ export class GameSession {
   }
 
   /**
-   * Shuffle steps that rival a step of the chain's deck (two well-formed steps by one seat on a chain prev, D030
-   * Ruling 12), other than the chain's own: at most 3 per prev, the lowest ids. A seat that keeps its deal off a
-   * refused deck republishes them (D056), so clients that never saw the rival hold the fork and stall the
-   * equivocator, not the seat.
+   * Setup shuffle steps that prove an equivocation (two well-formed steps by one seat on one prev, D030 Ruling 12),
+   * other than the chain's own: at most 3 per prev, the lowest ids. The prev and the seat are judged as in
+   * `equivocators` (`shufflersOn`): a chain prev, or in an any-order setup any prev of the held setup tree (D093),
+   * and a seat that may sign that step there, so an ineligible seat's steps are never republished. A seat that
+   * keeps its deal off a refused deck republishes them (D056), so clients that never saw the rival hold the fork
+   * and stall the equivocator, not the seat.
    */
   forkSteps(): Hex[] {
     const out: Hex[] = [];
@@ -3873,8 +4199,8 @@ export class GameSession {
       const group = byId([...(this.candidates.get(key) as Map<Hex, Candidate>).values()].map((c) => c.m));
       const first = group[0] as ParsedMove;
       if (first.content.type !== 'shuffle') continue;
-      const at = first.seq - 1;
-      if (at > this.chain.length || this.idAt(at) !== first.prevId) continue;
+      if (!this.shufflersOn(first.prevId, first.seq - 1)?.includes(this.seatOf.get(first.pubkey) as number))
+        continue;
       out.push(
         ...group
           .filter((m) => !onChain.has(m.id))

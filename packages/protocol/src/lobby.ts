@@ -73,12 +73,20 @@ export interface RootSeat {
   session: Hex;
 }
 
+/**
+ * The order of the setup shuffle steps (D093): `'seat'` takes them in seat order (a root without the tag),
+ * `'any'` lets the seats take them in any order (the root's `["shuffle-order","any"]` tag).
+ */
+export type ShuffleOrder = 'seat' | 'any';
+
 export interface RootSpec {
   table: ParsedTable;
   /** In seat order. */
   joins: ParsedJoin[];
   rules: unknown;
   relays: string[];
+  /** Default `'seat'`: the tag is written only for `'any'`. */
+  shuffleOrder?: ShuffleOrder;
 }
 
 export interface ParsedRoot {
@@ -94,6 +102,8 @@ export interface ParsedRoot {
   relays: string[];
   rules: unknown;
   seats: RootSeat[];
+  /** `'any'` when the root carries `["shuffle-order","any"]`, else `'seat'` (D093). */
+  shuffleOrder: ShuffleOrder;
 }
 
 /* ----------------------------------------------------------------------------------- field checks */
@@ -495,6 +505,7 @@ export function rootTemplate(spec: RootSpec, createdAt: number): EventTemplate {
       ['v', table.version],
       ['deadline', String(table.deadline)],
       ['rules-hash', rulesHash(spec.rules)],
+      ...(spec.shuffleOrder === 'any' ? [['shuffle-order', 'any']] : []),
       ...joins.map((j, i) => ['e', j.id, j.relays[0] ?? '', `seat:${i}`]),
       ...spec.relays.map((r) => ['relay', r]),
       ['proto', PROTO],
@@ -521,6 +532,10 @@ export function parseRoot(ev: unknown): ParsedRoot {
     const deadline = deadlineOf(one(tags, 'deadline'));
     const hash = one(tags, 'rules-hash');
     if (!isHex64(hash)) badTag('"rules-hash" must be 64 lowercase hex characters');
+    const orderTags = many(tags, 'shuffle-order');
+    if (orderTags.length > 1 || (orderTags.length === 1 && orderTags[0] !== 'any')) {
+      badTag('"shuffle-order" must be "any", at most once');
+    }
     const eTags = named(tags, 'e');
     if (eTags.length === 0) badTag('expected one "e" tag per seat');
     const joinIds: Hex[] = [];
@@ -558,6 +573,7 @@ export function parseRoot(ev: unknown): ParsedRoot {
       relays,
       rules: c.rules,
       seats,
+      shuffleOrder: orderTags.length === 1 ? 'any' : 'seat',
     };
   });
 }

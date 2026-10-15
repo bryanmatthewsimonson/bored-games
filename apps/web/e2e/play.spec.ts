@@ -212,14 +212,15 @@ test(`${SEATS} players set up a game and play it through the UI`, async ({ brows
   for (const p of players) await expect(p.page).toHaveURL(/#\/g\/[0-9a-f]{64}$/, { timeout: 60_000 });
 
   // A browser that is not seated (a fresh key, as when a player reopens the game in another app or browser) is
-  // told it is watching, and why, during the setup (D057). The players see whom the setup waits for.
+  // told it is watching, and why, during the setup (D057). The players see whom the setup waits for: a new root
+  // shuffles in any order (D093), so the seats still to shuffle or deal each need to open the app once.
   const w = await open(browser, 'w', appUrl('w', a.page.url()));
   await expect(w.page.getByText("You're watching this game.")).toBeVisible({ timeout: MOVE_MS });
   await expect(
     w.page.getByText("isn't one of its players. If you joined from another app or browser"),
   ).toBeVisible();
   await expect(
-    w.page.getByText(/^Waiting for .* (to shuffle|to send their deal shares)\. Their apps? must be open/),
+    w.page.getByText(/^Waiting for .* to (shuffle|deal)\. (They need|Each needs) to open the app once/),
   )
     .toBeVisible({ timeout: MOVE_MS })
     .catch(() => log('w: the setup finished before a waiting line showed'));

@@ -8,6 +8,7 @@
 import type { Hex } from '@bored-games/protocol';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
+import { npubEncode, shortNpub } from '../bech32.ts';
 import { useApp } from '../context.ts';
 import { webGame } from '../games/registry.ts';
 import { joinGate, keptKeys, keyProblem } from '../identity.ts';
@@ -23,6 +24,7 @@ import {
 } from '../lobby-model.ts';
 import { otherKeyDetail, SAVED_KEYS_DETAIL } from '../other-keys.ts';
 import { gameHref, tableHref } from '../router.ts';
+import { setupLineText, setupRunnerFor } from '../setup-runner.ts';
 import { loadSecrets, requestPersistenceOnce, storageManager, tableOwner } from '../storage.ts';
 import { CopyPageKey, JoinBackup } from './join-backup.tsx';
 import { TableCard } from './table-card.tsx';
@@ -46,9 +48,14 @@ export function joinableTables(
   );
 }
 
+/** An npub as the table list names it: its short form. */
+const shortName = (npub: string): string => shortNpub(npubEncode(npub as Hex));
+
 export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentChildren }) {
-  const { profile, store } = useApp();
+  const { profile, store, deps } = useApp();
   const lobby = useLobby();
+  // What the page's setup runner is doing for each game it sets up (D093).
+  const setupLines = setupRunnerFor(deps).lines.value;
   const kept = new Set(keptKeys(profile, store).map((k) => k.pubkey));
   if (props.tables.length === 0) return <p class="empty">{props.empty}</p>;
   return (
@@ -70,6 +77,9 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
             blocked || t.table.status === 'cancelled'
               ? null
               : revealDetail(cached, lobby.now(), webGame(t.table.game)?.setupCopy(true)?.share);
+          // The setup runner's line replaces every detail but another key's (it never runs a game this browser
+          // cannot play).
+          const setup = t.rootId === null ? undefined : setupLines.get(t.rootId);
           const chip = tableChip(t.table, t.lobby, known.status);
           const seated = t.lobby === null ? null : `${t.lobby.seatsFilled} of ${t.table.seats} seated`;
           // Another key's table: what can be done about it here, never a switch to a key this browser lacks (D065).
@@ -99,13 +109,15 @@ export function MyTables(props: { tables: readonly MyTable[]; empty: ComponentCh
               detail={
                 blocked && otherLine !== null
                   ? otherLine
-                  : reveal !== null
-                    ? reveal
-                    : known.check
-                      ? 'Open to check'
-                      : t.savedKeys
-                        ? SAVED_KEYS_DETAIL
-                        : seated
+                  : setup !== undefined
+                    ? setupLineText(setup, shortName)
+                    : reveal !== null
+                      ? reveal
+                      : known.check
+                        ? 'Open to check'
+                        : t.savedKeys
+                          ? SAVED_KEYS_DETAIL
+                          : seated
               }
               action={
                 <a
