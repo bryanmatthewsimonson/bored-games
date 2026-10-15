@@ -23,7 +23,7 @@
 import { seatForGameKeys } from '@bored-games/client';
 import type { ParsedRoot } from '@bored-games/protocol';
 import { effect, type Signal, signal } from '@preact/signals';
-import { GameController, loadOutbox, TICK_MS } from './game-controller.ts';
+import { GameController, loadOutboxSlot, TICK_MS } from './game-controller.ts';
 import { bytesToHex } from './hex.ts';
 import type { LobbyController, MyTable } from './lobby-controller.ts';
 import { lobbyFor } from './lobby-hooks.ts';
@@ -243,7 +243,7 @@ export class SetupRunner {
     const v = ctl.view.peek();
     if (v === null || dealPending(this.#d, ctl.rootId)) return false;
     if ((v.phase !== 'shuffle' && v.phase !== 'deal') || v.mySeat === null) return true;
-    const saved = loadOutbox(this.#d.storage, this.#d.profile, ctl.rootId).get('deal');
+    const saved = loadOutboxSlot(this.#d.storage, this.#d.profile, ctl.rootId, 'deal');
     if (saved !== undefined) return saved.confirmed;
     return (
       v.phase === 'deal' &&
@@ -307,7 +307,7 @@ function busyRun(ctl: GameController): boolean {
 
 /** Whether this seat's deal saved in this browser is out: a relay took it. */
 function dealOut(deps: ControllerDeps, rootId: string): boolean {
-  return loadOutbox(deps.storage, deps.profile, rootId).get('deal')?.confirmed === true;
+  return loadOutboxSlot(deps.storage, deps.profile, rootId, 'deal')?.confirmed === true;
 }
 
 /**
@@ -315,7 +315,7 @@ function dealOut(deps: ControllerDeps, rootId: string): boolean {
  * An orphan, a deal the session refused (D056), is never sent, so it waits for nothing.
  */
 function dealPending(deps: ControllerDeps, rootId: string): boolean {
-  const deal = loadOutbox(deps.storage, deps.profile, rootId).get('deal');
+  const deal = loadOutboxSlot(deps.storage, deps.profile, rootId, 'deal');
   return deal !== undefined && !deal.confirmed && !deal.orphan;
 }
 

@@ -322,6 +322,24 @@ export function loadOutbox(
   return out;
 }
 
+/**
+ * One slot of a game's saved outbox (`loadOutbox`), checking only that slot's event: a cheap read for a game whose
+ * outbox holds every event of a long game.
+ */
+export function loadOutboxSlot(
+  store: ControllerDeps['storage'],
+  profile: string,
+  rootId: string,
+  slot: string,
+): OutboxEntry | undefined {
+  const v = readJson(store, outboxKey(profile, rootId));
+  if (typeof v !== 'object' || v === null || Array.isArray(v) || !Object.hasOwn(v, slot)) return undefined;
+  const entry = (v as Record<string, unknown>)[slot];
+  if (typeof entry !== 'object' || entry === null) return undefined;
+  const { event, confirmed, orphan } = entry as Record<string, unknown>;
+  return verifyEvent(event) ? { event, confirmed: confirmed === true, orphan: orphan === true } : undefined;
+}
+
 /** The move's `prev` event id. */
 const prevOf = (ev: NostrEvent): string | null =>
   ev.tags.find((t) => t[0] === 'e' && t[3] === 'prev')?.[1] ?? null;
