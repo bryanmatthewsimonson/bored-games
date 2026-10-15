@@ -90,7 +90,7 @@ Only what one player sees changes: the games, their events and the other players
 
 ### Deploy to GitHub Pages
 1. In the GitHub repository, open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**. You only do this once. A private repository needs a plan that includes Pages.
-2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs `pnpm check`; once it passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
+2. Merge to `main`. CI (`.github/workflows/ci.yml`) runs what `pnpm check` runs, split for speed: typecheck and lint in one job, the Vitest projects in three shards (`pnpm test --shard=N/3`) side by side, and a `check` job that passes only when all of them do. Once the workflow passes, the **Deploy web app to GitHub Pages** workflow (`.github/workflows/pages.yml`) builds `apps/web` and deploys it. Nothing deploys while CI fails. You can also start the deploy by hand from the **Actions** tab.
    - **Default branch.** A `workflow_run` workflow runs from the repository's default branch, and the `github-pages` environment allows deployments from it. Keep `main` the default branch (**Settings → General → Default branch**).
 3. Share the URL the workflow prints, usually `https://<owner>.github.io/<repo>/`. Each person plays in their own browser, so no `?profile=` is needed.
 
