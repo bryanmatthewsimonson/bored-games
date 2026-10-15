@@ -144,8 +144,8 @@ type AnyModule = GameModule<unknown, { readonly type: string }, unknown>;
 /**
  * Whether `module` reshuffles its deck in play under the validated `rules` (D073, D079, D080): the single-pile epoch
  * wire, a `pile` deck of at most 512 cards whose module installs a reshuffled order and names its plaintexts (Holler,
- * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Such a game's setup shuffle runs in seat order (D093):
- * `GameSession.create` refuses an any-order root for it, and the web lobby starts it without the tag.
+ * Hazard, Quill & Quarry, Gilt & Guile, Current Affairs). Its setup shuffle may run in any order, as any game's
+ * (D093, D094); the epochs in play stay in seat order.
  */
 export function reshufflesInPlay(module: AnyModule, rules: unknown): boolean {
   const deck = module.decks(rules)[0] ?? null;
@@ -670,9 +670,6 @@ export class GameSession {
     const module = input.modules.get(root.game) as AnyModule;
     const rules = module.validateRules(root.rules);
     if (!rules.ok) throw new ClientError(`invalid rules: ${rules.error.message}`);
-    // A game that reshuffles in play takes its setup shuffle in seat order (D093, ruling 12).
-    if (root.shuffleOrder === 'any' && reshufflesInPlay(module, rules.value))
-      throw new ClientError('an any-order setup is not supported in a game that reshuffles in play');
 
     const me = input.me;
     if (me !== null) {
@@ -2661,9 +2658,9 @@ export class GameSession {
 
   /**
    * The kept-verdict key of the side branches at the fork after chain move `j` (`sideBest`): `forkKey`, except at a
-   * setup fork of an any-order game that does not reshuffle in play (D093) whose side branches hold setup steps
-   * alone, short of the last (`setupBelow`). There the key is the pool below the prev, which of those steps are not
-   * candidates, and the freeze: the shares and the other candidates are no input of the verdict.
+   * setup fork of an any-order game (D093) whose side branches hold setup steps alone, short of the last
+   * (`setupBelow`). There the key is the pool below the prev, which of those steps are not candidates, and the
+   * freeze: the shares and the other candidates are no input of the verdict.
    * - The trial links only setup steps there: each on its signer (a function of the steps above it, all fixed by
    *   their ids), its proof (verified once per id) and whether it is a candidate. It never completes a deck, so it
    *   folds no Shares event, links no game action and never reaches `over`. `setupBelow`'s depth bound lets every
@@ -2671,18 +2668,15 @@ export class GameSession {
    * - Re-running the trial anyway would only cut the chain below the final deck and relink it, which re-verifies and
    *   refolds every Shares event and bumps the share version, voiding every other fork's verdict: after an honest
    *   race with two losing steps, each later event re-tried both forks, each trial refolding the whole game. The
-   *   relink rebuilds the fold as it was, so skipping it changes nothing, with one exception: in a game that
-   *   reshuffles in play, the relink refuses for good a waiting Shares event of a reshuffle more than two ahead of
-   *   the cut (D087). Such games keep `forkKey`, so they fold exactly as before.
-   * - Seat-order games keep `forkKey` too (a setup fork there needs an equivocation), and so does a test switch.
+   *   relink rebuilds the fold as it was, so skipping it changes nothing. In a game that reshuffles in play that
+   *   holds since D094: a Shares event of a reshuffle not yet relinked waits for it instead of being refused for
+   *   good.
+   * - Seat-order games keep `forkKey` (a setup fork there needs an equivocation), and so does a test switch.
    * `throughBest` keeps `forkKey`: its trial relinks the chain's own branch, whose game actions depend on shares.
    */
   private sideKey(j: number, frozen: boolean): string {
     const below =
-      this.shareFreeSetupVerdicts &&
-      this.root.shuffleOrder === 'any' &&
-      !this.usesEpochs() &&
-      j < this.shuffleSteps
+      this.shareFreeSetupVerdicts && this.root.shuffleOrder === 'any' && j < this.shuffleSteps
         ? this.setupBelow(this.idAt(j))
         : null;
     if (below === null) return this.forkKey(j, frozen);

@@ -634,11 +634,11 @@ describe('New games from the lobby (D093)', () => {
   );
 
   it(
-    'a game that reshuffles in play starts in seat order (ruling 12)',
+    'a game that reshuffles in play starts in any order too (D094)',
     async () => {
       const { rootId } = await h.start2('holler', h.profile('a'), h.profile('b'));
       const rootEv = (await h.query([{ ids: [rootId] }]))[0] as NostrEvent;
-      expect(parseRoot(rootEv).shuffleOrder).toBe('seat');
+      expect(parseRoot(rootEv).shuffleOrder).toBe('any');
     },
     SLOW,
   );

@@ -830,20 +830,24 @@ describe('honest races, settled branches and the split deal (D093)', () => {
   });
 });
 
-describe('any order only for games without play reshuffles (D093, ruling 12)', () => {
+describe('any order in games that reshuffle in play too (D094)', () => {
   it('reshufflesInPlay is true for a game with reshuffle epochs, false for a plain deck or none', () => {
     expect(reshufflesInPlay(holler, holler.defaultRules())).toBe(true);
     expect(reshufflesInPlay(chainReaction, chainReaction.defaultRules())).toBe(false);
     expect(reshufflesInPlay(chess, chess.defaultRules())).toBe(false);
   });
 
-  it('a Holler any-order root is refused, and a Holler seat-order root still loads', () => {
+  it('a Holler any-order root loads, every seat owing the first step, and a seat-order root still loads', () => {
     const any = makeModuleGame(holler, 2, 'holler-any', undefined, ANY);
-    expect(() => newSession(any, 0)).toThrow(ClientError);
-    expect(() => newSession(any, null)).toThrow(/any-order setup/);
+    expect(newSession(any, null).view().shuffleOrder).toBe('any');
+    expect([0, 1].map((seat) => newSession(any, seat).duties())).toEqual([
+      [{ kind: 'shuffle', rank: 0 }],
+      [{ kind: 'shuffle', rank: 1 }],
+    ]);
     const seat = makeModuleGame(holler, 2, 'holler-seat');
     const session = newSession(seat, 0);
     expect(session.view().shuffleOrder).toBe('seat');
     expect(session.duties()).toEqual([{ kind: 'shuffle', rank: 0 }]);
+    expect(newSession(seat, 1).duties()).toEqual([]);
   });
 });
