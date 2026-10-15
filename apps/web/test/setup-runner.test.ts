@@ -183,14 +183,16 @@ async function game3() {
 }
 
 /**
- * Four 2-seat games of `game` between `a` (the creator, seat 0) and `b` (seat 1), started a second apart so their
- * roots' dates order them, oldest first.
+ * Four 2-seat games of `game` between `a` (the creator, seat 0) and `b` (seat 1), started a second apart on the
+ * creator's clock (which dates the roots) so their roots' dates order them, oldest first.
  */
 async function games4(game: string, a: Profile, b: Profile): Promise<string[]> {
+  const c = fakeTime();
+  const creator: Profile = { ...a, deps: { ...a.deps, now: c.now } };
   const roots: string[] = [];
   for (let i = 0; i < 4; i++) {
-    if (i > 0) await pause(1100);
-    roots.push((await h.start2(game, a, b)).rootId);
+    c.at(i);
+    roots.push((await h.start2(game, creator, b)).rootId);
   }
   return roots;
 }
@@ -223,11 +225,20 @@ describe('The setup runner (D093)', () => {
       const [s0, s1, s2] = bySeat;
       h.game(rootId, s0.deps);
       await onRelay("seat 0's step", async () => (await movesBy(rootId, keys[0] as string)).length === 1);
-      // Seat 1's player is on Home: no game page, only the page's setup runner.
-      const runner = await runnerOn(s1.deps, [rootId]);
+      // Seat 1's player is on Home: no game page, only the page's setup runner, on a clock that moves only when the
+      // test moves it.
+      const c = fakeTime();
+      const runner = await runnerOn({ ...s1.deps, now: c.now, timers: c.timers }, [rootId]);
       const seen = linesOf(runner, rootId);
-      await onRelay("seat 1's step", async () => (await movesBy(rootId, keys[1] as string)).length === 1);
       const waiting: SetupLine = { kind: 'waiting', who: [s2.deps.signer.pubkey], what: 'shuffle' };
+      // The runner holds seat 1's step for the grace: the game waits on seats 1 and 2, and the line names seat 2.
+      await waitFor(
+        'the runner holding its step for the grace',
+        () => JSON.stringify(runner.lines.value.get(rootId)) === JSON.stringify(waiting),
+        SLOW,
+      );
+      c.at(SETUP_MODE_GRACE_S);
+      await onRelay("seat 1's step", async () => (await movesBy(rootId, keys[1] as string)).length === 1);
       await waitFor(
         'the line waits for seat 2',
         () => JSON.stringify(seen.at(-1)) === JSON.stringify(waiting),
@@ -329,8 +340,18 @@ describe('The setup runner (D093)', () => {
       const [s0, s1, s2] = bySeat;
       h.game(rootId, s0.deps);
       await onRelay("seat 0's step", async () => (await movesBy(rootId, keys[0] as string)).length === 1);
-      const t = tracking(s1.deps);
+      // Seat 1's runner, on a clock that moves only when the test moves it.
+      const c = fakeTime();
+      const t = tracking({ ...s1.deps, now: c.now, timers: c.timers });
       const runner = await runnerOn(t.deps, [rootId]);
+      const waiting: SetupLine = { kind: 'waiting', who: [s2.deps.signer.pubkey], what: 'shuffle' };
+      // It holds seat 1's step for the grace (the line names seat 2), then shuffles.
+      await waitFor(
+        'the runner holding its step for the grace',
+        () => JSON.stringify(runner.lines.value.get(rootId)) === JSON.stringify(waiting),
+        SLOW,
+      );
+      c.at(SETUP_MODE_GRACE_S);
       await waitFor('the runner shuffling', () => runner.lines.value.get(rootId)?.kind === 'shuffling', SLOW);
       // The game's page opens mid-setup: the runner hands the game over at once.
       const release = runner.claim(rootId);
@@ -352,7 +373,6 @@ describe('The setup runner (D093)', () => {
       release();
       await waitFor('the runner has the game again', () => t.live(rootId) === 1);
       expect(t.built(rootId)).toBe(2);
-      const waiting: SetupLine = { kind: 'waiting', who: [s2.deps.signer.pubkey], what: 'shuffle' };
       await waitFor(
         'the line waits for seat 2',
         () => JSON.stringify(runner.lines.value.get(rootId)) === JSON.stringify(waiting),
@@ -367,12 +387,8 @@ describe('The setup runner (D093)', () => {
     async () => {
       const a = h.profile('a');
       const b = h.profile('b');
-      const roots: string[] = [];
-      for (let i = 0; i < 4; i++) {
-        // Roots a second apart, so their dates order them.
-        if (i > 0) await pause(1100);
-        roots.push((await h.start2('luster', a, b)).rootId);
-      }
+      // Roots a second apart, so their dates order them.
+      const roots = await games4('luster', a, b);
       // Seat 1 waits its turn in line in each game on a clock that never moves: nothing is shuffled.
       const c = fakeTime();
       const t = tracking({ ...b.deps, now: c.now, timers: c.timers });
@@ -397,17 +413,38 @@ describe('The setup runner (D093)', () => {
       const [s0, s1, s2] = bySeat;
       h.game(rootId, s0.deps);
       await onRelay("seat 0's step", async () => (await movesBy(rootId, keys[0] as string)).length === 1);
-      const t = tracking(s1.deps);
+      // Seat 1's runner, on a clock that moves only when the test moves it.
+      const c = fakeTime();
+      const t = tracking({ ...s1.deps, now: c.now, timers: c.timers });
       const runner = await runnerOn(t.deps, [rootId]);
+      const line = (): SetupLine | undefined => runner.lines.value.get(rootId);
+      // It holds seat 1's step for the grace (the line names seat 2), then shuffles.
+      const waiting: SetupLine = { kind: 'waiting', who: [s2.deps.signer.pubkey], what: 'shuffle' };
+      await waitFor(
+        'the runner holding its step for the grace',
+        () => JSON.stringify(line()) === JSON.stringify(waiting),
+        SLOW,
+      );
+      c.at(SETUP_MODE_GRACE_S);
       await onRelay("seat 1's step", async () => (await movesBy(rootId, keys[1] as string)).length === 1);
       // Seat 2 shuffles by hand and never deals: the setup stays in the deal.
       const session = await seatSession(rootId, s2, 2);
       await h.pool().publish(session.buildShuffle(rnd, now()));
+      // The runner holds seat 1's deal for the grace, then deals.
+      await waitFor('the runner holding its deal for the grace', () => line()?.what === 'deal', SLOW);
+      c.at(2 * SETUP_MODE_GRACE_S);
       await onRelay(
         "seat 1's deal",
         async () => (await sharesBy(rootId, keys[1] as string)).length === 1,
         SLOW,
       );
+      // Its work is done once a relay took the deal: the runner's next look (its tick) stops the run.
+      await waitFor(
+        'the deal confirmed',
+        () => loadOutbox(s1.deps.storage, s1.name, rootId).get('deal')?.confirmed,
+        SLOW,
+      );
+      c.tick();
       await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
       expect(runner.lines.value.has(rootId)).toBe(false);
       expect(loadGameStatus(s1.name, s1.deps.storage, rootId)?.phase).toBe('setup');
