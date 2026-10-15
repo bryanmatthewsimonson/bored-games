@@ -16,7 +16,8 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # `pnpm check` takes about 27 minutes since D093's setup tests, which wait on real stagger timers.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       # The pnpm version comes from "packageManager" in package.json.
