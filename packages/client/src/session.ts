@@ -1095,8 +1095,9 @@ export class GameSession {
     let early = false;
     for (const { pos } of s.shares) {
       if (this.positionLive(pos)) continue;
-      // A slot of a reshuffle this client has not accepted yet: its Shares wait for it (D087).
-      if (this.earlyEpochPosition(pos)) early = true;
+      // An epoch card slot not live on the chain yet: its Shares wait, however far ahead (D087, D094). Only a
+      // position no chain can make live is refused, so the verdict does not depend on what arrived first.
+      if (this.cardPosition(pos)) early = true;
       else return this.rejectEvent(s.id, `position ${pos} is outside the deck`);
     }
     if (early || this.timedOut !== null || this.resignedBy?.cancels === true) {
@@ -1884,16 +1885,6 @@ export class GameSession {
     return this.usesEpochs() ? epochSlot(pos, this.deckSize, epochStride(this.deckSize)) : null;
   }
 
-  /**
-   * Whether a share of `pos` may wait for its reshuffle (D087): a card slot of one of the next two epochs, which a
-   * Shares event can reach this client before the steps that complete it. Anything else not live is refused.
-   */
-  private earlyEpochPosition(pos: number): boolean {
-    const k = this.epochOf(pos);
-    const latest = this.latestEpoch();
-    return k !== null && k > latest && k <= latest + 2;
-  }
-
   /** The epoch stride when this game both reshuffles and rolls, so rolls skip epoch card slots (D087); else null. */
   private rollStride(): number | null {
     return this.usesEpochs() && this.usesBeacon() ? epochStride(this.deckSize) : null;
@@ -2518,14 +2509,10 @@ export class GameSession {
     let progressed = false;
     if (this.finalDeck() !== null) {
       for (const s of byId(this.waitingShares.values())) {
-        // Still before a reshuffle it needs: it waits on, unless that reshuffle came and the slot is not in it (D087).
-        const dead = s.shares.filter(({ pos }) => !this.positionLive(pos));
-        if (dead.some(({ pos }) => !this.earlyEpochPosition(pos))) {
-          this.waitingShares.delete(s.id);
-          this.rejected.set(s.id, `position ${(dead[0] as { pos: number }).pos} is outside the deck`);
-          continue;
-        }
-        if (dead.length > 0) continue;
+        // Still before a reshuffle it needs, it waits on (D087). Intake refused every position that is no card
+        // slot, so the rest wait whatever the chain: a trial at a setup prev relinks the final deck before the
+        // reshuffles, and a slot the accepted output lacks may be in the output another branch makes (D094).
+        if (s.shares.some(({ pos }) => !this.positionLive(pos))) continue;
         this.waitingShares.delete(s.id);
         const r = this.foldShares(s, this.seatOf.get(s.pubkey) as number);
         if (r === 'accepted') progressed = true;
