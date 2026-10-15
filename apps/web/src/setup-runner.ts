@@ -5,7 +5,8 @@
  * - It follows the page's lobby (`lobbyFor`) and takes the games this browser can play without a prompt: a root with a
  *   seat that the game keys made here at the join hold (`seatForGameKeys`; keys restored from the backup are left to
  *   the game page, ruling 20), a cached status other than `done` or `cancelled`, a cached phase that is missing or
- *   `setup`, and no deal of this seat's already out.
+ *   `setup`, and no deal of this seat's already out. A deal saved here that no relay has yet keeps a game in line
+ *   whatever its cached status and phase (ruling 23).
  * - Each runs as a setup-mode `GameController` (the shuffle and the deal only, never a signer prompt, each after a
  *   grace that lets a game page of the same seat act first), taken in line oldest root first (its `created_at`, then
  *   its id). At most `SETUP_RUNNER_MAX` of them load or owe a setup duty at once (ruling 21): a run that waits on
@@ -14,8 +15,9 @@
  * - A run with no view after `SETUP_LOAD_LIMIT_S`, or stuck, is disposed and its game parked for `SETUP_PARK_S`.
  * - A game's page claims the root while it is open (`claim`): the runner disposes its controller of that game at once,
  *   and takes the game back when the page closes, unless this seat's setup work is done.
- * - A controller is disposed once the game leaves its setup, or once this seat's deal is out (by then its blocks in
- *   every round are on the chain).
+ * - A controller is disposed once this seat's deal is out (by then its blocks in every round are on the chain), or
+ *   once the game leaves its setup, but never while a deal saved here waits for a relay (ruling 23): the last seat to
+ *   deal folds its own deal in, which puts its game in play before the deal has gone out.
  * - `lines` holds what Home shows for each game the runner is setting up, in place of the cached detail.
  */
 import { seatForGameKeys } from '@bored-games/client';
@@ -156,8 +158,9 @@ export class SetupRunner {
 
   /**
    * Dispose the runs whose setup work is done, give up those that never load or are stuck, and those no longer in line
-   * (claimed by their page, or past their setup by the cached status). Then fill the free slots, oldest game first:
-   * only runs that load or owe a setup duty take one (ruling 21), and none is disposed for an older game (ruling 22).
+   * (claimed by their page, or past their setup by the cached status with no saved deal waiting for a relay). Then
+   * fill the free slots, oldest game first: only runs that load or owe a setup duty take one (ruling 21), and none is
+   * disposed for an older game (ruling 22).
    */
   #plan(): void {
     const lobby = this.#lobby;
@@ -199,8 +202,11 @@ export class SetupRunner {
       if (parked !== undefined && now < parked) continue;
       this.#parked.delete(root.id);
       const cached = loadGameStatus(profile, storage, root.id);
-      if (cached?.status === 'done' || cached?.status === 'cancelled') continue;
-      if (cached?.phase !== undefined && cached.phase !== 'setup') continue;
+      // A deal saved here that no relay has yet keeps the game in line past its setup (ruling 23): the page that
+      // saved it may have closed before sending it, and the status it cached then already says play.
+      const owed = dealPending(this.#d, root.id);
+      if (!owed && (cached?.status === 'done' || cached?.status === 'cancelled')) continue;
+      if (!owed && cached?.phase !== undefined && cached.phase !== 'setup') continue;
       if (dealOut(this.#d, root.id) || !this.#seatHere(root)) continue;
       out.push({ rootId: root.id, rootAt: t.rootAt });
     }
@@ -226,14 +232,16 @@ export class SetupRunner {
   }
 
   /**
-   * Whether this seat's setup work in the game is done: the game has left its setup, this client holds no seat in it
-   * after all, or this seat's deal is out. A deal saved here is out once a relay took it. With none saved here, the
-   * seat dealt from another device once the deal waits on it for nothing, unless a rival setup step is held: fork
-   * choice could then still move the deal to another deck.
+   * Whether this seat's setup work in the game is done. Never while a deal saved here waits for a relay (ruling 23):
+   * the last seat to deal folds its own deal in, which puts its game in play while the deal is still on its way out,
+   * and disposing the controller then would leave it unsent. Otherwise: the game has left its setup, this client
+   * holds no seat in it after all, or this seat's deal is out. A deal saved here is out once a relay took it. With
+   * none saved here, the seat dealt from another device once the deal waits on it for nothing, unless a rival setup
+   * step is held: fork choice could then still move the deal to another deck.
    */
   #finished(ctl: GameController): boolean {
     const v = ctl.view.peek();
-    if (v === null) return false;
+    if (v === null || dealPending(this.#d, ctl.rootId)) return false;
     if ((v.phase !== 'shuffle' && v.phase !== 'deal') || v.mySeat === null) return true;
     const saved = loadOutbox(this.#d.storage, this.#d.profile, ctl.rootId).get('deal');
     if (saved !== undefined) return saved.confirmed;
@@ -300,6 +308,15 @@ function busyRun(ctl: GameController): boolean {
 /** Whether this seat's deal saved in this browser is out: a relay took it. */
 function dealOut(deps: ControllerDeps, rootId: string): boolean {
   return loadOutbox(deps.storage, deps.profile, rootId).get('deal')?.confirmed === true;
+}
+
+/**
+ * Whether this seat's deal saved in this browser still waits for a relay (ruling 23): neither confirmed nor an orphan.
+ * An orphan, a deal the session refused (D056), is never sent, so it waits for nothing.
+ */
+function dealPending(deps: ControllerDeps, rootId: string): boolean {
+  const deal = loadOutbox(deps.storage, deps.profile, rootId).get('deal');
+  return deal !== undefined && !deal.confirmed && !deal.orphan;
 }
 
 /**

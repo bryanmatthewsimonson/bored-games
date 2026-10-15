@@ -10,7 +10,7 @@ import { DEAL_SETTLE_S, GameSession } from '@bored-games/client';
 import { KIND, type NostrEvent, parseRoot } from '@bored-games/protocol';
 import type { Filter } from '@bored-games/relay';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadOutbox, SETUP_MODE_GRACE_S } from '../src/game-controller.ts';
+import { loadOutbox, outboxKey, SETUP_MODE_GRACE_S } from '../src/game-controller.ts';
 import { bytesToHex } from '../src/hex.ts';
 import { saveRestored } from '../src/key-backup.ts';
 import { lobbyFor } from '../src/lobby-hooks.ts';
@@ -546,6 +546,117 @@ describe('The setup runner and other devices (D093, ruling 20)', () => {
         SLOW,
       );
       await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
+    },
+    SLOW,
+  );
+});
+
+describe("The setup runner's last deal (D093, ruling 23)", () => {
+  it(
+    'sends its deal when it deals last, then stops',
+    async () => {
+      const { rootId, keys, bySeat } = await game3();
+      const [s0, s1, s2] = bySeat;
+      // Seats 0 and 1 have the game's page open: they shuffle and deal at once.
+      const g0 = h.game(rootId, s0.deps);
+      const g1 = h.game(rootId, s1.deps);
+      await waitFor('the first two shuffle steps', () => g1.view.value?.head.seq === 2, SLOW);
+      // Seat 2's player is on Home, on a clock that moves only when the test moves it.
+      const c = fakeTime();
+      const t = tracking({ ...s2.deps, now: c.now, timers: c.timers });
+      const runner = await runnerOn(t.deps, [rootId]);
+      const ownLine = (what: 'shuffle' | 'deal'): boolean => {
+        const line = runner.lines.value.get(rootId);
+        return line?.what === what && line.kind !== 'waiting';
+      };
+      await waitFor('the runner holding its shuffle for the grace', () => ownLine('shuffle'), SLOW);
+      c.at(SETUP_MODE_GRACE_S);
+      await onRelay(
+        "seat 2's step",
+        async () => (await movesBy(rootId, keys[2] as string)).length === 1,
+        SLOW,
+      );
+      // Seats 0 and 1 deal at once, and seat 2's runner holds its deal for the grace: it deals last. Its own deal
+      // completes the deal on its client, so its game is in play there before the deal has reached a relay.
+      for (const k of [0, 1])
+        await onRelay(
+          `seat ${k}'s deal`,
+          async () => (await sharesBy(rootId, keys[k] as string)).length === 1,
+          SLOW,
+        );
+      await waitFor('the runner holding only its own deal', () => ownLine('deal'), SLOW);
+      c.at(2 * SETUP_MODE_GRACE_S);
+      // Built and sent within seconds of the grace: a wait this long means the deal is never sent.
+      await onRelay(
+        "seat 2's deal",
+        async () => (await sharesBy(rootId, keys[2] as string)).length === 1,
+        60_000,
+      );
+      for (const g of [g0, g1]) await waitFor('the game in play', () => g.view.value?.phase === 'play', SLOW);
+      await waitFor(
+        'the deal confirmed',
+        () => loadOutbox(s2.deps.storage, s2.name, rootId).get('deal')?.confirmed,
+        SLOW,
+      );
+      // Its work is done once the deal is out: the next look stops the run, for good.
+      c.tick();
+      await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
+      expect(runner.lines.value.has(rootId)).toBe(false);
+      c.tick();
+      await pause(500);
+      expect(t.built(rootId)).toBe(1);
+    },
+    SLOW,
+  );
+
+  it(
+    'takes back a game past its setup whose saved deal no relay has, and sends it',
+    async () => {
+      const { rootId, keys, bySeat } = await game3();
+      const [s0, s1, s2] = bySeat;
+      const g0 = h.game(rootId, s0.deps);
+      const g1 = h.game(rootId, s1.deps);
+      await waitFor('the first two shuffle steps', () => g1.view.value?.head.seq === 2, SLOW);
+      // Seat 2 shuffles by hand, and seats 0 and 1 deal.
+      const session = await seatSession(rootId, s2, 2);
+      const step = session.buildShuffle(rnd, now());
+      session.receive(step, now());
+      await h.pool().publish(step);
+      for (const k of [0, 1])
+        await onRelay(
+          `seat ${k}'s deal`,
+          async () => (await sharesBy(rootId, keys[k] as string)).length === 1,
+          SLOW,
+        );
+      // Seat 2's page closed after its deal was saved and folded in, but before a relay took it: the deal is saved
+      // unconfirmed, and the status cached then says the game is in play.
+      const deal = session.buildDeal(rnd, now());
+      s2.deps.storage.setItem(
+        outboxKey(s2.name, rootId),
+        JSON.stringify({ deal: { event: deal, confirmed: false, orphan: false } }),
+      );
+      s2.deps.storage.setItem(
+        gameStatusKey(s2.name, rootId),
+        JSON.stringify({ status: 'waiting', seq: 3, updatedAt: now(), phase: 'play' }),
+      );
+      // A page opened later takes the game back and sends the deal.
+      const c = fakeTime();
+      const t = tracking({ ...s2.deps, now: c.now, timers: c.timers });
+      await runnerOn(t.deps, [rootId]);
+      await onRelay(
+        "seat 2's saved deal",
+        async () => (await sharesBy(rootId, keys[2] as string)).some((ev) => ev.id === deal.id),
+        60_000,
+      );
+      for (const g of [g0, g1]) await waitFor('the game in play', () => g.view.value?.phase === 'play', SLOW);
+      await waitFor(
+        'the deal confirmed',
+        () => loadOutbox(s2.deps.storage, s2.name, rootId).get('deal')?.confirmed,
+        SLOW,
+      );
+      c.tick();
+      await waitFor('the runner done with the game', () => t.live(rootId) === 0, SLOW);
+      expect(t.built(rootId)).toBe(1);
     },
     SLOW,
   );
