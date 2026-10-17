@@ -4,6 +4,8 @@
  * directly. The engine's display helpers (`legalMovesFrom`, `checkedKingSquare`, `capturedPieces`, ...) do the
  * chess; this file only words and orders it. Names come from the engine's theme.
  */
+
+import type { ChessEvent } from '@bored-games/chess';
 import {
   type ChessAction,
   type ChessState,
@@ -21,6 +23,7 @@ import {
 } from '@bored-games/chess';
 import { CHESS_THEME, pieceName } from '@bored-games/chess/theme';
 import type { Outcome } from '@bored-games/protocol';
+import type { RecapStep } from '../types.ts';
 
 const FILES = 'abcdefgh';
 
@@ -428,4 +431,38 @@ export function isLegal(legal: readonly unknown[], action: ChessAction): boolean
           a.uci === action.uci &&
           (a.offerDraw ?? false) === (action.offerDraw ?? false))),
   );
+}
+
+/** An engine event as the session reports it (`view().events` is typed `unknown[]`). */
+const isChessEvent = (e: unknown): e is ChessEvent =>
+  typeof e === 'object' && e !== null && typeof (e as { type?: unknown }).type === 'string';
+
+/**
+ * The recap (D095): one step per move, marked on its from and to squares (in that order, so the board can slide
+ * the piece), with a capture, check or plain placing sound; a draw offer is a step without marks or sound.
+ */
+export function chessRecap(events: readonly unknown[], names: readonly string[]): RecapStep[] {
+  const out: RecapStep[] = [];
+  for (const e of events) {
+    if (!isChessEvent(e)) continue;
+    if (e.type === 'moved') {
+      out.push({
+        seat: e.seat,
+        text: `${seatName(names, e.seat)} played ${e.san}.`,
+        marks: [e.uci.slice(0, 2), e.uci.slice(2, 4)],
+        cue: e.check ? 'check' : e.captured !== null ? 'capture' : 'place',
+      });
+    } else if (e.type === 'drawOffered') {
+      out.push({ seat: e.seat, text: `${seatName(names, e.seat)} offered a draw.`, marks: [], cue: null });
+    }
+  }
+  return out;
+}
+
+/** How far, in squares on screen, a piece travels from `from` to `to`: x right, y down. */
+export function slideOffset(from: string, to: string, flipped: boolean): { dx: number; dy: number } {
+  const file = (sq: string) => FILES.indexOf(sq[0] as string);
+  const rank = (sq: string) => Number(sq[1]);
+  const sign = flipped ? -1 : 1;
+  return { dx: sign * (file(from) - file(to)), dy: sign * (rank(to) - rank(from)) };
 }

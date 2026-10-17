@@ -23,6 +23,7 @@ import {
 } from '@bored-games/chain-reaction';
 import type { ChainReactionTheme, ChainTheme } from '@bored-games/chain-reaction/theme';
 import { canonicalJson } from '@bored-games/game-kit';
+import type { RecapStep } from '../types.ts';
 
 // ---------------------------------------------------------------- chains
 
@@ -921,4 +922,32 @@ export function logLines(events: readonly unknown[], viewer: LogViewer, max = LO
 /** `lastPlacedTile` over the session's module events. */
 export function lastTileOf(events: readonly unknown[]): number | null {
   return lastPlacedTile(events.filter(isEvent));
+}
+
+/** The sound of each kind of placement. */
+const PLACE_CUE = { lone: 'place', grow: 'place', found: 'found', merge: 'merge' } as const;
+
+/**
+ * The recap (D095): one step per tile placed (marked on that tile) or placement skipped. A placement's line names
+ * the tile and what it caused, never a count or an amount, so it is the same for every viewer (RULES "Assets").
+ */
+export function crRecap(
+  theme: ChainReactionTheme,
+  events: readonly unknown[],
+  names: readonly string[],
+): RecapStep[] {
+  const out: RecapStep[] = [];
+  for (const e of events) {
+    if (!isEvent(e)) continue;
+    if (e.type === 'tilePlaced')
+      out.push({
+        seat: e.seat,
+        text: describeEvent(theme, e, names),
+        marks: [e.tile],
+        cue: PLACE_CUE[e.kind],
+      });
+    else if (e.type === 'placementSkipped')
+      out.push({ seat: e.seat, text: describeEvent(theme, e, names), marks: [], cue: null });
+  }
+  return out;
 }

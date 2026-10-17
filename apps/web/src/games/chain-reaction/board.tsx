@@ -1,4 +1,5 @@
 import { COLS, ROWS } from '@bored-games/chain-reaction';
+import type { Recent } from '../types.ts';
 import type { BoardCell, ChainView, HandTile } from './model.ts';
 
 const ROW_LETTERS = 'ABCDEFGHI';
@@ -17,7 +18,7 @@ export function Swatch(props: { chain: ChainView; class?: string }) {
   );
 }
 
-function cellText(cell: BoardCell): string {
+function cellText(cell: BoardCell, recent: boolean): string {
   const what =
     cell.kind === 'chain'
       ? (cell.chain?.name ?? 'chain')
@@ -26,23 +27,26 @@ function cellText(cell: BoardCell): string {
         : cell.kind === 'pending'
           ? 'tile being placed'
           : 'empty';
-  return `${cell.id}: ${what}${cell.last ? ', last placed' : ''}`;
+  return `${cell.id}: ${what}${cell.last ? ', last placed' : recent ? ', placed since your last move' : ''}`;
 }
 
-function Cell(props: { cell: BoardCell; preview: HandTile | null }) {
-  const { cell, preview } = props;
+function Cell(props: { cell: BoardCell; preview: HandTile | null; recent: Recent | undefined }) {
+  const { cell, preview, recent } = props;
   const previewing = preview !== null && preview.tile === cell.index;
+  const isRecent = recent?.marks.has(cell.id) === true;
+  const pinged = recent?.latest.has(cell.id) === true;
   const classes = ['cr-cell', `cr-cell-${cell.kind}`];
   if (cell.chain) classes.push(`cr-pat-${cell.chain.pattern}`);
   if (cell.last) classes.push('cr-cell-last');
+  else if (isRecent) classes.push('cr-cell-recent');
   if (previewing) classes.push('cr-cell-preview', `cr-preview-${preview.badge ?? 'unknown'}`);
   return (
     <td>
       <div class={classes.join(' ')} style={cell.chain ? `--c:${cell.chain.color}` : undefined}>
         <span class="sr-only">
           {previewing
-            ? `${cellText(cell)}; ${preview.id} would land here: ${preview.preview}`
-            : cellText(cell)}
+            ? `${cellText(cell, isRecent)}; ${preview.id} would land here: ${preview.preview}`
+            : cellText(cell, isRecent)}
         </span>
         {cell.chain ? (
           <span class="cr-cell-label" aria-hidden="true">
@@ -53,6 +57,7 @@ function Cell(props: { cell: BoardCell; preview: HandTile | null }) {
             {cell.id}
           </span>
         )}
+        {pinged && <span key={`ping-${recent?.pulse ?? 0}`} class="fx-ping cr-ping" aria-hidden="true" />}
         {previewing && (
           <span class="cr-cell-badge" aria-hidden="true">
             {preview.badge}
@@ -64,7 +69,12 @@ function Cell(props: { cell: BoardCell; preview: HandTile | null }) {
 }
 
 /** The 12 × 9 board, rows A–I and columns 1–12. */
-export function Board(props: { cells: readonly BoardCell[]; preview: HandTile | null }) {
+export function Board(props: {
+  cells: readonly BoardCell[];
+  preview: HandTile | null;
+  /** The tiles placed since the viewer's last move (D095). */
+  recent?: Recent | undefined;
+}) {
   return (
     <div class="cr-board-wrap">
       <table class="cr-board">
@@ -87,7 +97,7 @@ export function Board(props: { cells: readonly BoardCell[]; preview: HandTile | 
             <tr key={ROW_LETTERS[r]}>
               <th scope="row">{ROW_LETTERS[r]}</th>
               {props.cells.slice(r * COLS, (r + 1) * COLS).map((cell) => (
-                <Cell key={cell.index} cell={cell} preview={props.preview} />
+                <Cell key={cell.index} cell={cell} preview={props.preview} recent={props.recent} />
               ))}
             </tr>
           ))}

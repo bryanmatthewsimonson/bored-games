@@ -104,6 +104,26 @@ main:has(.chess-game) {
   box-shadow: inset 0 0 0 2px var(--chess-last-edge);
 }
 
+.chess-sq.recent {
+  box-shadow: inset 0 0 0 2px var(--chess-last-edge);
+}
+
+/* The newest move's piece slides in from its square (D095); reduced motion shows it in place. */
+@media (prefers-reduced-motion: no-preference) {
+  .chess-piece.fx-slide {
+    animation: chess-slide 260ms ease-out;
+  }
+}
+
+@keyframes chess-slide {
+  from {
+    transform: translate(calc(var(--fx-dx) * 111.1%), calc(var(--fx-dy) * 111.1%));
+  }
+  to {
+    transform: none;
+  }
+}
+
 .chess-sq.check {
   background-image: radial-gradient(circle, rgb(255 60 60) 0%, rgb(230 30 30 / 0.85) 35%, transparent 75%);
   box-shadow: inset 0 0 0 3px var(--chess-check);

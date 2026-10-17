@@ -1534,3 +1534,82 @@ input[type="search"] {
   font-family: var(--mono);
   font-size: 0.85rem;
 }
+
+/*
+ * Effects on the plays since the viewer's last one (D095). `.fx-ping` is a ring that sits over a board mark of the
+ * newest play and expands once; its parent must be positioned. Reduced motion keeps the ring still and faint, so the
+ * mark still stands out.
+ */
+:root {
+  --fx-ring: rgb(47 95 179 / 0.85);
+}
+
+.fx-ping {
+  position: absolute;
+  inset: 4%;
+  z-index: 3;
+  border: 3px solid var(--fx-ring);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-ping {
+    animation: fx-ping 900ms ease-out forwards;
+  }
+}
+
+@keyframes fx-ping {
+  from {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  70% {
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+}
+
+/* "Since your last move": the plays in words and the Replay button. */
+.recap-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.recap-title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.recap-list {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 240px;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.recap-step {
+  overflow-wrap: anywhere;
+}
+
+.recap-step.current {
+  font-weight: 600;
+  text-decoration: underline 2px var(--accent);
+  text-underline-offset: 3px;
+}

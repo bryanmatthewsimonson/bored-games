@@ -14,7 +14,7 @@ import { CHESS_THEME } from '@bored-games/chess/theme';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ClaimTimeout } from '../../components/claim-timeout.tsx';
 import { rulesHref } from '../../router.ts';
-import type { GameViewProps } from '../types.ts';
+import type { GameViewProps, Recent } from '../types.ts';
 import { CHESS_META } from './meta.ts';
 import {
   canAcceptDraw,
@@ -34,6 +34,7 @@ import {
   promotionPiece,
   resultView,
   type SquareView,
+  slideOffset,
   squareViews,
   statusLine,
   stepSquare,
@@ -42,10 +43,11 @@ import { pieceSrc } from './pieces/cburnett.ts';
 import './chess.css';
 
 /** A piece image; decorative, since the square's name says what stands there. */
-export function PieceImage(props: { piece: Piece; class?: string }) {
+export function PieceImage(props: { piece: Piece; class?: string; style?: Record<string, string> }) {
   return (
     <img
       class={props.class ?? 'chess-piece'}
+      style={props.style}
       src={pieceSrc(props.piece)}
       alt=""
       aria-hidden="true"
@@ -68,10 +70,21 @@ export interface BoardGridProps {
   onKeyDown?: (square: string, e: KeyboardEvent) => void;
   onFocusSquare?: (square: string) => void;
   onPointerDown?: (square: string, e: PointerEvent) => void;
+  /** The plays to highlight (D095): the newest is pinged, and its piece slides in from where it came from. */
+  recent?: Recent | undefined;
+  /** Whether Black is at the bottom, for the slide's direction. */
+  flipped?: boolean;
 }
 
 /** The 64 squares, without state: pieces, highlights, target marks and the edge coordinates. */
 export function BoardGrid(props: BoardGridProps) {
+  const recent = props.recent;
+  // The viewer's own move is already where they put it.
+  const [slideFrom, slideTo] = recent === undefined || recent.mine ? [] : [...recent.latest];
+  const slide =
+    slideFrom === undefined || slideTo === undefined
+      ? null
+      : slideOffset(slideFrom, slideTo, props.flipped ?? false);
   return (
     <fieldset class="chess-board-set">
       <legend class="sr-only">Board</legend>
@@ -86,6 +99,7 @@ export function BoardGrid(props: BoardGridProps) {
             sq.target === null ? '' : `target-${sq.target}`,
             props.movable.has(sq.square) ? 'movable' : '',
             sq.square === props.dragFrom ? 'dragging' : '',
+            recent?.marks.has(sq.square) && !sq.last ? 'recent' : '',
           ]
             .filter((c) => c !== '')
             .join(' ');
@@ -103,7 +117,20 @@ export function BoardGrid(props: BoardGridProps) {
               onFocus={() => props.onFocusSquare?.(sq.square)}
               onPointerDown={(e) => props.onPointerDown?.(sq.square, e)}
             >
-              {sq.piece !== null && <PieceImage piece={sq.piece} />}
+              {sq.piece !== null &&
+                (slide !== null && sq.square === slideTo ? (
+                  <PieceImage
+                    key={`slide-${recent?.pulse ?? 0}`}
+                    piece={sq.piece}
+                    class="chess-piece fx-slide"
+                    style={{ '--fx-dx': String(slide.dx), '--fx-dy': String(slide.dy) }}
+                  />
+                ) : (
+                  <PieceImage piece={sq.piece} />
+                ))}
+              {recent?.latest.has(sq.square) && (
+                <span key={`ping-${recent.pulse}`} class="fx-ping" aria-hidden="true" />
+              )}
               {sq.target !== null && <span class={`chess-mark ${sq.target}`} aria-hidden="true" />}
               {sq.rankHint !== null && (
                 <span class="chess-coord rank" aria-hidden="true">
@@ -150,6 +177,7 @@ export function ChessBoard(props: {
   /** A drag ended on `to` (null: off the board). */
   onDrop: (from: string, to: string | null) => void;
   onEscape: () => void;
+  recent?: Recent | undefined;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -244,6 +272,8 @@ export function ChessBoard(props: {
         onKeyDown={onKeyDown}
         onFocusSquare={setFocused}
         onPointerDown={onPointerDown}
+        recent={props.recent}
+        flipped={props.flipped}
       />
       {ghost !== null && (
         <img
@@ -401,6 +431,7 @@ export function ChessGame(props: GameViewProps) {
           onPick={setFrom}
           onDrop={onDrop}
           onEscape={() => setFrom(null)}
+          recent={props.recent}
         />
         <PlayerBar seat={1 - top} {...props} />
       </section>

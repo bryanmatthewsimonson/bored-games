@@ -11,9 +11,11 @@ import { npubEncode, shortNpub } from '../bech32.ts';
 import { Avatar } from '../components/avatar.tsx';
 import { ClaimTimeout } from '../components/claim-timeout.tsx';
 import { BackupOffer, RestoreNotice } from '../components/key-backup.tsx';
+import { RecapStrip } from '../components/recap-strip.tsx';
 import { RecoveredNotice, WatchingNotice } from '../components/watching.tsx';
 import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
+import { useGameEffects } from '../game-effects.ts';
 import { gameTitle } from '../game-names.ts';
 import { webGame } from '../games/registry.ts';
 import type { Audit, SetupCopy } from '../games/types.ts';
@@ -319,7 +321,7 @@ export function placesText(view: SessionView, names: readonly string[]): string 
 const autoMoveOf = (game: string) => webGame(game)?.autoMove;
 
 export function GameScreen(props: { rootId: string }) {
-  const { deps, profile, store, signer } = useApp();
+  const { deps, profile, store, signer, settings } = useApp();
   const ctl = useMemo(
     () => new GameController(props.rootId, deps, { autoMove: autoMoveOf }),
     [props.rootId, deps],
@@ -362,6 +364,15 @@ export function GameScreen(props: { rootId: string }) {
     [seats, profiles],
   );
   const nameOf = (seat: number): string => names[seat] ?? `Seat ${seat + 1}`;
+  // Highlights, sounds and the turn alert (D095); hooks run on every render, so before the early returns.
+  const effects = useGameEffects({
+    game,
+    view,
+    status,
+    names,
+    sound: settings.sound.value,
+    title: gameId === null ? 'Game' : gameTitle(gameId),
+  });
 
   // "You're watching this game" when the key in use holds no seat (D057), from this profile's local records.
   const tableAddress = ctl.tableAddress.value;
@@ -533,6 +544,13 @@ export function GameScreen(props: { rootId: string }) {
           {forked}
         </p>
       )}
+      <RecapStrip
+        steps={effects.since}
+        mySeat={view.mySeat}
+        replaying={effects.replaying}
+        onReplay={effects.replay}
+        onStop={effects.stopReplay}
+      />
       <Component
         view={view}
         mySeat={view.mySeat}
@@ -549,6 +567,7 @@ export function GameScreen(props: { rootId: string }) {
         onClaimTimeout={claim?.onClaim}
         timeoutExplanation={claim?.explanation}
         ended={view.phase !== 'play'}
+        recent={effects.recent}
       />
       <div class="game-chrome">
         {attested !== null && (

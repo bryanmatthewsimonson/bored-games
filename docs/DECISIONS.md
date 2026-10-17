@@ -1474,3 +1474,15 @@ D093 kept seat order for the games that reshuffle in play (ruling 12), because T
   - A client that has not reloaded since D094 refuses to load an any-order root of these five games ("an any-order setup is not supported…") until it reloads. Games started in seat order finish in seat order.
   - Epoch forks, which need an equivocation in play, are unchanged: a trial that links a rival epoch output can still refuse for good a waiting Shares event of that epoch, since a rewind in play does not bring `badShares` back. Honest play never forks an epoch.
 - **No new dependencies.**
+
+## D095: Sounds, highlights and the "Since your last move" recap (owner request, 2026-10-17)
+
+The owner asked for sounds and visual effects that make the games more immersive and help players see the moves made since their last turn. Everything lives in `apps/web`: no engine, protocol or session change.
+
+- **Where the plays come from.** The session's module events (`view.events`, the last 300). A game turns them into recap steps with an optional `WebGame.recap(events, names)`: the seat, a line, the board marks it touched (squares, tiles) and its sound. Only what the viewer's view shows goes in a step: Chain Reaction's lines are the placement lines, which carry no count or amount (RULES "Assets"), and a game with hidden cards must never let a sound or a mark tell what was drawn.
+- **What is highlighted.** Every step since the viewer's own last one; a spectator, and a player who just moved, see the newest step. It is worked out from the events on every render, so it needs no storage, works on any device and survives a branch switch. Games keep their own last-move marks; the recap adds to them. A component gets it as `GameViewProps.recent` (optional, so previews and tests render as before).
+- **What arrived.** Events the session appended since the last view, found by identity (the session freezes each event once and keeps it in later arrays). A branch switch replaces the array, so nothing plays. Plays already on the chain when the screen opens are highlighted but silent.
+- **Sounds.** Synthesized with Web Audio: no files to license or ship, no dependency. One cue per arrival (the loudest of its steps), a tick for a move with no step, a chime when it becomes your move, and a phrase at the end. The AudioContext is made on the first click or key press, as browsers require. Setting `bg:<profile>:sound`: `all` (default, not stored), `turn` or `off`.
+- **Motion.** The ring and the Chess slide play only under `prefers-reduced-motion: no-preference`; with reduced motion the marks stay, still.
+- **Turn alert.** While it is your move and the page is hidden, the tab title starts with "(Your turn)". No Web Notification: it would need a permission prompt (left for the owner).
+- **No new dependencies.**

@@ -36,6 +36,7 @@ export function ChainReactionScreen(props: GameViewProps) {
       avatars={props.avatars}
       events={log}
       lastTile={lastTile}
+      recent={props.recent}
       audit={props.audit}
       notice={props.notice}
       deadline={props.deadline}

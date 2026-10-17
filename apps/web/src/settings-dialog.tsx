@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { npubEncode } from './bech32.ts';
 import { type Branding, licensedPack, licensedPacksLoaded } from './brands.ts';
+import { platformTimers } from './clock.ts';
 import { useApp } from './context.ts';
 import { CATALOG } from './games/catalog.ts';
 import { GAME_IDS } from './games/ids.ts';
@@ -10,6 +11,64 @@ import { EXTENSION_DECRYPT_NOTE } from './key-backup.ts';
 import { parseRelayInput } from './settings.ts';
 import { KeyImport, StorageStatus } from './settings-key.tsx';
 import { ProfileSection } from './settings-profile.tsx';
+import { type SoundMode, soundBoard } from './sound.ts';
+
+const SOUND_CHOICES: readonly { mode: SoundMode; label: string; hint: string }[] = [
+  { mode: 'all', label: 'All sounds', hint: 'Moves as they arrive, your turn and the end of the game.' },
+  {
+    mode: 'turn',
+    label: 'Turn alerts only',
+    hint: 'A chime when it is your move, and at the end of the game.',
+  },
+  { mode: 'off', label: 'No sound', hint: '' },
+];
+
+/** Sound cues in games (D095): every cue, the turn alerts only, or none, and a button to hear the chime. */
+function SoundSection() {
+  const { settings } = useApp();
+  const [saved, setSaved] = useState<'no' | 'yes' | 'failed'>('no');
+  const current = settings.sound.value;
+  const choose = (m: SoundMode) => setSaved(settings.setSound(m) ? 'yes' : 'failed');
+  return (
+    <section aria-labelledby="sound-h">
+      <h3 id="sound-h">Sound</h3>
+      <p class="muted">Short sounds in games. The browser plays them only after you click or press a key.</p>
+      <fieldset class="names-choice">
+        <legend class="sr-only">Sound</legend>
+        {SOUND_CHOICES.map((c) => (
+          <label key={c.mode} class="radio">
+            <input type="radio" name="sound" checked={current === c.mode} onChange={() => choose(c.mode)} />
+            <span class="names-option">
+              {c.label}
+              {c.hint !== '' && <span class="hint">{c.hint}</span>}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <div class="row">
+        <button
+          type="button"
+          class="btn btn-small"
+          disabled={current === 'off'}
+          onClick={() => {
+            soundBoard.unlock();
+            // A context made by this click may start running a moment later.
+            platformTimers.later(30, () => soundBoard.play('yourTurn', current));
+          }}
+        >
+          Play the turn chime
+        </button>
+        <span role="status" class={saved === 'failed' ? 'error' : 'muted'}>
+          {saved === 'yes'
+            ? 'Saved.'
+            : saved === 'failed'
+              ? 'Applied for this visit only: this browser would not save it.'
+              : ''}
+        </span>
+      </div>
+    </section>
+  );
+}
 
 function RelaySection() {
   const { settings } = useApp();
@@ -323,6 +382,7 @@ export function SettingsDialog() {
           <div class="dialog-body">
             <ProfileSection />
             <GameNamesSection />
+            <SoundSection />
             <RelaySection />
             <IdentitySection />
             <div class="dialog-foot">
