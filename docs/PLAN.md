@@ -1,5 +1,17 @@
 # Plan
 
+## Sounds, highlights and "Since your last move" — 2026-10-17 (D095)
+
+Owner request: sounds and visual effects that make games more immersive and show what was played since the viewer's last turn. Steps 1–3 of the plan are done; the other games follow one at a time.
+
+- **Every game:** a chime when it becomes your move (after the move's own sound), "(Your turn)" in the tab title while the page is in the background, a short sound at the end of the game, and a tick for each move that arrives. Settings → Sound: all sounds (the default), turn alerts only, or none, with a button that plays the chime. The sounds are synthesized with Web Audio (`apps/web/src/sound.ts`): no audio files, no dependency.
+- **Chess and Chain Reaction** have a recap (`WebGame.recap`): every play since the viewer's own last one is highlighted on the board, the newest with a ring (a Chess piece also slides in from its square), and a "Since your last move" strip lists those plays with a Replay button that steps through them with their sounds. The arrival sounds differ by play: placing, a capture, check, founding, a merger.
+- **Tests:** `apps/web/test/effects.test.ts` (patches, the sound board, the setting, the recap helpers, both recaps, the strip). `chess.spec.ts` now finds two SAN strings in the Moves panel, since the strip repeats them.
+- **Next:**
+  - A recap for each of the other games, in this order: Hazard (attack arrows and dice), Current Affairs, Right of Way, Sticks & Stones, then the card games (a card sliding from deck to hand, face down to the other seats).
+  - A replay that rewinds the board through each play's position, instead of only highlighting it on the current position.
+  - Optional: a "notify me" Web Notification for your turn, which needs a permission prompt.
+
 ## Any-order setup in games that reshuffle in play — 2026-10-15 (D094)
 
 The epoch Shares bug that kept Holler, Hazard, Quill & Quarry, Gilt & Guile and Current Affairs in seat order (D093, ruling 12) is fixed: after a fork-choice trial at a setup prev, a Shares event of a reshuffle not relinked yet waits for it instead of being refused for good, and a Shares event is refused only for a position no chain can make live. Those five games now start in any order like the others; their reshuffles in play stay in seat order.

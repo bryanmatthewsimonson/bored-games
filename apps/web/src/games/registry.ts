@@ -13,10 +13,13 @@ import { BankGame } from './bank/game.tsx';
 import { BANK_META } from './bank/meta.ts';
 import { BankRulesPage } from './bank/rules-page.tsx';
 import { CHAIN_REACTION_META } from './chain-reaction/meta.ts';
+import { crRecap } from './chain-reaction/model.ts';
 import { RulesPage as ChainReactionRulesPage } from './chain-reaction/rules-page.tsx';
 import { ChainReactionScreen } from './chain-reaction/screen.tsx';
+import { activeTheme } from './chain-reaction/theme.ts';
 import { ChessGame } from './chess/game.tsx';
 import { CHESS_META } from './chess/meta.ts';
+import { chessRecap } from './chess/model.ts';
 import { ChessRulesPage } from './chess/rules-page.tsx';
 import { CURRENT_SETUP_COPY, CurrentAffairsGame } from './current-affairs/game.tsx';
 import { CURRENT_META } from './current-affairs/meta.ts';
@@ -62,12 +65,14 @@ export const GAMES: readonly WebGame[] = [
             share: { act: 'send their share of a tile', owed: 'a share of a tile' },
           }
         : null,
+    recap: (events, names) => crRecap(activeTheme.value, events, names),
   },
   {
     ...CHESS_META,
     Component: ChessGame,
     RulesPage: ChessRulesPage,
     setupCopy: () => null,
+    recap: chessRecap,
   },
   {
     ...BANK_META,

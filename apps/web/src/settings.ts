@@ -2,6 +2,7 @@ import { isRelayUrl } from '@bored-games/protocol';
 import { type Signal, signal } from '@preact/signals';
 import { DEFAULT_BLOSSOM, parseBlossomServer } from './blossom.ts';
 import { type Branding, isBranding } from './brands.ts';
+import { isSoundMode, type SoundMode } from './sound.ts';
 import { type KeyValueStore, readItem, removeItem, storageKey, writeItem } from './storage.ts';
 
 /** The owner's choice of default relay for everybody (D038). Players can add more in Settings. */
@@ -80,15 +81,28 @@ export interface Settings {
   branding: Signal<Branding>;
   /** Saves the choice; 'safe' removes the stored value. Returns false when it was not saved. */
   setBranding(b: Branding): boolean;
+  /** Which sound cues play in a game (D095): every cue (the default), only the turn alerts, or none. */
+  sound: Signal<SoundMode>;
+  /** Saves the choice; 'all' removes the stored value. Returns false when it was not saved. */
+  setSound(m: SoundMode): boolean;
 }
 
-/** Settings persisted per profile under `bg:<profile>:relays`, `bg:<profile>:blossom` and `bg:<profile>:branding`. */
+/** The sound mode when none is stored. */
+export const DEFAULT_SOUND: SoundMode = 'all';
+
+/**
+ * Settings persisted per profile under `bg:<profile>:relays`, `bg:<profile>:blossom`, `bg:<profile>:branding` and
+ * `bg:<profile>:sound`.
+ */
 export function createSettings(profile: string, store: KeyValueStore, dev: boolean): Settings {
   const key = storageKey(profile, 'relays');
   const blossomKey = storageKey(profile, 'blossom');
   const brandingKey = storageKey(profile, 'branding');
   const storedBranding = readItem(store, brandingKey);
   const branding = signal<Branding>(isBranding(storedBranding) ? storedBranding : 'safe');
+  const soundKey = storageKey(profile, 'sound');
+  const storedSound = readItem(store, soundKey);
+  const sound = signal<SoundMode>(isSoundMode(storedSound) ? storedSound : DEFAULT_SOUND);
   const blossom = signal(parseBlossomServer(readItem(store, blossomKey) ?? '') ?? DEFAULT_BLOSSOM);
   const load = (): string[] => {
     const raw = readItem(store, key);
@@ -139,6 +153,15 @@ export function createSettings(profile: string, store: KeyValueStore, dev: boole
         return readItem(store, brandingKey) === null;
       }
       return writeItem(store, brandingKey, b);
+    },
+    sound,
+    setSound(m) {
+      sound.value = m;
+      if (m === DEFAULT_SOUND) {
+        removeItem(store, soundKey);
+        return readItem(store, soundKey) === null;
+      }
+      return writeItem(store, soundKey, m);
     },
   };
 }

@@ -156,6 +156,16 @@ main:has(.cr-game) {
   z-index: 1;
 }
 
+.cr-cell-recent {
+  outline: 2px dashed #111;
+  outline-offset: -2px;
+}
+
+/* The ping is a ring on a square cell. */
+.cr-ping {
+  border-radius: 3px;
+}
+
 .cr-cell-last::after {
   content: "";
   position: absolute;
