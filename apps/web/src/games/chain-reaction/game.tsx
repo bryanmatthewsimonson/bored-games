@@ -3,6 +3,7 @@ import type { ChainReactionTheme } from '@bored-games/chain-reaction/theme';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useReducer, useState } from 'preact/hooks';
 import { rulesHref } from '../../router.ts';
+import type { Recent } from '../types.ts';
 import { Board } from './board.tsx';
 import { DecisionArea } from './decisions.tsx';
 import { Hand, TIP_CLOSED, type TipEvent, tipReducer } from './hand.tsx';
@@ -58,6 +59,8 @@ export interface ChainReactionGameProps {
   events: readonly string[];
   /** The most recently placed tile, from the event log. */
   lastTile?: number | null | undefined;
+  /** The tiles placed since the viewer's last move, to highlight (D095). */
+  recent?: Recent | undefined;
   audit?: Audit | undefined;
   /** A protocol note for the status bar, such as "waiting for shares". */
   notice?: string | undefined;
@@ -167,7 +170,7 @@ export function ChainReactionGame(props: ChainReactionGameProps) {
         busy={props.busy}
       />
       <div class="cr-main">
-        <Board cells={cells} preview={preview} />
+        <Board cells={cells} preview={preview} recent={props.recent} />
         {mySeat !== null && !over && (
           <section class="cr-panel cr-hand-panel" aria-labelledby="cr-hand-h">
             <h2 id="cr-hand-h">Your tiles</h2>

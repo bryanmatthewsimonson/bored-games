@@ -190,7 +190,7 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
     });
     await expect(p.page.getByRole('button', { name: 'Resign' })).toHaveCount(0);
   }
-  await expect(a.page.getByText('Qh4#')).toBeVisible();
+  await expect(a.page.getByRole('region', { name: 'Moves' }).getByText('Qh4#')).toBeVisible();
   await expect(square(a, 'e1')).toHaveAccessibleName('e1, white king, in check');
   await expect(a.page.getByTestId('chess-live')).toHaveText(
     /\(Black\) played queen to h4, checkmate\. Game over, 0–1: Checkmate: .* \(Black\) wins\.$/,
@@ -262,7 +262,7 @@ test("two players play Fool's mate, a game ended by resign and one by an agreed 
   await shoot(a, 'chess-promotion');
   await dialog.getByRole('button', { name: 'Queen' }).click();
   await seen(both, 9);
-  await expect(b.page.getByText('bxa8=Q')).toBeVisible();
+  await expect(b.page.getByRole('region', { name: 'Moves' }).getByText('bxa8=Q')).toBeVisible();
   await expect(b.page.getByText(/\(White\) offers a draw\. Accept it/)).toBeVisible();
   await expect(b.page.getByTestId('chess-live')).toHaveText(
     /\(White\) played pawn takes rook on a8, promotes to queen, and offers a draw\.$/,
