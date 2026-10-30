@@ -11,6 +11,7 @@ import { LUSTER_META } from './games/luster/meta.ts';
 import { QUILL_META } from './games/quill-and-quarry/meta.ts';
 import { RIGHT_OF_WAY_META } from './games/right-of-way/meta.ts';
 import { ROOM_FOR_DOUBT_META } from './games/room-for-doubt/meta.ts';
+import { SPREAD_META } from './games/spread-thin/meta.ts';
 import { STICKS_META } from './games/sticks-and-stones/meta.ts';
 import type { GameMeta } from './games/types.ts';
 
@@ -29,6 +30,7 @@ export const GAME_METAS: ReadonlyMap<string, GameMeta> = new Map([
   [HAZARD_META.id, HAZARD_META],
   [STICKS_META.id, STICKS_META],
   [CURRENT_META.id, CURRENT_META],
+  [SPREAD_META.id, SPREAD_META],
 ]);
 
 /**

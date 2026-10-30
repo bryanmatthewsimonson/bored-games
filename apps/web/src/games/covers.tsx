@@ -15,6 +15,7 @@ import { LusterCover } from './luster/cover.tsx';
 import { QuarryArt } from './quill-and-quarry/art.tsx';
 import { RightOfWayCover } from './right-of-way/cover.tsx';
 import { RoomForDoubtCover } from './room-for-doubt/cover.tsx';
+import { SpreadCover } from './spread-thin/art.tsx';
 import { SticksCover } from './sticks-and-stones/art.tsx';
 import './quill-and-quarry/quill.css';
 
@@ -32,4 +33,5 @@ export const GAME_COVERS: Readonly<Record<string, ComponentType<{ thumb?: boolea
   hazard: HazardCover,
   'sticks-and-stones': SticksCover,
   'current-affairs': CurrentCover,
+  'spread-thin': SpreadCover,
 };

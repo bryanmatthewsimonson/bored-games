@@ -18,6 +18,7 @@ export const GAME_IDS: readonly string[] = [
   'hazard',
   'sticks-and-stones',
   'current-affairs',
+  'spread-thin',
 ];
 
 /** The game of the old `#/rules[/<section>]` links, and the picker's first choice. */

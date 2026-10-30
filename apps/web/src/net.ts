@@ -25,6 +25,7 @@ import {
 } from '@bored-games/relay';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
+import { spreadThin } from '@bored-games/spread-thin';
 import { sticksAndStones } from '@bored-games/sticks-and-stones';
 import { effect } from '@preact/signals';
 import type { Timers } from './clock.ts';
@@ -53,6 +54,7 @@ export const MODULES: ModuleRegistry = new Map<string, AnyModule>([
   [quillAndQuarry.id, quillAndQuarry],
   [giltAndGuile.id, giltAndGuile],
   [currentAffairs.id, currentAffairs],
+  [spreadThin.id, spreadThin],
 ]);
 
 /** The part of `RelayPool` the controllers use. `addRelays` is optional so a test double may leave it out. */

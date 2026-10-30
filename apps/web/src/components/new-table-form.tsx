@@ -11,6 +11,8 @@ import {
 } from '@bored-games/luster';
 import { LUSTER_THEME } from '@bored-games/luster/theme';
 import { type RfdRules, DEFAULT_RULES as ROOM_FOR_DOUBT_DEFAULT_RULES } from '@bored-games/room-for-doubt';
+import { DEFAULT_RULES as SPREAD_DEFAULT_RULES, type SpreadRules } from '@bored-games/spread-thin';
+import { SPREAD_THEME } from '@bored-games/spread-thin/theme';
 import { DEFAULT_RULES as STICKS_DEFAULT_RULES, type SticksRules } from '@bored-games/sticks-and-stones';
 import { STICKS_THEME } from '@bored-games/sticks-and-stones/theme';
 import { useEffect, useMemo, useState } from 'preact/hooks';
@@ -38,6 +40,9 @@ export const DEFENSE_CHOICES: readonly { readonly value: HazardRules['defense'];
   ];
 
 /** Sticks & Stones' table option (D089): how a second card of a culture symbol scores. */
+/** Spread Thin's difficulty: the surges in the field deck (D096). */
+export const SURGE_CHOICES: readonly SpreadRules['surges'][] = [4, 5, 6];
+
 export const DUPLICATES_CHOICES: readonly {
   readonly value: SticksRules['duplicates'];
   readonly label: string;
@@ -71,6 +76,7 @@ export function NewTableForm(props: { game: string }) {
   const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   const [defense, setDefense] = useState<HazardRules['defense']>(HAZARD_DEFAULT_RULES.defense);
   const [duplicates, setDuplicates] = useState<SticksRules['duplicates']>(STICKS_DEFAULT_RULES.duplicates);
+  const [surges, setSurges] = useState<SpreadRules['surges']>(SPREAD_DEFAULT_RULES.surges);
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
@@ -80,6 +86,7 @@ export function NewTableForm(props: { game: string }) {
     setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
     setDefense(HAZARD_DEFAULT_RULES.defense);
     setDuplicates(STICKS_DEFAULT_RULES.duplicates);
+    setSurges(SPREAD_DEFAULT_RULES.surges);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,6 +146,12 @@ export function NewTableForm(props: { game: string }) {
       }
       if (game === 'sticks-and-stones') {
         const address = await lobby.createTable({ ...spec, rules: { duplicates } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'spread-thin') {
+        const address = await lobby.createTable({ ...spec, rules: { rulesVersion: 1, surges } });
         const a = splitAddress(address);
         if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
         return;
@@ -399,6 +412,30 @@ export function NewTableForm(props: { game: string }) {
             Each clan scores its different culture symbols squared. A second copy of a symbol starts a second
             set, scored the same way, as the publisher rules; the first printing scored one point per copy
             instead.
+          </p>
+        </fieldset>
+      )}
+
+      {game === 'spread-thin' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Surge cards in the field deck</legend>
+          <div class="radio-row">
+            {SURGE_CHOICES.map((n) => (
+              <label key={n} class="radio">
+                <input
+                  type="radio"
+                  name="surges"
+                  value={n}
+                  checked={surges === n}
+                  onChange={() => setSurges(n)}
+                />
+                {SPREAD_THEME.surgeLevels[n]} ({n})
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            The more surges, the faster the strains spread and the harder the game. Four suits a first game;
+            six is for teams that have won before.
           </p>
         </fieldset>
       )}

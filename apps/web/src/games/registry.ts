@@ -47,6 +47,9 @@ import { ROOM_FOR_DOUBT_SETUP_COPY, RoomForDoubtGame } from './room-for-doubt/ga
 import { ROOM_FOR_DOUBT_META } from './room-for-doubt/meta.ts';
 import { automaticAnswer } from './room-for-doubt/model.ts';
 import { RoomForDoubtRulesPage } from './room-for-doubt/rules-page.tsx';
+import { SPREAD_SETUP_COPY, SpreadThinGame } from './spread-thin/game.tsx';
+import { SPREAD_META } from './spread-thin/meta.ts';
+import { SpreadThinRulesPage } from './spread-thin/rules-page.tsx';
 import { STICKS_SETUP_COPY, SticksGame } from './sticks-and-stones/game.tsx';
 import { STICKS_META } from './sticks-and-stones/meta.ts';
 import { SticksRulesPage } from './sticks-and-stones/rules-page.tsx';
@@ -168,6 +171,12 @@ export const GAMES: readonly WebGame[] = [
     RulesPage: CurrentAffairsRulesPage,
     // The station deck is shuffled and dealt like any other; no decision has one forced answer.
     setupCopy: () => CURRENT_SETUP_COPY,
+  },
+  {
+    ...SPREAD_META,
+    Component: SpreadThinGame,
+    RulesPage: SpreadThinRulesPage,
+    setupCopy: () => SPREAD_SETUP_COPY,
   },
 ];
 
