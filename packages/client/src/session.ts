@@ -608,7 +608,7 @@ export class GameSession {
     this.module = module;
     this.root = root;
     this.rules = rules;
-    const decks = module.decks(rules);
+    const decks = module.decks(rules, root.seats.length);
     if (decks.length > 1) throw new ClientError(`a session supports one deck or none, not ${decks.length}`);
     const deck = decks[0] ?? null;
     this.deckId = deck?.id ?? null;
