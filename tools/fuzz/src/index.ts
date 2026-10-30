@@ -12,6 +12,7 @@ import { luster } from '@bored-games/luster';
 import { quillAndQuarry } from '@bored-games/quill-and-quarry';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
+import { spreadThin } from '@bored-games/spread-thin';
 import { sticksAndStones } from '@bored-games/sticks-and-stones';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
@@ -38,6 +39,7 @@ import {
   ROOM_FOR_DOUBT_SIM_DEADLINE,
   roomForDoubtDeckOrder,
 } from './room-for-doubt.ts';
+import { SPREAD_EXPECTED_COVERAGE, SPREAD_POLICIES } from './spread-thin.ts';
 import { STICKS_EXPECTED_COVERAGE, STICKS_POLICIES } from './sticks-and-stones.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
@@ -146,6 +148,13 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     deckOrder: packetOrder,
     expectedCoverage: CURRENT_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],
+  },
+  'spread-thin': {
+    module: spreadThin,
+    policies: SPREAD_POLICIES,
+    deckOrder: packetOrder,
+    expectedCoverage: SPREAD_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4],
   },
 };
 

@@ -24,6 +24,8 @@ import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog
 import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
 import { ROOM_FOR_DOUBT_CATALOG } from '../packages/games/room-for-doubt/src/catalog.ts';
 import * as ROOM_FOR_DOUBT_COMPARE from '../packages/games/room-for-doubt/src/compare.ts';
+import { SPREAD_CATALOG } from '../packages/games/spread-thin/src/catalog.ts';
+import * as SPREAD_COMPARE from '../packages/games/spread-thin/src/compare.ts';
 import { STICKS_CATALOG } from '../packages/games/sticks-and-stones/src/catalog.ts';
 import * as STICKS_COMPARE from '../packages/games/sticks-and-stones/src/compare.ts';
 import {
@@ -459,6 +461,22 @@ describe('branding', () => {
         ],
         exactCase: false,
       },
+      {
+        game: 'Spread Thin',
+        home: 'packages/games/spread-thin/src/compare.ts',
+        phrase: 'Compare to Pandemic',
+        compare: SPREAD_COMPARE,
+        entry: SPREAD_CATALOG,
+        bggId: 30549,
+        companies: [
+          'Matt Leacock',
+          'Leacock',
+          'Z-Man Games',
+          'Quarantine Specialist',
+          'Resilient Population',
+        ],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -473,6 +491,7 @@ describe('branding', () => {
         'Compare to Risk',
         'Compare to Stone Age',
         'Compare to Power Grid',
+        'Compare to Pandemic',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

@@ -21,6 +21,7 @@ import { COMPARE_PHRASE as HAZARD_COMPARE_PHRASE } from '../packages/games/hazar
 import { COMPARE_PHRASE as LUSTER_COMPARE_PHRASE } from '../packages/games/luster/src/compare.ts';
 import { COMPARE_PHRASE as RIGHT_OF_WAY_COMPARE_PHRASE } from '../packages/games/right-of-way/src/compare.ts';
 import { COMPARE_PHRASE as ROOM_FOR_DOUBT_COMPARE_PHRASE } from '../packages/games/room-for-doubt/src/compare.ts';
+import { COMPARE_PHRASE as SPREAD_COMPARE_PHRASE } from '../packages/games/spread-thin/src/compare.ts';
 import { COMPARE_PHRASE as STICKS_COMPARE_PHRASE } from '../packages/games/sticks-and-stones/src/compare.ts';
 import {
   ALLOWED_PHRASE_HOMES,
@@ -86,6 +87,7 @@ describe('public build', () => {
       HAZARD_COMPARE_PHRASE,
       STICKS_COMPARE_PHRASE,
       CURRENT_COMPARE_PHRASE,
+      SPREAD_COMPARE_PHRASE,
     ]);
     const hosted = Object.entries(ALLOWED_PHRASE_HOMES)
       .filter(([home]) => GAME_IDS.includes(home.split('/')[2] ?? ''))

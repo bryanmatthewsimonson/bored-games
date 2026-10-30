@@ -53,6 +53,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'spread-thin',
+          root: 'packages/games/spread-thin',
+          include: ['test/**/*.test.ts'],
+          testTimeout: 120_000,
+        },
+      },
+      {
+        test: {
           name: 'sticks-and-stones',
           root: 'packages/games/sticks-and-stones',
           include: ['test/**/*.test.ts'],

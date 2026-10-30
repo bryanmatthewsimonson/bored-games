@@ -158,8 +158,28 @@ const CURRENT_REFERENCE: readonly string[] = [
   'Elektro',
 ];
 
+/**
+ * Spread Thin's reference game (D096): its title (a common word, restricted in every case: the repo never needs it
+ * outside the docs), its German title, its designer, and the names of its roles and event cards that are not
+ * everyday words (its publisher is listed above).
+ */
+const SPREAD_REFERENCE: readonly string[] = [
+  'Pandemic',
+  'Pandemie',
+  'Matt Leacock',
+  'Leacock',
+  'Contingency Planner',
+  'Operations Expert',
+  'Quarantine Specialist',
+  'Resilient Population',
+  'One Quiet Night',
+  'Government Grant',
+  'Airlift',
+];
+
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
+  ...SPREAD_REFERENCE.flatMap(nameForms),
   ...CURRENT_REFERENCE.flatMap(nameForms),
   ...STICKS_REFERENCE.flatMap(nameForms),
   ...HAZARD_REFERENCE.flatMap(nameForms),
@@ -184,7 +204,7 @@ export const ALLOWED_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081, D091),
+ * The exact phrases the public site may show although they hold a restricted name (D053, D060, D066, D078, D080, D081, D091, D096),
  * case-sensitive: one per game, keyed by the package that stores it as one string literal in `src/compare.ts`, which
  * a guard test checks. Keep this to whole phrases: never add a bare title, here or to ALLOWED_WORDS. Holler's
  * compare phrase is not here: its reference title is not on the restricted list (D072). A whole-word scan covers
@@ -200,6 +220,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/hazard/src/compare.ts': 'Compare to Risk',
   'packages/games/sticks-and-stones/src/compare.ts': 'Compare to Stone Age',
   'packages/games/current-affairs/src/compare.ts': 'Compare to Power Grid',
+  'packages/games/spread-thin/src/compare.ts': 'Compare to Pandemic',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

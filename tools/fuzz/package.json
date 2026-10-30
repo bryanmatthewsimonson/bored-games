@@ -14,6 +14,7 @@
     "@bored-games/chain-reaction": "workspace:*",
     "@bored-games/chess": "workspace:*",
     "@bored-games/current-affairs": "workspace:*",
+    "@bored-games/spread-thin": "workspace:*",
     "@bored-games/driftwrights": "workspace:*",
     "@bored-games/game-kit": "workspace:*",
     "@bored-games/holler": "workspace:*",

@@ -83,6 +83,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/spread-thin':
+        specifier: workspace:*
+        version: link:../../packages/games/spread-thin
       '@bored-games/sticks-and-stones':
         specifier: workspace:*
         version: link:../../packages/games/sticks-and-stones
@@ -229,6 +232,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/spread-thin:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/sticks-and-stones:
     dependencies:
       '@bored-games/game-kit':
@@ -317,6 +326,9 @@ importers:
       '@bored-games/room-for-doubt':
         specifier: workspace:*
         version: link:../../packages/games/room-for-doubt
+      '@bored-games/spread-thin':
+        specifier: workspace:*
+        version: link:../../packages/games/spread-thin
       '@bored-games/sticks-and-stones':
         specifier: workspace:*
         version: link:../../packages/games/sticks-and-stones
