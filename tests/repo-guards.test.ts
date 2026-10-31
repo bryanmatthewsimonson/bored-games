@@ -13,6 +13,8 @@ import { CURRENT_CATALOG } from '../packages/games/current-affairs/src/catalog.t
 import * as CURRENT_COMPARE from '../packages/games/current-affairs/src/compare.ts';
 import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog.ts';
 import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
+import { FEVER_CATALOG } from '../packages/games/fever-pitch/src/catalog.ts';
+import * as FEVER_COMPARE from '../packages/games/fever-pitch/src/compare.ts';
 import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
 import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
 import { HAZARD_CATALOG } from '../packages/games/hazard/src/catalog.ts';
@@ -459,6 +461,22 @@ describe('branding', () => {
         ],
         exactCase: false,
       },
+      {
+        game: 'Fever Pitch',
+        home: 'packages/games/fever-pitch/src/compare.ts',
+        phrase: 'Compare to Pandemic',
+        compare: FEVER_COMPARE,
+        entry: FEVER_CATALOG,
+        bggId: 30549,
+        companies: [
+          'Matt Leacock',
+          'Leacock',
+          'Z-Man Games',
+          'Quarantine Specialist',
+          'Resilient Population',
+        ],
+        exactCase: false,
+      },
     ];
 
     it('are exactly one "Compare to" phrase per game, each keyed by its home', () => {
@@ -473,6 +491,7 @@ describe('branding', () => {
         'Compare to Risk',
         'Compare to Stone Age',
         'Compare to Power Grid',
+        'Compare to Pandemic',
       ]);
       expect(COMPARE_TITLE).toBe(ORIGINAL_BRAND.gameTitle);
     });

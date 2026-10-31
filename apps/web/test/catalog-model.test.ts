@@ -61,6 +61,7 @@ describe('catalog filters', () => {
       'gilt-and-guile',
       'sticks-and-stones',
       'current-affairs',
+      'fever-pitch',
     ]);
     expect(ids({ players: 3 })).toEqual([
       'chain-reaction',
@@ -75,6 +76,7 @@ describe('catalog filters', () => {
       'hazard',
       'sticks-and-stones',
       'current-affairs',
+      'fever-pitch',
     ]);
     expect(ids({ players: 4 })).toEqual([
       'chain-reaction',
@@ -89,6 +91,7 @@ describe('catalog filters', () => {
       'hazard',
       'sticks-and-stones',
       'current-affairs',
+      'fever-pitch',
     ]);
     expect(ids({ players: 6 })).toEqual([
       'chain-reaction',
@@ -128,7 +131,8 @@ describe('catalog filters', () => {
       'sticks-and-stones',
       'current-affairs',
     ]);
-    expect(ids({ mode: 'cooperative' })).toEqual([]);
+    expect(ids({ mode: 'cooperative' })).toEqual(['fever-pitch']);
+    expect(ids({ genre: 'thematic' })).toEqual(['fever-pitch']);
     expect(ids({ mode: 'solo' })).toEqual([]);
     expect(ids({ length: 'under-30' })).toEqual(['chess', 'bank', 'holler']);
     // 45 to 90 minutes reaches into both the 30-60 and the 60-120 bucket.
@@ -152,6 +156,7 @@ describe('catalog filters', () => {
       'gilt-and-guile',
       'hazard',
       'sticks-and-stones',
+      'fever-pitch',
     ]);
     expect(ids({ complexity: 'heavy' })).toEqual(['chess', 'current-affairs']);
     expect(ids({ complexity: 'light' })).toEqual([

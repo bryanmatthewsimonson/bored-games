@@ -18,6 +18,7 @@ const PROMPT_SHARES_USED: readonly string[] = [
   'hazard',
   'sticks-and-stones',
   'current-affairs',
+  'fever-pitch',
 ];
 
 describe('promptShares record (D075)', () => {

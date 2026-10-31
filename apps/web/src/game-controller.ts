@@ -173,6 +173,26 @@ export const GAME_PAGE = 500;
 const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beacon', 'secret', 'attest'];
 
 /**
+ * A duty's key at the head: what the duty loop's guard, the failures and the held duties are keyed by. A share or
+ * seal duty also names its positions, since one head can owe several in turn: Fever Pitch turns up the drawn field
+ * cards, then a surge's strike or the first spread card, then the next, all on one move (D096).
+ */
+function dutyKey(
+  kind: Duty['kind'],
+  duties: readonly Duty[],
+  v: { readonly head: { readonly id: string } },
+): string {
+  const d = duties.find((x) => x.kind === kind);
+  const what =
+    d?.kind === 'share'
+      ? `:${d.positions.join(',')}`
+      : d?.kind === 'seal'
+        ? `:${d.items.map((x) => `${x.pos}>${x.to}`).join(',')}`
+        : '';
+  return `${kind}${what}@${v.head.id}`;
+}
+
+/**
  * The automatic duties a controller in setup mode performs (D093), signed by the session key alone, and only while the
  * session is in setup (`shuffle` or `deal`): a play-phase reshuffle (an epoch) is not setup work.
  */
@@ -1848,7 +1868,7 @@ export class GameController {
 
   /** An automatic duty is due but failed at this head. */
   #stuck(duties: readonly Duty[], v: SessionView): boolean {
-    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(`${d.kind}@${v.head.id}`));
+    return duties.some((d) => AUTO.includes(d.kind) && this.#failed.has(dutyKey(d.kind, duties, v)));
   }
 
   /** A move of mine on the current head is saved but not folded in (it waits for something): do not decide again. */
@@ -1881,13 +1901,13 @@ export class GameController {
       if (kind === 'attest' && (this.#session === null || !canAttest(this.#session))) continue;
       // The attestation is signed by the seat's npub, which a recovered seat does not hold (D057).
       if (kind === 'attest' && this.recovered.value !== null) continue;
-      if (this.#blocked(kind, v) || this.#heldDuties.has(`${kind}@${v.head.id}`)) continue;
+      if (this.#blocked(kind, v) || this.#heldDuties.has(dutyKey(kind, duties, v))) continue;
       this.#setupWait(kind, duties, v);
       // Waiting for its date (`#buildDate`) or its turn in an any-order setup (`#setupWait`) until the wake timer
       // fires (or its time has come, should it be late: a tick then runs it).
       const wake = this.#waits.get(`${kind}@${v.head.id}`);
       if (wake !== undefined && this.#d.now() < wake) continue;
-      if (duties.some((d) => d.kind === kind) && !this.#failed.has(`${kind}@${v.head.id}`)) return kind;
+      if (duties.some((d) => d.kind === kind) && !this.#failed.has(dutyKey(kind, duties, v))) return kind;
     }
     return null;
   }
@@ -2022,8 +2042,7 @@ export class GameController {
         // Let the screen show "working" before a long proof blocks the thread.
         await this.#yield();
         if (this.#disposed) return;
-        const head = session.view().head;
-        const key = `${kind}@${head.id}`;
+        const key = dutyKey(kind, session.duties(), session.view());
         try {
           // A duty still due after its event was folded in would loop forever: stop at the second try.
           if (done.has(key)) throw new ClientError('the duty is still due after its event was sent');

@@ -13,6 +13,8 @@ import { CURRENT_CATALOG } from '@bored-games/current-affairs/catalog';
 import { CURRENT_BRAND } from '@bored-games/current-affairs/theme';
 import { DRIFTWRIGHTS_CATALOG } from '@bored-games/driftwrights/catalog';
 import { DRIFTWRIGHTS_BRAND } from '@bored-games/driftwrights/theme';
+import { FEVER_CATALOG } from '@bored-games/fever-pitch/catalog';
+import { FEVER_BRAND } from '@bored-games/fever-pitch/theme';
 import type { BrandNames, CatalogEntry } from '@bored-games/game-kit';
 import { GILT_AND_GUILE_CATALOG } from '@bored-games/gilt-and-guile/catalog';
 import { GILT_AND_GUILE_BRAND } from '@bored-games/gilt-and-guile/theme';
@@ -52,6 +54,7 @@ const GAMES: readonly CatalogGame[] = [
   { entry: HAZARD_CATALOG, safe: HAZARD_BRAND },
   { entry: STICKS_CATALOG, safe: STICKS_BRAND },
   { entry: CURRENT_CATALOG, safe: CURRENT_BRAND },
+  { entry: FEVER_CATALOG, safe: FEVER_BRAND },
 ];
 
 const BY_ID: ReadonlyMap<string, CatalogGame> = new Map(GAMES.map((g) => [g.entry.id, g]));
@@ -63,3 +66,7 @@ export const CATALOG: ReadonlyMap<string, CatalogGame> = new Map(
     return g === undefined ? [] : [[id, g] as const];
   }),
 );
+
+/** Whether a hosted game is cooperative: the players win or lose together, so a Resign is a loss for the team (D097). */
+export const isCooperative = (id: string): boolean =>
+  CATALOG.get(id)?.entry.modes.includes('cooperative') === true;

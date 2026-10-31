@@ -3,6 +3,7 @@ import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { currentAffairs } from '@bored-games/current-affairs';
 import { driftwrights } from '@bored-games/driftwrights';
+import { feverPitch } from '@bored-games/fever-pitch';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { packetOrder } from '@bored-games/game-kit';
 import { giltAndGuile } from '@bored-games/gilt-and-guile';
@@ -22,6 +23,7 @@ import {
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 import { CURRENT_EXPECTED_COVERAGE, CURRENT_POLICIES } from './current-affairs.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
+import { FEVER_EXPECTED_COVERAGE, FEVER_POLICIES } from './fever-pitch.ts';
 import { GILT_AND_GUILE_POLICIES } from './gilt-and-guile.ts';
 import { HAZARD_EXPECTED_COVERAGE, HAZARD_POLICIES, HAZARD_SIM_DEADLINE } from './hazard.ts';
 import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
@@ -146,6 +148,13 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     deckOrder: packetOrder,
     expectedCoverage: CURRENT_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],
+  },
+  'fever-pitch': {
+    module: feverPitch,
+    policies: FEVER_POLICIES,
+    deckOrder: packetOrder,
+    expectedCoverage: FEVER_EXPECTED_COVERAGE,
+    defaultSeatCounts: [2, 3, 4],
   },
 };
 

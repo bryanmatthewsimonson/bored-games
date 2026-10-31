@@ -210,7 +210,7 @@ export function fuzzGame<S, E extends { readonly type: string }, R>(
     coverage[tag] = (coverage[tag] ?? 0) + 1;
   };
 
-  const decks = module.decks(opts.rules);
+  const decks = module.decks(opts.rules, opts.seats);
   const deckOrders: Record<string, number[]> = {};
   for (const deck of decks) {
     deckOrders[deck.id] = opts.deckOrder ? opts.deckOrder(deck, deckRng) : shuffle(range(deck.size), deckRng);

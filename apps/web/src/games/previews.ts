@@ -243,6 +243,29 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
         'Wiring: each lit city shows what its substation and the cheapest lines from your network cost.',
     },
   ],
+  'fever-pitch': [
+    {
+      file: 'fever-pitch-1.jpg',
+      width: 960,
+      height: 860,
+      caption:
+        'An early turn: pick a highlighted city on the chart to move there. Every hand is open to the whole team.',
+    },
+    {
+      file: 'fever-pitch-2.jpg',
+      width: 960,
+      height: 860,
+      caption:
+        'Mid-game: cases pile up across the Wide World while the team decides who treats, who travels and who gathers cards.',
+    },
+    {
+      file: 'fever-pitch-3.jpg',
+      width: 960,
+      height: 860,
+      caption:
+        'Later: spillovers on the track, a surge behind you, and a thinner field deck to find the cures with.',
+    },
+  ],
 };
 
 /** The URL of a preview picture, relative to the page, so it works from any sub-path (base './'). */

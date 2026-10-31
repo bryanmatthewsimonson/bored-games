@@ -43,7 +43,7 @@ const hasDeck = (module: AnyModule): boolean => module.decks(module.defaultRules
 
 /** The shuffle steps at the start of `module`'s chain at `seats` seats (none when deckless). */
 export function shuffleSteps(module: AnyModule, seats: number): number {
-  return shuffleSchedule(module.decks(module.defaultRules())[0] ?? null, seats).length;
+  return shuffleSchedule(module.decks(module.defaultRules(), seats)[0] ?? null, seats).length;
 }
 
 /**

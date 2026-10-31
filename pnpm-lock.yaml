@@ -53,6 +53,9 @@ importers:
       '@bored-games/driftwrights':
         specifier: workspace:*
         version: link:../../packages/games/driftwrights
+      '@bored-games/fever-pitch':
+        specifier: workspace:*
+        version: link:../../packages/games/fever-pitch
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit
@@ -187,6 +190,12 @@ importers:
         specifier: workspace:*
         version: link:../../game-kit
 
+  packages/games/fever-pitch:
+    dependencies:
+      '@bored-games/game-kit':
+        specifier: workspace:*
+        version: link:../../game-kit
+
   packages/games/gilt-and-guile:
     dependencies:
       '@bored-games/game-kit':
@@ -293,6 +302,9 @@ importers:
       '@bored-games/driftwrights':
         specifier: workspace:*
         version: link:../../packages/games/driftwrights
+      '@bored-games/fever-pitch':
+        specifier: workspace:*
+        version: link:../../packages/games/fever-pitch
       '@bored-games/game-kit':
         specifier: workspace:*
         version: link:../../packages/game-kit

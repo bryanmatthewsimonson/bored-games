@@ -27,6 +27,9 @@ import { CurrentAffairsRulesPage } from './current-affairs/rules-page.tsx';
 import { DriftwrightsGame } from './driftwrights/game.tsx';
 import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
 import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
+import { FEVER_SETUP_COPY, FeverPitchGame } from './fever-pitch/game.tsx';
+import { FEVER_META } from './fever-pitch/meta.ts';
+import { FeverPitchRulesPage } from './fever-pitch/rules-page.tsx';
 import { HAZARD_SETUP_COPY, HazardGame } from './hazard/game.tsx';
 import { HAZARD_META } from './hazard/meta.ts';
 import { HazardRulesPage } from './hazard/rules-page.tsx';
@@ -168,6 +171,12 @@ export const GAMES: readonly WebGame[] = [
     RulesPage: CurrentAffairsRulesPage,
     // The station deck is shuffled and dealt like any other; no decision has one forced answer.
     setupCopy: () => CURRENT_SETUP_COPY,
+  },
+  {
+    ...FEVER_META,
+    Component: FeverPitchGame,
+    RulesPage: FeverPitchRulesPage,
+    setupCopy: () => FEVER_SETUP_COPY,
   },
 ];
 

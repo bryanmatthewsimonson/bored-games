@@ -17,6 +17,7 @@ import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { useGameEffects } from '../game-effects.ts';
 import { gameTitle } from '../game-names.ts';
+import { isCooperative } from '../games/catalog.ts';
 import { webGame } from '../games/registry.ts';
 import type { Audit, SetupCopy } from '../games/types.ts';
 import { keptKeys, switchToKeptKey } from '../identity.ts';
@@ -61,12 +62,17 @@ export function equivocatorsOf(view: SessionView | null): readonly number[] {
  * What claiming a timeout against `who` does (PROTOCOL §8.2, D030 R5), for the claim's confirm step. Before the
  * first game action (the shuffle, the deal, or play before any move after them) the game is cancelled instead.
  */
-export function timeoutExplanation(view: SessionView, who: string): string {
+export function timeoutExplanation(view: SessionView, who: string, coop = false): string {
   const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started)
     return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits, and because no move has been played yet the game is cancelled without a result.`;
   if (view.phase === 'end')
-    return `${who} has not sent their end-of-game secret in time. If you claim the timeout, ${who} forfeits and is ranked last.`;
+    return coop
+      ? `${who} has not sent their end-of-game secret in time. If you claim the timeout, ${who} forfeits; the team's result stands.`
+      : `${who} has not sent their end-of-game secret in time. If you claim the timeout, ${who} forfeits and is ranked last.`;
+  // A cooperative game has no places to give: a forfeit in play ends it as a loss for everyone (D097).
+  if (coop)
+    return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits and the game ends now as a loss for the whole team.`;
   return `${who} has missed the move deadline. If you claim the timeout, ${who} forfeits: the game ends now, ${who} is ranked last and the others are ranked as if the game ended now.`;
 }
 
@@ -79,11 +85,15 @@ export function resignedSeats(view: SessionView | null): readonly number[] {
 /**
  * What resigning does, for the confirm step (D045, D052). Before the first move the game is cancelled. With 2
  * players you lose. With 3 or more the game ends for everyone, ranked as if it ended now, unrated, and the
- * resignation is recorded.
+ * resignation is recorded. In a cooperative game (D097) it is a loss for the whole team.
  */
-export function resignExplanation(view: SessionView): string {
+export function resignExplanation(view: SessionView, coop = false): string {
   const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started) return 'No move has been played yet, so resigning cancels the game without a result.';
+  if (coop)
+    return view.seats >= 3
+      ? "Resigning ends the game for everyone as a loss for the whole team. The game won't count toward ratings, and your resignation is recorded."
+      : 'Resigning ends the game as a loss for the whole team. This cannot be undone.';
   if (view.seats >= 3)
     return "Resigning ends the game for everyone. Final places are worked out as if the game ended now; the game won't count toward ratings, and your resignation is recorded.";
   return 'You lose the game. This cannot be undone.';
@@ -94,11 +104,20 @@ export function resignExplanation(view: SessionView): string {
  * - 3 or more players: "Ended early: Ann resigned · unrated.", then the final places once every secret is in and
  *   checked, or a note that the end-of-game check is under way;
  * - 2 players: "The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann."
+ * - a cooperative game (`coop`, D097): "The team loses: Ann resigned." (with "· unrated" and the secrets note at 3 or
+ *   more players), and no places: everyone loses together.
  */
-export function resignLine(view: SessionView | null, names: readonly string[]): string | null {
+export function resignLine(view: SessionView | null, names: readonly string[], coop = false): string | null {
   const quit = resignedSeats(view);
   if (view === null || quit.length === 0 || view.phase === 'cancelled') return null;
   const who = quit.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ');
+  // A cooperative game has no places to give: everyone loses together (D097).
+  if (coop) {
+    const head = `The team loses: ${who} resigned${view.seats >= 3 ? ' · unrated' : ''}.`;
+    if (view.seats >= 3 && view.outcome === null)
+      return `${head} Checking the game: waiting for every player's end-of-game secret.`;
+    return head;
+  }
   const places = placesText(view, names);
   if (view.seats >= 3) {
     const head = `Ended early: ${who} resigned · unrated.`;
@@ -145,6 +164,24 @@ export function timedOutSeats(view: SessionView | null): readonly number[] {
   if (a.reason !== 'resign; withheld secret') return [];
   const not = new Set([...resignedSeats(view), ...equivocatorsOf(view)]);
   return a.fail.filter((seat) => !not.has(seat));
+}
+
+/**
+ * The platform's line about a timeout that ended the game, or null when none did: "The game is over: Ann ran out of
+ * time and forfeits. Final places: 1. Bo, 2. Ann." In a cooperative game (`coop`, D097) a forfeit in play is a loss
+ * for the team, with no places ("The team loses: Ann ran out of time."); a withheld end-of-game secret leaves the
+ * team's result as it was ("Ann did not send their end-of-game secret in time and forfeits.").
+ */
+export function timeoutLine(view: SessionView | null, names: readonly string[], coop = false): string | null {
+  const out = timedOutSeats(view);
+  if (view === null || out.length === 0) return null;
+  const who = out.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ');
+  const verb = out.length === 1 ? 'forfeits' : 'forfeit';
+  const a = view.phase === 'done' ? view.audit : null;
+  if (coop && typeof a === 'object' && a !== null && a.reason === 'timeout')
+    return `The team loses: ${who} ran out of time.`;
+  if (coop) return `${who} did not send their end-of-game secret in time and ${verb}.`;
+  return `The game is over: ${who} ran out of time and ${verb}. Final places: ${placesText(view, names)}.`;
 }
 
 /** Each seat's short npub, after its profile name when it has one: "Ann (npub1abcdef…uvwxyz)". */
@@ -348,6 +385,8 @@ export function GameScreen(props: { rootId: string }) {
   const target = ctl.timeoutTarget.value;
   const gameId = ctl.game.value;
   const game = gameId === null ? undefined : webGame(gameId);
+  // A cooperative game is won or lost by the team together: its resign and timeout lines say so (D097).
+  const coop = gameId !== null && isCooperative(gameId);
   // The header's Rules link follows this game while the screen is open.
   useEffect(() => {
     activeGame.value = gameId;
@@ -464,7 +503,7 @@ export function GameScreen(props: { rootId: string }) {
     target === null || view === null
       ? null
       : {
-          explanation: timeoutExplanation(view, nameOf(target)),
+          explanation: timeoutExplanation(view, nameOf(target), coop),
           busy,
           onClaim: () => void ctl.claimTimeout(),
         };
@@ -499,7 +538,7 @@ export function GameScreen(props: { rootId: string }) {
   const audit: Audit | undefined = view.phase === 'end' || view.phase === 'done' ? view.audit : undefined;
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
-  const resigned = resignLine(view, names);
+  const resigned = resignLine(view, names, coop);
   const forked = forkLine(view, names);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
@@ -530,8 +569,7 @@ export function GameScreen(props: { rootId: string }) {
       )}
       {timedOut.length > 0 && (
         <p class="warning" role="status">
-          The game is over: {timedOut.map(nameOf).join(', ')} ran out of time and{' '}
-          {timedOut.length === 1 ? 'forfeits' : 'forfeit'}. Final places: {placesText(view, names)}.
+          {timeoutLine(view, names, coop)}
         </p>
       )}
       {resigned !== null && (
@@ -577,7 +615,7 @@ export function GameScreen(props: { rootId: string }) {
         )}
         {ctl.canResign.value && view.phase === 'play' && (
           <ResignButton
-            explanation={resignExplanation(view)}
+            explanation={resignExplanation(view, coop)}
             busy={busy}
             onResign={() => void ctl.resign()}
           />

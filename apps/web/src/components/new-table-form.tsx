@@ -1,5 +1,7 @@
 import { BANKING_CHOICES, DEFAULT_RULES, ROUND_CHOICES, validateRules } from '@bored-games/bank';
 import { BANK_THEME } from '@bored-games/bank/theme';
+import { DEFAULT_RULES as FEVER_DEFAULT_RULES, type FeverRules } from '@bored-games/fever-pitch';
+import { FEVER_THEME } from '@bored-games/fever-pitch/theme';
 import { CARDS, INTRO, KINGDOM, type Kind, PRESETS } from '@bored-games/gilt-and-guile';
 import { CARD_NAMES } from '@bored-games/gilt-and-guile/theme';
 import { DEFAULT_RULES as HAZARD_DEFAULT_RULES, type HazardRules } from '@bored-games/hazard';
@@ -38,6 +40,9 @@ export const DEFENSE_CHOICES: readonly { readonly value: HazardRules['defense'];
   ];
 
 /** Sticks & Stones' table option (D089): how a second card of a culture symbol scores. */
+/** Fever Pitch's difficulty: the surges in the field deck (D096). */
+export const SURGE_CHOICES: readonly FeverRules['surges'][] = [4, 5, 6];
+
 export const DUPLICATES_CHOICES: readonly {
   readonly value: SticksRules['duplicates'];
   readonly label: string;
@@ -71,6 +76,7 @@ export function NewTableForm(props: { game: string }) {
   const [submitRule, setSubmitRule] = useState<RfdRules['submit']>(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
   const [defense, setDefense] = useState<HazardRules['defense']>(HAZARD_DEFAULT_RULES.defense);
   const [duplicates, setDuplicates] = useState<SticksRules['duplicates']>(STICKS_DEFAULT_RULES.duplicates);
+  const [surges, setSurges] = useState<FeverRules['surges']>(FEVER_DEFAULT_RULES.surges);
   useEffect(() => {
     setRounds(DEFAULT_RULES.rounds);
     setBanking(DEFAULT_RULES.banking);
@@ -80,6 +86,7 @@ export function NewTableForm(props: { game: string }) {
     setSubmitRule(ROOM_FOR_DOUBT_DEFAULT_RULES.submit);
     setDefense(HAZARD_DEFAULT_RULES.defense);
     setDuplicates(STICKS_DEFAULT_RULES.duplicates);
+    setSurges(FEVER_DEFAULT_RULES.surges);
   }, [game]);
   const [inviteText, setInviteText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,6 +146,12 @@ export function NewTableForm(props: { game: string }) {
       }
       if (game === 'sticks-and-stones') {
         const address = await lobby.createTable({ ...spec, rules: { duplicates } });
+        const a = splitAddress(address);
+        if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
+        return;
+      }
+      if (game === 'fever-pitch') {
+        const address = await lobby.createTable({ ...spec, rules: { rulesVersion: 1, surges } });
         const a = splitAddress(address);
         if (a !== null) window.location.hash = tableHref(a.creator, a.tableId);
         return;
@@ -399,6 +412,30 @@ export function NewTableForm(props: { game: string }) {
             Each clan scores its different culture symbols squared. A second copy of a symbol starts a second
             set, scored the same way, as the publisher rules; the first printing scored one point per copy
             instead.
+          </p>
+        </fieldset>
+      )}
+
+      {game === 'fever-pitch' && (
+        <fieldset class="field" disabled={busy}>
+          <legend>Surge cards in the field deck</legend>
+          <div class="radio-row">
+            {SURGE_CHOICES.map((n) => (
+              <label key={n} class="radio">
+                <input
+                  type="radio"
+                  name="surges"
+                  value={n}
+                  checked={surges === n}
+                  onChange={() => setSurges(n)}
+                />
+                {FEVER_THEME.surgeLevels[n]} ({n})
+              </label>
+            ))}
+          </div>
+          <p class="hint">
+            The more surges, the faster the strains spread and the harder the game. Four suits a first game;
+            six is for teams that have won before.
           </p>
         </fieldset>
       )}

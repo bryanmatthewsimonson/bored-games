@@ -32,7 +32,8 @@
     "@bored-games/gilt-and-guile": "workspace:*",
     "@bored-games/hazard": "workspace:*",
     "@bored-games/sticks-and-stones": "workspace:*",
-    "@bored-games/current-affairs": "workspace:*"
+    "@bored-games/current-affairs": "workspace:*",
+    "@bored-games/fever-pitch": "workspace:*"
   },
   "devDependencies": {
     "@bored-games/dev-relay": "workspace:*",
