@@ -17,6 +17,7 @@ import { useApp } from '../context.ts';
 import { GameController, type GameStatus } from '../game-controller.ts';
 import { useGameEffects } from '../game-effects.ts';
 import { gameTitle } from '../game-names.ts';
+import { isCooperative } from '../games/catalog.ts';
 import { webGame } from '../games/registry.ts';
 import type { Audit, SetupCopy } from '../games/types.ts';
 import { keptKeys, switchToKeptKey } from '../identity.ts';
@@ -79,11 +80,15 @@ export function resignedSeats(view: SessionView | null): readonly number[] {
 /**
  * What resigning does, for the confirm step (D045, D052). Before the first move the game is cancelled. With 2
  * players you lose. With 3 or more the game ends for everyone, ranked as if it ended now, unrated, and the
- * resignation is recorded.
+ * resignation is recorded. In a cooperative game (D097) it is a loss for the whole team.
  */
-export function resignExplanation(view: SessionView): string {
+export function resignExplanation(view: SessionView, coop = false): string {
   const started = view.phase !== 'shuffle' && view.phase !== 'deal' && view.head.seq > view.shuffleSteps;
   if (!started) return 'No move has been played yet, so resigning cancels the game without a result.';
+  if (coop)
+    return view.seats >= 3
+      ? "Resigning ends the game for everyone as a loss for the whole team. The game won't count toward ratings, and your resignation is recorded."
+      : 'Resigning ends the game as a loss for the whole team. This cannot be undone.';
   if (view.seats >= 3)
     return "Resigning ends the game for everyone. Final places are worked out as if the game ended now; the game won't count toward ratings, and your resignation is recorded.";
   return 'You lose the game. This cannot be undone.';
@@ -94,11 +99,20 @@ export function resignExplanation(view: SessionView): string {
  * - 3 or more players: "Ended early: Ann resigned · unrated.", then the final places once every secret is in and
  *   checked, or a note that the end-of-game check is under way;
  * - 2 players: "The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann."
+ * - a cooperative game (`coop`, D097): "The team loses: Ann resigned." (with "· unrated" and the secrets note at 3 or
+ *   more players), and no places: everyone loses together.
  */
-export function resignLine(view: SessionView | null, names: readonly string[]): string | null {
+export function resignLine(view: SessionView | null, names: readonly string[], coop = false): string | null {
   const quit = resignedSeats(view);
   if (view === null || quit.length === 0 || view.phase === 'cancelled') return null;
   const who = quit.map((seat) => names[seat] ?? `Seat ${seat + 1}`).join(', ');
+  // A cooperative game has no places to give: everyone loses together (D097).
+  if (coop) {
+    const head = `The team loses: ${who} resigned${view.seats >= 3 ? ' · unrated' : ''}.`;
+    if (view.seats >= 3 && view.outcome === null)
+      return `${head} Checking the game: waiting for every player's end-of-game secret.`;
+    return head;
+  }
   const places = placesText(view, names);
   if (view.seats >= 3) {
     const head = `Ended early: ${who} resigned · unrated.`;
@@ -499,7 +513,8 @@ export function GameScreen(props: { rootId: string }) {
   const audit: Audit | undefined = view.phase === 'end' || view.phase === 'done' ? view.audit : undefined;
   const cheats = equivocatorsOf(view);
   const timedOut = timedOutSeats(view);
-  const resigned = resignLine(view, names);
+  const coop = gameId !== null && isCooperative(gameId);
+  const resigned = resignLine(view, names, coop);
   const forked = forkLine(view, names);
   const deadlineLeft = view.pendingSince + view.deadline - now;
   const attested = attestLine(view);
@@ -577,7 +592,7 @@ export function GameScreen(props: { rootId: string }) {
         )}
         {ctl.canResign.value && view.phase === 'play' && (
           <ResignButton
-            explanation={resignExplanation(view)}
+            explanation={resignExplanation(view, coop)}
             busy={busy}
             onResign={() => void ctl.resign()}
           />

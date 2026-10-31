@@ -1,6 +1,7 @@
 import type { SessionView } from '@bored-games/client';
 import { describe, expect, it } from 'vitest';
 import { npubEncode, shortNpub } from '../src/bech32.ts';
+import { isCooperative } from '../src/games/catalog.ts';
 import { MAX_PROFILE_NAME, profileName } from '../src/profile-model.ts';
 import {
   attestLine,
@@ -146,6 +147,48 @@ describe('game chrome helpers (D045)', () => {
       'The game is over: Ann has resigned. Final places: 1. Bo, 2. Ann.',
     );
     expect(placesText(viewOf({ outcome: null }), names)).toBe('');
+  });
+
+  it('reads a resign in a cooperative game as a loss for the whole team, with no places (D097)', () => {
+    const names = ['Ann', 'Bo', 'Cy'];
+    const outcome = {
+      places: [1, 3, 1],
+      reason: 'resign',
+      scores: [2, 2, 2],
+      unrated: true as const,
+      endedBy: { type: 'resign' as const, seat: 1 },
+    };
+    expect(resignLine(viewOf({ phase: 'done', resigned: [1], outcome }), names, true)).toBe(
+      'The team loses: Bo resigned · unrated.',
+    );
+    expect(resignLine(viewOf({ phase: 'end', resigned: [1], outcome: null }), names, true)).toBe(
+      "The team loses: Bo resigned · unrated. Checking the game: waiting for every player's end-of-game secret.",
+    );
+    const two = { places: [2, 1], reason: 'resign', scores: [0, 0] };
+    expect(resignLine(viewOf({ phase: 'done', seats: 2, resigned: [0], outcome: two }), names, true)).toBe(
+      'The team loses: Ann resigned.',
+    );
+    expect(
+      resignExplanation(
+        viewOf({ phase: 'play', seats: 2, shuffleSteps: 0, head: { id: 'h', seq: 3 } }),
+        true,
+      ),
+    ).toBe('Resigning ends the game as a loss for the whole team. This cannot be undone.');
+    expect(
+      resignExplanation(
+        viewOf({ phase: 'play', seats: 4, shuffleSteps: 4, head: { id: 'h', seq: 9 } }),
+        true,
+      ),
+    ).toMatch(/^Resigning ends the game for everyone as a loss for the whole team\./);
+    // Before the first move a resign still cancels, co-op or not.
+    expect(
+      resignExplanation(
+        viewOf({ phase: 'play', seats: 4, shuffleSteps: 4, head: { id: 'h', seq: 4 } }),
+        true,
+      ),
+    ).toMatch(/cancels the game/);
+    expect(isCooperative('spread-thin')).toBe(true);
+    expect(isCooperative('chess')).toBe(false);
   });
 
   it('notes an unrated end that holds only by the freeze (D056)', () => {

@@ -507,7 +507,9 @@ export function SpreadThinGame(props: GameViewProps) {
     >
       <header class="st-head">
         <p class="st-status" role="status">
-          {props.ended && s.result === null ? 'The game has ended.' : statusLine(s, props.names, me)}
+          {props.ended && s.result === null
+            ? 'The team loses: the game ended early.'
+            : statusLine(s, props.names, me)}
         </p>
         <p class="st-meta">
           {s.turnNo > 0 && <span class="st-chip">Turn {s.turnNo}</span>}

@@ -66,3 +66,7 @@ export const CATALOG: ReadonlyMap<string, CatalogGame> = new Map(
     return g === undefined ? [] : [[id, g] as const];
   }),
 );
+
+/** Whether a hosted game is cooperative: the players win or lose together, so a Resign is a loss for the team (D097). */
+export const isCooperative = (id: string): boolean =>
+  CATALOG.get(id)?.entry.modes.includes('cooperative') === true;
