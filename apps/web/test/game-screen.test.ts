@@ -19,6 +19,7 @@ import {
   statusNotice,
   timedOutSeats,
   timeoutExplanation,
+  timeoutLine,
 } from '../src/screens/game.tsx';
 import { findAll, renderTree, spokenText } from './render-tree.ts';
 
@@ -187,6 +188,23 @@ describe('game chrome helpers (D045)', () => {
         true,
       ),
     ).toMatch(/cancels the game/);
+    // Timeouts too: a forfeit in play is the team's loss; a withheld secret leaves the team's result.
+    const audit = (reason: string) => ({ fail: [1], reason });
+    expect(timeoutLine(viewOf({ phase: 'done', audit: audit('timeout'), outcome }), names, true)).toBe(
+      'The team loses: Bo ran out of time.',
+    );
+    expect(
+      timeoutLine(viewOf({ phase: 'done', audit: audit('withheld secret'), outcome }), names, true),
+    ).toBe('Bo did not send their end-of-game secret in time and forfeits.');
+    expect(timeoutLine(viewOf({ phase: 'done', audit: audit('timeout'), outcome }), names)).toBe(
+      'The game is over: Bo ran out of time and forfeits. Final places: 1. Ann, 1. Cy, 3. Bo.',
+    );
+    expect(timeoutLine(viewOf({ phase: 'play', outcome: null }), names, true)).toBeNull();
+    const playing = viewOf({ phase: 'play', seats: 3, shuffleSteps: 3, head: { id: 'h', seq: 9 } });
+    expect(timeoutExplanation(playing, 'Bo', true)).toBe(
+      'Bo has missed the move deadline. If you claim the timeout, Bo forfeits and the game ends now as a loss for the whole team.',
+    );
+    expect(timeoutExplanation(playing, 'Bo')).toMatch(/is ranked last/);
     expect(isCooperative('spread-thin')).toBe(true);
     expect(isCooperative('chess')).toBe(false);
   });
