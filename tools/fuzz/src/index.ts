@@ -3,6 +3,7 @@ import { chainReaction } from '@bored-games/chain-reaction';
 import { chess } from '@bored-games/chess';
 import { currentAffairs } from '@bored-games/current-affairs';
 import { driftwrights } from '@bored-games/driftwrights';
+import { feverPitch } from '@bored-games/fever-pitch';
 import type { DeckSpec, FuzzPolicy, GameModule, Outcome, Rng } from '@bored-games/game-kit';
 import { packetOrder } from '@bored-games/game-kit';
 import { giltAndGuile } from '@bored-games/gilt-and-guile';
@@ -12,7 +13,6 @@ import { luster } from '@bored-games/luster';
 import { quillAndQuarry } from '@bored-games/quill-and-quarry';
 import { rightOfWay } from '@bored-games/right-of-way';
 import { roomForDoubt } from '@bored-games/room-for-doubt';
-import { spreadThin } from '@bored-games/spread-thin';
 import { sticksAndStones } from '@bored-games/sticks-and-stones';
 import { BANK_EXPECTED_COVERAGE, BANK_POLICIES } from './bank.ts';
 import {
@@ -23,6 +23,7 @@ import {
 import { CHESS_EXPECTED_COVERAGE, CHESS_POLICIES } from './chess.ts';
 import { CURRENT_EXPECTED_COVERAGE, CURRENT_POLICIES } from './current-affairs.ts';
 import { DRIFTWRIGHTS_POLICIES } from './driftwrights.ts';
+import { FEVER_EXPECTED_COVERAGE, FEVER_POLICIES } from './fever-pitch.ts';
 import { GILT_AND_GUILE_POLICIES } from './gilt-and-guile.ts';
 import { HAZARD_EXPECTED_COVERAGE, HAZARD_POLICIES, HAZARD_SIM_DEADLINE } from './hazard.ts';
 import { HOLLER_EXPECTED_COVERAGE, HOLLER_POLICIES } from './holler.ts';
@@ -39,7 +40,6 @@ import {
   ROOM_FOR_DOUBT_SIM_DEADLINE,
   roomForDoubtDeckOrder,
 } from './room-for-doubt.ts';
-import { SPREAD_EXPECTED_COVERAGE, SPREAD_POLICIES } from './spread-thin.ts';
 import { STICKS_EXPECTED_COVERAGE, STICKS_POLICIES } from './sticks-and-stones.ts';
 
 /** A game registered with the fuzz CLI. Adding a game = adding an entry here. */
@@ -149,11 +149,11 @@ export const TARGETS: Readonly<Record<string, FuzzTarget>> = {
     expectedCoverage: CURRENT_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4, 5, 6],
   },
-  'spread-thin': {
-    module: spreadThin,
-    policies: SPREAD_POLICIES,
+  'fever-pitch': {
+    module: feverPitch,
+    policies: FEVER_POLICIES,
     deckOrder: packetOrder,
-    expectedCoverage: SPREAD_EXPECTED_COVERAGE,
+    expectedCoverage: FEVER_EXPECTED_COVERAGE,
     defaultSeatCounts: [2, 3, 4],
   },
 };

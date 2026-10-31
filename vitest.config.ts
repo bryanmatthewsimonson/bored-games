@@ -53,8 +53,8 @@ export default defineConfig({
       },
       {
         test: {
-          name: 'spread-thin',
-          root: 'packages/games/spread-thin',
+          name: 'fever-pitch',
+          root: 'packages/games/fever-pitch',
           include: ['test/**/*.test.ts'],
           testTimeout: 120_000,
         },

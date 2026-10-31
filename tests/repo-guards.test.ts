@@ -13,6 +13,8 @@ import { CURRENT_CATALOG } from '../packages/games/current-affairs/src/catalog.t
 import * as CURRENT_COMPARE from '../packages/games/current-affairs/src/compare.ts';
 import { DRIFTWRIGHTS_CATALOG } from '../packages/games/driftwrights/src/catalog.ts';
 import * as DRIFTWRIGHTS_COMPARE from '../packages/games/driftwrights/src/compare.ts';
+import { FEVER_CATALOG } from '../packages/games/fever-pitch/src/catalog.ts';
+import * as FEVER_COMPARE from '../packages/games/fever-pitch/src/compare.ts';
 import { GILT_AND_GUILE_CATALOG } from '../packages/games/gilt-and-guile/src/catalog.ts';
 import * as GILT_COMPARE from '../packages/games/gilt-and-guile/src/compare.ts';
 import { HAZARD_CATALOG } from '../packages/games/hazard/src/catalog.ts';
@@ -24,8 +26,6 @@ import { RIGHT_OF_WAY_CATALOG } from '../packages/games/right-of-way/src/catalog
 import * as RIGHT_OF_WAY_COMPARE from '../packages/games/right-of-way/src/compare.ts';
 import { ROOM_FOR_DOUBT_CATALOG } from '../packages/games/room-for-doubt/src/catalog.ts';
 import * as ROOM_FOR_DOUBT_COMPARE from '../packages/games/room-for-doubt/src/compare.ts';
-import { SPREAD_CATALOG } from '../packages/games/spread-thin/src/catalog.ts';
-import * as SPREAD_COMPARE from '../packages/games/spread-thin/src/compare.ts';
 import { STICKS_CATALOG } from '../packages/games/sticks-and-stones/src/catalog.ts';
 import * as STICKS_COMPARE from '../packages/games/sticks-and-stones/src/compare.ts';
 import {
@@ -462,11 +462,11 @@ describe('branding', () => {
         exactCase: false,
       },
       {
-        game: 'Spread Thin',
-        home: 'packages/games/spread-thin/src/compare.ts',
+        game: 'Fever Pitch',
+        home: 'packages/games/fever-pitch/src/compare.ts',
         phrase: 'Compare to Pandemic',
-        compare: SPREAD_COMPARE,
-        entry: SPREAD_CATALOG,
+        compare: FEVER_COMPARE,
+        entry: FEVER_CATALOG,
         bggId: 30549,
         companies: [
           'Matt Leacock',

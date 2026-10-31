@@ -205,7 +205,7 @@ describe('game chrome helpers (D045)', () => {
       'Bo has missed the move deadline. If you claim the timeout, Bo forfeits and the game ends now as a loss for the whole team.',
     );
     expect(timeoutExplanation(playing, 'Bo')).toMatch(/is ranked last/);
-    expect(isCooperative('spread-thin')).toBe(true);
+    expect(isCooperative('fever-pitch')).toBe(true);
     expect(isCooperative('chess')).toBe(false);
   });
 

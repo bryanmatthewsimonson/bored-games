@@ -1489,6 +1489,8 @@ The owner asked for sounds and visual effects that make the games more immersive
 
 ## D096: Spread Thin, a cooperative outbreak game under its own names, built as beta (owner request, 2026-10-30)
 
+*Renamed Fever Pitch by D098 (2026-10-31): the module id, the package and every path below changed with it (`spread-thin` is now `fever-pitch`). The entry keeps its first wording.*
+
 The owner asked: *"Design a trademark & copyright safe version of Pandemic with a clever name and original artwork and rewritten rules, which follows the exact same gameplay mechanics as Pandemic. Make sure to include all game metadata, art, screenshots, BoardGameGeek link, and 'Compare to [Game]' hint. The art needs to be appealing and fit the game."* The request named every deliverable, so, as for D089 and D091, the build went ahead without a brainstorm round; the choices below are the builder's and are the owner's to overrule.
 
 - **What it is.** Module `spread-thin`, package `packages/games/spread-thin`, engine 0.1.0, beta, 2–4 seats, the platform's first cooperative game. `docs/games/spread-thin/RULES.md` is the source of truth (catalog C01–C34), every rule marked verified or platform. Rules `{ rulesVersion: 1, surges: 4 | 5 | 6 }` (Gentle, Standard by default, Brutal); the New table form offers the three.
@@ -1517,3 +1519,11 @@ The owner, on D096's open question: *"Yes, make co-op resigns read as a team los
 - **What does not.** The session's outcome is unchanged: the resigner is placed last and the others by `standings` (D052), and a Resign at 3 or more seats stays unrated. Every client scores the same, and nothing on the wire changes. When ratings arrive (Phase 4), co-op games are rated apart (GAME-SYSTEMS §4.7), so the places of a co-op Resign count for nothing.
 - **Timeouts** (owner, the same day: *"Yes, do the same for co-op timeouts"*): a forfeit in play reads "The team loses: Ann ran out of time." with no places, and the claim's confirm says the game ends as a loss for the whole team. A withheld end-of-game secret leaves the team's result as it was ("Ann did not send their end-of-game secret in time and forfeits."), since the game already ended by its own rules. `timeoutLine` in `screens/game.tsx`.
 - **Tests.** `apps/web/test/game-screen.test.ts` (the co-op resign and timeout lines, both confirm texts, and `isCooperative`).
+
+## D098: Spread Thin is renamed Fever Pitch (owner, 2026-10-31)
+
+The owner: *"Rename the game Fever Pitch."* D096's fallback name becomes the title, and Spread Thin becomes the fallback.
+
+- **Everything renamed, ids included.** The game had not shipped (its pull request was still a draft), so no table, root or relay event carries the old id, and the rename goes all the way: module id `fever-pitch`, package `@bored-games/fever-pitch` (`packages/games/fever-pitch`), `apps/web/src/games/fever-pitch`, `docs/games/fever-pitch`, the fuzz target, the e2e spec and web tests, the screenshots (`fever-pitch-1.jpg` to `-3.jpg`, from `pnpm previews fever-pitch`) and the exported cover and thumbnail. The code's names follow (`feverPitch`, `FeverState`, `FEVER_THEME`, …), and the screen's CSS and test-id prefix is `fp-`. The game's own words are unchanged: the spread deck, the spread rate and the spread step keep their names.
+- **The name.** A fever at its height and a crowd at its loudest: the moment the cases climb and the spillovers chain. "Fever pitch" is an everyday phrase, but also the title of a well-known memoir and its films; a lawyer clears it before release, as for every title.
+- **The "Compare to" phrase** moves with the package (`packages/games/fever-pitch/src/compare.ts`); the trademark guard's phrase home follows.

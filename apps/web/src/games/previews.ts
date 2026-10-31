@@ -243,23 +243,23 @@ export const GAME_PREVIEWS: Readonly<Record<string, readonly GamePreview[]>> = {
         'Wiring: each lit city shows what its substation and the cheapest lines from your network cost.',
     },
   ],
-  'spread-thin': [
+  'fever-pitch': [
     {
-      file: 'spread-thin-1.jpg',
+      file: 'fever-pitch-1.jpg',
       width: 960,
       height: 860,
       caption:
         'An early turn: pick a highlighted city on the chart to move there. Every hand is open to the whole team.',
     },
     {
-      file: 'spread-thin-2.jpg',
+      file: 'fever-pitch-2.jpg',
       width: 960,
       height: 860,
       caption:
         'Mid-game: cases pile up across the Wide World while the team decides who treats, who travels and who gathers cards.',
     },
     {
-      file: 'spread-thin-3.jpg',
+      file: 'fever-pitch-3.jpg',
       width: 960,
       height: 860,
       caption:

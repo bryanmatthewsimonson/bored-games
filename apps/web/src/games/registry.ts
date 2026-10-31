@@ -27,6 +27,9 @@ import { CurrentAffairsRulesPage } from './current-affairs/rules-page.tsx';
 import { DriftwrightsGame } from './driftwrights/game.tsx';
 import { DRIFTWRIGHTS_META } from './driftwrights/meta.ts';
 import { DriftwrightsRulesPage } from './driftwrights/rules-page.tsx';
+import { FEVER_SETUP_COPY, FeverPitchGame } from './fever-pitch/game.tsx';
+import { FEVER_META } from './fever-pitch/meta.ts';
+import { FeverPitchRulesPage } from './fever-pitch/rules-page.tsx';
 import { HAZARD_SETUP_COPY, HazardGame } from './hazard/game.tsx';
 import { HAZARD_META } from './hazard/meta.ts';
 import { HazardRulesPage } from './hazard/rules-page.tsx';
@@ -47,9 +50,6 @@ import { ROOM_FOR_DOUBT_SETUP_COPY, RoomForDoubtGame } from './room-for-doubt/ga
 import { ROOM_FOR_DOUBT_META } from './room-for-doubt/meta.ts';
 import { automaticAnswer } from './room-for-doubt/model.ts';
 import { RoomForDoubtRulesPage } from './room-for-doubt/rules-page.tsx';
-import { SPREAD_SETUP_COPY, SpreadThinGame } from './spread-thin/game.tsx';
-import { SPREAD_META } from './spread-thin/meta.ts';
-import { SpreadThinRulesPage } from './spread-thin/rules-page.tsx';
 import { STICKS_SETUP_COPY, SticksGame } from './sticks-and-stones/game.tsx';
 import { STICKS_META } from './sticks-and-stones/meta.ts';
 import { SticksRulesPage } from './sticks-and-stones/rules-page.tsx';
@@ -173,10 +173,10 @@ export const GAMES: readonly WebGame[] = [
     setupCopy: () => CURRENT_SETUP_COPY,
   },
   {
-    ...SPREAD_META,
-    Component: SpreadThinGame,
-    RulesPage: SpreadThinRulesPage,
-    setupCopy: () => SPREAD_SETUP_COPY,
+    ...FEVER_META,
+    Component: FeverPitchGame,
+    RulesPage: FeverPitchRulesPage,
+    setupCopy: () => FEVER_SETUP_COPY,
   },
 ];
 

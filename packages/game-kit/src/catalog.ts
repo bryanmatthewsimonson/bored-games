@@ -43,7 +43,7 @@ export const MECHANISMS = [
   'simultaneous-selection',
   // Sticks & Stones (D089): players take turns claiming spots on a shared board for their people.
   'worker-placement',
-  // Spread Thin (D096): a budget of actions each turn, and a role per player that bends the rules.
+  // Fever Pitch (D096): a budget of actions each turn, and a role per player that bends the rules.
   'action-points',
   'variable-powers',
 ] as const;

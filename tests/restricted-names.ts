@@ -159,11 +159,11 @@ const CURRENT_REFERENCE: readonly string[] = [
 ];
 
 /**
- * Spread Thin's reference game (D096): its title (a common word, restricted in every case: the repo never needs it
+ * Fever Pitch's reference game (D096): its title (a common word, restricted in every case: the repo never needs it
  * outside the docs), its German title, its designer, and the names of its roles and event cards that are not
  * everyday words (its publisher is listed above).
  */
-const SPREAD_REFERENCE: readonly string[] = [
+const FEVER_REFERENCE: readonly string[] = [
   'Pandemic',
   'Pandemie',
   'Matt Leacock',
@@ -179,7 +179,7 @@ const SPREAD_REFERENCE: readonly string[] = [
 
 export const RESTRICTED_NAMES: readonly string[] = [
   ...FIXED_NAMES,
-  ...SPREAD_REFERENCE.flatMap(nameForms),
+  ...FEVER_REFERENCE.flatMap(nameForms),
   ...CURRENT_REFERENCE.flatMap(nameForms),
   ...STICKS_REFERENCE.flatMap(nameForms),
   ...HAZARD_REFERENCE.flatMap(nameForms),
@@ -220,7 +220,7 @@ export const ALLOWED_PHRASE_HOMES: Readonly<Record<string, string>> = {
   'packages/games/hazard/src/compare.ts': 'Compare to Risk',
   'packages/games/sticks-and-stones/src/compare.ts': 'Compare to Stone Age',
   'packages/games/current-affairs/src/compare.ts': 'Compare to Power Grid',
-  'packages/games/spread-thin/src/compare.ts': 'Compare to Pandemic',
+  'packages/games/fever-pitch/src/compare.ts': 'Compare to Pandemic',
 };
 
 /** The allowed phrases themselves (ALLOWED_PHRASE_HOMES' values). */

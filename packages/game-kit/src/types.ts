@@ -205,7 +205,7 @@ export interface GameModule<S, E extends { readonly type: string }, R> {
   seatRange(rules: R): { readonly min: number; readonly max: number };
   /**
    * The game's decks under `rules` at `seats` seats. A deck's id, size, partitions and `promptShares` never depend
-   * on `seats`; its `secondRound` may (Spread Thin's piles follow the opening hands, D096), so every caller that
+   * on `seats`; its `secondRound` may (Fever Pitch's piles follow the opening hands, D096), so every caller that
    * shuffles or deals passes the seat count. A caller that reads only a deck's id, size or presence may leave it out.
    */
   decks(rules: R, seats?: number): readonly DeckSpec[];

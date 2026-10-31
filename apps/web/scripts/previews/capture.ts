@@ -47,7 +47,7 @@ export const PLANS: readonly PreviewPlan[] = [
   // are not pictured.
   { game: 'current-affairs', seed: 'preview-1', seats: 4, at: [0.04, 0.54, 0.72], skip: ['contribute'] },
   // The opening turn, the middle of the game and a late, crowded board.
-  { game: 'spread-thin', seed: 'preview-1', seats: 4, at: [0, 0.5, 0.9] },
+  { game: 'fever-pitch', seed: 'preview-1', seats: 4, at: [0, 0.5, 0.9] },
 ];
 
 const WIDTH = 1280;

@@ -174,7 +174,7 @@ const AUTO: readonly Duty['kind'][] = ['shuffle', 'deal', 'share', 'seal', 'beac
 
 /**
  * A duty's key at the head: what the duty loop's guard, the failures and the held duties are keyed by. A share or
- * seal duty also names its positions, since one head can owe several in turn: Spread Thin turns up the drawn field
+ * seal duty also names its positions, since one head can owe several in turn: Fever Pitch turns up the drawn field
  * cards, then a surge's strike or the first spread card, then the next, all on one move (D096).
  */
 function dutyKey(
